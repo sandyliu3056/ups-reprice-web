@@ -85,7 +85,8 @@ table,table *,input,select,.tablewrap{filter:none !important}
 .tabstrip button[aria-selected=true]{background:var(--panel);padding-bottom:8px;margin-bottom:-2px}
 .tabstrip button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
-main{flex:0 1 auto;overflow-y:auto;overflow-x:hidden;padding:12px 10px 0}
+main{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+  padding:12px 10px 0}
 .page{display:none;max-width:none;margin:0;min-width:0}
 .page.on{display:block}
 #p-files{position:relative}
@@ -219,8 +220,10 @@ td.cells{white-space:normal}
 #scene{width:100%;height:200px;display:block;border-radius:0}
 /* 場景貼在視窗最底,statusbar 之上。它是裝飾,不該把內容往上擠,
    所以放在 main 外面、不跟著分頁捲動。 */
+/* 場景在 main 外面,所以不跟著內容捲動。main 撐滿剩餘高度,
+   這裡就自然被壓在最底、狀態列之上。 */
 .sceneBox{padding:0;overflow:hidden;border:none;filter:none;
-  background:transparent;flex:none;line-height:0;margin-top:auto}
+  background:transparent;flex:0 0 auto;line-height:0}
 .clockcard{position:absolute;top:12px;right:22px;padding:0;z-index:5;
   background:transparent;border:none;pointer-events:none}
 /* 第一塊面板要讓出時鐘的位置,不然輸入框會壓到日曆 */
@@ -1363,8 +1366,9 @@ const num=n=>Number(n).toLocaleString("en-US",
   {minimumFractionDigits:0,maximumFractionDigits:2});
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,
   c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const setStatus=t=>{ const a=$("#status"), b=$("#filesStatus");
-  if(a) a.textContent=t; if(b) b.textContent=t; };
+/* 狀態列是唯一的訊息出口。原本同一句話同時寫進面板那行和狀態列,
+   結果畫面上同樣的字出現兩次。 */
+const setStatus=t=>{ const a=$("#status"); if(a) a.textContent=t; };
 
 /* 分頁切換 */
 $("#tabs").addEventListener("click",e=>{
@@ -1625,20 +1629,42 @@ $("#bCustomAcc") && ($("#bCustomAcc").onclick=()=>{
   setStatus((LANG?"Added ":"已新增 ")+key);
 });
 $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
+  /* 只倒目前選的渠道,Zone 用它自己的那組 ——
+     整張表倒出來的話,填的人得先在幾百列裡找自己要的那幾列。 */
+  const ch=($("#accFilter")||{}).value||"";
+  if(!ch){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
   const t=CFG.raw.accessorial_rate_table||{};
+  const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
+  const znMap=CFG.raw.builtin_service_zones||{};
+  const zones=String(znMap[svcOf(ch)] ?? znMap[ch] ?? "")
+    .split(",").map(z=>z.trim()).filter(Boolean);
+
+  const shape=new Map();
+  for(const [k,v] of Object.entries(t)){
+    const fee=k.split("|||")[0], banded=v&&typeof v==="object";
+    if(!shape.has(fee)||banded) shape.set(fee,banded);
+  }
   const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
   const lines=["Fee Type,Shipment Type,Zone,Amount"];
-  for(const [k,v] of Object.entries(t)){
-    const [fee,ch]=k.split("|||");
-    if(v&&typeof v==="object")
-      for(const [z,r] of Object.entries(v)) lines.push([q(fee),q(ch),z,toNum(r)].join(","));
-    else lines.push([q(fee),q(ch),"",toNum(v)].join(","));
+  for(const [fee,banded] of [...shape.entries()].sort()){
+    const v=t[fee+"|||"+ch];
+    if(banded){
+      const zs = (v&&typeof v==="object")
+        ? [...new Set([...Object.keys(v),...zones])].sort((a,b)=>(+a||999)-(+b||999))
+        : zones;
+      for(const z of zs)
+        lines.push([q(fee),q(ch),z, (v&&typeof v==="object"&&v[z]!=null)?toNum(v[z]):""].join(","));
+    }else{
+      lines.push([q(fee),q(ch),"", (v!=null&&typeof v!=="object")?toNum(v):""].join(","));
+    }
   }
   const b=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");
-  a.href=URL.createObjectURL(b); a.download="accessorials_template.csv";
+  a.href=URL.createObjectURL(b);
+  a.download="accessorials_"+ch.replace(/[^A-Za-z0-9]+/g,"_")+".csv";
   a.click(); URL.revokeObjectURL(a.href);
-  setStatus(LANG?"Template exported":"範本已匯出");
+  setStatus((LANG?"Template exported for ":"已匯出模板:")+ch
+    +"  ("+(lines.length-1)+(LANG?" rows":" 列")+")");
 });
 $("#bImportAcc") && ($("#bImportAcc").onclick=()=>$("#fImportAcc").click());
 $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
@@ -1823,8 +1849,6 @@ function renderConfigTabs(){
   /* ---- 附加費:Zone 分級的直欄區塊 + 固定金額網格 + 申報價值級距 ---- */
   const t=CFG.raw.accessorial_rate_table||{};
   const zonesOf=v=>Object.keys(v).sort((a,b)=>(+a||999)-(+b||999));
-  /* 全部內建渠道都要在,不是只有已經填過費率的那幾個 ——
-     沒有費率的渠道正是需要被找到、被填的那些。 */
   const withRates=new Set(Object.keys(t).map(k=>k.split("|||")[1]));
   const allChans=[...new Set([...shipmentTypeOptions(),...withRates])].sort();
   const sel=$("#accFilter");
@@ -1836,35 +1860,59 @@ function renderConfigTabs(){
   const fc=(sel&&sel.value)||allChans[0]||"";
   if($("#accChanName")) $("#accChanName").textContent=fc;
 
-  const mine=Object.keys(t).filter(k=>k.split("|||")[1]===fc);
-  const zoneKeys=mine.filter(k=>t[k]&&typeof t[k]==="object");
-  const flatKeys=mine.filter(k=>!(t[k]&&typeof t[k]==="object"));
+  /* 這個渠道自己的 Zone。渠道名結尾是 Commercial/Residential,
+     要去掉才對得回服務名。沒設就跟著預設那條。 */
+  const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
+  const znMap=CFG.raw.builtin_service_zones||{};
+  const myZones=String(znMap[svcOf(fc)] ?? znMap[fc] ?? "")
+    .split(",").map(z=>z.trim()).filter(Boolean);
 
-  $("#accZoneCols").innerHTML=zoneKeys.map(k=>{
-    const fee=k.split("|||")[0], v=t[k];
-    return `<div class="zonecol">
-      <div class="zt">${esc(fee)}</div>
-      <div class="zsel"><label><input type="checkbox" class="accc" value="${esc(k)}"${ro}>
-        ${LANG?"Select":"勾選"}</label></div>
-      ${zonesOf(v).map(z=>`<div class="zrow"><span class="zl">Zone ${z}</span>
-        <span>$</span>${numIn("acc\u241F"+k+"\u241F"+z,v[z])}</div>`).join("")}
-    </div>`;
-  }).join("")||`<div class="empty">${LANG
-      ? "No zone-banded surcharges on this channel yet."
-      : "這個渠道還沒有依 Zone 分級的附加費。"}</div>`;
-
-  $("#accFlat").innerHTML=flatKeys.map(k=>{
+  /* 費用項目的形狀取自所有渠道的聯集 —— 這樣還沒填過的渠道
+     也會長出同一套空白欄位可以填,而不是一片空白。 */
+  const shape=new Map();
+  for(const [k,v] of Object.entries(t)){
     const fee=k.split("|||")[0];
+    const banded = v && typeof v==="object";
+    if(!shape.has(fee) || banded) shape.set(fee, banded);
+  }
+  const mine=Object.keys(t).filter(k=>k.split("|||")[1]===fc);
+  for(const k of mine){
+    const fee=k.split("|||")[0];
+    shape.set(fee, t[k] && typeof t[k]==="object");
+  }
+  const feeNames=[...shape.keys()].sort();
+  const zoneFees=feeNames.filter(f=>shape.get(f));
+  const flatFees=feeNames.filter(f=>!shape.get(f));
+
+  $("#accZoneCols").innerHTML = (myZones.length&&zoneFees.length)
+    ? zoneFees.map(fee=>{
+        const k=fee+"|||"+fc, v=t[k];
+        const have = v && typeof v==="object";
+        const zs = have ? [...new Set([...zonesOf(v),...myZones])]
+                          .sort((a,b)=>(+a||999)-(+b||999)) : myZones;
+        return `<div class="zonecol">
+          <div class="zt">${esc(fee)}</div>
+          <div class="zsel"><label><input type="checkbox" class="accc" value="${esc(k)}"${ro}>
+            ${LANG?"Select":"勾選"}</label></div>
+          ${zs.map(z=>`<div class="zrow"><span class="zl">Zone ${z}</span>
+            <span>$</span>${numIn("acc\u241F"+k+"\u241F"+z, have?(v[z]??""):"")}</div>`).join("")}
+        </div>`;
+      }).join("")
+    : `<div class="empty">${LANG
+        ? "This channel has no zones set — add them on the Channels tab."
+        : "這個渠道還沒設定 Zone,請在渠道分頁補上。"}</div>`;
+
+  $("#accFlat").innerHTML=flatFees.map(fee=>{
+    const k=fee+"|||"+fc;
     return `<div class="flatitem">
       <input type="checkbox" class="accc" value="${esc(k)}"${ro}>
-      <span class="fl">${esc(fee)}</span><span>$</span>${numIn("acc\u241F"+k,t[k])}</div>`;
-  }).join("")||`<div class="empty">${LANG
-      ? "No flat surcharges on this channel yet. Use Custom Surcharges… or Import Accessorials Template."
-      : "這個渠道還沒有固定金額的附加費。用「自訂附加費…」或「匯入附加費模板」加。"}</div>`;
+      <span class="fl">${esc(fee)}</span><span>$</span>${
+        numIn("acc\u241F"+k, k in t ? t[k] : "")}</div>`;
+  }).join("")||`<div class="empty">—</div>`;
 
   if($("#accCount")) $("#accCount").textContent = LANG
-    ? `${zoneKeys.length} zone-banded, ${flatKeys.length} flat`
-    : `依 Zone ${zoneKeys.length} 項,固定 ${flatKeys.length} 項`;
+    ? `${zoneFees.length} zone-banded x ${myZones.length} zones, ${flatFees.length} flat`
+    : `依 Zone ${zoneFees.length} 項 x ${myZones.length} 個 Zone,固定 ${flatFees.length} 項`;
 
   /* 申報價值級距 */
   const a=CFG.raw.accessorial_charges||{};
@@ -2288,9 +2336,19 @@ function editCell(key,val){
       (CFG.raw.channel_dim_factors||(CFG.raw.channel_dim_factors={}))[p[1]]=val.trim();
     }
   }else if(p[0]==="acc"){
-    const k=p[1];
-    if(p.length===3){ CFG.raw.accessorial_rate_table[k][p[2]] = toNum(val); }
-    else            { CFG.raw.accessorial_rate_table[k]       = toNum(val); }
+    /* 空白格也要能填 —— 還沒設過費率的渠道,那一筆根本還不存在。 */
+    const tb=CFG.raw.accessorial_rate_table||(CFG.raw.accessorial_rate_table={});
+    const k=p[1], blank=String(val).trim()==="";
+    if(p.length===3){
+      if(blank){ if(tb[k] && typeof tb[k]==="object") delete tb[k][p[2]]; }
+      else{
+        if(!tb[k] || typeof tb[k]!=="object") tb[k]={};
+        tb[k][p[2]]=toNum(val);
+      }
+      if(tb[k] && typeof tb[k]==="object" && !Object.keys(tb[k]).length) delete tb[k];
+    }else{
+      if(blank) delete tb[k]; else tb[k]=toNum(val);
+    }
   }
   CFG=readConfig(CFG.raw);
   DIRTY=true;
@@ -2970,6 +3028,14 @@ function hearts(g,a,t){
   if(t-a.love>70) a.love=0;
 }
 
+/* 戶外而且在下雨或下雪才要雨具。Scoobi 是倉庫裡面,不用穿。
+   WX 與 BRAND 都在後面才宣告,但這個函式只在繪圖時被呼叫,
+   那時兩個都已經有值了。 */
+function outdoorWet(){
+  return typeof BRAND!=="undefined" && BRAND==="Tally"
+      && typeof WX!=="undefined" && (WX.mode==="rain"||WX.mode==="snow");
+}
+
 function drawWorker(g,a,t){
   const x=a.x, y=a.y;
   const sw=a.act==="walk"?Math.sin(t/8+a.seed)*2.6:0;
@@ -2988,6 +3054,7 @@ function drawWorker(g,a,t){
   /* 手臂先畫,身體蓋上去;手掌等身體畫完再補,不然會被蓋住。 */
   const hands=[];
   const waving=a.act==="wave";
+  const umbrella=outdoorWet();
   for(const sd of [-1,1]){
     /* 揮手:手腕左右擺,不是舉著不動 —— 靜態的舉手看起來像在攔車。 */
     let tipx=x+sd*15+sd*sw*.35, tipy=y-22-lift;
@@ -2995,8 +3062,30 @@ function drawWorker(g,a,t){
       const wob=Math.sin(t/4)*5.4;
       tipx=x+19+wob; tipy=y-48-Math.abs(wob)*0.22;
     }
+    /* 撐傘那隻手舉到頭上,另一隻自然垂著 */
+    if(umbrella && sd>0){ tipx=x+7; tipy=y-62; }
     limb(g,x+sd*10,y-34,tipx,tipy,a.coat,5.8);
     hands.push([tipx,tipy]);
+  }
+  if(umbrella){
+    const ux=x+7, uy=y-62;
+    g.strokeStyle=INK; g.lineWidth=2;
+    skLine(g,ux,uy,ux,uy-16,a.seed+40);          /* 傘柄 */
+    const canopy=pal("--tab","#ffb500");
+    g.fillStyle=canopy;
+    g.beginPath();
+    g.moveTo(ux-24,uy-16);
+    g.quadraticCurveTo(ux,uy-38,ux+24,uy-16);
+    /* 傘面下緣是三個弧,不是一條直線 —— 直線看起來像帽子 */
+    g.quadraticCurveTo(ux+16,uy-12,ux+8,uy-16);
+    g.quadraticCurveTo(ux,uy-12,ux-8,uy-16);
+    g.quadraticCurveTo(ux-16,uy-12,ux-24,uy-16);
+    g.closePath(); g.fill(); g.stroke();
+    g.lineWidth=1.2;
+    skLine(g,ux,uy-34,ux-8,uy-16,a.seed+41);
+    skLine(g,ux,uy-34,ux+8,uy-16,a.seed+42);
+    g.lineWidth=2;
+    skLine(g,ux,uy-38,ux,uy-42,a.seed+43);       /* 頂端小突起 */
   }
   g.lineWidth=2.1;
   /* 身體:矮而寬 */
@@ -3038,8 +3127,30 @@ function drawWorker(g,a,t){
 }
 
 /* 狗:垂耳、粗尾上翹、身上有色塊 */
+/* 雨衣:蓋在身體上的一層,加一個帽兜。顏色用主題的金色,
+   和工人的傘同一組,看起來才像同一套裝備。 */
+function coatOver(g,x,y,w,hh,hx,hy,hr,seed){
+  const c=pal("--tab","#ffb500");
+  g.strokeStyle=INK; g.lineWidth=1.9; g.fillStyle=c;
+  g.beginPath();
+  g.moveTo(x-w,y);
+  g.quadraticCurveTo(x-w-1,y-hh*0.7, x-w*0.5,y-hh);
+  g.quadraticCurveTo(x,y-hh-2, x+w*0.5,y-hh);
+  g.quadraticCurveTo(x+w+1,y-hh*0.7, x+w,y);
+  g.closePath(); g.fill(); g.stroke();
+  g.lineWidth=1.1;
+  skLine(g,x,y-hh*0.85,x,y-2,seed+60);
+  g.lineWidth=1.9;
+  /* 帽兜 */
+  g.fillStyle=c;
+  g.beginPath();
+  g.arc(hx,hy,hr+3.2,Math.PI*0.98,Math.PI*2.02);
+  g.closePath(); g.fill(); g.stroke();
+}
+
 function drawDog(g,a,t){
   const x=a.x, y=a.y, f=a.dir<0?-1:1, wag=Math.sin(t/3.6)*6;
+  const wet=outdoorWet();
   const blink=(Math.floor(t/7)+a.seed)%52===0;
   shadow(g,x,y,20);
   g.strokeStyle=INK; g.lineWidth=2.1; g.lineJoin="round";
@@ -3071,6 +3182,8 @@ function drawDog(g,a,t){
   blob(g,x-16,y-25,x+16,y-6,DOG_COAT,8);
   patch(g,x-6*f,y-19,7,5,DOG_MARK);                    /* 身上的色塊 */
   const hx=x+17*f, hy=y-36;
+  /* 雨衣蓋在身體上、頭之前畫,帽兜才會壓在耳朵後面 */
+  if(wet) coatOver(g,x,y-4,17,23,hx,hy,13,a.seed);
   blob(g,hx-13.5,hy-12,hx+13.5,hy+12,DOG_COAT,7);
   for(const sd of [-1,1])                              /* 垂耳 */
     blob(g,hx+sd*13-5,hy-9,hx+sd*13+5,hy+7,DOG_MARK,4.5);
@@ -3094,9 +3207,14 @@ function drawDog(g,a,t){
 /* 貓:尖耳、細尾、坐姿。身體是下寬上窄貼在地上的一團,
    不是兩隻腳站著 —— 站姿會看成別的動物。 */
 function drawCat(g,a,t){
-  const x=a.x, y=a.y, sway=Math.sin(t/7)*4;
+  const walking=a.act==="walk";
+  const step=walking?Math.sin(t/5)*3:0;
+  const bob=walking?Math.abs(Math.sin(t/5))*1.6:0;
+  const x=a.x, y=a.y-bob, sway=Math.sin(t/7)*4;
   const blink=(Math.floor(t/7)+a.seed)%44===0;
   const puff=a.act==="puff";
+  const wet=outdoorWet();
+  const hfPre=a.dir<0?-1:1;   /* 面向哪邊,尾巴接在相反端 */
   const sleep=a.act==="sit"&&!puff&&(Math.floor(t/260)%2===1);
   shadow(g,x,y,puff?18:15);
   g.strokeStyle=INK; g.lineWidth=2.1; g.lineJoin="round";
@@ -3109,23 +3227,41 @@ function drawCat(g,a,t){
       g.beginPath(); g.moveTo(x+tx,y+ty); g.lineTo(x+tx+7,y+ty-5); g.stroke();
     }
   }else{
-    limb(g,x+11,y-14,x+21,y-30+sway,CAT_COAT,4.2);
+    limb(g,x-(walking?12*hfPre:-11),y-(walking?16:14),
+         x-(walking?20*hfPre:-21),y-(walking?30:30)+sway,CAT_COAT,4.2);
   }
   g.strokeStyle=INK; g.lineWidth=2.1;
 
-  /* 坐姿身體:下緣貼地、上窄 */
   const bw=puff?17:13, bh=puff?26:24;
-  g.fillStyle=CAT_COAT;
-  g.beginPath();
-  g.moveTo(x-bw,y);
-  g.quadraticCurveTo(x-bw-1,y-bh*0.62, x-bw*0.52,y-bh);
-  g.quadraticCurveTo(x,y-bh-3, x+bw*0.52,y-bh);
-  g.quadraticCurveTo(x+bw+1,y-bh*0.62, x+bw,y);
-  g.closePath(); g.fill(); g.stroke();
-  /* 前腳:貼在身體前緣的兩顆 */
-  for(const dx of [-5,4]){
+  if(walking){
+    /* 走路是四腳站姿:身體橫躺,四條腿在下面交替。
+       坐姿那團下寬上窄的形狀走起來會像在滑行。 */
+    const f=a.dir<0?-1:1;
+    for(const dx of [-9,-3,4,10]){
+      const sw2=Math.sin(t/5 + (dx<0?0:Math.PI))*3;
+      const lx=x+dx*f+sw2;
+      limb(g,lx,y-13,lx,y-3,CAT_COAT,4.4);
+      g.lineWidth=1.8;
+      g.fillStyle=CAT_COAT;
+      g.beginPath(); g.ellipse(lx,y-2,3.4,2.2,0,0,7); g.fill(); g.stroke();
+      g.lineWidth=2.1;
+    }
+    blob(g,x-13,y-22,x+13,y-9,CAT_COAT,7);
+    for(let i=0;i<2;i++) patch(g,x-4+i*7,y-18,2.4,3.2,CAT_MARK);
+  }else{
+    /* 坐姿身體:下緣貼地、上窄 */
     g.fillStyle=CAT_COAT;
-    g.beginPath(); g.ellipse(x+dx,y-2.5,4.2,2.8,0,0,7); g.fill(); g.stroke();
+    g.beginPath();
+    g.moveTo(x-bw,y);
+    g.quadraticCurveTo(x-bw-1,y-bh*0.62, x-bw*0.52,y-bh);
+    g.quadraticCurveTo(x,y-bh-3, x+bw*0.52,y-bh);
+    g.quadraticCurveTo(x+bw+1,y-bh*0.62, x+bw,y);
+    g.closePath(); g.fill(); g.stroke();
+    /* 前腳:貼在身體前緣的兩顆 */
+    for(const dx of [-5,4]){
+      g.fillStyle=CAT_COAT;
+      g.beginPath(); g.ellipse(x+dx,y-2.5,4.2,2.8,0,0,7); g.fill(); g.stroke();
+    }
   }
   for(let i=0;i<2;i++) patch(g,x-2+i*6,y-16,2,4,CAT_MARK);
   /* 炸毛:身體周圍豎起的毛 */
@@ -3140,41 +3276,47 @@ function drawCat(g,a,t){
     g.lineWidth=2.1;
   }
 
-  const hy=y-(puff?38:34);
+  /* 走路時頭低而且在身體前端,坐著才是高高在上 */
+  const hf=a.dir<0?-1:1;
+  const hxo=walking?14*hf:0;
+  const hy=walking ? y-24 : y-(puff?38:34);
+  /* 雨衣蓋身體、帽兜罩頭,要等 hxo/hy 算完才知道頭在哪 */
+  if(wet && !puff) coatOver(g,x,y-(walking?7:1),walking?14:bw+2,
+    walking?16:bh-2, x+hxo, hy, 13, a.seed);
   for(const sd of [-1,1]){
     g.fillStyle=CAT_COAT; g.beginPath();
-    g.moveTo(x+sd*4,hy-8); g.lineTo(x+sd*12,hy-26); g.lineTo(x+sd*15,hy-4);
+    g.moveTo(x+sd*4,hy-8); g.lineTo(x+hxo+sd*10,hy-22); g.lineTo(x+hxo+sd*13,hy-4);
     g.closePath(); g.fill(); g.stroke();
-    patch(g,x+sd*10.4,hy-12,2.6,4.4,BLUSH);
+    patch(g,x+hxo+sd*9,hy-11,2.6,4.4,BLUSH);
   }
-  blob(g,x-13,hy-11,x+13,hy+11,CAT_COAT,7);
+  blob(g,x+hxo-11,hy-10,x+hxo+11,hy+10,CAT_COAT,7);
   for(const sd of [-1,1]){
     if(puff){                                  /* 炸毛時眼睛瞪大 */
       g.fillStyle="#fff";
-      g.beginPath(); g.ellipse(x+sd*5.4,hy-1,3.4,3.8,0,0,7); g.fill(); g.stroke();
-      dot(g,x+sd*5.4,hy-1,1.5,2.2);
+      g.beginPath(); g.ellipse(x+hxo+sd*4.6,hy-1,3.4,3.8,0,0,7); g.fill(); g.stroke();
+      dot(g,x+hxo+sd*4.6,hy-1,1.5,2.2);
     }
     else if(blink||sleep){ g.lineWidth=1.9; g.beginPath();
       g.moveTo(x+sd*5.4-2.2,hy-1); g.lineTo(x+sd*5.4+2.2,hy-1); g.stroke(); g.lineWidth=2.1; }
-    else dot(g,x+sd*5.4,hy-1,2.1,2.3);
-    patch(g,x+sd*9.6,hy+4,3.2,1.8,BLUSH);
-    cheekLines(g,x,hy,sd);
+    else dot(g,x+hxo+sd*4.6,hy-1,2.1,2.3);
+    patch(g,x+hxo+sd*8.4,hy+4,3.2,1.8,BLUSH);
+    cheekLines(g,x+hxo,hy,sd);
     g.strokeStyle=INK; g.lineWidth=.9;
     for(const dy of [-.5,2.2]){ g.beginPath();
-      g.moveTo(x+sd*11,hy+2+dy); g.lineTo(x+sd*20,hy+dy*1.7); g.stroke(); }
+      g.moveTo(x+hxo+sd*9.6,hy+2+dy); g.lineTo(x+hxo+sd*17,hy+dy*1.7); g.stroke(); }
     g.lineWidth=2.1;
   }
   g.fillStyle="#e0707a"; g.beginPath();
-  g.moveTo(x,hy+3.4); g.lineTo(x-2.2,hy+1.4); g.lineTo(x+2.2,hy+1.4);
+  g.moveTo(x+hxo,hy+3.4); g.lineTo(x+hxo-2.2,hy+1.4); g.lineTo(x+hxo+2.2,hy+1.4);
   g.closePath(); g.fill();
   if(puff){                                    /* 張嘴哈氣 */
     g.fillStyle=INK; g.beginPath();
-    g.ellipse(x,hy+6.5,3,2.4,0,0,7); g.fill();
+    g.ellipse(x+hxo,hy+6.5,3,2.4,0,0,7); g.fill();
     g.font='700 12px "Comic Sans MS",system-ui'; g.fillStyle=INK;
-    g.fillText(LANG?"hiss!":"哈!",x+16,hy-16);
+    g.fillText(LANG?"hiss!":"哈!",x+hxo+16,hy-16);
   }
   if(sleep){ g.font='700 12px system-ui'; g.fillStyle=INK;
-    g.fillText("z",x+16,hy-14); g.fillText("z",x+21,hy-21); }
+    g.fillText("z",x+hxo+16,hy-14); g.fillText("z",x+hxo+21,hy-21); }
   hearts(g,a,t);
 }
 
@@ -3237,8 +3379,10 @@ function spreadActors(){
   if(!a.length) return;
   a.forEach((act,i)=>{
     act.x = lead + span*(i+0.5)/a.length;
+    act.home = act.x;                    /* 走動的起點,不會離太遠 */
     act.tgt = Math.min(W-50, act.x + span/a.length*0.8);
     act.dir = 1;
+    if(act.wait===undefined) act.wait = 120+((i*97)%240);
   });
 }
 
@@ -3250,7 +3394,15 @@ function sceneStep(){
     if(a.kind==="cat"){
       /* 炸毛是被點出來的,時間到就坐回去 */
       if(a.act==="puff"){ if(--a.wait<=0) a.act="sit"; continue; }
-      if(SCENE.t%900===0) a.act = a.act==="sit"?"idle":"sit";
+      /* 貓也會走動:走一段、坐一下、再走。不是一直坐著。 */
+      if(a.act==="walk"){
+        a.x += 0.42*a.dir;
+        if(a.x>a.tgt || a.x<a.home-10){ a.dir*=-1; a.x+=0.42*a.dir; }
+        if(--a.wait<=0){ a.act="sit"; a.wait=240+((a.seed*37)%300); }
+      }else{
+        if(--a.wait<=0){ a.act="walk"; a.dir=Math.random()<0.5?-1:1;
+                         a.wait=180+((a.seed*53)%260); }
+      }
       continue;
     }
     if(a.kind==="worker" && a.act==="wave"){
@@ -3311,18 +3463,27 @@ function skyPhase(h){
   return "night";
 }
 const SKY={
-  night:  {top:"#22304a", bot:"#3d4a63", ink:.55},
-  dawn:   {top:"#f0b98a", bot:"#f6dfc4", ink:.85},
-  day:    {top:"#bcdcf0", bot:"#e6f2f9", ink:1},
-  dusk:   {top:"#e89a63", bot:"#f3cfa8", ink:.85},
-  evening:{top:"#6d6f96", bot:"#a9a2b4", ink:.7},
+  /* mix = 跟紙色混多少。夜晚要幾乎不混,不然深藍會被沖成灰的。 */
+  night:  {top:"#16243f", bot:"#2c3c5e", mix:.08},
+  dawn:   {top:"#f0a071", bot:"#f7d9b4", mix:.30},
+  day:    {top:"#a8d4ee", bot:"#dcecf7", mix:.42},
+  dusk:   {top:"#e06b3a", bot:"#f2b678", mix:.16},
+  evening:{top:"#4a4a78", bot:"#8b7a94", mix:.12},
 };
 function skyColour(part){
   const p=SKY[skyPhase(localHour())]||SKY.day;
-  const paper=pal("--panel","#fffdf7");
-  return blendHex(paper, p[part], part==="top"?.55:.35);
+  return blendHex(pal("--panel","#fffdf7"), p[part], 1-p.mix);
 }
+
 /* 天氣讓天色再暗一階 */
+/* 天色暗的時候,深棕線條會整個消失在深藍裡。
+   天上的東西(雲、鳥、山)改用淺色描,地面的維持深色。 */
+function darkSky(){
+  const p=skyPhase(localHour());
+  return p==="night"||p==="evening";
+}
+function skyInk(){ return darkSky() ? "#e8e2d2" : INK; }
+
 function wxDim(){
   return WX.mode==="rain"?.72 : WX.mode==="snow"?.86 : WX.mode==="cloud"?.9 : 1;
 }
@@ -3337,10 +3498,10 @@ function drawSunMoon(g,W,H){
   const y = 46 - Math.sin(Math.max(0,Math.min(1,t))*Math.PI)*26;
   g.save();
   if(night){
-    g.strokeStyle=INK; g.lineWidth=1.6; g.fillStyle="#f2efdf";
-    skCircle(g,x,y,9,5,"#f2efdf");
+    g.strokeStyle="#e8e2d2"; g.lineWidth=1.6;
+    skCircle(g,x,y,9,5,"#f4f0e0");
     g.fillStyle=skyColour("top");
-    g.beginPath(); g.arc(x+4,y-3,8,0,7); g.fill();
+    g.beginPath(); g.arc(x+4.5,y-3,8.5,0,7); g.fill();
     /* 幾顆星,位置固定不閃 */
     g.fillStyle="#fffdf7";
     for(let i=0;i<9;i++){
@@ -3422,10 +3583,11 @@ function drawTallyYard(g,W,H){
   drawSunMoon(g,W,H);
 
   /* 停著的雲:大小高度都不一樣 */
-  g.lineWidth=1.5;
+  const sInk=skyInk();
+  g.strokeStyle=sInk; g.lineWidth=1.5;
   for(const [cx,cy,cs] of [[W*0.16,52,.9],[W*0.30,38,.62],[W*0.53,46,.78],
                            [W*0.68,34,.55],[W*0.80,50,.7]]){
-    g.fillStyle=paper;
+    g.fillStyle = darkSky() ? blendHex(paper,"#4a5a7a",.25) : paper;
     g.beginPath();
     g.ellipse(cx,cy,19*cs,7*cs,0,0,7);
     g.ellipse(cx-12*cs,cy+3*cs,11*cs,5.5*cs,0,0,7);
@@ -3433,11 +3595,10 @@ function drawTallyYard(g,W,H){
     g.fill(); g.stroke();
   }
   /* 幾隻鳥 */
-  g.lineWidth=1.4;
+  g.strokeStyle=sInk; g.lineWidth=1.4;
   for(const [bx,by] of [[W*0.42,58],[W*0.46,50],[W*0.50,62]]){
     g.beginPath(); g.moveTo(bx-6,by); g.quadraticCurveTo(bx,by-5,bx+6,by); g.stroke();
   }
-  /* 遠山:很扁的丘陵,壓在地平線上 */
   /* 遠山壓在地平線上、很扁,而且畫在角色之前 —— 高過人物就會像穿過去。 */
   g.fillStyle=blendHex(paper,line,.42);
   for(const [hp,hw,hh] of [[0.58,180,15],[0.76,130,11],[0.92,150,13]]){
