@@ -1,0 +1,57 @@
+# =====================================================================
+# UPS Reprice Tool -- .gitignore
+# =====================================================================
+# 最上面這一段不是為了整潔,是為了不要把客戶的合約費率推上去。
+# 一旦進了 git,就算之後刪掉,commit 歷史裡還在;
+# repo 設私有也一樣,有 Contents 權限的人都拿得到。
+# =====================================================================
+
+# ---- 客戶資料:絕對不進 git ----------------------------------------
+ups_billing_tool_config.json      # 合約費率、管道、附加費、AHS/LPS 門檻
+ups_history.sqlite3               # 每一期匯入過的帳單明細
+ups_history.sqlite3-journal
+ups_history.sqlite3-wal
+ups_history.sqlite3-shm
+
+# 帳單原始檔與報表
+*.xlsx
+*.xls
+*.csv
+*_rate_issues.csv
+
+# 想留一份給新機器當起點的話,用去識別化的樣本,檔名這樣取:
+!ups_billing_tool_config.sample.json
+
+# ---- 憑證 ----------------------------------------------------------
+.env
+*.pat
+token.txt
+*_token*
+.netrc
+
+# ---- 打包產出 ------------------------------------------------------
+build/
+dist/
+*.manifest
+__pycache__/
+*.py[cod]
+
+# ---- 環境 ----------------------------------------------------------
+.venv/
+venv/
+env/
+.vscode/
+.idea/
+
+# ---- 系統 ----------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- 要進 git 的(寫出來當提醒,不是規則)--------------------------
+# UPS_Reprice_Tool.py
+# UPS_Reprice_Tool.spec
+# UPS_Reprice_Tool_CHANGELOG.txt
+# build.bat / verify_deploy.py / requirements.txt
+# requirements.lock.txt        <- 這個要進,版本鎖定靠它
+# 部署說明.md
