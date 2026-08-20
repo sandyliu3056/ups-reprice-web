@@ -312,6 +312,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
+  <button role="tab" aria-selected="false" data-p="admin"  class="display" data-i18n="tab.admin">Admin</button>
 </div>
 
 <main>
@@ -329,6 +330,26 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   </div>
 </div>
 <div id="app" style="display:none">
+
+<!-- ==================== Admin Login History ==================== -->
+<section class="page" id="p-admin">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">🛡️</span><span data-i18n="hd.loginhistory">Login History</span></h3>
+    <div class="note" data-i18n="hint.loginhistory">Successful sign-ins recorded by Supabase. Only administrators can view this page.</div>
+    <div class="row" style="margin:12px 0">
+      <button class="act" id="bLoginRefresh" data-i18n="btn.refreshlog">Refresh</button>
+      <button id="bLoginExport" data-i18n="btn.exportlog">Export CSV</button>
+    </div>
+    <div id="loginHistoryNote"></div>
+    <div class="tablewrap" style="max-height:62vh">
+      <table id="tLoginHistory"><thead><tr>
+        <th data-i18n="th.when">When</th>
+        <th data-i18n="th.email">Email</th>
+        <th data-i18n="th.device">Browser / Device</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</section>
 
 <!-- ==================== Import Files ==================== -->
 <section class="page on" id="p-files">
@@ -1271,7 +1292,8 @@ const AUTH=(window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
   ? window.supabase.createClient(AUTH_CONFIG.url,AUTH_CONFIG.anonKey)
   : null;
 let ME=null;
-const ADMIN_ONLY=[];
+const ADMIN_ONLY=["admin"];
+let LOGIN_ROWS=[];
 
 function authIdentity(user){
   if(!user) return null;
@@ -1313,6 +1335,78 @@ async function login(email,pw){
     ?"Incorrect email or password."
     :"Email 或密碼不正確。"};
   return authIdentity(data.user);
+}
+
+/* A signed-in user can only ask the database function to record their own
+   current session. Email, user id and timestamp are derived server-side from
+   the verified JWT; the browser never receives a privileged Supabase key. */
+async function recordLogin(){
+  if(!AUTH||!ME) return;
+  const ua=String(navigator.userAgent||"").slice(0,500);
+  const {error}=await AUTH.rpc("record_login",{p_user_agent:ua});
+  if(error) console.warn("Unable to record login",error);
+}
+
+function loginDevice(ua){
+  ua=String(ua||"");
+  const browser=/Edg\//.test(ua)?"Edge":/OPR\//.test(ua)?"Opera":
+    /Firefox\//.test(ua)?"Firefox":/Chrome\//.test(ua)?"Chrome":
+    /Safari\//.test(ua)?"Safari":"Browser";
+  const os=/Windows/.test(ua)?"Windows":/Android/.test(ua)?"Android":
+    /iPhone|iPad/.test(ua)?"iOS":/Mac OS/.test(ua)?"macOS":
+    /Linux/.test(ua)?"Linux":"Device";
+  return browser+" · "+os;
+}
+
+function loginWhen(value){
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime())) return String(value||"");
+  return d.toLocaleString(LANG?"en-US":"zh-TW",{
+    year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",second:"2-digit"
+  });
+}
+
+async function loadLoginHistory(){
+  if(!AUTH||!ME||ME.role!=="admin") return;
+  const body=$("#tLoginHistory tbody"), note=$("#loginHistoryNote");
+  if(!body) return;
+  body.innerHTML=`<tr><td colspan="3">${LANG?"Loading…":"讀取中…"}</td></tr>`;
+  if(note) note.innerHTML="";
+  const {data,error}=await AUTH.from("login_history")
+    .select("id,email,logged_in_at,user_agent")
+    .order("logged_in_at",{ascending:false}).limit(500);
+  if(error){
+    LOGIN_ROWS=[];
+    body.innerHTML="";
+    if(note) note.innerHTML=`<div class="note warn">${esc(LANG
+      ?"Unable to load login history. Run supabase/login_history.sql first."
+      :"無法讀取登入紀錄，請先執行 supabase/login_history.sql。")}</div>`;
+    return;
+  }
+  LOGIN_ROWS=data||[];
+  body.innerHTML=LOGIN_ROWS.length?LOGIN_ROWS.map(r=>`<tr>
+    <td>${esc(loginWhen(r.logged_in_at))}</td>
+    <td>${esc(r.email)}</td>
+    <td title="${esc(r.user_agent||"")}">${esc(loginDevice(r.user_agent))}</td>
+  </tr>`).join(""):`<tr><td colspan="3">${LANG?"No login records yet.":"目前沒有登入紀錄。"}</td></tr>`;
+}
+
+function exportLoginHistory(){
+  if(!ME||ME.role!=="admin"||!LOGIN_ROWS.length){
+    setStatus(LANG?"No login history to export":"沒有可匯出的登入紀錄");
+    return;
+  }
+  const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+  const lines=[["Logged In At","Email","Browser / Device","User Agent"],
+    ...LOGIN_ROWS.map(r=>[r.logged_in_at,r.email,loginDevice(r.user_agent),r.user_agent])]
+    .map(row=>row.map(q).join(","));
+  const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="ups-reprice-login-history.csv";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 function setMe(m){
   ME=m;
@@ -1368,6 +1462,7 @@ function showTab(p){
     s.classList.toggle("on", s.id==="p-"+p));
   const sb=document.querySelector("#sceneBox");
   if(sb) sb.style.display = p==="files" ? "" : "none";
+  if(p==="admin"&&ME&&ME.role==="admin") loadLoginHistory();
 }
 
 /* =====================================================================
@@ -1392,6 +1487,7 @@ $("#tabs").addEventListener("click",e=>{
     p.classList.toggle("on", p.id==="p-"+b.dataset.p));
   const sb=$("#sceneBox");
   if(sb) sb.style.display = b.dataset.p==="files" ? "" : "none";
+  if(b.dataset.p==="admin"&&ME&&ME.role==="admin") loadLoginHistory();
 });
 
 /* ---------------------------------------------------------------------
@@ -2766,10 +2862,14 @@ const I18N={
   "th.pkgdim":["包裹尺寸","Package Dimensions"],
   "th.keydim":["原始鍵入尺寸","Detail Keyed Dimensions"],
   "th.net":["淨額","Net Amount"],
-  "tab.users":["👤 帳號","👤 Users"],
-  "hd.accounts":["帳號","Accounts"],
-  "hd.addacct":["新增帳號","Add an account"],
-  "hd.activity":["活動紀錄","Activity"],
+  "tab.admin":["🛡️ 管理員","🛡️ Admin"],
+  "hd.loginhistory":["登入紀錄","Login History"],
+  "hint.loginhistory":["由 Supabase 記錄成功登入，只有管理員可以查看。失敗登入與 IP 請至 Supabase Auth Logs 查看。",
+    "Successful sign-ins recorded by Supabase. Only administrators can view this page. See Supabase Auth Logs for failed attempts and IP addresses."],
+  "btn.refreshlog":["重新整理","Refresh"],
+  "btn.exportlog":["匯出 CSV","Export CSV"],
+  "th.email":["Email","Email"],
+  "th.device":["瀏覽器／裝置","Browser / Device"],
   "th.role":["角色","Role"],
   "th.pw":["密碼","Password"],
   "th.edit":["編輯","Edit"],
@@ -4003,6 +4103,7 @@ step("auth",()=>{
       const r=await login($("#inUser").value,$("#inPw").value);
       if(r.err){ $("#gateNote").innerHTML=`<div class="note warn">${r.err}</div>`; return; }
       $("#gateNote").innerHTML=""; $("#inPw").value=""; setMe(r);
+      await recordLogin();
       logAdd("sign in","");
       setStatus((LANG?"Signed in as ":"已登入:")+r.name);
     }finally{ button.disabled=false; }
@@ -4015,6 +4116,8 @@ step("auth",()=>{
     setMe(null);
     setStatus(LANG?"Signed out":"已登出");
   };
+  $("#bLoginRefresh").onclick=()=>loadLoginHistory();
+  $("#bLoginExport").onclick=()=>exportLoginHistory();
 });
 step("language",()=>applyLang());
 step("config",  ()=>restoreConfig());
