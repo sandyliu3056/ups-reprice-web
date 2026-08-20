@@ -44,7 +44,20 @@ where id = 'USER_UUID';
 
 All other users default to the `user` role.
 
-## 5. Site URL
+## 5. Administrator login history
+
+Run `supabase/login_history.sql` once in the Supabase SQL Editor. It creates:
+
+- a login history table protected by Row Level Security;
+- a server-side function that records the signed-in user's verified ID, email,
+  login time, and browser information;
+- an administrator-only read policy based on protected `app_metadata.role`.
+
+The browser never receives a `service_role` key. The in-app history records
+successful sign-ins after this setup is installed. Supabase **Authentication >
+Logs** remains the source for failed attempts and IP addresses.
+
+## 6. Site URL
 
 In **Authentication > URL Configuration**, set **Site URL** to the production
 website address and add any preview address under **Redirect URLs**.
