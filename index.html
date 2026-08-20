@@ -533,7 +533,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
         <div id="bulkVals"></div>
       </div>
     </div>
-    <div class="row saveRow" style="margin-top:12px">
+    <div class="row" style="margin-top:12px">
       <button class="act" id="bApplyTicked" data-i18n="btn.applyticked">Apply to Ticked Channels</button>
       <button class="act ghost" id="bLoadTicked" data-i18n="btn.loadticked">Load Values from Ticked Channel</button>
       <button class="act ghost" id="bClearTicked" data-i18n="btn.clearticked">Clear Overrides on Ticked</button>
@@ -1156,9 +1156,14 @@ function accLookup(cfg, feeType, channel, zone, issues){
 
 /* 掃一筆貨的所有帳單行,分出每一項 UPS 收了什麼 */
 function scanCharges(lines, dynMap){
-  const seen={}, net={}, fuelEligible={};
+  const seen={}, net={};
   let resCode=false, comCode=false, notRepriced=0;
   let declared=0, commercialAdj=false;
+  /* 自訂附加費裡標 Fuel Eligible = NO 的,算進合約總額但不進燃油底。
+     桌面版 dynamic_acc_nonfuel_names() + fuel_base 那一段。
+     內建的附加費一律計燃油 —— 桌面版的 ACC_FUEL_ELIGIBLE 只拿來決定
+     AFW / ART / REP 的預設值,沒有拿去擋內建桶子的燃油。 */
+  const nonFuel=new Set();
   const dyn=dynMap||{};
   for(const l of lines){
     const c=(l.code||"").toUpperCase();
@@ -1174,9 +1179,9 @@ function scanCharges(lines, dynMap){
        && String(dcfg.name||"").trim()!==""
        && normDynType(dcfg.type)==="REPRICE"){
       bucket=String(dcfg.name).trim();
+      if(dcfg.fuel_eligible===false) nonFuel.add(bucket);
       seen[bucket]=true;
       net[bucket]=(net[bucket]||0)+l.net;
-      fuelEligible[bucket]=dcfg.fuel_eligible!==false;
       continue;
     }
     const cm=ACC_CODE_MAP[c];
@@ -1204,7 +1209,7 @@ function scanCharges(lines, dynMap){
       net[bucket]=(net[bucket]||0)+l.net;
     }
   }
-  return {seen, net, fuelEligible, resCode, comCode, notRepriced, declared, commercialAdj};
+  return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj, nonFuel};
 }
 
 /* 一筆貨的完整計價 */
@@ -1292,12 +1297,14 @@ function priceShipment(cfg, s){
     else acc["Declared Value"]=dv;
   }
 
-  /* 燃油:附加費是否計燃油由設定檔的 fuel_eligible 決定,
-     沒登記的一律計 —— 和桌面版一致。 */
+  /* 燃油。自訂附加費標 Fuel Eligible = NO 的不進燃油底,但仍然算進
+     合約總額 —— 桌面版 fuel_base 那一段的算法。內建附加費一律計燃油。 */
   const accTotal=Object.values(acc).reduce((a,b)=>a+b,0);
-  const fuelAccTotal=Object.entries(acc).reduce((sum,[bucket,amount])=>
-    sum+(scan.fuelEligible[bucket]===false?0:amount),0);
-  const fuelBase=(base||0)+fuelAccTotal;
+  const noFuel=scan.nonFuel||new Set();
+  const nonFuelSum=Object.entries(acc)
+    .filter(([k])=>noFuel.has(k))
+    .reduce((a,[,v])=>a+v,0);
+  const fuelBase=(base||0)+accTotal-nonFuelSum;
   const fuel = cfg.fuelPct>0 ? fuelBase*cfg.fuelPct/100 : 0;
 
   const total = base===null ? null : base+accTotal+fuel;
@@ -1563,11 +1570,6 @@ function applyRole(){
     b.style.display = (!ME || (ADMIN_ONLY.includes(b.dataset.p)&&!admin))
       ? "none" : "";
   });
-  /* 儲存那幾排也跟著角色走。原本只寫在 renderConfigTabs() 裡,
-     角色換了但設定分頁沒重畫時,管理者會看不到儲存按鈕。 */
-  document.querySelectorAll(".saveRow").forEach(el=>{
-    el.style.display = admin?"":"none";
-  });
   const gate=$("#gate"), app=$("#app");
   if(gate) gate.style.display = ME?"none":"";
   if(app)  app.style.display  = ME?"":"none";
@@ -1611,6 +1613,9 @@ function currentTab(){
   return b?b.dataset.p:"files";
 }
 function showTab(p){
+  /* 管理分頁只有管理者能進。分頁按鈕本來就藏起來了,這裡是第二道 ——
+     showTab() 是唯一的入口,擋在這裡,任何呼叫端都繞不過去。 */
+  if(ADMIN_ONLY.includes(p) && !(ME && ME.role==="admin")) p="files";
   document.querySelectorAll("#tabs button[data-p]").forEach(b=>
     b.setAttribute("aria-selected", b.dataset.p===p));
   document.querySelectorAll(".page").forEach(s=>
@@ -2348,8 +2353,9 @@ function shipmentTypeOptions(){
 
 function renderConfigTabs(){
   if(!CFG) return;
-  const admin = ME && ME.role==="admin";
-  const ro = admin?"":" disabled";
+  /* 一般使用者和管理者的設定畫面一模一樣,可以改、可以存。
+     兩者唯一的差別是管理分頁的登入紀錄。 */
+  const ro = "";
   /* 分隔符不能用 | —— 附加費的鍵本身就含 |||,切出來會全錯。 */
   const numIn=(id,val)=>`<input class="cell num" data-k="${esc(id)}" value="${val==null?"":esc(val)}"${ro}>`;
 
@@ -2517,9 +2523,6 @@ function renderConfigTabs(){
   /* 換渠道就是把整列費率搬到新的 Shipment Type 底下 */
   document.querySelectorAll("#app select.chansel").forEach(el=>{
     el.onchange=()=>moveRateRow(el.dataset.key, el.value);
-  });
-  document.querySelectorAll(".saveRow").forEach(el=>{
-    el.style.display = admin?"":"none";
   });
   renderBulk();
 }
