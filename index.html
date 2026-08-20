@@ -110,7 +110,22 @@ button.act.ghost{background:transparent;color:var(--accent)}
 button.act.ghost:hover:not(:disabled){background:var(--select)}
 button.act:disabled{opacity:.72;cursor:not-allowed;filter:saturate(.55)}
 button.act:focus-visible{outline:3px solid var(--run2);outline-offset:2px}
-input[type=file]{display:none}
+/* 檔案輸入框不用 display:none:部分 Safari / WebView 版本對 display:none
+   的 input 不肯開啟檔案選擇器,按了就是沒反應。改成有版面但看不見,
+   .click() 的行為一樣,相容性好很多。 */
+input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  border:0;opacity:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* 匯入分頁的就緒狀態列。只用現有的色票變數,不新增顏色。 */
+.readyrow{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px}
+.rdy{display:flex;align-items:center;gap:8px;font-size:12.5px;min-width:0}
+.rdy .k{color:var(--accent);font-weight:600;white-space:nowrap}
+.rdy .d{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.pill{border:1.5px solid var(--line);border-radius:999px;padding:1px 9px;
+  font-size:11.5px;font-weight:600;white-space:nowrap}
+.pill.ok{color:var(--run2);border-color:var(--run2)}
+.pill.no{color:var(--neg);border-color:var(--neg)}
+.savenote{font-size:12.5px;color:var(--run2)}
+.savenote.bad{color:var(--neg)}
 
 .grid3{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center}
 .grid3 label{color:var(--accent);font-weight:600;font-size:13.5px;white-space:nowrap}
@@ -312,6 +327,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
+  <button role="tab" aria-selected="false" data-p="admin"  class="display" data-i18n="tab.admin">Admin</button>
 </div>
 
 <main>
@@ -330,6 +346,26 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 </div>
 <div id="app" style="display:none">
 
+<!-- ==================== Admin Login History ==================== -->
+<section class="page" id="p-admin">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">🛡️</span><span data-i18n="hd.loginhistory">Login History</span></h3>
+    <div class="note" data-i18n="hint.loginhistory">Successful sign-ins recorded by Supabase. Only administrators can view this page.</div>
+    <div class="row" style="margin:12px 0">
+      <button class="act" id="bLoginRefresh" data-i18n="btn.refreshlog">Refresh</button>
+      <button id="bLoginExport" data-i18n="btn.exportlog">Export CSV</button>
+    </div>
+    <div id="loginHistoryNote"></div>
+    <div class="tablewrap" style="max-height:62vh">
+      <table id="tLoginHistory"><thead><tr>
+        <th data-i18n="th.when">When</th>
+        <th data-i18n="th.email">Email</th>
+        <th data-i18n="th.device">Browser / Device</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</section>
+
 <!-- ==================== Import Files ==================== -->
 <section class="page on" id="p-files">
   <div class="clockcard">
@@ -345,15 +381,17 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <label data-i18n="lb.inv">UPS Billing File</label>
       <input id="pathInv" readonly>
       <button class="act ghost" id="bInv" data-i18n="btn.browse">Browse</button>
-      <input type="file" id="fInv" accept=".csv,.txt">
+      <input type="file" id="fInv" accept=".csv,.txt,.xlsx,.xls">
     </div>
+    <div class="readyrow" id="filesReady"></div>
+    <div id="invNote"></div>
     <div class="row" style="margin-top:14px">
       <button class="act" id="bRun" data-i18n="btn.run" disabled>Generate Reprice Report</button>
       <button class="act alt" id="bCsv" data-i18n="btn.csv" disabled>Generate Profit Report</button>
     </div>
-    <p class="hint" id="filesStatus" style="margin:12px 0 0"></p>
     <div class="row" style="margin-top:14px">
       <button class="act ghost" id="bSaveTop" data-i18n="btn.save">Save Settings</button>
+      <span id="saveNoteTop" class="savenote"></span>
       <button class="act ghost" id="bBilling" data-i18n="btn.billing">UPS Billing Center</button>
     </div>
     <div id="cfgNote"></div>
@@ -399,6 +437,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     <div class="row" style="margin-bottom:8px">
       <button class="act" id="bCustomAcc" data-i18n="btn.customacc">Custom Surcharges…</button>
       <button class="act" id="bSaveRates" data-i18n="btn.saverates">Save Rates</button>
+      <span id="saveNote" class="savenote"></span>
       <button class="act ghost" id="bRemoveTicked" data-i18n="btn.removeticked">Remove Ticked</button>
       <button class="act ghost" id="bExportAcc" data-i18n="btn.exportacc">Export Accessorials Template</button>
       <button class="act ghost" id="bImportAcc" data-i18n="btn.importacc">Import Accessorials Template</button>
@@ -433,10 +472,6 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <th data-i18n="th.amount">Amount</th>
     </tr></thead><tbody></tbody></table></div>
 
-    <div class="row saveRow" style="margin-top:10px">
-      <button class="act alt" onclick="downloadSettings()" data-i18n="btn.dl">Download settings file</button>
-      <span id="saveNote" style="color:var(--run2);font-size:12.5px"></span>
-    </div>
   </div>
 </section>
 
@@ -448,6 +483,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <label class="inlab" style="margin-left:0" data-i18n="lb.defdim">Default DIM factor</label>
       <input class="cell num" id="defDim" style="width:80px">
       <button class="act" id="bSaveDim" data-i18n="btn.save">Save</button>
+      <span class="savenote"></span>
       <button class="act ghost" id="bChanDim" data-i18n="btn.chandim">Set Channel DIM</button>
     </div>
   </div>
@@ -475,9 +511,9 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <th class="num">AHS <span data-i18n="c.minwt">Min Wt</span> (lb)</th>
     </tr></thead><tbody></tbody></table></div>
     <p class="hint" id="sizeFoot" style="margin-top:8px"></p>
-    <div class="row saveRow" style="margin-top:10px">
-      <button class="act" onclick="saveSettings()" data-i18n="btn.saverules">Save Rules</button>
-      <button class="act alt" onclick="downloadSettings()" data-i18n="btn.dl">Download settings file</button>
+    <div class="row" style="margin-top:10px">
+      <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
+      <span class="savenote"></span>
     </div>
   </div>
 
@@ -503,6 +539,10 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act ghost" id="bLoadTicked" data-i18n="btn.loadticked">Load Values from Ticked Channel</button>
       <button class="act ghost" id="bClearTicked" data-i18n="btn.clearticked">Clear Overrides on Ticked</button>
       <span id="bulkNote" style="color:var(--run2);font-size:12.5px"></span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
+      <span class="savenote"></span>
     </div>
   </div>
 </section>
@@ -546,6 +586,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     <div class="row" style="margin-bottom:8px">
       <button class="act ghost" id="bDelChan" data-i18n="btn.delchan">Delete selected</button>
       <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
+      <span class="savenote"></span>
       <label class="inlab" data-i18n="lb.search">Search</label>
       <input id="chanSearch" class="cell" style="width:150px;text-align:left">
       <span id="chanCount" style="color:var(--muted);font-size:12.5px"></span>
@@ -586,6 +627,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act ghost" id="bAddPeriod" data-i18n="btn.addperiod">Add period</button>
       <button class="act ghost" id="bDelPeriod" data-i18n="btn.delperiod">Delete selected</button>
       <button class="act" onclick="saveSettings()" data-i18n="btn.savedemand">Save Demand settings</button>
+      <span class="savenote"></span>
     </div>
   </div>
 </section>
@@ -597,7 +639,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act" id="bHist" data-i18n="btn.imphist">Import Past Invoices</button>
       <button class="act ghost" id="bHistRefresh" data-i18n="btn.refresh">Refresh</button>
       <button class="act ghost" id="bHistStored" data-i18n="btn.stored">Stored Invoices</button>
-      <input type="file" id="fHist" accept=".csv,.txt" multiple>
+      <input type="file" id="fHist" accept=".csv,.txt,.xlsx,.xls" multiple>
       <span id="vHist" style="color:var(--run2);font-size:12.5px"></span>
     </div>
     <p class="hint" id="histStats" style="margin:0 0 12px"></p>
@@ -707,6 +749,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     </div>
     <div class="modalft">
       <button class="act" id="bFuelSave" data-i18n="btn.save">Save</button>
+      <span class="savenote"></span>
       <button class="act ghost" id="bFuelClose" data-i18n="btn.close">Close</button>
     </div>
   </div>
@@ -873,12 +916,13 @@ function lookupBaseRate(cfg, service, residential, zone, billWeight){
     cands.some(c=>String(x.service).trim().toLowerCase()===c.toLowerCase())
     && x.residential===!!residential);
   if(!t) return {rate:null,
-    why:"設定檔沒有這個服務的費率表:"+s+(residential?"(住宅)":"(商業)")};
+    why:L("設定檔沒有這個服務的費率表:","No rate table for this service in the settings: ")
+        +s+(residential?L("(住宅)"," (Residential)"):L("(商業)"," (Commercial)"))};
   const zi=t.columns.findIndex(c=>String(c).trim()==="Zone "+zone
                                  ||String(c).trim()===String(zone));
-  if(zi<0) return {rate:null, why:"費率表沒有 Zone "+zone};
+  if(zi<0) return {rate:null, why:L("費率表沒有 Zone ","The rate table has no Zone ")+zone};
   const wi=t.columns.findIndex(c=>String(c).trim()==="Weight");
-  if(wi<0) return {rate:null, why:"費率表沒有 Weight 欄"};
+  if(wi<0) return {rate:null, why:L("費率表沒有 Weight 欄","The rate table has no Weight column")};
   /* 重量級距:找第一個 >= 計費重量的列。表尾之外不外插 —— 桌面版
      在這裡是報 rate issue 而不是猜一個數字出來。 */
   let best=null;
@@ -886,9 +930,11 @@ function lookupBaseRate(cfg, service, residential, zone, billWeight){
     const w=toNum(r[wi]);
     if(w>=billWeight && (best===null || w<toNum(best[wi]))) best=r;
   }
-  if(!best) return {rate:null, why:"計費重量 "+billWeight+" lb 超出費率表範圍"};
+  if(!best) return {rate:null, why:L("計費重量 ","Billable weight ")+billWeight
+    +L(" lb 超出費率表範圍"," lb is outside the rate table")};
   const v=toNum(best[zi]);
-  if(!v) return {rate:null, why:"Zone "+zone+" 在 "+toNum(best[wi])+" lb 這一列是空的"};
+  if(!v) return {rate:null, why:"Zone "+zone+L(" 在 "," is blank on the ")+toNum(best[wi])
+    +L(" lb 這一列是空的"," lb row")};
   return {rate:v, why:null};
 }
 
@@ -902,11 +948,11 @@ function lookupBaseRate(cfg, service, residential, zone, billWeight){
      · OVR/OML 只在 UPS 實際收了才算,不自行依門檻判斷 —— 和 AHS 相反
    ===================================================================== */
 function billableWeight(cfg, entered, dims){
-  const out={entered, dim:null, billable:entered, basis:"輸入重量",
+  const out={entered, dim:null, billable:entered, basis:L("輸入重量","Entered weight"),
              ahsDim:false, ahsWeight:false, oversize:false};
   if(dims && cfg.dimFactor>0){
     out.dim=Math.ceil(dims.l*dims.w*dims.h/cfg.dimFactor);
-    if(out.dim>out.billable){ out.billable=out.dim; out.basis="DIM 重量"; }
+    if(out.dim>out.billable){ out.billable=out.dim; out.basis=L("DIM 重量","DIM weight"); }
   }
   if(dims){
     const girth=dims.l+2*(dims.w+dims.h);
@@ -922,10 +968,12 @@ function billableWeight(cfg, entered, dims){
 
   /* 最低計費重量。AHS 這一條只套 Dimension —— Weight 和 Packaging 沒有下限。 */
   if(out.ahsDim && cfg.ahsMinBillable>0 && out.billable<cfg.ahsMinBillable){
-    out.billable=cfg.ahsMinBillable; out.basis="AHS-Dimension 最低計費重";
+    out.billable=cfg.ahsMinBillable;
+    out.basis=L("AHS-Dimension 最低計費重","AHS-Dimension minimum billable");
   }
   if(out.oversize && cfg.ovrMinBillable>0 && out.billable<cfg.ovrMinBillable){
-    out.billable=cfg.ovrMinBillable; out.basis="超大件最低計費重";
+    out.billable=cfg.ovrMinBillable;
+    out.basis=L("超大件最低計費重","Large package minimum billable");
   }
   return out;
 }
@@ -994,7 +1042,8 @@ function accLookup(cfg, feeType, channel, zone, issues){
   const t=cfg.raw.accessorial_rate_table||{};
   const key=feeType+"|||"+channel;
   if(!(key in t)){
-    issues.push(feeType+" @ "+channel+":這個管道沒有這項附加費的費率");
+    issues.push(feeType+" @ "+channel+L(":這個管道沒有這項附加費的費率",
+      ": this channel has no rate for that surcharge"));
     return 0;
   }
   const e=t[key];
@@ -1002,14 +1051,15 @@ function accLookup(cfg, feeType, channel, zone, issues){
     const zk=normZone(zone);
     if(zk in e){
       const v=toNum(e[zk]);
-      if(!v) issues.push(feeType+" @ "+channel+" Zone "+zk+":費率是 0");
+      if(!v) issues.push(feeType+" @ "+channel+" Zone "+zk+L(":費率是 0",": the rate is 0"));
       return v;
     }
-    issues.push(feeType+" @ "+channel+":沒有 Zone "+zk+" 的費率");
+    issues.push(feeType+" @ "+channel+L(":沒有 Zone ",": no rate for Zone ")+zk
+      +L(" 的費率",""));
     return 0;
   }
   const v=toNum(e);
-  if(!v) issues.push(feeType+" @ "+channel+":費率是 0");
+  if(!v) issues.push(feeType+" @ "+channel+L(":費率是 0",": the rate is 0"));
   return v;
 }
 
@@ -1073,23 +1123,27 @@ function priceShipment(cfg, s){
      兩邊都沒有代碼時只能看服務名稱 —— 跨期 ADJ 這時會不準,標出來。 */
   let residential, resBasis;
   if(scan.commercialAdj){ residential=false; resBasis=LANG?"commercial adjustment":"商業重分類"; }
-  else if(scan.resCode && !scan.comCode){ residential=true;  resBasis="帳單住宅代碼"; }
-  else if(scan.comCode && !scan.resCode){ residential=false; resBasis="帳單商業代碼"; }
+  else if(scan.resCode && !scan.comCode){ residential=true;
+    resBasis=L("帳單住宅代碼","Residential code on the invoice"); }
+  else if(scan.comCode && !scan.resCode){ residential=false;
+    resBasis=L("帳單商業代碼","Commercial code on the invoice"); }
   else if(s.layer!=="SHP"){
     /* 跨期單:先查歷史,查不到才退回服務名稱。
        這是桌面版 history_service_for() 存在的唯一理由 —— SCC 那一行
        沒有任何 RES/COM 字樣,不查歷史就一定被當成商業。 */
     const h=typeof historyServiceFor==="function"?historyServiceFor(s.tracking):null;
-    if(h){ residential = h==="Ground Residential"; resBasis="歷史(原始出貨)"; }
+    if(h){ residential = h==="Ground Residential";
+      resBasis=L("歷史(原始出貨)","History (original shipment)"); }
     else{
       residential=/residential/i.test(s.service);
-      resBasis="服務名稱(跨期,無歷史)";
-      issues.push("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯");
+      resBasis=L("服務名稱(跨期,無歷史)","Service name (cross-period, no history)");
+      issues.push(L("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯",
+        "Cross-period line: this tracking number is not in the history, so Residential/Commercial may be wrong"));
     }
   }
   else {
     residential=/residential/i.test(s.service);
-    resBasis="服務名稱";
+    resBasis=L("服務名稱","Service name");
   }
   const svc=guessService(s.service);
   const channel = svc==="Ground Commercial"||svc==="Ground Residential"
@@ -1104,7 +1158,8 @@ function priceShipment(cfg, s){
   if(zone && s.service){
     const lk=lookupBaseRate(cfg, svc, residential, zone, bw.billable);
     base=lk.rate; baseWhy=lk.why;
-  }else baseWhy = !zone?"這一筆沒有 Zone":"認不出服務別";
+  }else baseWhy = !zone ? L("這一筆沒有 Zone","This line has no Zone")
+                         : L("認不出服務別","Service not recognised");
   if(baseWhy) issues.push(baseWhy);
 
   /* 附加費:UPS 收了才收 */
@@ -1113,10 +1168,12 @@ function priceShipment(cfg, s){
     if(!on) continue;
     if(Math.round((scan.net[bucket]||0)*100)===0) continue;   // 淨額 0 不收
     if(bucket==="AHS Dimension"&&!bw.ahsDim){
-      issues.push("UPS 收了 AHS-Dimension,但尺寸未達門檻");
+      issues.push(L("UPS 收了 AHS-Dimension,但尺寸未達門檻",
+      "UPS charged AHS-Dimension but the dimensions are under the threshold"));
     }
     if(bucket==="AHS Weight"&&!bw.ahsWeight){
-      issues.push("UPS 收了 AHS-Weight,但重量未達門檻");
+      issues.push(L("UPS 收了 AHS-Weight,但重量未達門檻",
+      "UPS charged AHS-Weight but the weight is under the threshold"));
     }
     acc[bucket]=accLookup(cfg,bucket,channel,zone,issues);
   }
@@ -1124,7 +1181,8 @@ function priceShipment(cfg, s){
   /* 宣告價值:UPS 收了才算,金額用合約級距重算 */
   if(scan.declared>0){
     const dv=quoteDeclaredValue(cfg, scan.declared);
-    if(dv===null) issues.push("宣告價值級距沒設定,這一筆無法重算");
+    if(dv===null) issues.push(L("宣告價值級距沒設定,這一筆無法重算",
+      "Declared value tiers are not set, so this line cannot be repriced"));
     else acc["Declared Value"]=dv;
   }
 
@@ -1146,7 +1204,7 @@ function priceShipment(cfg, s){
    ===================================================================== */
 function ingest(text){
   const raw=parseCSV(text);
-  if(!raw.length) throw new Error("檔案是空的。");
+  if(!raw.length) throw new Error(L("檔案是空的。","That file is empty."));
   const {idx,hasHdr,body}=buildIndex(raw);
   const g=(r,name)=>{
     const i=idx[name];
@@ -1271,7 +1329,8 @@ const AUTH=(window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
   ? window.supabase.createClient(AUTH_CONFIG.url,AUTH_CONFIG.anonKey)
   : null;
 let ME=null;
-const ADMIN_ONLY=[];
+const ADMIN_ONLY=["admin"];
+let LOGIN_ROWS=[];
 
 function authIdentity(user){
   if(!user) return null;
@@ -1302,8 +1361,8 @@ function logAdd(what,detail){
 
 async function login(email,pw){
   if(!AUTH) return {err:LANG
-    ?"Authentication has not been configured yet."
-    :"登入服務尚未完成設定。"};
+    ?"auth-config.js not loaded"
+    :"未載入 auth-config.js"};
   const id=String(email).trim().toLowerCase();
   if(!id||!pw) return {err:LANG
     ?"Email and password are required."
@@ -1313,6 +1372,78 @@ async function login(email,pw){
     ?"Incorrect email or password."
     :"Email 或密碼不正確。"};
   return authIdentity(data.user);
+}
+
+/* A signed-in user can only ask the database function to record their own
+   current session. Email, user id and timestamp are derived server-side from
+   the verified JWT; the browser never receives a privileged Supabase key. */
+async function recordLogin(){
+  if(!AUTH||!ME) return;
+  const ua=String(navigator.userAgent||"").slice(0,500);
+  const {error}=await AUTH.rpc("record_login",{p_user_agent:ua});
+  if(error) console.warn("Unable to record login",error);
+}
+
+function loginDevice(ua){
+  ua=String(ua||"");
+  const browser=/Edg\//.test(ua)?"Edge":/OPR\//.test(ua)?"Opera":
+    /Firefox\//.test(ua)?"Firefox":/Chrome\//.test(ua)?"Chrome":
+    /Safari\//.test(ua)?"Safari":"Browser";
+  const os=/Windows/.test(ua)?"Windows":/Android/.test(ua)?"Android":
+    /iPhone|iPad/.test(ua)?"iOS":/Mac OS/.test(ua)?"macOS":
+    /Linux/.test(ua)?"Linux":"Device";
+  return browser+" · "+os;
+}
+
+function loginWhen(value){
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime())) return String(value||"");
+  return d.toLocaleString(LANG?"en-US":"zh-TW",{
+    year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",second:"2-digit"
+  });
+}
+
+async function loadLoginHistory(){
+  if(!AUTH||!ME||ME.role!=="admin") return;
+  const body=$("#tLoginHistory tbody"), note=$("#loginHistoryNote");
+  if(!body) return;
+  body.innerHTML=`<tr><td colspan="3">${LANG?"Loading…":"讀取中…"}</td></tr>`;
+  if(note) note.innerHTML="";
+  const {data,error}=await AUTH.from("login_history")
+    .select("id,email,logged_in_at,user_agent")
+    .order("logged_in_at",{ascending:false}).limit(500);
+  if(error){
+    LOGIN_ROWS=[];
+    body.innerHTML="";
+    if(note) note.innerHTML=`<div class="note warn">${esc(LANG
+      ?"Unable to load login history. Run supabase/login_history.sql first."
+      :"無法讀取登入紀錄，請先執行 supabase/login_history.sql。")}</div>`;
+    return;
+  }
+  LOGIN_ROWS=data||[];
+  body.innerHTML=LOGIN_ROWS.length?LOGIN_ROWS.map(r=>`<tr>
+    <td>${esc(loginWhen(r.logged_in_at))}</td>
+    <td>${esc(r.email)}</td>
+    <td title="${esc(r.user_agent||"")}">${esc(loginDevice(r.user_agent))}</td>
+  </tr>`).join(""):`<tr><td colspan="3">${LANG?"No login records yet.":"目前沒有登入紀錄。"}</td></tr>`;
+}
+
+function exportLoginHistory(){
+  if(!ME||ME.role!=="admin"||!LOGIN_ROWS.length){
+    setStatus(LANG?"No login history to export":"沒有可匯出的登入紀錄");
+    return;
+  }
+  const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+  const lines=[["Logged In At","Email","Browser / Device","User Agent"],
+    ...LOGIN_ROWS.map(r=>[r.logged_in_at,r.email,loginDevice(r.user_agent),r.user_agent])]
+    .map(row=>row.map(q).join(","));
+  const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="ups-reprice-login-history.csv";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 function setMe(m){
   ME=m;
@@ -1324,11 +1455,15 @@ function applyRole(){
     b.style.display = (!ME || (ADMIN_ONLY.includes(b.dataset.p)&&!admin))
       ? "none" : "";
   });
+  /* 儲存那幾排也跟著角色走。原本只寫在 renderConfigTabs() 裡,
+     角色換了但設定分頁沒重畫時,管理者會看不到儲存按鈕。 */
+  document.querySelectorAll(".saveRow").forEach(el=>{
+    el.style.display = admin?"":"none";
+  });
   const gate=$("#gate"), app=$("#app");
   if(gate) gate.style.display = ME?"none":"";
   if(app)  app.style.display  = ME?"":"none";
-  const sb=$("#sceneBox");
-  if(sb) sb.style.display = (ME && currentTab()==="files") ? "" : "none";
+  sceneShow(!!ME && currentTab()==="files");
   const who=$("#who");
   if(who) who.textContent = ME? (ME.name+" · "+(admin?(LANG?"admin":"管理者")
                                                     :(LANG?"user":"使用者"))) : "";
@@ -1337,6 +1472,15 @@ function applyRole(){
   if(ME && ADMIN_ONLY.includes(currentTab()) && !admin) showTab("files");
 }
 
+/* 只講缺哪個檔案。原本說「尚未完成設定」會被誤會成登入壞了。
+   獨立成函式是因為切語言時要重畫 —— 它不是 data-i18n,applyLang()
+   不會自動處理。 */
+function paintGateNote(){
+  const note=$("#gateNote");
+  if(!note) return;
+  note.innerHTML=`<div class="note warn">`
+    +(LANG?"auth-config.js not loaded":"未載入 auth-config.js")+`</div>`;
+}
 async function initAuth(){
   try{
     localStorage.removeItem("ups_reprice_accounts");
@@ -1344,10 +1488,7 @@ async function initAuth(){
   }catch(e){}
   if(!AUTH){
     setMe(null);
-    const note=$("#gateNote");
-    if(note) note.innerHTML=`<div class="note warn">${LANG
-      ?"Authentication has not been configured yet."
-      :"登入服務尚未完成設定。"}</div>`;
+    paintGateNote();
     return;
   }
   const {data,error}=await AUTH.auth.getSession();
@@ -1366,8 +1507,8 @@ function showTab(p){
     b.setAttribute("aria-selected", b.dataset.p===p));
   document.querySelectorAll(".page").forEach(s=>
     s.classList.toggle("on", s.id==="p-"+p));
-  const sb=document.querySelector("#sceneBox");
-  if(sb) sb.style.display = p==="files" ? "" : "none";
+  sceneShow(p==="files");
+  if(p==="admin"&&ME&&ME.role==="admin") loadLoginHistory();
 }
 
 /* =====================================================================
@@ -1383,6 +1524,9 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,
 /* 狀態列是唯一的訊息出口。原本同一句話同時寫進面板那行和狀態列,
    結果畫面上同樣的字出現兩次。 */
 const setStatus=t=>{ const a=$("#status"); if(a) a.textContent=t; };
+/* 畫面上的字一律走這裡,不要直接寫死中文 —— 寫死的那些切成英文之後
+   會原封不動留在畫面上,報表裡的「備註」「重量依據」都中過。 */
+const L=(zh,en)=>LANG?en:zh;
 
 /* 分頁切換 */
 $("#tabs").addEventListener("click",e=>{
@@ -1390,8 +1534,8 @@ $("#tabs").addEventListener("click",e=>{
   [...$("#tabs").children].forEach(x=>x.setAttribute("aria-selected",x===b));
   document.querySelectorAll(".page").forEach(p=>
     p.classList.toggle("on", p.id==="p-"+b.dataset.p));
-  const sb=$("#sceneBox");
-  if(sb) sb.style.display = b.dataset.p==="files" ? "" : "none";
+  sceneShow(b.dataset.p==="files");
+  if(b.dataset.p==="admin"&&ME&&ME.role==="admin") loadLoginHistory();
 });
 
 /* ---------------------------------------------------------------------
@@ -1412,19 +1556,28 @@ const CODE_REF={"AHG":"Additional Handling Surcharge - Dimension","AHL":"Additio
 
 const CFG_KEY="ups_reprice_cfg_v1", CFG_NAME="ups_reprice_cfg_name_v1";
 let CFG=null, INV=null, RATED=null, SHIPS=null, ROWS=null;
+/* 就緒狀態列要顯示的檔名與大小。CFG_LABEL 同時也是存回 CFG_NAME 的值。
+   INV_KIND 是 CSV / TXT / XLSX / XLS,INV_SHEET 只有 Excel 才有值。 */
+let INV_NAME="", INV_SIZE=0, INV_KIND="", INV_SHEET="", CFG_LABEL="";
 
 function applyConfig(text,name,remember){
   try{
     CFG=readConfig(JSON.parse(text));
   }catch(e){
     CFG=null;
-    $("#cfgNote").innerHTML=`<div class="note warn"><b>這不是有效的 JSON。</b>${esc(e.message)}</div>`;
+    $("#cfgNote").innerHTML=`<div class="note warn"><b>`
+      +L("這不是有效的 JSON。","That is not valid JSON.")+`</b> ${esc(e.message)}</div>`;
     return false;
   }
   $("#pathCfg") && ($("#pathCfg").value=name);
+  CFG_LABEL=name;
   if(remember!==false){
     try{ localStorage.setItem(CFG_KEY,text); localStorage.setItem(CFG_NAME,name); }
-    catch(e){ $("#pathCfg") && ($("#pathCfg").value=name+" ("+(LANG?"too large to remember":"太大無法記住")+")"); }
+    catch(e){
+      /* 靜靜吞掉的話,使用者會以為設定已經記住了。講清楚是哪一種失敗。 */
+      $("#pathCfg") && ($("#pathCfg").value=name+" ("+(LANG?"not remembered":"沒有記住")+")");
+      saveNoteKey(false,"loadedno",(e&&e.name)||"Error");
+    }
   }
   $("#cfgNote").innerHTML = CFG.tableRowCount===0 ? ""
     : `<div class="note">${LANG?"Rate tables":"費率表"} <b>${CFG.tables.length}</b> ·
@@ -1442,43 +1595,249 @@ function applyConfig(text,name,remember){
 function restoreConfig(){
   let t=null,n=null;
   try{ t=localStorage.getItem(CFG_KEY); n=localStorage.getItem(CFG_NAME); }catch(e){}
-  if(t&&n){ applyConfig(t,n); setStatus((LANG?"Loaded saved settings: ":"已載入記住的設定:")+n); return; }
+  /* 名稱可以掉,內容不能掉。舊版的 saveSettings() 只寫了內容沒寫名稱,
+     這裡如果堅持兩個都要,那些人存過的設定會被預設值蓋掉。 */
+  if(t){ n=n||(LANG?"saved settings":"已儲存的設定");
+    applyConfig(t,n); setStatus((LANG?"Loaded saved settings: ":"已載入記住的設定:")+n); return; }
   applyConfig(JSON.stringify(DEFAULT_CONFIG),
               LANG?"defaults":"預設值", false);
   setStatus("");
 }
 
+/* 讀完一定要把 input.value 清空,否則再選同一個檔案時 value 沒變,
+   瀏覽器不會發 change,按了像沒反應。清空要放在讀完之後 ——
+   放在 click 之前清,某些瀏覽器會把當下已選的檔案一起清掉。 */
 function pick(inputSel,onText){
   const inp=$(inputSel);
+  if(!inp) return;
   inp.onchange=e=>{
-    const f=e.target.files[0]; if(!f) return;
+    const f=e.target.files&&e.target.files[0];
+    if(!f){ inp.value=""; return; }
     const rd=new FileReader();
-    rd.onload=()=>onText(rd.result,f.name,f.size);
-    rd.onerror=()=>setStatus("讀不到 "+f.name);
+    rd.onload=()=>{ try{ onText(rd.result,f.name,f.size); } finally { inp.value=""; } };
+    rd.onerror=()=>{ setStatus((LANG?"Could not read ":"讀不到 ")+f.name); inp.value=""; };
     rd.readAsText(f,"utf-8");
   };
 }
-pick("#fCfg",(t,n)=>{ applyConfig(t,n); setStatus("設定檔已載入:"+n); });
-pick("#fInv",(t,n,sz)=>{
-  INV=t;
-  $("#pathInv").value=n+"  ("+(sz/1024).toFixed(0)+" KB)";
-  setStatus("帳單已載入:"+n); ready();
+/* =====================================================================
+   Excel 帳單
+   ---------------------------------------------------------------------
+   UPS 有些帳單是 .xlsx / .xls。這裡只做一件事:把工作表轉成 ingest()
+   本來就吃的 CSV 字串。ingest()、欄位位置、附加費規則、計價引擎
+   全部不動 —— Excel 只是另一個入口,不是另一條計價路徑。
+
+   轉出來的 CSV 有三個地方不能省:
+   欄一定從第 0 欄開始數,因為沒有標題列時 FIXED_COLS 是用絕對欄號
+   取值的(Net Amount 在第 52 欄);中間的空欄要保留成空字串,不能塌掉;
+   數字直接輸出 c.v,不套格式,負號才不會被會計格式變成括號。
+
+   SheetJS 是按到 Excel 檔才去載的。版本鎖死並附 SRI —— 這支工具跑在
+   公開網址上,第三方腳本被換掉的話,帳單內容就在對方手上了。
+   載不到不影響 CSV / TXT:那條路根本不會呼叫這裡。
+   ===================================================================== */
+/* 版本鎖死。不要換成 latest —— 那等於把帳單交給一個隨時會變的檔案。 */
+const XLSX_SRC="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+const XLSX_SRI="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw";
+let XLSX_LOAD=null;
+function loadXLSX(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  if(XLSX_LOAD) return XLSX_LOAD;
+  XLSX_LOAD=new Promise((res,rej)=>{
+    const sc=document.createElement("script");
+    sc.src=XLSX_SRC; sc.integrity=XLSX_SRI; sc.crossOrigin="anonymous"; sc.async=true;
+    let done=false;
+    /* CDN 不回應時不能就這樣掛著,畫面會停在「讀取中」。 */
+    const timer=setTimeout(()=>{ if(done) return; done=true;
+      rej(new Error(LANG?"the Excel reader timed out":"Excel 讀取元件逾時")); },20000);
+    sc.onload=()=>{ if(done) return; done=true; clearTimeout(timer);
+      window.XLSX ? res(window.XLSX)
+                  : rej(new Error(LANG?"the Excel reader did not start"
+                                      :"Excel 讀取元件沒有啟動")); };
+    sc.onerror=()=>{ if(done) return; done=true; clearTimeout(timer);
+      rej(new Error(LANG?"the Excel reader could not be loaded (offline, blocked, or SRI mismatch)"
+                        :"載不到 Excel 讀取元件(離線、被擋、或 SRI 不符)")); };
+    document.head.appendChild(sc);
+  }).catch(e=>{ XLSX_LOAD=null; throw e; });
+  return XLSX_LOAD;
+}
+function fileKind(name){
+  const m=String(name||"").toLowerCase().match(/\.([a-z0-9]+)$/);
+  const ext=m?m[1]:"";
+  if(ext==="xlsx"||ext==="xlsm"||ext==="xls") return ext.toUpperCase();
+  if(ext==="txt") return "TXT";
+  return "CSV";
+}
+function isExcelKind(k){ return k==="XLSX"||k==="XLS"||k==="XLSM"; }
+function pad2(n){ return (n<10?"0":"")+n; }
+/* 日期一律輸出 yyyy-mm-dd。Excel 存的是序號,原樣丟出去會變成 45839。 */
+function xlDate(d){
+  return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+}
+function xlCellText(c){
+  if(!c) return "";
+  /* 用有沒有 getFullYear 判斷,不用 instanceof Date —— SheetJS 是另一個
+     script 標籤載進來的,跨 realm 時 instanceof 會判成 false,日期就會
+     原封不動輸出成 "Wed Jul 01 2026 …" 那一長串。 */
+  if(c.v && typeof c.v.getFullYear==="function") return xlDate(c.v);
+  if(c.t==="d") return String(c.v);
+  if(c.t==="e") return "";
+  if(c.v===null||c.v===undefined) return "";
+  if(c.t==="b") return c.v?"TRUE":"FALSE";
+  return String(c.v);
+}
+function csvCell(v){
+  const t=String(v);
+  return /[",\r\n]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t;
+}
+function sheetToCsv(X, ws){
+  if(!ws||!ws["!ref"]) return "";
+  const R=X.utils.decode_range(ws["!ref"]);
+  const out=[];
+  for(let r=R.s.r;r<=R.e.r;r++){
+    const row=[];
+    /* 從第 0 欄開始,不是從 R.s.c —— 欄號要跟原檔對齊。 */
+    for(let c=0;c<=R.e.c;c++) row.push(csvCell(xlCellText(ws[X.utils.encode_cell({r:r,c:c})])));
+    out.push(row.join(","));
+  }
+  return out.join("\n");
+}
+function sheetRowCount(X, ws){
+  if(!ws||!ws["!ref"]) return 0;
+  const R=X.utils.decode_range(ws["!ref"]);
+  let n=0;
+  for(let r=R.s.r;r<=R.e.r;r++){
+    for(let c=R.s.c;c<=R.e.c;c++){
+      const cell=ws[X.utils.encode_cell({r:r,c:c})];
+      if(cell && cell.v!==undefined && cell.v!==null && String(cell.v).trim()!==""){ n++; break; }
+    }
+  }
+  return n;
+}
+/* 第一個有資料的工作表。封面頁通常只有一兩格字,所以先找有兩列以上的;
+   全部都只有一列時才退而求其次。 */
+function firstSheetWithData(X, wb){
+  let fallback=null;
+  for(const nm of (wb.SheetNames||[])){
+    const n=sheetRowCount(X, wb.Sheets[nm]);
+    if(n>=2) return nm;
+    if(n>=1 && !fallback) fallback=nm;
+  }
+  return fallback;
+}
+/* 統一入口:CSV / TXT 走 readAsText,Excel 走 ArrayBuffer + SheetJS。
+   兩邊都回 {text, kind, sheet},上層不必分辨格式。 */
+function readInvoiceFile(file){
+  const kind=fileKind(file.name);
+  if(!isExcelKind(kind)){
+    return new Promise((res,rej)=>{
+      const rd=new FileReader();
+      rd.onload=()=>res({text:String(rd.result),kind:kind,sheet:""});
+      rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+      rd.readAsText(file,"utf-8");
+    });
+  }
+  return loadXLSX().then(X=>new Promise((res,rej)=>{
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const wb=X.read(new Uint8Array(rd.result),
+                        {type:"array",cellDates:true,cellNF:false,cellText:false});
+        if(!wb||!wb.SheetNames||!wb.SheetNames.length)
+          throw new Error(LANG?"that workbook has no sheets":"這個活頁簿裡沒有工作表");
+        const nm=firstSheetWithData(X,wb);
+        if(!nm) throw new Error(LANG?"every sheet in that workbook is empty"
+                                    :"這個活頁簿的每一個工作表都是空的");
+        const text=sheetToCsv(X, wb.Sheets[nm]);
+        if(!text.replace(/[,\r\n]/g,"").trim())
+          throw new Error((LANG?'sheet "':"工作表「")+nm+(LANG?'" is empty':"」是空的"));
+        res({text:text,kind:kind,sheet:nm});
+      }catch(e){ rej(e); }
+    };
+    rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+    rd.readAsArrayBuffer(file);
+  }));
+}
+/* 匯入分頁上的錯誤欄。只寫 console 的話,使用者只會看到按了沒事發生。 */
+function invNote(msg){
+  const box=$("#invNote");
+  if(!box) return;
+  box.innerHTML = msg
+    ? `<div class="note warn"><b>`+(LANG?"Could not read that file.":"這個檔案讀不進來。")
+      +`</b> `+esc(msg)+`</div>`
+    : "";
+}
+/* 檔名 · 大小 · 格式,Excel 再加工作表名稱。 */
+function invLabel(){
+  if(!INV_NAME) return "";
+  let t=INV_NAME+"  ("+fmtSize(INV_SIZE)+" · "+INV_KIND+")";
+  if(INV_SHEET) t+="  "+(LANG?"Sheet: ":"工作表:")+INV_SHEET;
+  return t;
+}
+
+/* 檔案大小:小檔顯示 KB 會變成 0 KB,分段顯示才看得出真的載到東西。 */
+function fmtSize(n){
+  if(!(n>0)) return "0 B";
+  if(n<1024) return n+" B";
+  if(n<1024*1024) return (n/1024).toFixed(n<10240?1:0)+" KB";
+  return (n/1048576).toFixed(1)+" MB";
+}
+pick("#fCfg",(t,n)=>{ applyConfig(t,n);
+  setStatus(L("設定檔已載入:","Settings loaded: ")+n); });
+/* 不走 pick():Excel 那條是非同步的,而且要回報工作表名稱與錯誤。
+   value 一樣在讀完之後清掉,重選同一個檔才會再觸發 change。 */
+$("#fInv") && ($("#fInv").onchange=e=>{
+  const inp=e.target, f=inp.files&&inp.files[0];
+  if(!f){ inp.value=""; return; }
+  invNote("");
+  setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
+  readInvoiceFile(f).then(r=>{
+    INV=r.text; INV_NAME=f.name; INV_SIZE=f.size; INV_KIND=r.kind; INV_SHEET=r.sheet;
+    $("#pathInv") && ($("#pathInv").value=invLabel());
+    setStatus((LANG?"Invoice loaded: ":"帳單已載入:")+f.name
+      +(r.sheet?(LANG?" · sheet ":" · 工作表 ")+r.sheet:""));
+  }).catch(err=>{
+    /* 讀壞了就把舊的一起清掉。留著上一張帳單的話,Generate 還是亮的,
+       算出來的會是上一次那份 —— 那比停在原地更糟。 */
+    INV=null; INV_NAME=""; INV_SIZE=0; INV_KIND=""; INV_SHEET="";
+    $("#pathInv") && ($("#pathInv").value="");
+    invNote((err&&err.message)||String(err));
+    setStatus(LANG?"Could not read that invoice":"讀不到這張帳單");
+  }).then(()=>{ inp.value=""; ready(); });
 });
 /* 過去各期帳單 -> 跨期對照 */
 $("#fHist").onchange=e=>{
-  const fs=[...e.target.files]; if(!fs.length) return;
+  const inp=e.target;
+  const fs=[...inp.files]; if(!fs.length){ inp.value=""; return; }
   setStatus(LANG?"Reading past invoices…":"讀取過去帳單…");
-  Promise.all(fs.map(f=>new Promise((res,rej)=>{
-    const rd=new FileReader();
-    rd.onload=()=>res(rd.result); rd.onerror=rej; rd.readAsText(f,"utf-8");
-  }))).then(texts=>{
+  invNote("");
+  /* 一次可以混 CSV / TXT / XLSX / XLS。壞掉的那幾個各自記下來,
+     不要讓一個檔案把整批拖掉。 */
+  const bad=[];
+  Promise.all(fs.map(f=>readInvoiceFile(f)
+      .then(r=>({name:f.name,text:r.text,kind:r.kind,sheet:r.sheet}))
+      .catch(err=>{ bad.push(f.name+" — "+((err&&err.message)||err)); return null; })
+  )).then(list=>{
+    const good=list.filter(Boolean);
+    if(bad.length){
+      const html=`<div class="note warn"><b>`
+        +(LANG?"Skipped "+bad.length+" file(s).":"跳過 "+bad.length+" 個檔案。")
+        +`</b> `+esc(bad.join(" / "))+`</div>`;
+      $("#histNote") && ($("#histNote").innerHTML=html);
+      $("#invNote")  && ($("#invNote").innerHTML=html);
+    }
+    if(!good.length){
+      setStatus(LANG?"Could not read those files":"讀不到那些檔案");
+      return;
+    }
+    const texts=good.map(x=>x.text);
     /* 明細留著,查追蹤號時要用 */
     HISTROWS=[];
     for(const tx of texts){
       try{ HISTROWS.push(...ingest(tx).rows); }catch(e){}
     }
     const r=buildHistory(texts);
-    $("#vHist").textContent=r.files+(LANG?" files":" 個檔案");
+    const kinds=[...new Set(good.map(x=>x.kind))].join(" + ");
+    $("#vHist").textContent=r.files+(LANG?" files":" 個檔案")+" · "+kinds;
     $("#vHist").className="val ok";
     $("#histNote").innerHTML=`<div class="note">`
       +(LANG?`<b>${r.learned.toLocaleString()}</b> tracking numbers indexed from `
@@ -1488,9 +1847,13 @@ $("#fHist").onchange=e=>{
              +`<b>${r.learned.toLocaleString()}</b> 個追蹤號的對照。`
              +`跨期更正現在可以依原始出貨判定住宅或商業。`)+`</div>`;
     renderHist();
-    setStatus(LANG?"History ready":"歷史已建立");
+    setStatus((LANG?"History ready · ":"歷史已建立 · ")+good.length
+      +(LANG?" file(s)":" 個檔案"));
     if(RATED){ $("#bRun").click(); }
-  }).catch(()=>setStatus(LANG?"Could not read those files":"讀不到那些檔案"));
+  }).catch(err=>{
+    invNote((err&&err.message)||String(err));
+    setStatus(LANG?"Could not read those files":"讀不到那些檔案");
+  }).then(()=>{ inp.value=""; });
 };
 $("#bHist").onclick=()=>$("#fHist").click();
 
@@ -1610,6 +1973,7 @@ $("#fImpRate") && ($("#fImpRate").onchange=e=>{
     if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
     setStatus((LANG?"Imported ":"已匯入 ")+body.length+(LANG?" rate rows for ":" 列費率:")+svc);
   };
+  rd.onloadend=()=>{ e.target.value=""; };
   rd.readAsText(f,"utf-8");
 });
 $("#bScanZone") && ($("#bScanZone").onclick=()=>{
@@ -1707,6 +2071,7 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
     setStatus((LANG?"Imported ":"已匯入 ")+n+(LANG?" rate row(s)":" 列費率"));
   };
+  rd.onloadend=()=>{ e.target.value=""; };
   rd.readAsText(f,"utf-8");
 });
 $("#bSetFuel") && ($("#bSetFuel").onclick=()=>openFuel());
@@ -1812,8 +2177,36 @@ $("#bSaveTop") && ($("#bSaveTop").onclick=()=>saveSettings());
 $("#bInv").onclick=()=>$("#fInv").click();
 
 function ready(){
-  $("#bRun").disabled=!(CFG&&CFG.tableRowCount>0&&INV);
-  $("#bCsv").disabled=!RATED;
+  const rows = CFG ? (CFG.tableRowCount||0) : 0;
+  const okCfg = !!(CFG && rows>0), okInv = !!INV;
+  $("#bRun") && ($("#bRun").disabled = !(okCfg && okInv));
+  $("#bCsv") && ($("#bCsv").disabled = !RATED);
+  renderReady(okCfg, okInv, rows);
+}
+/* 匯入分頁上把兩個前提各自標成 Ready / Not loaded,
+   並且說明 Generate Reprice Report 為什麼還是灰的 ——
+   預設設定檔本身是有效的,只是一列費率都沒有,光看畫面看不出差別。 */
+function renderReady(okCfg, okInv, rows){
+  const box=$("#filesReady");
+  if(box){
+    const pill=ok=>`<span class="pill ${ok?"ok":"no"}">`
+      +(ok?(LANG?"Ready":"就緒"):(LANG?"Not loaded":"尚未載入"))+`</span>`;
+    const cfgDetail = okCfg
+      ? esc(CFG_LABEL||(LANG?"settings":"設定"))+" · "
+        +rows.toLocaleString()+(LANG?" base-rate rows":" 列費率")
+      : (CFG ? (LANG?"no base-rate rows":"沒有任何費率列")
+             : (LANG?"no settings":"沒有設定"));
+    const invDetail = okInv
+      ? esc(INV_NAME)+" · "+fmtSize(INV_SIZE)
+        +(INV_KIND?" · "+INV_KIND:"")
+        +(INV_SHEET?" · "+(LANG?"sheet ":"工作表 ")+esc(INV_SHEET):"")
+      : (LANG?"no billing file":"沒有帳單檔");
+    box.innerHTML=
+      `<div class="rdy"><span class="k">`+(LANG?"Rate settings":"費率設定")+`</span>`
+      +pill(okCfg)+`<span class="d">`+cfgDetail+`</span></div>`
+      +`<div class="rdy"><span class="k">`+(LANG?"UPS Invoice":"UPS 帳單")+`</span>`
+      +pill(okInv)+`<span class="d">`+invDetail+`</span></div>`;
+  }
 }
 
 /* ---- 設定檔相關分頁 ---- */
@@ -2269,7 +2662,7 @@ function bulkApply(){
         (CFG.raw.channel_dim_factors||(CFG.raw.channel_dim_factors={}))[svc]=String(v).trim();
     }
   }
-  CFG=readConfig(CFG.raw); DIRTY=true;
+  CFG=readConfig(CFG.raw); DIRTY=true; saveNoteKey(true,"changed");
   $("#bulkNote").textContent=LANG
     ? `Wrote ${n} value(s) to ${chans.length} channel(s). Save to keep it.`
     : `寫入 ${n} 個值到 ${chans.length} 個渠道,記得儲存。`;
@@ -2291,7 +2684,7 @@ function bulkClear(){
   const c=CFG.raw.channel_rule_overrides||{};
   for(const svc of chans){ delete c[svc];
     if(CFG.raw.channel_dim_factors) delete CFG.raw.channel_dim_factors[svc]; }
-  CFG=readConfig(CFG.raw); DIRTY=true;
+  CFG=readConfig(CFG.raw); DIRTY=true; saveNoteKey(true,"changed");
   $("#bulkNote").textContent=LANG
     ? `Cleared ${chans.length} channel(s). They follow the default now.`
     : `已清除 ${chans.length} 個渠道的覆寫,改為跟著預設。`;
@@ -2330,33 +2723,75 @@ function editCell(key,val){
   DIRTY=true;
   /* 渠道門檻改了要重畫,星號(這個渠道自己設定的值)才會出現 */
   if(p[0]==="chan"||p[0]==="rule"||p[0]==="chg") renderConfigTabs();
-  $("#saveNote") && ($("#saveNote").textContent =
-    LANG?"Changed. Save to keep it.":"已修改,記得儲存。");
+  saveNoteKey(true,"changed");
   setStatus(LANG?"Setting changed":"設定已修改");
   if(RATED && ROWS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
 }
 let DIRTY=false;
 
 /* 存回瀏覽器,並且可以下載成設定檔換回桌面版用 */
+/* 每一個 Save 按鈕旁邊都掛一個 .savenote,這裡一次寫進去。
+   寫死成幾個 id 的話,新增一頁就會漏掉 —— 當初就是漏在這裡:
+   在匯入頁按儲存,字寫到了附加費設定頁那一格,看不見。
+   最後一次的結果同時記在 SAVE_MSG,切語言時要用同一個語意重寫。 */
+let SAVE_MSG=null;   /* {ok:boolean, key:string, extra:string} */
+const SAVE_TXT={
+  saved:      ["已存進這個瀏覽器。","Saved in this browser."],
+  changed:    ["已修改,記得儲存。","Changed. Save to keep it."],
+  nothing:    ["還沒有可以儲存的設定。","Nothing to save yet."],
+  failed:     ["沒有存進去 — ","Not saved — "],
+  failedtail: ["。無痕視窗或儲存空間已滿都會擋掉。",
+               ". Private windows and full storage both block this."],
+  loadedno:   ["已載入,但沒有記住 — ","Loaded, but not remembered — "],
+  loadednotail:["。無痕視窗或儲存空間已滿都會擋掉。",
+                ". Private windows and full storage both block this."],
+};
+function saveNoteKey(ok,key,extra){
+  SAVE_MSG={ok:ok,key:key,extra:extra||""};
+  paintSaveNote();
+}
+function paintSaveNote(){
+  const m=SAVE_MSG;
+  let txt="";
+  if(m){
+    txt=SAVE_TXT[m.key] ? SAVE_TXT[m.key][LANG] : "";
+    if(m.key==="failed")   txt=txt+m.extra+SAVE_TXT.failedtail[LANG];
+    if(m.key==="loadedno") txt=txt+m.extra+SAVE_TXT.loadednotail[LANG];
+  }
+  document.querySelectorAll(".savenote").forEach(el=>{
+    el.textContent=txt;
+    el.className = (!m||m.ok) ? "savenote" : "savenote bad";
+  });
+}
 function saveSettings(){
+  if(!CFG){
+    saveNoteKey(false,"nothing");
+    setStatus(LANG?"Nothing to save":"沒有可儲存的設定");
+    return false;
+  }
   const txt=JSON.stringify(CFG.raw,null,2);
-  try{ localStorage.setItem(CFG_KEY,txt); }catch(e){}
+  try{
+    localStorage.setItem(CFG_KEY,txt);
+    /* 名稱也要一起寫。只寫內容的話 restoreConfig() 那邊配不成對,
+       重開會退回預設值,看起來就像剛才根本沒存到。 */
+    localStorage.setItem(CFG_NAME,CFG_LABEL||(LANG?"saved settings":"已儲存的設定"));
+  }catch(e){
+    /* 這裡以前是 catch(e){} ——失敗和成功長得一模一樣。 */
+    const why=(e&&e.name)||"Error";
+    saveNoteKey(false,"failed",why);
+    setStatus(LANG?"Save failed":"儲存失敗");
+    return false;
+  }
   DIRTY=false;
   logAdd("save settings","");
-  $("#saveNote") && ($("#saveNote").textContent=LANG?"Saved in this browser.":"已存進這個瀏覽器。");
+  saveNoteKey(true,"saved");
   setStatus(LANG?"Settings saved":"設定已儲存");
-}
-function downloadSettings(){
-  const b=new Blob([JSON.stringify(CFG.raw,null,2)],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(b); a.download="ups_billing_tool_config.json";
-  a.click(); URL.revokeObjectURL(a.href);
-  setStatus(LANG?"Downloaded settings file":"設定檔已下載");
+  return true;
 }
 
 /* ---- 產生報表 ---- */
 $("#bRun").onclick=()=>{
-  setStatus("讀取中…");
+  setStatus(L("讀取中…","Reading…"));
   try{
     const ing=ingest(INV);
     ROWS=ing.rows; SHIPS=shipmentsOf(ROWS);
@@ -2365,25 +2800,33 @@ $("#bRun").onclick=()=>{
     $("#sumBox").style.display=""; $("#rateBox").style.display="";
     ready();
     logAdd("reprice report", ROWS.length+" rows / "+SHIPS.length+" tracking");
-    setStatus(`完成:${ROWS.length.toLocaleString()} 列 / `
-      +`${SHIPS.length.toLocaleString()} 個追蹤號`
-      +(ing.hasHdr?"(有標題列)":"(無標題列,用固定欄位序號)"));
+    setStatus(L("完成:","Done: ")+ROWS.length.toLocaleString()
+      +L(" 列 / "," lines / ")+SHIPS.length.toLocaleString()
+      +L(" 個追蹤號"," tracking numbers")
+      +(ing.hasHdr?L("(有標題列)"," (header row found)")
+                  :L("(無標題列,用固定欄位序號)"," (no header row; fixed column positions)")));
   }catch(e){
-    $("#cfgNote").innerHTML=`<div class="note warn"><b>讀不動這張帳單。</b>${esc(e.message)}</div>`;
-    setStatus("失敗");
+    $("#cfgNote").innerHTML=`<div class="note warn"><b>`
+      +L("讀不動這張帳單。","Could not read that invoice.")+`</b> ${esc(e.message)}</div>`;
+    setStatus(L("失敗","Failed"));
   }
 };
 
-const LAYER_MEANING={SHP:"本期出貨",ADJ:"調整/更正",RTN:"退件",MIS:"其他"};
+const LAYER_MEANING={
+  SHP:["本期出貨","Shipped this period"],
+  ADJ:["調整/更正","Adjustment / correction"],
+  RTN:["退件","Return"],
+  MIS:["其他","Other"]};
+const layerMeans=k=>(LAYER_MEANING[k]||["",""])[LANG];
 
 function renderSummary(){
   const tot=ROWS.reduce((a,r)=>a+r.net,0);
   const invs=[...new Set(ROWS.map(r=>r.invoice).filter(Boolean))];
   $("#tiles").innerHTML=[
-    ["帳單筆數",ROWS.length.toLocaleString(),""],
-    ["追蹤號",SHIPS.length.toLocaleString(),""],
-    ["發票",invs.length,invs.slice(0,1).join("")],
-    ["UPS 收取總額",money(tot),"",tot<0],
+    [T("t.lines"),ROWS.length.toLocaleString(),""],
+    [T("th.trk"),SHIPS.length.toLocaleString(),""],
+    [T("t.inv"),invs.length,invs.slice(0,1).join("")],
+    [T("t.tot"),money(tot),"",tot<0],
   ].map(([k,v,sub,neg])=>`<div class="tile sketch-soft"><div class="k">${k}</div>
     <div class="v${neg?" neg":""}">${v}</div>
     <div class="sub">${esc(sub)||"&nbsp;"}</div></div>`).join("");
@@ -2395,7 +2838,7 @@ function renderSummary(){
     if(r.tracking) by[r.layer].trk.add(r.tracking);
   });
   $("#tLayer").tBodies[0].innerHTML=Object.entries(by).sort((a,b)=>b[1].n-a[1].n)
-    .map(([L,v])=>`<tr><td><b>${L}</b></td><td>${LAYER_MEANING[L]||""}</td>
+    .map(([L,v])=>`<tr><td><b>${L}</b></td><td>${layerMeans(L)}</td>
       <td class="num">${v.n.toLocaleString()}</td>
       <td class="num">${v.trk.size.toLocaleString()}</td>
       <td class="num${v.amt<0?" neg":""}">${money(v.amt)}</td></tr>`).join("");
@@ -2407,23 +2850,25 @@ function renderRate(){
     Math.abs(o.diff)<=Math.max(0.01,Math.abs(o.s.upsTotal)*p)).length;
   const pct=n=>RATED.length?(n/RATED.length*100).toFixed(1)+"%":"—";
   $("#tiles2").innerHTML=[
-    ["可計價",priced.length.toLocaleString()+" / "+RATED.length.toLocaleString(),pct(priced.length)],
-    ["差距 ≤1%",within(0.01).toLocaleString(),pct(within(0.01))],
-    ["差距 ≤5%",within(0.05).toLocaleString(),pct(within(0.05))],
-    ["合約試算",money(priced.reduce((a,o)=>a+o.total,0)),""],
-    ["UPS 實收",money(RATED.reduce((a,o)=>a+o.s.upsTotal,0)),""],
+    [T("t.priced"),priced.length.toLocaleString()+" / "+RATED.length.toLocaleString(),pct(priced.length)],
+    [T("t.d1"),within(0.01).toLocaleString(),pct(within(0.01))],
+    [T("t.d5"),within(0.05).toLocaleString(),pct(within(0.05))],
+    [T("t.calc"),money(priced.reduce((a,o)=>a+o.total,0)),""],
+    [T("t.ups"),money(RATED.reduce((a,o)=>a+o.s.upsTotal,0)),""],
   ].map(([k,v,sub])=>`<div class="tile sketch-soft"><div class="k">${k}</div>
     <div class="v" style="font-size:18px">${v}</div>
     <div class="sub">${sub||"&nbsp;"}</div></div>`).join("");
 
   const accN=[...new Set(RATED.flatMap(o=>Object.keys(o.acc)))].sort();
   $("#tRate").querySelector("thead").innerHTML=`<tr>
-    <th>追蹤號</th><th>渠道</th><th class="num">Zone</th>
-    <th class="num">輸入</th><th class="num">DIM</th><th class="num">計費重</th>
-    <th>重量依據</th><th class="num">運費</th>
+    <th>${T("th.trk")}</th><th>${T("th.chan")}</th><th class="num">Zone</th>
+    <th class="num">${L("輸入","Entered")}</th><th class="num">DIM</th>
+    <th class="num">${L("計費重","Billable")}</th>
+    <th>${L("重量依據","Weight basis")}</th><th class="num">${L("運費","Base rate")}</th>
     ${accN.map(n=>`<th class="num">${esc(n)}</th>`).join("")}
-    <th class="num">燃油</th><th class="num">合約試算</th>
-    <th class="num">UPS 實收</th><th class="num">差額</th><th>備註</th></tr>`;
+    <th class="num">${T("hd.fuel")}</th><th class="num">${T("t.calc")}</th>
+    <th class="num">${T("t.ups")}</th><th class="num">${L("差額","Difference")}</th>
+    <th>${T("th.note")}</th></tr>`;
   $("#tRate").tBodies[0].innerHTML=RATED.slice(0,300).map(o=>`<tr>
     <td class="mono">${esc(o.s.tracking)}</td>
     <td>${esc(o.channel)}<br><span style="font-size:11px;color:var(--muted)">${esc(o.resBasis)}</span></td>
@@ -2444,9 +2889,12 @@ function renderRate(){
   const all={}; RATED.forEach(o=>o.issues.forEach(i=>all[i]=(all[i]||0)+1));
   const top=Object.entries(all).sort((a,b)=>b[1]-a[1]).slice(0,8);
   $("#rateNote").innerHTML=
-    (RATED.length>300?`<div class="note">表格顯示前 300 筆,完整資料請匯出 CSV。</div>`:"")
-    +(top.length?`<div class="note"><b>最常見的問題</b><br>`
-      +top.map(([i,n])=>`${n.toLocaleString()} 筆 — ${esc(i)}`).join("<br>")+`</div>`:"");
+    (RATED.length>300
+      ? `<div class="note">`+L("表格顯示前 300 筆,完整資料請匯出 CSV。",
+                              "Showing the first 300 rows. Export the CSV for everything.")+`</div>`
+      : "")
+    +(top.length?`<div class="note"><b>`+L("最常見的問題","Most common issues")+`</b><br>`
+      +top.map(([i,n])=>`${n.toLocaleString()}${L(" 筆 — "," — ")}${esc(i)}`).join("<br>")+`</div>`:"");
 }
 
 const CODE_FILTERS=[["all",["全部代碼","All codes"]],
@@ -2766,10 +3214,14 @@ const I18N={
   "th.pkgdim":["包裹尺寸","Package Dimensions"],
   "th.keydim":["原始鍵入尺寸","Detail Keyed Dimensions"],
   "th.net":["淨額","Net Amount"],
-  "tab.users":["👤 帳號","👤 Users"],
-  "hd.accounts":["帳號","Accounts"],
-  "hd.addacct":["新增帳號","Add an account"],
-  "hd.activity":["活動紀錄","Activity"],
+  "tab.admin":["🛡️ 管理員","🛡️ Admin"],
+  "hd.loginhistory":["登入紀錄","Login History"],
+  "hint.loginhistory":["由 Supabase 記錄成功登入，只有管理員可以查看。失敗登入與 IP 請至 Supabase Auth Logs 查看。",
+    "Successful sign-ins recorded by Supabase. Only administrators can view this page. See Supabase Auth Logs for failed attempts and IP addresses."],
+  "btn.refreshlog":["重新整理","Refresh"],
+  "btn.exportlog":["匯出 CSV","Export CSV"],
+  "th.email":["Email","Email"],
+  "th.device":["瀏覽器／裝置","Browser / Device"],
   "th.role":["角色","Role"],
   "th.pw":["密碼","Password"],
   "th.edit":["編輯","Edit"],
@@ -2815,7 +3267,6 @@ const I18N={
   "hd.dim":["生效中的 DIM 除數","DIM Factors in Force"],
   "btn.saverates":["💾 儲存費率","💾 Save Rates"],
   "btn.saverules":["💾 儲存規則","💾 Save Rules"],
-  "btn.dl":["⬇ 下載設定檔","⬇ Download settings file"],
   "tab.files":["📁 匯入檔案","📁 Import Files"],
   "tab.rules":["💲 附加費設定","💲 Surcharge Setup"],
   "tab.size":["📏 尺寸規則","📏 Size Rules"],
@@ -2898,8 +3349,14 @@ function applyLang(){
     el.textContent=T(el.dataset.i18n);
   });
   document.documentElement.lang = LANG?"en":"zh-Hant";
+  if(!AUTH && !ME) paintGateNote();
   if(CFG) renderConfigTabs();
+  /* 「重量依據」「備註」那幾欄是計價當下算出來的字,重畫不會換語言,
+     要重算一次。金額與規則不受影響 —— 同一份設定算出同一個結果。 */
+  if(RATED && SHIPS && CFG) RATED=SHIPS.map(s=>priceShipment(CFG,s));
   if(RATED){ renderSummary(); renderRate(); renderCode(); renderHist(); }
+  paintSaveNote();
+  if(typeof ready==="function") ready();
 }
 
 /* =====================================================================
@@ -3303,6 +3760,18 @@ function drawCat(g,a,t){
 let INK="#351c15", BOX="#8a6104", PAPER="#fffdf7",
     CAT_COAT="#f2ece1", CAT_MARK="#cfc7b8",
     DOG_COAT="#f5efe6", DOG_MARK="#b5793f";
+/* 顯示場景的唯一入口。三個地方原本各自寫 style.display,
+   顯示之後都沒有重量尺寸 —— 那就是動畫不見的原因。 */
+function sceneShow(on){
+  const sb=$("#sceneBox");
+  if(!sb) return;
+  sb.style.display = on?"":"none";
+  if(on && typeof sceneResize==="function" && SCENE && SCENE.cv){
+    sceneResize();
+    if(typeof spreadActors==="function") spreadActors();
+    if(typeof sceneDraw==="function") sceneDraw();
+  }
+}
 function sceneResize(){
   const cv=SCENE.cv; if(!cv) return;
   const r=cv.getBoundingClientRect();
@@ -3965,6 +4434,9 @@ $("#langSel").onchange=e=>{
   setStatus(CFG && CFG.tableRowCount>0
     ? (LANG?"Ready":"就緒")
     : "");
+  /* 就緒狀態列、「為什麼不能按」、儲存結果都是 JS 畫的,不吃 data-i18n。
+     applyLang() 已經處理,這裡只要補場景提示。 */
+  if(typeof sceneDraw==="function") sceneDraw();
 };
 $("#brandSel").onchange=e=>{ applyBrand(e.target.value); spreadActors(); sceneDraw(); };
 $("#themeSel").onchange=e=>{ applyTheme(e.target.value); drawClock(); drawDateCard(); };
@@ -4003,6 +4475,7 @@ step("auth",()=>{
       const r=await login($("#inUser").value,$("#inPw").value);
       if(r.err){ $("#gateNote").innerHTML=`<div class="note warn">${r.err}</div>`; return; }
       $("#gateNote").innerHTML=""; $("#inPw").value=""; setMe(r);
+      await recordLogin();
       logAdd("sign in","");
       setStatus((LANG?"Signed in as ":"已登入:")+r.name);
     }finally{ button.disabled=false; }
@@ -4015,6 +4488,8 @@ step("auth",()=>{
     setMe(null);
     setStatus(LANG?"Signed out":"已登出");
   };
+  $("#bLoginRefresh").onclick=()=>loadLoginHistory();
+  $("#bLoginExport").onclick=()=>exportLoginHistory();
 });
 step("language",()=>applyLang());
 step("config",  ()=>restoreConfig());
