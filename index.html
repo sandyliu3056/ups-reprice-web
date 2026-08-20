@@ -312,15 +312,14 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
-  <button role="tab" aria-selected="false" data-p="users"  class="display" data-i18n="tab.users">Users</button>
 </div>
 
 <main>
-<div id="gate" style="display:none">
+<div id="gate">
   <div class="lf sketch" style="max-width:400px;margin:40px auto">
     <h3 class="display"><span class="em">🔑</span><span data-i18n="hd.signin">Sign in</span></h3>
-    <div class="frow"><label data-i18n="lb.username">Username</label>
-      <input id="inUser" autocomplete="username"></div>
+    <div class="frow"><label data-i18n="lb.email">Email</label>
+      <input id="inUser" type="email" inputmode="email" autocomplete="username"></div>
     <div class="frow"><label data-i18n="lb.pw">Password</label>
       <input id="inPw" type="password" autocomplete="current-password"></div>
     <div class="row" style="margin-top:11px">
@@ -329,7 +328,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     <div id="gateNote"></div>
   </div>
 </div>
-<div id="app">
+<div id="app" style="display:none">
 
 <!-- ==================== Import Files ==================== -->
 <section class="page on" id="p-files">
@@ -655,56 +654,6 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 </section>
 
 
-<!-- ==================== Users ==================== -->
-<section class="page" id="p-users">
-  <div class="lf sketch">
-    <h3 class="display"><span class="em">👤</span><span data-i18n="hd.accounts">Accounts</span></h3>
-    <p class="hint" data-i18n="hint.accounts"></p>
-    <div class="tablewrap"><table id="tUsers"><thead><tr>
-      <th data-i18n="lb.name">Name</th>
-      <th data-i18n="th.role">Role</th>
-      <th data-i18n="lb.username">Username</th>
-      <th data-i18n="th.pw">Password</th>
-      <th data-i18n="th.edit">Edit</th>
-    </tr></thead><tbody></tbody></table></div>
-    <div class="subhd" data-i18n="hd.addacct">Add an account</div>
-    <div class="row">
-      <input id="newAcctName" class="cell" style="width:140px;text-align:left"
-             placeholder="name">
-      <select id="newAcctRole">
-        <option value="user">user</option><option value="admin">admin</option>
-      </select>
-      <input id="newAcctUser" class="cell" style="width:130px;text-align:left"
-             placeholder="username">
-      <input id="newAcctPw" class="cell" style="width:180px;text-align:left"
-             placeholder="password">
-      <button class="act" id="bAddAcct" data-i18n="btn.addacct">Add</button>
-      <button class="act alt" id="bDlAcct" data-i18n="btn.dlacct">Download accounts file</button>
-      <span id="acctNote" style="color:var(--run2);font-size:12.5px"></span>
-    </div>
-  </div>
-
-  <div class="lf sketch">
-    <h3 class="display"><span class="em">📋</span><span data-i18n="hd.activity">Activity</span></h3>
-    <p class="hint" data-i18n="hint.activity"></p>
-    <div class="row" style="margin-bottom:8px">
-      <button class="act ghost" id="bLogExport" data-i18n="btn.logexport">Export log</button>
-      <button class="act ghost" id="bLogImport" data-i18n="btn.logimport">Import log</button>
-      <button class="act ghost" id="bLogClear" data-i18n="btn.logclear">Clear log</button>
-      <input type="file" id="fLogImport" accept=".json">
-      <span id="logCount" style="color:var(--muted);font-size:12.5px"></span>
-    </div>
-    <div class="tablewrap" style="max-height:50vh"><table id="tLog"><thead><tr>
-      <th data-i18n="th.when">When</th>
-      <th data-i18n="lb.username">Username</th>
-      <th data-i18n="lb.name">Name</th>
-      <th data-i18n="th.role">Role</th>
-      <th data-i18n="th.what">What</th>
-      <th data-i18n="th.detail">Detail</th>
-    </tr></thead><tbody></tbody></table></div>
-  </div>
-</section>
-
 </div>
 </main>
 
@@ -789,6 +738,8 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 
 <div class="statusbar"><span id="status" data-i18n="ready">Ready</span></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="auth-config.js"></script>
 <script>
 "use strict";
 
@@ -1313,27 +1264,25 @@ function historyServiceFor(tracking){
   return v==="R" ? "Ground Residential" : v==="C" ? "Ground Commercial" : null;
 }
 
-/* 角色。admin 看得到設定分頁,user 只跑報表。
-   這是分工,不是安全機制 —— 比對在瀏覽器裡跑,按 F12 就繞得過去。
-   真正要保護的東西不能靠這一層。 */
-/* 帳號在這裡設定,沒有註冊功能。
-   密碼是明文,因為帳號分頁要顯示得出來。也就是說:開得了這個檔案
-   或這台瀏覽器的人,看得到全部人的密碼。這只是分角色,不是保護。 */
-const ACCOUNTS={"sandy":{"p":"sandy-dev","role":"admin","n":"Sandy Liu"},"candy":{"p":"candy-geniqua","role":"user","n":"Candy"},"quincy":{"p":"quincy-geniqua","role":"user","n":"Quincy"},"terry":{"p":"terry-geniqua","role":"user","n":"Terry"},"eunice":{"p":"eunice-programmar","role":"user","n":"Eunice"}};
-const SESS_KEY="ups_reprice_session";
+/* Supabase owns credentials and session validation. No passwords are stored
+   in this application or in localStorage. */
+const AUTH_CONFIG=window.UPS_AUTH_CONFIG||{};
+const AUTH=(window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
+  ? window.supabase.createClient(AUTH_CONFIG.url,AUTH_CONFIG.anonKey)
+  : null;
 let ME=null;
-/* 設定分頁對所有人開放;只有帳號管理限管理者。 */
-const ADMIN_ONLY=["users"];
+const ADMIN_ONLY=[];
 
-/* 帳號:內建那份是出廠值,改過的存在這台瀏覽器。
-   要讓同事也套用,得下載帳號檔重發。 */
-const ACCT_KEY="ups_reprice_accounts";
-function users(){
-  try{ const s=localStorage.getItem(ACCT_KEY); if(s) return JSON.parse(s); }catch(e){}
-  return ACCOUNTS;
-}
-function saveAccounts(a){
-  try{ localStorage.setItem(ACCT_KEY,JSON.stringify(a)); }catch(e){}
+function authIdentity(user){
+  if(!user) return null;
+  const meta=user.user_metadata||{}, appMeta=user.app_metadata||{};
+  const email=String(user.email||"").toLowerCase();
+  return {
+    id:user.id,
+    user:email,
+    name:meta.display_name||meta.full_name||email.split("@")[0]||email,
+    role:appMeta.role==="admin"?"admin":"user"
+  };
 }
 
 /* 活動紀錄。只涵蓋這台瀏覽器 —— 同事在自己電腦上的紀錄在他們那邊,
@@ -1351,18 +1300,22 @@ function logAdd(what,detail){
   if(typeof renderLog==="function") renderLog();
 }
 
-async function login(username,pw){
-  const id=String(username).trim().toLowerCase();
-  const u=users()[id];
-  if(!u||u.p!==String(pw))
-    return {err:LANG?"Wrong username or password":"帳號或密碼不對"};
-  /* user = 登入用的帳號,name = 顯示用的姓名。沒設姓名就用帳號。 */
-  return {user:id, name:u.n||id, role:u.role};
+async function login(email,pw){
+  if(!AUTH) return {err:LANG
+    ?"Authentication has not been configured yet."
+    :"登入服務尚未完成設定。"};
+  const id=String(email).trim().toLowerCase();
+  if(!id||!pw) return {err:LANG
+    ?"Email and password are required."
+    :"請輸入 Email 和密碼。"};
+  const {data,error}=await AUTH.auth.signInWithPassword({email:id,password:String(pw)});
+  if(error||!data.user) return {err:LANG
+    ?"Incorrect email or password."
+    :"Email 或密碼不正確。"};
+  return authIdentity(data.user);
 }
 function setMe(m){
   ME=m;
-  try{ m?localStorage.setItem(SESS_KEY,JSON.stringify(m))
-        :localStorage.removeItem(SESS_KEY); }catch(e){}
   applyRole();
 }
 function applyRole(){
@@ -1379,8 +1332,30 @@ function applyRole(){
   const who=$("#who");
   if(who) who.textContent = ME? (ME.name+" · "+(admin?(LANG?"admin":"管理者")
                                                     :(LANG?"user":"使用者"))) : "";
+  const logout=$("#bLogout");
+  if(logout) logout.style.display=ME?"":"none";
   if(ME && ADMIN_ONLY.includes(currentTab()) && !admin) showTab("files");
-  if(admin){ renderUsers(); renderLog(); }
+}
+
+async function initAuth(){
+  try{
+    localStorage.removeItem("ups_reprice_accounts");
+    localStorage.removeItem("ups_reprice_session");
+  }catch(e){}
+  if(!AUTH){
+    setMe(null);
+    const note=$("#gateNote");
+    if(note) note.innerHTML=`<div class="note warn">${LANG
+      ?"Authentication has not been configured yet."
+      :"登入服務尚未完成設定。"}</div>`;
+    return;
+  }
+  const {data,error}=await AUTH.auth.getSession();
+  if(error) console.error("Unable to restore session",error);
+  setMe(data&&data.session?authIdentity(data.session.user):null);
+  AUTH.auth.onAuthStateChange((_event,session)=>{
+    setMe(session?authIdentity(session.user):null);
+  });
 }
 function currentTab(){
   const b=document.querySelector("#tabs button[aria-selected=true]");
@@ -1780,25 +1755,6 @@ $("#bTrkBreak") && ($("#bTrkBreak").onclick=()=>{
     ${LANG?"Fuel":"燃油"} ${money(o.fuel)} ·
     <b>${LANG?"Total":"合約試算"} ${o.total!==null?money(o.total):"—"}</b> ·
     UPS ${money(o.s.upsTotal)}</div>`;
-});
-$("#bAddAcct") && ($("#bAddAcct").onclick=()=>{
-  const n=($("#newAcctUser").value||"").trim().toLowerCase();
-  const nm=($("#newAcctName").value||"").trim();
-  const pw=($("#newAcctPw").value||"").trim();
-  if(!n||!pw){ $("#acctNote").textContent=LANG?"Username and password required":"帳號和密碼都要填"; return; }
-  const a=users();
-  if(a[n]){ $("#acctNote").textContent=LANG?"That username is taken":"這個帳號已經有了"; return; }
-  a[n]={p:pw,role:$("#newAcctRole").value,n:nm||n};
-  saveAccounts(a); logAdd("add account",n+" ("+$("#newAcctRole").value+")");
-  $("#newAcctUser").value=""; $("#newAcctName").value=""; $("#newAcctPw").value="";
-  renderUsers(); $("#acctNote").textContent=(LANG?"Added ":"已新增 ")+n;
-});
-$("#bDlAcct") && ($("#bDlAcct").onclick=()=>{
-  const b=new Blob([JSON.stringify(users(),null,2)],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(b); a.download="ups_reprice_accounts.json";
-  a.click(); URL.revokeObjectURL(a.href);
-  setStatus(LANG?"Accounts file downloaded":"帳號檔已下載");
 });
 $("#bLogExport") && ($("#bLogExport").onclick=()=>{
   const b=new Blob([JSON.stringify(logRead(),null,2)],{type:"application/json"});
@@ -2232,83 +2188,6 @@ function delFuelRanges(){
   }
   CFG=readConfig(CFG.raw); DIRTY=true; renderFuelRows();
   setStatus((LANG?"Deleted ":"已刪除 ")+t.length);
-}
-
-/* 帳號與活動紀錄 */
-let EDIT_ROW=null;   /* 正在編輯哪一列。null = 全部唯讀 */
-
-function renderUsers(){
-  const tb=$("#tUsers"); if(!tb) return;
-  const a=users();
-  tb.tBodies[0].innerHTML=Object.entries(a).map(([n,v])=>{
-    const editing = EDIT_ROW===n;
-    if(!editing){
-      /* 唯讀:手滑打不到密碼欄 */
-      return `<tr>
-        <td>${esc(v.n||n)}</td>
-        <td>${esc(v.role)}</td>
-        <td class="mono">${esc(n)}</td>
-        <td class="mono">${esc(v.p||"")}</td>
-        <td><button class="act ghost uEdit" data-n="${esc(n)}"
-             style="padding:3px 10px;font-size:12px">${LANG?"Edit":"編輯"}</button>
-            <button class="act ghost uDel" data-n="${esc(n)}"
-             style="padding:3px 10px;font-size:12px">${LANG?"Remove":"移除"}</button></td>
-      </tr>`;
-    }
-    return `<tr>
-      <td><input class="cell eName" type="text"
-           style="width:150px;text-align:left" value="${esc(v.n||n)}"></td>
-      <td><select class="chansel eRole">
-        <option value="user"${v.role==="user"?" selected":""}>user</option>
-        <option value="admin"${v.role==="admin"?" selected":""}>admin</option>
-      </select></td>
-      <td><input class="cell eUser mono" type="text"
-           style="width:140px;text-align:left" value="${esc(n)}"></td>
-      <td><input class="cell ePw" type="text"
-           style="width:190px;text-align:left" value="${esc(v.p||"")}"></td>
-      <td><button class="act uSave" data-n="${esc(n)}"
-           style="padding:3px 12px;font-size:12px">${LANG?"Save":"儲存"}</button>
-          <button class="act ghost uCancel"
-           style="padding:3px 10px;font-size:12px">${LANG?"Cancel":"取消"}</button></td>
-    </tr>`;
-  }).join("");
-
-  document.querySelectorAll(".uEdit").forEach(el=>el.onclick=()=>{
-    EDIT_ROW=el.dataset.n; renderUsers(); $("#acctNote").textContent="";
-  });
-  document.querySelectorAll(".uCancel").forEach(el=>el.onclick=()=>{
-    EDIT_ROW=null; renderUsers(); $("#acctNote").textContent="";
-  });
-  document.querySelectorAll(".uSave").forEach(el=>el.onclick=()=>{
-    const oldId=el.dataset.n;
-    const tr=el.closest("tr");
-    const nm=tr.querySelector(".eName").value.trim();
-    const role=tr.querySelector(".eRole").value;
-    const newId=tr.querySelector(".eUser").value.trim().toLowerCase();
-    const pw=tr.querySelector(".ePw").value.trim();
-    if(!newId||!pw){
-      $("#acctNote").textContent=LANG?"Username and password cannot be empty"
-                                     :"帳號和密碼不能空白"; return; }
-    const a2=users();
-    /* 改帳號等於換掉這筆的鍵,撞名要擋,不然會蓋掉別人 */
-    if(newId!==oldId && a2[newId]){
-      $("#acctNote").textContent=LANG?"That username is taken":"這個帳號已經有人用了"; return; }
-    const rec={p:pw, role, n:nm||newId};
-    if(newId!==oldId) delete a2[oldId];
-    a2[newId]=rec; saveAccounts(a2);
-    logAdd("edit account", oldId+(newId!==oldId?(" -> "+newId):""));
-    if(ME&&ME.user===oldId){ ME.user=newId; ME.name=rec.n; ME.role=role; setMe(ME); }
-    EDIT_ROW=null; renderUsers();
-    $("#acctNote").textContent=(LANG?"Saved: ":"已儲存:")+newId;
-  });
-  document.querySelectorAll(".uDel").forEach(el=>el.onclick=()=>{
-    if(ME&&ME.user===el.dataset.n){
-      $("#acctNote").textContent=LANG?"You cannot remove the account you are signed in as."
-                                     :"不能移除自己正在使用的帳號。"; return; }
-    const a2=users(); delete a2[el.dataset.n]; saveAccounts(a2);
-    logAdd("remove account", el.dataset.n);
-    renderUsers(); $("#acctNote").textContent=(LANG?"Removed ":"已移除 ")+el.dataset.n;
-  });
 }
 
 function renderLog(){
@@ -2974,7 +2853,7 @@ const I18N={
   "btn.login":["登入","Sign in"],
   "btn.logout":["登出","Sign out"], "cap.theme":["Theme","Theme"], "cap.clock":["Clock","Clock"],
   "hd.signin":["登入","Sign in"],
-  "lb.username":["帳號","Username"],
+  "lb.username":["帳號","Username"], "lb.email":["Email","Email"],
   "lb.name":["姓名","Name"], "lb.pw":["密碼","Password"],
   "none":["尚未選擇","Nothing chosen"],
   "hint.files":["設定檔記在這台瀏覽器裡,重整不用重挑。帳單每期換。兩個檔案都只在本機讀取。",
@@ -4116,17 +3995,26 @@ function step(name,fn){
 step("clock",   ()=>{ drawClock(); setInterval(()=>{drawClock();drawDateCard();},1000); });
 step("calendar",()=>drawDateCard());
 step("auth",()=>{
-  try{ const s=localStorage.getItem(SESS_KEY); if(s) ME=JSON.parse(s); }catch(e){}
-  applyRole();
+  initAuth();
   $("#bLogin").onclick=async()=>{
-    const r=await login($("#inUser").value,$("#inPw").value);
-    if(r.err){ $("#gateNote").innerHTML=`<div class="note warn">${r.err}</div>`; return; }
-    $("#gateNote").innerHTML=""; $("#inPw").value=""; setMe(r);
-    logAdd("sign in","");
-    setStatus((LANG?"Signed in as ":"已登入:")+r.name);
+    const button=$("#bLogin");
+    button.disabled=true;
+    try{
+      const r=await login($("#inUser").value,$("#inPw").value);
+      if(r.err){ $("#gateNote").innerHTML=`<div class="note warn">${r.err}</div>`; return; }
+      $("#gateNote").innerHTML=""; $("#inPw").value=""; setMe(r);
+      logAdd("sign in","");
+      setStatus((LANG?"Signed in as ":"已登入:")+r.name);
+    }finally{ button.disabled=false; }
   };
+  $("#inPw").onkeydown=e=>{ if(e.key==="Enter") $("#bLogin").click(); };
 
-  $("#bLogout").onclick=()=>{ logAdd("sign out",""); setMe(null); setStatus(LANG?"Signed out":"已登出"); };
+  $("#bLogout").onclick=async()=>{
+    logAdd("sign out","");
+    if(AUTH) await AUTH.auth.signOut();
+    setMe(null);
+    setStatus(LANG?"Signed out":"已登出");
+  };
 });
 step("language",()=>applyLang());
 step("config",  ()=>restoreConfig());
