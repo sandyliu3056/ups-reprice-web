@@ -3584,25 +3584,41 @@ function skyPhase(h){
   return "night";
 }
 const SKY={
-  /* mix = 跟紙色混多少。夜晚要幾乎不混,不然深藍會被沖成灰的。 */
-  night:  {top:"#16243f", bot:"#2c3c5e", mix:.08},
-  dawn:   {top:"#f0a071", bot:"#f7d9b4", mix:.30},
-  day:    {top:"#a8d4ee", bot:"#dcecf7", mix:.42},
-  dusk:   {top:"#e06b3a", bot:"#f2b678", mix:.16},
-  evening:{top:"#4a4a78", bot:"#8b7a94", mix:.12},
+  /* top 是天頂,bot 是地平線。晨昏的暖色只出現在地平線那一段,
+     天頂仍然是藍的 —— 整片塗橘會變成濾鏡,不是天空。 */
+  night:  {top:"#111d36", bot:"#2e3f63", mix:.06},
+  dawn:   {top:"#5b7fae", bot:"#f0a071", mix:.12},
+  day:    {top:"#8fc2e6", bot:"#dcecf7", mix:.34},
+  dusk:   {top:"#4a6a96", bot:"#e0703c", mix:.10},
+  evening:{top:"#25325a", bot:"#7a6a8e", mix:.08},
+};
+/* 天氣蓋過時段:暖色要壓掉,但天空本身還是藍的 —— 灰的是雲,
+   不是天。純中性灰會變成黑白照片。 */
+const WX_SKY={
+  rain:  {top:"#4e6076", bot:"#8695a4", mix:.14},
+  storm: {top:"#333f52", bot:"#5b6a7c", mix:.10},
+  snow:  {top:"#6e7f92", bot:"#b2bdc8", mix:.22},
+  cloud: {top:"#7e91a6", bot:"#b8c4d0", mix:.28},
 };
 function skyColour(part){
-  const p=SKY[skyPhase(localHour())]||SKY.day;
-  return blendHex(pal("--panel","#fffdf7"), p[part], 1-p.mix);
+  const paper=pal("--panel","#fffdf7");
+  const ph=skyPhase(localHour());
+  const base=SKY[ph]||SKY.day;
+  const wx=(typeof WX!=="undefined") && WX_SKY[WX.mode];
+  if(!wx) return blendHex(paper, base[part], 1-base.mix);
+  /* 有天氣時用天氣的灰,但夜裡仍然要更暗 —— 陰天的半夜不是灰白的。 */
+  const dark=(ph==="night"||ph==="evening");
+  const grey=blendHex(paper, wx[part], 1-wx.mix);
+  return dark ? blendHex(grey, base[part], .55) : grey;
 }
 
-/* 天氣讓天色再暗一階 */
 /* 天色暗的時候,深棕線條會整個消失在深藍裡。
    天上的東西(雲、鳥、山)改用淺色描,地面的維持深色。 */
 function darkSky(){
   const p=skyPhase(localHour());
   /* 雷雨天再亮也是暗的,線條要用淺色才看得見 */
-  return p==="night"||p==="evening"||(typeof WX!=="undefined"&&WX.mode==="storm");
+  return p==="night"||p==="evening"
+      || (typeof WX!=="undefined"&&(WX.mode==="storm"||WX.mode==="rain"));
 }
 function skyInk(){ return darkSky() ? "#e8e2d2" : INK; }
 
@@ -3831,7 +3847,12 @@ function sceneDraw(){
   g.lineWidth=2.2; g.strokeStyle=INK;
 
   if(BRAND==="Tally"){
-    skRect(g,3,3,W-6,H-6,101,skyColour("top"));
+    /* 天空要漸層才畫得出「天頂藍、地平線橘」。單色只能二選一。 */
+    const sky=g.createLinearGradient(0,3,0,H-22);
+    sky.addColorStop(0, skyColour("top"));
+    sky.addColorStop(0.62, blendHex(skyColour("top"),skyColour("bot"),.55));
+    sky.addColorStop(1, skyColour("bot"));
+    skRect(g,3,3,W-6,H-6,101,sky);
     drawTallyYard(g,W,H);
     drawWeather(g,W,H,t);
   }else{
@@ -3846,7 +3867,10 @@ function sceneDraw(){
     g.lineWidth=1.6;
     for(let k=0;k<4;k++){
       const wx=200+k*64;
-      skRect(g,wx,16,40,28,30+k,skyColour("bot"));
+      const wsky=g.createLinearGradient(0,16,0,44);
+      wsky.addColorStop(0, skyColour("top"));
+      wsky.addColorStop(1, skyColour("bot"));
+      skRect(g,wx,16,40,28,30+k,wsky);
       skLine(g,wx+20,16,wx+20,44,34+k);
       skLine(g,wx,30,wx+40,30,38+k);
     }
