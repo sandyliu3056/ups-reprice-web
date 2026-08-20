@@ -1164,6 +1164,9 @@ function scanCharges(lines, dynMap){
      內建的附加費一律計燃油 —— 桌面版的 ACC_FUEL_ELIGIBLE 只拿來決定
      AFW / ART / REP 的預設值,沒有拿去擋內建桶子的燃油。 */
   const nonFuel=new Set();
+  /* 每個自訂桶子的 Type。REPRICE 查合約費率;COPY INVOICE 和
+     REPORT ONLY 都用 UPS 實收的金額,差別只在算不算進合約總額。 */
+  const dynMode={};
   const dyn=dynMap||{};
   for(const l of lines){
     const c=(l.code||"").toUpperCase();
@@ -1176,9 +1179,9 @@ function scanCharges(lines, dynMap){
     const dcfg=dyn[c];
     if(dcfg && dcfg.enabled!==false && AR_CODES.includes(normArCode(l.cls))
        && normArCode(l.cls)===normArCode(dcfg.ar||"ACC")
-       && String(dcfg.name||"").trim()!==""
-       && normDynType(dcfg.type)==="REPRICE"){
+       && String(dcfg.name||"").trim()!==""){
       bucket=String(dcfg.name).trim();
+      dynMode[bucket]=normDynType(dcfg.type);
       if(dcfg.fuel_eligible===false) nonFuel.add(bucket);
       seen[bucket]=true;
       net[bucket]=(net[bucket]||0)+l.net;
@@ -1209,7 +1212,8 @@ function scanCharges(lines, dynMap){
       net[bucket]=(net[bucket]||0)+l.net;
     }
   }
-  return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj, nonFuel};
+  return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj,
+          nonFuel, dynMode};
 }
 
 /* 一筆貨的完整計價 */
@@ -1274,10 +1278,17 @@ function priceShipment(cfg, s){
   if(baseWhy) issues.push(baseWhy);
 
   /* 附加費:UPS 收了才收 */
-  const acc={};
+  const acc={}, accInfo={};
+  const modes=scan.dynMode||{};
   for(const [bucket,on] of Object.entries(scan.seen)){
     if(!on) continue;
     if(Math.round((scan.net[bucket]||0)*100)===0) continue;   // 淨額 0 不收
+    /* 自訂附加費的三種 Type。COPY INVOICE 和 REPORT ONLY 沒有合約費率
+       可查,兩者都照抄 UPS 實收;REPORT ONLY 只顯示,不進合約總額,
+       因此也不進燃油底。 */
+    const mode=modes[bucket];
+    if(mode==="COPY INVOICE"){ acc[bucket]=scan.net[bucket]; continue; }
+    if(mode==="REPORT ONLY"){ accInfo[bucket]=scan.net[bucket]; continue; }
     if(bucket==="AHS Dimension"&&!bw.ahsDim){
       issues.push(L("UPS 收了 AHS-Dimension,但尺寸未達門檻",
       "UPS charged AHS-Dimension but the dimensions are under the threshold"));
@@ -1309,7 +1320,7 @@ function priceShipment(cfg, s){
 
   const total = base===null ? null : base+accTotal+fuel;
   return {s, bw, residential, resBasis, channel, base, baseWhy,
-          acc, accTotal, fuel, total, issues,
+          acc, accInfo, accTotal, fuel, total, issues,
           notRepriced:scan.notRepriced,
           diff: total===null?null: total-s.upsTotal};
 }
@@ -3207,13 +3218,20 @@ function renderRate(){
     <div class="v" style="font-size:18px">${v}</div>
     <div class="sub">${sub||"&nbsp;"}</div></div>`).join("");
 
-  const accN=[...new Set(RATED.flatMap(o=>Object.keys(o.acc)))].sort();
+  /* REPORT ONLY 的欄位也要出現 —— 它顯示但不計入合約總額,
+     欄名後面加個記號,免得有人把它加進去對帳。 */
+  const infoN=new Set(RATED.flatMap(o=>Object.keys(o.accInfo||{})));
+  const accN=[...new Set(RATED.flatMap(o=>
+    Object.keys(o.acc).concat(Object.keys(o.accInfo||{}))))].sort();
+  const accVal=(o,n)=>o.acc[n]!==undefined ? o.acc[n]
+                    : (o.accInfo&&o.accInfo[n]!==undefined ? o.accInfo[n] : undefined);
   $("#tRate").querySelector("thead").innerHTML=`<tr>
     <th>${T("th.trk")}</th><th>${T("th.chan")}</th><th class="num">Zone</th>
     <th class="num">${L("輸入","Entered")}</th><th class="num">DIM</th>
     <th class="num">${L("計費重","Billable")}</th>
     <th>${L("重量依據","Weight basis")}</th><th class="num">${L("運費","Base rate")}</th>
-    ${accN.map(n=>`<th class="num">${esc(n)}</th>`).join("")}
+    ${accN.map(n=>`<th class="num">${esc(n)}${infoN.has(n)
+        ? ` <span style="font-weight:400">(`+L("僅顯示","report only")+`)</span>` : ""}</th>`).join("")}
     <th class="num">${T("hd.fuel")}</th><th class="num">${T("t.calc")}</th>
     <th class="num">${T("t.ups")}</th><th class="num">${L("差額","Difference")}</th>
     <th>${T("th.note")}</th></tr>`;
@@ -3226,7 +3244,8 @@ function renderRate(){
     <td class="num"><b>${num(o.bw.billable)}</b></td>
     <td style="font-size:11.5px">${esc(o.bw.basis)}</td>
     <td class="num">${o.base!==null?money(o.base):'<span style="color:var(--neg)">—</span>'}</td>
-    ${accN.map(n=>`<td class="num">${o.acc[n]!==undefined?money(o.acc[n]):""}</td>`).join("")}
+    ${accN.map(n=>{const v=accVal(o,n);
+      return `<td class="num">${v!==undefined?money(v):""}</td>`;}).join("")}
     <td class="num">${money(o.fuel)}</td>
     <td class="num"><b>${o.total!==null?money(o.total):"—"}</b></td>
     <td class="num">${money(o.s.upsTotal)}</td>
@@ -3366,11 +3385,14 @@ let HISTROWS=null;
 
 /* ---- 匯出 ---- */
 $("#bCsv").onclick=()=>{
-  const accN=[...new Set(RATED.flatMap(o=>Object.keys(o.acc)))].sort();
+  const infoN=new Set(RATED.flatMap(o=>Object.keys(o.accInfo||{})));
+  const accN=[...new Set(RATED.flatMap(o=>
+    Object.keys(o.acc).concat(Object.keys(o.accInfo||{}))))].sort();
   const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
   const head=["Tracking","Channel","ResidentialBasis","Zone","EnteredWeight",
     "DimWeight","BillableWeight","WeightBasis","AHS_Dim","AHS_Weight","Oversize",
-    "BaseRate",...accN.map(n=>n.replace(/ /g,"_")),"Fuel","ContractTotal",
+    "BaseRate",...accN.map(n=>(n+(infoN.has(n)?" Report Only":"")).replace(/ /g,"_")),
+    "Fuel","ContractTotal",
     "UPS_Net","Diff","Issues"];
   const lines=[head.join(",")];
   for(const o of RATED){
@@ -3378,7 +3400,10 @@ $("#bCsv").onclick=()=>{
       o.bw.dim===null?"":o.bw.dim,o.bw.billable,q(o.bw.basis),
       o.bw.ahsDim?1:0,o.bw.ahsWeight?1:0,o.bw.oversize?1:0,
       o.base===null?"":o.base.toFixed(2),
-      ...accN.map(n=>o.acc[n]!==undefined?o.acc[n].toFixed(2):""),
+      ...accN.map(n=>{
+        const v=o.acc[n]!==undefined?o.acc[n]
+              :(o.accInfo&&o.accInfo[n]!==undefined?o.accInfo[n]:undefined);
+        return v!==undefined?v.toFixed(2):"";}),
       o.fuel.toFixed(2), o.total===null?"":o.total.toFixed(2),
       o.s.upsTotal.toFixed(2), o.diff===null?"":o.diff.toFixed(2),
       q(o.issues.join(" | "))].join(","));
@@ -4862,3 +4887,4 @@ step("scene",   ()=>sceneInit());
 </script>
 </body>
 </html>
+++ "upload/index - 2026-08-21T072116.151.html"	2026-08-21 05:51:27.480995424 +0630
