@@ -1,4 +1,19 @@
-streamlit
-pandas
-openpyxl
-xlrd
+# UPS Reprice Tool -- 相依套件
+#
+# 「一模一樣」的第一步是版本一樣。下面是可用的下限,
+# 但真正要重現同一個 build,請在**現在跑得起來的那台**下:
+#
+#     pip freeze > requirements.lock.txt
+#
+# 然後在新機器上用 requirements.lock.txt 裝,而不是這個檔。
+# pandas 跨大版本改過 read_excel 的 dtype 推斷,同一張 invoice
+# 可能被讀成不同型別 -- 那就不叫一模一樣了。
+
+customtkinter>=5.2.2
+pandas>=2.0,<3.0
+numpy>=1.24,<3.0
+openpyxl>=3.1
+tzdata>=2024.1          # Windows 的 zoneinfo 要靠它,缺了不會壞但時區會不跟日光節約
+
+# 打包用
+pyinstaller>=6.0        # 6.0 才會把 DLL 收進 _internal\,exe 旁邊才乾淨

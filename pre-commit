@@ -1,0 +1,57 @@
+#!/bin/sh
+# =====================================================================
+# UPS Reprice Tool -- pre-commit
+# =====================================================================
+# .gitignore 擋不住兩件事:git add -f,以及已經被追蹤過的檔案。
+# 這個 hook 擋得住,因為它看的是「這次真的要 commit 什麼」。
+#
+# 安裝(在 repo 根目錄跑一次就好):
+#     git config core.hooksPath .githooks
+#
+# 這樣 hook 本身也進版控,換機器、同事 clone 都會有。
+# .git/hooks/ 裡的 hook 不會跟著 clone 走,所以不要放那裡。
+#
+# 真的要放行某一次:git commit --no-verify
+# 但先想清楚為什麼。
+# =====================================================================
+
+RED=$(printf '\033[31m'); YEL=$(printf '\033[33m'); OFF=$(printf '\033[0m')
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+blocked=""
+
+# ---- 1. 客戶資料檔 --------------------------------------------------
+for f in $staged; do
+    case "$f" in
+        *ups_billing_tool_config.json)
+            blocked="$blocked\n  $f  <- 客戶合約費率" ;;
+        *ups_history.sqlite3*)
+            blocked="$blocked\n  $f  <- 帳單明細歷史" ;;
+        *_rate_issues.csv|*.xlsx|*.xls|*.csv)
+            case "$f" in
+                *sample*|*範例*) ;;
+                *) blocked="$blocked\n  $f  <- 帳單或報表" ;;
+            esac ;;
+    esac
+done
+
+# ---- 2. 檔案內容裡的 token -----------------------------------------
+# 上一次外流是貼在對話裡,下一次可能是不小心 commit 進去。
+for f in $staged; do
+    [ -f "$f" ] || continue
+    if git show ":$f" 2>/dev/null | grep -qE 'gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}'; then
+        blocked="$blocked\n  $f  <- 裡面有 GitHub token"
+    fi
+done
+
+if [ -n "$blocked" ]; then
+    printf "\n${RED}commit 擋下來了${OFF}\n"
+    printf "${YEL}這些不該進 git:${OFF}"
+    printf "$blocked\n\n"
+    printf "取消暫存:  git restore --staged <檔名>\n"
+    printf "如果是 token 外流,先撤銷再說,不要只是刪掉。\n"
+    printf "確定要放行:git commit --no-verify\n\n"
+    exit 1
+fi
+exit 0
