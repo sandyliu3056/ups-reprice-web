@@ -260,6 +260,20 @@ td.cells{white-space:normal}
 
 select{caret-color:transparent}
 select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
+.dpNav{display:grid;grid-template-columns:auto auto 1fr auto auto;
+  gap:8px;align-items:center;margin-bottom:12px}
+.dpNav .act{padding:5px 14px;font-size:15px}
+.dpTitle{text-align:center;font-size:15px;font-weight:600;color:var(--accent)}
+.dpHead,.dpGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.dpHead{margin-bottom:6px}
+.dpHead span{text-align:center;font-size:12.5px;color:var(--muted);font-weight:600}
+.dpGrid button{font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+  padding:7px 0;border:2px solid var(--accent);border-radius:6px;
+  background:var(--tab);color:var(--accent)}
+.dpGrid button:hover{background:var(--select)}
+.dpGrid button.today{outline:2px solid var(--run2);outline-offset:1px}
+.dpGrid button.on{background:var(--accent);color:var(--tab)}
+.dpGrid .pad{visibility:hidden}
 </style>
 </head>
 <body>
@@ -708,9 +722,11 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <div class="subhd" data-i18n="hd.newrange">New Fuel Range</div>
       <div class="row sketch-soft" style="padding:10px 12px">
         <label class="inlab" style="margin-left:0" data-i18n="lb.from">From</label>
-        <input id="fuelFrom" type="date" class="cell" style="width:150px;text-align:left">
+        <input id="fuelFrom" class="cell" readonly style="width:120px;text-align:left">
+        <button class="act ghost pickBtn" data-for="fuelFrom">📅</button>
         <label class="inlab" data-i18n="lb.to">To</label>
-        <input id="fuelTo" type="date" class="cell" style="width:150px;text-align:left">
+        <input id="fuelTo" class="cell" readonly style="width:120px;text-align:left">
+        <button class="act ghost pickBtn" data-for="fuelTo">📅</button>
         <label class="inlab" data-i18n="lb.fuelpct">Fuel %</label>
         <input id="fuelPct" class="cell" style="width:90px">
         <button class="act" id="bAddRange" data-i18n="btn.addrange">Add Range</button>
@@ -748,6 +764,29 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 </div>
 
 <div class="sceneBox" id="sceneBox"><canvas id="scene"></canvas></div>
+<div id="dpBg" class="modalbg">
+  <div class="modal sketch" id="dpModal" style="width:min(420px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.pickdate">Pick a date</span>
+      <button class="mx" id="dpX">✕</button>
+    </div>
+    <div class="modalbody">
+      <div class="dpNav">
+        <button class="act ghost" id="dpYPrev">&laquo;</button>
+        <button class="act ghost" id="dpMPrev">&lsaquo;</button>
+        <span id="dpTitle" class="dpTitle"></span>
+        <button class="act ghost" id="dpMNext">&rsaquo;</button>
+        <button class="act ghost" id="dpYNext">&raquo;</button>
+      </div>
+      <div class="dpHead" id="dpHead"></div>
+      <div class="dpGrid" id="dpGrid"></div>
+    </div>
+    <div class="modalft" style="justify-content:center">
+      <button class="act" id="dpClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="statusbar"><span id="status" data-i18n="ready">Ready</span></div>
 
 <script>
@@ -1791,6 +1830,14 @@ $("#bLogClear") && ($("#bLogClear").onclick=()=>{
   try{ localStorage.removeItem(LOG_KEY); }catch(e){}
   renderLog(); setStatus(LANG?"Log cleared":"紀錄已清除");
 });
+document.querySelectorAll(".pickBtn").forEach(b=>b.onclick=()=>openPicker(b.dataset.for));
+$("#dpX") && ($("#dpX").onclick=closePicker);
+$("#dpClose") && ($("#dpClose").onclick=closePicker);
+$("#dpBg") && ($("#dpBg").onclick=e=>{ if(e.target.id==="dpBg") closePicker(); });
+$("#dpYPrev") && ($("#dpYPrev").onclick=()=>dpShift(-1,0));
+$("#dpYNext") && ($("#dpYNext").onclick=()=>dpShift(1,0));
+$("#dpMPrev") && ($("#dpMPrev").onclick=()=>dpShift(0,-1));
+$("#dpMNext") && ($("#dpMNext").onclick=()=>dpShift(0,1));
 $("#bFuelX") && ($("#bFuelX").onclick=closeFuel);
 $("#bFuelClose") && ($("#bFuelClose").onclick=closeFuel);
 $("#modalBg") && ($("#modalBg").onclick=e=>{ if(e.target.id==="modalBg") closeFuel(); });
@@ -2072,6 +2119,56 @@ function renderDemand(){
         +d.cols.map(c=>`<td>${esc(r[c[0]]??"")}</td>`).join("")+`</tr>`).join("")
     : `<tr><td colspan="${d.cols.length+1}" class="empty">${
         LANG?"No rows. Demand is not charged.":"沒有資料,不加收 Demand。"}</td></tr>`;
+}
+
+/* 日期挑選器。桌面版是自己畫的月曆,不是系統控制項 ——
+   瀏覽器原生的 date input 每個系統長得都不一樣,對不上這套外觀。 */
+let DP_TARGET=null, DP_Y=0, DP_M=0;
+const DP_WD=[["一","Mo"],["二","Tu"],["三","We"],["四","Th"],
+             ["五","Fr"],["六","Sa"],["日","Su"]];
+const DP_MON=["January","February","March","April","May","June","July",
+              "August","September","October","November","December"];
+function openPicker(id){
+  DP_TARGET=id;
+  const cur=($("#"+id)||{}).value||"";
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(cur);
+  const now=new Date();
+  DP_Y = m?+m[1]:now.getFullYear();
+  DP_M = m?(+m[2]-1):now.getMonth();
+  renderPicker();
+  $("#dpBg").classList.add("on");
+}
+function closePicker(){ $("#dpBg").classList.remove("on"); DP_TARGET=null; }
+function renderPicker(){
+  $("#dpTitle").textContent = LANG
+    ? DP_MON[DP_M]+" "+DP_Y
+    : DP_Y+" 年 "+(DP_M+1)+" 月";
+  $("#dpHead").innerHTML=DP_WD.map(d=>`<span>${d[LANG]}</span>`).join("");
+  /* 週一開頭:getDay() 的週日是 0,要轉成 6 */
+  const first=(new Date(DP_Y,DP_M,1).getDay()+6)%7;
+  const days=new Date(DP_Y,DP_M+1,0).getDate();
+  const cur=DP_TARGET?($("#"+DP_TARGET)||{}).value:"";
+  const now=new Date();
+  const p=n=>String(n).padStart(2,"0");
+  let html="";
+  for(let i=0;i<first;i++) html+=`<button class="pad" tabindex="-1"></button>`;
+  for(let d=1;d<=days;d++){
+    const iso=DP_Y+"-"+p(DP_M+1)+"-"+p(d);
+    const isToday = DP_Y===now.getFullYear()&&DP_M===now.getMonth()&&d===now.getDate();
+    html+=`<button data-d="${iso}"${isToday?' class="today"':""}${
+      iso===cur?' class="on"':""}>${d}</button>`;
+  }
+  $("#dpGrid").innerHTML=html;
+  $("#dpGrid").querySelectorAll("button[data-d]").forEach(b=>b.onclick=()=>{
+    if(DP_TARGET) $("#"+DP_TARGET).value=b.dataset.d;
+    closePicker();
+  });
+}
+function dpShift(dy,dm){
+  DP_M+=dm; DP_Y+=dy;
+  while(DP_M<0){ DP_M+=12; DP_Y--; }
+  while(DP_M>11){ DP_M-=12; DP_Y++; }
+  renderPicker();
 }
 
 /* 燃油設定視窗 */
@@ -2762,6 +2859,7 @@ const I18N={
   "c.longest":["最長邊","Longest"], "c.weight":["實重","Weight"],
   "c.cubic":["材積","Cubic"], "c.second":["第二長邊","2nd Side"],
   "c.minwt":["最低計費重","Min Wt"],
+  "hd.pickdate":["選擇日期","Pick a date"],
   "hd.fuelsetup":["燃油設定","Fuel Setup"],
   "lb.deffuel":["預設燃油 %","Default Fuel %"],
   "hd.newrange":["新增燃油區間","New Fuel Range"],
