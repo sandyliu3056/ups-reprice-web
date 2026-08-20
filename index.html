@@ -119,7 +119,6 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .readyrow{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px}
 .rdy{display:flex;align-items:center;gap:8px;font-size:12.5px;min-width:0}
 .rdy .k{color:var(--accent);font-weight:600;white-space:nowrap}
-.rdy .d{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
 .pill{border:1.5px solid var(--line);border-radius:999px;padding:1px 9px;
   font-size:11.5px;font-weight:600;white-space:nowrap}
 .pill.ok{color:var(--run2);border-color:var(--run2)}
@@ -755,6 +754,72 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   </div>
 </div>
 
+<div id="dynBg" class="modalbg">
+  <div class="modal sketch" id="dynModal">
+    <div class="modalhd">
+      <span data-i18n="hd.customacc">Custom Surcharges</span>
+      <button class="mx" id="bDynX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p class="hint" data-i18n="hint.customacc"></p>
+      <div class="tablewrap" style="max-height:320px">
+        <table id="tDyn"><thead><tr>
+          <th style="width:30px"><input type="checkbox" id="dynAll"></th>
+          <th data-i18n="th.ascode">AS Code</th>
+          <th data-i18n="th.arcode">AR</th>
+          <th data-i18n="th.accname">Surcharge Name</th>
+          <th data-i18n="th.type">Type</th>
+          <th data-i18n="th.fuelok">Fuel Eligible</th>
+          <th data-i18n="th.enabled">Enabled</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+      <div id="dynNote"></div>
+    </div>
+    <div class="modalft">
+      <button class="act" id="bDynAdd" data-i18n="btn.addacc">+ Add Surcharge</button>
+      <button class="act ghost" id="bDynDel" data-i18n="btn.delacc">Delete Selected</button>
+      <button class="act" id="bDynSave" data-i18n="btn.saveacc">Save Setup</button>
+      <button class="act ghost" id="bDynExp" data-i18n="btn.expacc">Export List</button>
+      <button class="act ghost" id="bDynImp" data-i18n="btn.impacc">Import List</button>
+      <input type="file" id="fDynImp" accept=".xlsx,.xls,.csv">
+      <span class="savenote"></span>
+      <button class="act ghost" id="bDynClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="dynAddBg" class="modalbg">
+  <div class="modal sketch" id="dynAddModal" style="width:min(620px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.addacc">Add Custom Surcharge</span>
+      <button class="mx" id="bDynAddX">✕</button>
+    </div>
+    <div class="modalbody">
+      <div class="frow"><label data-i18n="th.arcode">AR</label>
+        <select id="dynAr"></select>
+        <span id="dynArWhy" class="hint" style="margin:0"></span></div>
+      <div class="frow"><label data-i18n="th.ascode">AS Code</label>
+        <input id="dynAs" class="cell" style="text-align:left"></div>
+      <div class="frow"><label></label>
+        <span id="dynMatch" class="hint" style="margin:0"></span></div>
+      <div class="frow"><label data-i18n="th.accname">Surcharge Name</label>
+        <input id="dynName" class="cell" style="text-align:left"></div>
+      <div class="frow"><label data-i18n="lb.shape">Rate Shape</label>
+        <select id="dynShape"></select>
+        <span id="dynShapeWhy" class="hint" style="margin:0"></span></div>
+      <div class="frow"><label data-i18n="th.fuelok">Fuel Eligible</label>
+        <select id="dynFuel"><option>YES</option><option>NO</option></select></div>
+      <div class="frow"><label data-i18n="th.enabled">Enabled</label>
+        <select id="dynOn"><option>YES</option><option>NO</option></select></div>
+      <div id="dynAddNote"></div>
+    </div>
+    <div class="modalft">
+      <button class="act" id="bDynAddSave" data-i18n="btn.save">Save</button>
+      <button class="act ghost" id="bDynAddCancel" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="sceneBox" id="sceneBox"><canvas id="scene"></canvas></div>
 <div id="dpBg" class="modalbg">
   <div class="modal sketch" id="dpModal" style="width:min(420px,100%)">
@@ -1020,6 +1085,32 @@ const ACC_CODE_MAP = {
   /* 宣告價值:金額在帳單的宣告價值欄,不是這一行的 net */
   EVS:{marker:"declared_value"},
 };
+/* 桌面版 BILLABLE_AR_CODES / AR_CODE_DESCRIPTIONS / ACC_SHAPE_*。
+   FRT 和 FSC 是工具自己算的,MSC 是帳號層級的調整,都不能當 AR。 */
+const AR_CODES=["ACC","BRK","GOV","TAX","EXM"];
+const AR_WHY={
+  ACC:["附加費","Accessorial surcharge"],
+  BRK:["報關費(進口報單)","Brokerage fee (import entry)"],
+  GOV:["政府關稅／稅金","Government duty / customs tax"],
+  TAX:["這筆貨的稅","Tax charged on the shipment"],
+  EXM:["免稅／不課稅項目","Exempt / non-taxable charge"],
+};
+const SHAPES=["FLAT","BY ZONE"];
+const SHAPE_WHY={
+  FLAT:["單一費率,所有 Zone 共用","Single rate, all zones"],
+  "BY ZONE":["每個 Zone 一個費率","One rate per zone"],
+};
+/* 桌面版 DYNAMIC_TYPE_ALIASES / normalize_dynamic_type */
+const DYN_TYPE_ALIAS={TEMPLATE:"REPRICE", RAW:"COPY INVOICE",
+  AUDIT_ONLY:"REPORT ONLY", "AUDIT ONLY":"REPORT ONLY",
+  COPY_INVOICE:"COPY INVOICE", REPORT_ONLY:"REPORT ONLY"};
+function normDynType(v){
+  let r=String(v||"").trim().toUpperCase().split(" - ")[0].trim();
+  r=DYN_TYPE_ALIAS[r]||r;
+  return ["REPRICE","COPY INVOICE","REPORT ONLY"].includes(r)?r:"REPRICE";
+}
+function normArCode(v){ return String(v||"").trim().toUpperCase().split(" - ")[0].trim(); }
+
 /* 原始碼:ACC_CODES_NOT_REPRICED */
 const NOT_REPRICED = new Set(["NPF","SCF"]);
 /* 走主線,不當附加費 */
@@ -1064,15 +1155,30 @@ function accLookup(cfg, feeType, channel, zone, issues){
 }
 
 /* 掃一筆貨的所有帳單行,分出每一項 UPS 收了什麼 */
-function scanCharges(lines){
-  const seen={}, net={};
+function scanCharges(lines, dynMap){
+  const seen={}, net={}, fuelEligible={};
   let resCode=false, comCode=false, notRepriced=0;
   let declared=0, commercialAdj=false;
+  const dyn=dynMap||{};
   for(const l of lines){
     const c=(l.code||"").toUpperCase();
     if(!c || MAIN_LINE.has(c)) continue;
     if(NOT_REPRICED.has(c)){ notRepriced+=l.net; continue; }
     let bucket=null;
+    /* 自訂附加費先看 —— 桌面版 run_repricing 的順序也是內建代碼判完
+       之後才輪到註冊表,但註冊表裡的代碼不會和內建的重疊,先看等價
+       而且省一層。AR 要對得上:AS 代碼可以重複出現在不同 AR 底下。 */
+    const dcfg=dyn[c];
+    if(dcfg && dcfg.enabled!==false && AR_CODES.includes(normArCode(l.cls))
+       && normArCode(l.cls)===normArCode(dcfg.ar||"ACC")
+       && String(dcfg.name||"").trim()!==""
+       && normDynType(dcfg.type)==="REPRICE"){
+      bucket=String(dcfg.name).trim();
+      seen[bucket]=true;
+      net[bucket]=(net[bucket]||0)+l.net;
+      fuelEligible[bucket]=dcfg.fuel_eligible!==false;
+      continue;
+    }
     const cm=ACC_CODE_MAP[c];
     if(cm){
       if(cm.res) resCode=true;
@@ -1098,7 +1204,7 @@ function scanCharges(lines){
       net[bucket]=(net[bucket]||0)+l.net;
     }
   }
-  return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj};
+  return {seen, net, fuelEligible, resCode, comCode, notRepriced, declared, commercialAdj};
 }
 
 /* 一筆貨的完整計價 */
@@ -1118,7 +1224,7 @@ function quoteDeclaredValue(cfg, value){
 
 function priceShipment(cfg, s){
   const issues=[];
-  const scan=scanCharges(s.lines);
+  const scan=scanCharges(s.lines, cfg.dynMap);
   /* 住宅/商業:帳單自己的代碼優先,和原始碼同一條規則。
      兩邊都沒有代碼時只能看服務名稱 —— 跨期 ADJ 這時會不準,標出來。 */
   let residential, resBasis;
@@ -1189,7 +1295,9 @@ function priceShipment(cfg, s){
   /* 燃油:附加費是否計燃油由設定檔的 fuel_eligible 決定,
      沒登記的一律計 —— 和桌面版一致。 */
   const accTotal=Object.values(acc).reduce((a,b)=>a+b,0);
-  const fuelBase=(base||0)+accTotal;
+  const fuelAccTotal=Object.entries(acc).reduce((sum,[bucket,amount])=>
+    sum+(scan.fuelEligible[bucket]===false?0:amount),0);
+  const fuelBase=(base||0)+fuelAccTotal;
   const fuel = cfg.fuelPct>0 ? fuelBase*cfg.fuelPct/100 : 0;
 
   const total = base===null ? null : base+accTotal+fuel;
@@ -1995,17 +2103,29 @@ $("#bRemoveTicked") && ($("#bRemoveTicked").onclick=()=>{
   setStatus((LANG?"Removed ":"已移除 ")+ticked.length+(LANG?" rate row(s)":" 列費率"));
 });
 $("#bCustomAcc") && ($("#bCustomAcc").onclick=()=>{
-  const fee=prompt(LANG?"Surcharge name":"附加費名稱"); if(!fee) return;
-  /* 渠道用目前選的那個,不要再叫使用者打字 —— 打錯就是一筆查不到的鍵 */
-  const ch=($("#accFilter")||{}).value||"";
-  if(!ch){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
-  const key=fee.trim()+"|||"+ch.trim();
-  if(CFG.raw.accessorial_rate_table[key]){
-    setStatus(LANG?"That row already exists":"這一列已經有了"); return; }
-  CFG.raw.accessorial_rate_table[key]=0;
-  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
-  setStatus((LANG?"Added ":"已新增 ")+key);
+  dynLoad();
+  $("#dynBg").classList.add("on");
 });
+$("#bDynX")     && ($("#bDynX").onclick    =()=>$("#dynBg").classList.remove("on"));
+$("#bDynClose") && ($("#bDynClose").onclick=()=>$("#dynBg").classList.remove("on"));
+$("#dynBg")     && ($("#dynBg").onclick=e=>{ if(e.target.id==="dynBg") $("#dynBg").classList.remove("on"); });
+$("#bDynAdd")   && ($("#bDynAdd").onclick  =dynAddOpen);
+$("#bDynDel")   && ($("#bDynDel").onclick  =dynDelete);
+$("#bDynSave")  && ($("#bDynSave").onclick =()=>{ dynSave(); dynRender(); });
+$("#bDynExp")   && ($("#bDynExp").onclick  =dynExport);
+$("#bDynImp")   && ($("#bDynImp").onclick  =()=>$("#fDynImp").click());
+$("#fDynImp")   && ($("#fDynImp").onchange =e=>{
+  const f=e.target.files&&e.target.files[0];
+  if(f) dynImport(f);
+  e.target.value="";
+});
+$("#bDynAddX")      && ($("#bDynAddX").onclick     =()=>$("#dynAddBg").classList.remove("on"));
+$("#bDynAddCancel") && ($("#bDynAddCancel").onclick=()=>$("#dynAddBg").classList.remove("on"));
+$("#bDynAddSave")   && ($("#bDynAddSave").onclick  =dynAddSave);
+$("#dynAr")    && ($("#dynAr").onchange   =()=>{ dynSyncWhy(); dynCheckCode(); });
+$("#dynShape") && ($("#dynShape").onchange=dynSyncWhy);
+$("#dynAs")    && ($("#dynAs").addEventListener("keyup",dynCheckCode));
+$("#dynAs")    && ($("#dynAs").addEventListener("blur",dynCheckCode));
 $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
   /* 只倒目前選的渠道,Zone 用它自己的那組 ——
      整張表倒出來的話,填的人得先在幾百列裡找自己要的那幾列。 */
@@ -2181,32 +2301,23 @@ function ready(){
   const okCfg = !!(CFG && rows>0), okInv = !!INV;
   $("#bRun") && ($("#bRun").disabled = !(okCfg && okInv));
   $("#bCsv") && ($("#bCsv").disabled = !RATED);
-  renderReady(okCfg, okInv, rows);
+  renderReady(okCfg, okInv);
 }
 /* 匯入分頁上把兩個前提各自標成 Ready / Not loaded,
    並且說明 Generate Reprice Report 為什麼還是灰的 ——
    預設設定檔本身是有效的,只是一列費率都沒有,光看畫面看不出差別。 */
-function renderReady(okCfg, okInv, rows){
+function renderReady(okCfg, okInv){
   const box=$("#filesReady");
-  if(box){
-    const pill=ok=>`<span class="pill ${ok?"ok":"no"}">`
-      +(ok?(LANG?"Ready":"就緒"):(LANG?"Not loaded":"尚未載入"))+`</span>`;
-    const cfgDetail = okCfg
-      ? esc(CFG_LABEL||(LANG?"settings":"設定"))+" · "
-        +rows.toLocaleString()+(LANG?" base-rate rows":" 列費率")
-      : (CFG ? (LANG?"no base-rate rows":"沒有任何費率列")
-             : (LANG?"no settings":"沒有設定"));
-    const invDetail = okInv
-      ? esc(INV_NAME)+" · "+fmtSize(INV_SIZE)
-        +(INV_KIND?" · "+INV_KIND:"")
-        +(INV_SHEET?" · "+(LANG?"sheet ":"工作表 ")+esc(INV_SHEET):"")
-      : (LANG?"no billing file":"沒有帳單檔");
-    box.innerHTML=
-      `<div class="rdy"><span class="k">`+(LANG?"Rate settings":"費率設定")+`</span>`
-      +pill(okCfg)+`<span class="d">`+cfgDetail+`</span></div>`
-      +`<div class="rdy"><span class="k">`+(LANG?"UPS Invoice":"UPS 帳單")+`</span>`
-      +pill(okInv)+`<span class="d">`+invDetail+`</span></div>`;
-  }
+  if(!box) return;
+  /* 只留標籤和狀態。檔名、大小、格式、工作表在上面的 UPS Billing File
+     欄位裡,費率列數在下面的 cfgNote 裡,這裡再寫一次是重複。 */
+  const pill=ok=>`<span class="pill ${ok?"ok":"no"}">`
+    +(ok?(LANG?"Ready":"就緒"):(LANG?"Not loaded":"尚未載入"))+`</span>`;
+  box.innerHTML=
+    `<div class="rdy"><span class="k">`+(LANG?"Rate settings":"費率設定")+`</span>`
+    +pill(okCfg)+`</div>`
+    +`<div class="rdy"><span class="k">`+(LANG?"UPS Invoice":"UPS 帳單")+`</span>`
+    +pill(okInv)+`</div>`;
 }
 
 /* ---- 設定檔相關分頁 ---- */
@@ -2524,6 +2635,240 @@ function dpShift(dy,dm){
 function fuelSched(){
   const s=CFG.raw.channel_fuel_schedules||(CFG.raw.channel_fuel_schedules={});
   return s;
+}
+/* =====================================================================
+   自訂附加費
+   ---------------------------------------------------------------------
+   桌面版 _build_dynamic_surcharge_tab / open_dynamic_surcharge_popup 的
+   同一套:清單六欄、五顆按鈕,新增時問 AR / AS / 名稱 / 費率形狀 /
+   計燃油 / 啟用,Type 不問,一律 REPRICE。
+
+   AR 是下拉不是輸入框:UPS 只定義那五個,打錯的話這筆附加費永遠對不到
+   任何一行帳單,而且畫面上看不出來。AS 保持輸入,因為 UPS 會加新代碼,
+   改用比對已匯入的帳單來檢查。
+   ===================================================================== */
+let DYN_ROWS=[];      /* [{as, ar, name, type, fuel, on}] */
+
+function dynLoad(){
+  const m=(CFG&&CFG.raw.dynamic_surcharge_mapping)||{};
+  DYN_ROWS=Object.entries(m).map(([as,c])=>({
+    as:String(as).trim().toUpperCase(),
+    ar:normArCode(c.ar||"ACC"),
+    name:String(c.name||""),
+    type:normDynType(c.type),
+    fuel:c.fuel_eligible!==false,
+    on:c.enabled!==false,
+  }));
+  dynSeedRateRows();
+  dynRender();
+}
+/* 桌面版 load_dynamic_surcharge_registry 的後半:可計費的 AR 加上名稱,
+   費率表裡沒有這一列就補一列 0,否則那筆附加費沒有地方可以填費率。 */
+function dynSeedRateRows(){
+  if(!CFG) return;
+  const t=CFG.raw.accessorial_rate_table||(CFG.raw.accessorial_rate_table={});
+  for(const r of DYN_ROWS){
+    if(!AR_CODES.includes(r.ar) || !r.name.trim()) continue;
+    for(const ch of channelNames()){
+      const k=r.name.trim()+"|||"+ch;
+      if(!(k in t)) t[k]=0;
+    }
+  }
+}
+/* 桌面版 _seed_acc_rate_shape:BY ZONE 依渠道自己的 Zone 開格子。 */
+function dynSeedShape(name,shape){
+  if(!CFG) return;
+  const t=CFG.raw.accessorial_rate_table||(CFG.raw.accessorial_rate_table={});
+  const znMap=CFG.raw.builtin_service_zones||{};
+  const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
+  for(const ch of channelNames()){
+    const k=String(name).trim()+"|||"+ch;
+    if(k in t) continue;
+    if(String(shape).trim().toUpperCase()==="BY ZONE"){
+      const zs=String(znMap[svcOf(ch)] ?? znMap[ch] ?? "")
+        .split(",").map(z=>z.trim()).filter(Boolean);
+      const o={};
+      (zs.length?zs:["2"]).forEach(z=>o[z]=0);
+      t[k]=o;
+    }else t[k]=0;
+  }
+}
+function channelNames(){
+  const out=new Set();
+  const zn=(CFG&&CFG.raw.builtin_service_zones)||{};
+  for(const svc of Object.keys(zn)){
+    out.add(channelSurchargeLabel(svc,false));
+    out.add(channelSurchargeLabel(svc,true));
+  }
+  for(const k of Object.keys((CFG&&CFG.raw.accessorial_rate_table)||{})){
+    const ch=k.split("|||")[1];
+    if(ch) out.add(ch);
+  }
+  return [...out];
+}
+function dynRender(){
+  const tb=$("#tDyn"); if(!tb) return;
+  tb.tBodies[0].innerHTML = DYN_ROWS.length
+    ? DYN_ROWS.map((r,i)=>`<tr>
+        <td><input type="checkbox" class="dynrow" data-i="${i}"></td>
+        <td class="mono"><b>${esc(r.as)}</b></td>
+        <td class="mono">${esc(r.ar)}</td>
+        <td class="wrap">${esc(r.name)}</td>
+        <td>${esc(r.type)}</td>
+        <td>${r.fuel?"YES":"NO"}</td>
+        <td>${r.on?"YES":"NO"}</td></tr>`).join("")
+    : `<tr><td colspan="7" class="empty">`
+      +L("還沒有自訂附加費。","No custom surcharges yet.")+`</td></tr>`;
+  const a=$("#dynAll");
+  if(a) a.onclick=()=>document.querySelectorAll(".dynrow").forEach(c=>c.checked=a.checked);
+}
+function dynSave(){
+  if(!CFG){ saveNoteKey(false,"nothing"); return false; }
+  const m={};
+  for(const r of DYN_ROWS){
+    if(!r.as) continue;
+    m[r.as]={ar:r.ar, name:r.name, type:normDynType(r.type),
+             fuel_eligible:!!r.fuel, enabled:!!r.on};
+  }
+  CFG.raw.dynamic_surcharge_mapping=m;
+  dynSeedRateRows();
+  CFG=readConfig(CFG.raw);
+  DIRTY=true;
+  renderConfigTabs();
+  if(RATED&&SHIPS){ RATED=SHIPS.map(x=>priceShipment(CFG,x)); renderRate(); }
+  return saveSettings();
+}
+/* 比對已匯入的帳單:這個 AR + AS 出現過幾次、多少錢、UPS 怎麼稱呼它。
+   對不到的代碼存下去之後永遠算 0,而且從畫面上看不出來。 */
+function dynMatch(ar,as){
+  const src=(ROWS||[]).concat(HISTROWS||[]);
+  const hit=src.filter(r=>normArCode(r.cls)===ar && String(r.code||"").toUpperCase()===as);
+  if(!hit.length) return null;
+  const invs=new Set(hit.map(r=>r.invoice).filter(Boolean));
+  return {rows:hit.length, invoices:invs.size,
+          total:hit.reduce((a,r)=>a+r.net,0),
+          desc:(hit.find(r=>r.desc)||{}).desc||""};
+}
+function dynAddOpen(){
+  $("#dynAr").innerHTML=AR_CODES.map(c=>`<option>${c}</option>`).join("");
+  $("#dynShape").innerHTML=SHAPES.map(c=>`<option>${c}</option>`).join("");
+  $("#dynAs").value=""; $("#dynName").value="";
+  $("#dynFuel").value="YES"; $("#dynOn").value="YES";
+  $("#dynMatch").textContent=""; $("#dynAddNote").innerHTML="";
+  dynSyncWhy();
+  $("#dynAddBg").classList.add("on");
+}
+function dynSyncWhy(){
+  const ar=normArCode($("#dynAr").value);
+  $("#dynArWhy").textContent=(AR_WHY[ar]||["",""])[LANG];
+  const sh=$("#dynShape").value;
+  $("#dynShapeWhy").textContent=(SHAPE_WHY[sh]||["",""])[LANG];
+}
+function dynCheckCode(){
+  const ar=normArCode($("#dynAr").value);
+  const as=String($("#dynAs").value||"").trim().toUpperCase();
+  const el=$("#dynMatch");
+  if(!ar||!as){ el.textContent=""; return; }
+  const f=dynMatch(ar,as);
+  if(!f){ el.textContent=L("帳單歷史裡沒有這個代碼","no rows with this code in the history"); return; }
+  el.textContent=LANG
+    ? `${f.invoices} invoice(s), ${f.rows} row(s), ${money(f.total)}: ${f.desc.slice(0,44)}`
+    : `帳單歷史 ${f.invoices} 張、${f.rows} 行、${money(f.total)}:${f.desc.slice(0,44)}`;
+  /* UPS 自己的用字拿來當欄名,不要自己編一個之後還要手動對。 */
+  if(f.desc && !String($("#dynName").value||"").trim()) $("#dynName").value=f.desc;
+}
+function dynAddSave(){
+  const ar=normArCode($("#dynAr").value);
+  const as=String($("#dynAs").value||"").trim().toUpperCase();
+  const name=String($("#dynName").value||"").trim();
+  const warn=t=>{ $("#dynAddNote").innerHTML=`<div class="note warn">${esc(t)}</div>`; };
+  if(!as) return warn(L("AS Code 不能空白。","AS Code cannot be blank."));
+  if(!AR_CODES.includes(ar))
+    return warn(L("AR 只能是 "+AR_CODES.join(" / ")+"。","AR must be one of: "+AR_CODES.join(", ")+"."));
+  if(!name) return warn(L("自訂附加費要有名稱 —— 那個名稱就是報表欄名,也是查費率的鍵。",
+                          "A custom surcharge needs a name — it is the report column and the rate key."));
+  if(DYN_ROWS.some(r=>r.as===as))
+    return warn(L(as+" 已經在清單裡了,先刪掉舊的那一列。",
+                  as+" is already in the list. Delete the old row first."));
+  /* 對不到帳單就問一次再放行:代碼可能是真的,只是還沒出現過。 */
+  if(!dynMatch(ar,as)){
+    if(!confirm(LANG
+      ? `No row in any imported invoice has AR=${ar} and AS=${as}.\n\n`
+        +`That is either a typo or a code that has not appeared yet.\n\nAdd it anyway?`
+      : `匯入過的帳單裡,沒有任何一行是 AR=${ar}、AS=${as}。\n\n`
+        +`可能是打錯,也可能這個代碼還沒出現過。\n\n還是要新增嗎?`)) return;
+  }
+  DYN_ROWS.push({as, ar, name, type:"REPRICE",
+                 fuel:$("#dynFuel").value==="YES", on:$("#dynOn").value==="YES"});
+  dynSeedShape(name, $("#dynShape").value);
+  dynSave();
+  dynRender();
+  $("#dynAddBg").classList.remove("on");
+  setStatus((LANG?"Added ":"已新增 ")+as);
+}
+function dynDelete(){
+  const gone=[...document.querySelectorAll(".dynrow")].filter(c=>c.checked)
+    .map(c=>+c.dataset.i);
+  if(!gone.length){ setStatus(L("請先勾選","Tick a row first")); return; }
+  DYN_ROWS=DYN_ROWS.filter((_,i)=>!gone.includes(i));
+  dynSave(); dynRender();
+  setStatus((LANG?"Deleted ":"已刪除 ")+gone.length);
+}
+const DYN_COLS=["AS Code","AR","Surcharge Name","Type","Fuel Eligible","Enabled"];
+function dynExport(){
+  const rows=(DYN_ROWS.length?DYN_ROWS:[
+    {as:"ARK",ar:"ACC",name:"Remote Area - AK",type:"REPRICE",fuel:false,on:true},
+    {as:"DDO",ar:"ACC",name:"Direct Delivery Only",type:"REPRICE",fuel:true,on:true},
+  ]).map(r=>[r.as,r.ar,r.name,normDynType(r.type),r.fuel?"YES":"NO",r.on?"YES":"NO"]);
+  loadXLSX().then(X=>{
+    const ws=X.utils.aoa_to_sheet([DYN_COLS,...rows]);
+    const wb=X.utils.book_new();
+    X.utils.book_append_sheet(wb,ws,"Custom Surcharges");
+    const buf=X.write(wb,{bookType:"xlsx",type:"array"});
+    dlBlob(new Blob([buf],{type:"application/octet-stream"}),"custom_surcharges.xlsx");
+    setStatus(L("自訂附加費清單已匯出","Custom surcharge list exported"));
+  }).catch(()=>{
+    /* 載不到 SheetJS 就退回 CSV,欄位一模一樣,不要讓人卡在這裡。 */
+    const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
+    const csv=[DYN_COLS.join(","),...rows.map(r=>r.map(q).join(","))].join("\n");
+    dlBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),"custom_surcharges.csv");
+    setStatus(L("Excel 元件載不到,已改匯出 CSV","Excel reader unavailable — exported CSV instead"));
+  });
+}
+function dlBlob(blob,name){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function dynImport(file){
+  readInvoiceFile(file).then(r=>{
+    const rows=parseCSV(r.text);
+    if(rows.length<2) throw new Error(L("這個檔是空的","That file is empty"));
+    const hdr=rows[0].map(c=>String(c).trim().toLowerCase());
+    const ix=n=>hdr.indexOf(n.toLowerCase());
+    const need=["AS Code","AR","Surcharge Name"];
+    const miss=need.filter(n=>ix(n)<0);
+    if(miss.length) throw new Error(L("缺少欄位:","Missing column(s): ")+miss.join(", "));
+    const out=[];
+    for(const row of rows.slice(1)){
+      const as=String(row[ix("AS Code")]||"").trim().toUpperCase();
+      if(!as) continue;
+      out.push({
+        as, ar:normArCode(row[ix("AR")]||"ACC"),
+        name:String(row[ix("Surcharge Name")]||"").trim(),
+        type:normDynType(ix("Type")>=0?row[ix("Type")]:"REPRICE"),
+        fuel:String(ix("Fuel Eligible")>=0?row[ix("Fuel Eligible")]:"YES").trim().toUpperCase()==="YES",
+        on:String(ix("Enabled")>=0?row[ix("Enabled")]:"YES").trim().toUpperCase()==="YES",
+      });
+    }
+    DYN_ROWS=out;
+    dynSave(); dynRender();
+    $("#dynNote").innerHTML=`<div class="note">`
+      +L("已匯入 ","Imported ")+out.length+L(" 筆自訂附加費。"," custom surcharge(s).")+`</div>`;
+  }).catch(e=>{
+    $("#dynNote").innerHTML=`<div class="note warn">${esc((e&&e.message)||e)}</div>`;
+  });
 }
 function openFuel(){
   $("#fuelDefault").value=(CFG.raw.global_rules||{}).fuel_percent??"";
@@ -3250,6 +3595,20 @@ const I18N={
   "th.amount":["金額","Amount"],
   "btn.setfuel":["⛽ 設定燃油百分比","⛽ Set Fuel Percentage"],
   "btn.customacc":["➕ 自訂附加費…","➕ Custom Surcharges…"],
+  "hd.customacc":["自訂附加費","Custom Surcharges"],
+  "hd.addacc":["新增自訂附加費","Add Custom Surcharge"],
+  "hint.customacc":["AS Code 要和帳單完全一致。名稱會變成報表欄名,費率在附加費設定裡填。",
+    "AS Code must match the invoice exactly. Surcharge Name becomes a report column; set its rate on Surcharge Setup."],
+  "th.ascode":["AS 代碼","AS Code"],
+  "th.arcode":["AR","AR"],
+  "th.accname":["附加費名稱","Surcharge Name"],
+  "th.fuelok":["計燃油","Fuel Eligible"],
+  "lb.shape":["費率形狀","Rate Shape"],
+  "btn.addacc":["+ 新增附加費","+ Add Surcharge"],
+  "btn.delacc":["刪除所選","Delete Selected"],
+  "btn.saveacc":["儲存設定","Save Setup"],
+  "btn.expacc":["匯出清單","Export List"],
+  "btn.impacc":["匯入清單","Import List"],
   "btn.removeticked":["✕ 移除勾選","✕ Remove Ticked"],
   "btn.exportacc":["匯出附加費範本","Export Accessorials Template"],
   "btn.importacc":["匯入附加費範本","Import Accessorials Template"],
