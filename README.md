@@ -6,23 +6,16 @@
 
 ## web/index.html — 網頁版
 
-單一檔案,193 KB,雙擊就能開,不需要伺服器。圖示內嵌,不用另外放檔案。
+主程式為 `index.html`,登入設定由 `auth-config.js` 提供。正式使用時需透過
+HTTPS 網站開啟,不能再把單一 HTML 當作安全登入工具。
 
-### 帳號
+### 登入
 
-| Name | Role | Username | Password |
-|---|---|---|---|
-| Sandy Liu | admin | `sandy` | `sandy-dev` |
-| Candy | user | `candy` | `candy-geniqua` |
-| Quincy | user | `quincy` | `quincy-geniqua` |
-| Terry | user | `terry` | `terry-geniqua` |
-| Eunice | user | `eunice` | `eunice-programmar` |
+登入已改用 Supabase Auth。Repository 和瀏覽器不儲存使用者密碼,未登入時
+只會顯示登入頁。公開註冊應關閉,帳號由擁有者在 Supabase 後台建立、停用
+或重設密碼。完整設定方式請看 `SUPABASE_SETUP.md`。
 
-**密碼是明文,就寫在這個檔案裡。** 開得了這個檔案或這台瀏覽器的人,看得到所有人的密碼。這只是分角色,不是保護——所以這個檔案本身要當成機密看待。
-
-八個分頁對所有人開放,admin 多一個「👤 Users」:改姓名、角色、帳號、密碼(按 Edit 解鎖那一列,Save 或 Cancel),以及看誰在什麼時間做了什麼。
-
-活動紀錄和帳號改動都只存在**那一台瀏覽器**。要跨機器看,同事按「匯出紀錄」、你按「匯入紀錄」合併;要讓同事套用新帳號,按「下載帳號檔」重發。
+舊版曾把密碼提交到公開 Git 歷史,所以原有密碼都必須更換。
 
 ### 分頁
 
@@ -35,7 +28,6 @@
 | ⚡ Demand | 四個子分頁 |
 | 📚 帳單歷史 | 匯入過去帳單、查追蹤號、計費計算明細 |
 | 🔎 代碼查詢 | 52 個代碼參考,標出未收錄的 |
-| 👤 帳號 | 僅 admin |
 
 ### 費率從哪來
 
@@ -93,7 +85,10 @@
 
 ### 放上網
 
-放 GitHub Pages 把 `index.html` 放進 repo 根目錄即可。這個檔案裡沒有費率,但**有明文密碼**——repo 公開的話密碼就公開了。要放公開 repo,先把 `ACCOUNTS` 那段換成假的。
+建議將 GitHub Repository 設成 Private,再用支援 Private Repository 的平台
+部署公開網址。訪客可以開啟網址,但必須通過 Supabase 登入才能看到工具。
+Supabase Project URL 與 anon/publishable key 填在 `auth-config.js`;絕對不能把
+`service_role` 或其他 secret key 放進前端。
 
 ---
 
