@@ -2665,9 +2665,9 @@ const THEMES={
    Theme 選單選的是這個,Colour 選單照舊 —— 兩者互不影響,四種組合都成立。 */
 const BRANDS=["Tally","Scoobi"];
 const BRAND_KEY="ups_reprice_brand";
-let BRAND="Scoobi";
+let BRAND="Tally";
 function applyBrand(name){
-  BRAND = BRANDS.includes(name)?name:"Scoobi";
+  BRAND = BRANDS.includes(name)?name:"Tally";
   const tally = BRAND==="Tally";
   const r=document.documentElement.style;
   /* Tally:抖線塗層開著,邊框本身要收掉 —— 兩層邊會變成雙框。
@@ -3033,7 +3033,8 @@ function hearts(g,a,t){
    那時兩個都已經有值了。 */
 function outdoorWet(){
   return typeof BRAND!=="undefined" && BRAND==="Tally"
-      && typeof WX!=="undefined" && (WX.mode==="rain"||WX.mode==="snow");
+      && typeof WX!=="undefined"
+      && (WX.mode==="rain"||WX.mode==="snow"||WX.mode==="storm");
 }
 
 function drawWorker(g,a,t){
@@ -3264,8 +3265,8 @@ function drawCat(g,a,t){
     }
   }
   for(let i=0;i<2;i++) patch(g,x-2+i*6,y-16,2,4,CAT_MARK);
-  /* 炸毛:身體周圍豎起的毛 */
-  if(puff){
+  /* 炸毛:身體周圍豎起的毛。穿著雨衣時不畫 —— 毛會穿出衣服。 */
+  if(puff && !wet){
     g.strokeStyle=INK; g.lineWidth=1.5;
     for(let k=0;k<9;k++){
       const ang=Math.PI+k*Math.PI/8;
@@ -3281,8 +3282,10 @@ function drawCat(g,a,t){
   const hxo=walking?14*hf:0;
   const hy=walking ? y-24 : y-(puff?38:34);
   /* 雨衣蓋身體、帽兜罩頭,要等 hxo/hy 算完才知道頭在哪 */
-  if(wet && !puff) coatOver(g,x,y-(walking?7:1),walking?14:bw+2,
-    walking?16:bh-2, x+hxo, hy, 13, a.seed);
+  /* 炸毛的時候雨衣不會消失,只是被撐開一點。 */
+  if(wet) coatOver(g,x, y-(walking?7:1),
+    walking?14:(puff?bw+4:bw+2), walking?16:bh-2,
+    x+hxo, hy, puff?15:13, a.seed);
   for(const sd of [-1,1]){
     g.fillStyle=CAT_COAT; g.beginPath();
     g.moveTo(x+sd*4,hy-8); g.lineTo(x+hxo+sd*10,hy-22); g.lineTo(x+hxo+sd*13,hy-4);
@@ -3377,13 +3380,25 @@ function spreadActors(){
   const span = Math.max(160, W-lead-70);
   const a=SCENE.actors;
   if(!a.length) return;
-  a.forEach((act,i)=>{
-    act.x = lead + span*(i+0.5)/a.length;
+  /* 平均分配時貓是最後一個,會落在最右邊 —— Scoobi 那裡是堆高機
+     和高架,貓擠在角落。把貓抽出來擺中間,其餘的平均分。 */
+  const cat = BRAND==="Scoobi" ? a.find(x=>x.kind==="cat") : null;
+  const rest = cat ? a.filter(x=>x!==cat) : a;
+  rest.forEach((act,i)=>{
+    act.x = lead + span*(i+0.5)/rest.length;
     act.home = act.x;                    /* 走動的起點,不會離太遠 */
-    act.tgt = Math.min(W-50, act.x + span/a.length*0.8);
+    act.tgt = Math.min(W-50, act.x + span/rest.length*0.8);
     act.dir = 1;
     if(act.wait===undefined) act.wait = 120+((i*97)%240);
   });
+  if(cat){
+    /* 中間偏左一點,不然會跟平均分配到中點的工人疊在一起 */
+    cat.x = lead + span*0.40;
+    cat.home = cat.x;
+    cat.tgt = Math.min(W-50, cat.x + span*0.14);
+    cat.dir = 1;
+    if(cat.wait===undefined) cat.wait = 200;
+  }
 }
 
 function sceneStep(){
@@ -3392,7 +3407,12 @@ function sceneStep(){
   if(SCENE.t%3) return;
   for(const a of SCENE.actors){
     if(a.kind==="cat"){
-      /* 炸毛是被點出來的,時間到就坐回去 */
+      /* 打雷會嚇到。雷是全場同一瞬間,所以讀 FLASH 而不是自己擲骰。 */
+      /* 閃電那一幀就要嚇到 —— 慢一幀看起來像先聽到雷才反應。 */
+      if(WX.mode==="storm" && SCENE.t===FLASH && a.act!=="puff"){
+        a.act="puff"; a.wait=150; continue;
+      }
+      /* 炸毛是被點出來或被雷嚇的,時間到就坐回去 */
       if(a.act==="puff"){ if(--a.wait<=0) a.act="sit"; continue; }
       /* 貓也會走動:走一段、坐一下、再走。不是一直坐著。 */
       if(a.act==="walk"){
@@ -3406,6 +3426,9 @@ function sceneStep(){
       continue;
     }
     if(a.kind==="worker" && a.act==="wave"){
+      /* 一邊走一邊揮,停下來會看起來像當機。 */
+      a.x += 0.55*a.dir;
+      if(a.x>a.tgt || a.x<a.home-10){ a.dir*=-1; a.x+=0.55*a.dir; }
       if(--a.wait<=0) a.act="walk";
       continue;
     }
@@ -3480,12 +3503,14 @@ function skyColour(part){
    天上的東西(雲、鳥、山)改用淺色描,地面的維持深色。 */
 function darkSky(){
   const p=skyPhase(localHour());
-  return p==="night"||p==="evening";
+  /* 雷雨天再亮也是暗的,線條要用淺色才看得見 */
+  return p==="night"||p==="evening"||(typeof WX!=="undefined"&&WX.mode==="storm");
 }
 function skyInk(){ return darkSky() ? "#e8e2d2" : INK; }
 
 function wxDim(){
-  return WX.mode==="rain"?.72 : WX.mode==="snow"?.86 : WX.mode==="cloud"?.9 : 1;
+  return WX.mode==="storm"?.58 : WX.mode==="rain"?.72
+       : WX.mode==="snow"?.86 : WX.mode==="cloud"?.9 : 1;
 }
 
 /* 太陽或月亮:依當地時間決定位置與樣子 */
@@ -3524,11 +3549,25 @@ function drawSunMoon(g,W,H){
   g.restore();
 }
 
+/* 打雷:每隔一段時間閃一次。FLASH 記著這一道雷是第幾幀開始的,
+   場景和貓都讀它 —— 貓要在同一瞬間被嚇到,不是各閃各的。 */
+let FLASH=-999, NEXT_BOLT=0, BOLT_X=0;
+function stormTick(t){
+  if(WX.mode!=="storm"){ FLASH=-999; NEXT_BOLT=t+120; return; }
+  if(t>=NEXT_BOLT){
+    FLASH=t;
+    BOLT_X=0.15+Math.random()*0.7;
+    NEXT_BOLT=t+180+Math.floor(Math.random()*260);
+  }
+}
+/* 這一瞬間正在閃嗎 */
+function flashOn(t){ const d=t-FLASH; return d>=0 && d<10; }
+
 /* 雨、雪、烏雲 */
 function drawWeather(g,W,H,t){
   if(WX.mode==="clear") return;
   const FLR=H-22;
-  if(WX.mode==="cloud"||WX.mode==="rain"||WX.mode==="snow"){
+  if(WX.mode==="cloud"||WX.mode==="rain"||WX.mode==="snow"||WX.mode==="storm"){
     g.save(); g.globalAlpha=WX.mode==="cloud"?.55:.75;
     g.fillStyle=blendHex(pal("--panel","#fffdf7"),"#6b6f7a",.45);
     g.strokeStyle=INK; g.lineWidth=1.5;
@@ -3542,7 +3581,7 @@ function drawWeather(g,W,H,t){
     }
     g.restore();
   }
-  if(WX.mode==="rain"){
+  if(WX.mode==="rain"||WX.mode==="storm"){
     g.save(); g.strokeStyle="#7fa8c9"; g.lineWidth=1.4; g.lineCap="round";
     for(let i=0;i<70;i++){
       const sx=(i*97)%W, off=((t*3)+(i*31))%(FLR-40);
@@ -3551,6 +3590,33 @@ function drawWeather(g,W,H,t){
       g.beginPath(); g.moveTo(sx,sy); g.lineTo(sx-2,sy+9); g.stroke();
     }
     g.restore();
+  }
+  if(WX.mode==="storm"){
+    const d=t-FLASH;
+    if(d>=0 && d<10){
+      /* 整片天空白一下,越後面越淡 */
+      g.save();
+      g.globalAlpha=(1-d/10)*0.55;
+      g.fillStyle="#fffdf7";
+      g.fillRect(4,4,W-8,H-8);
+      g.restore();
+    }
+    if(d>=0 && d<7){
+      /* 閃電本體:一條折線,不是直線 */
+      const bx=W*BOLT_X;
+      g.save();
+      g.globalAlpha=1-d/7;
+      g.strokeStyle="#fff4c2"; g.lineWidth=3.4;
+      g.lineJoin="round"; g.lineCap="round";
+      g.beginPath();
+      g.moveTo(bx,18);
+      g.lineTo(bx-9,44); g.lineTo(bx+5,48);
+      g.lineTo(bx-7,78); g.lineTo(bx+8,74);
+      g.lineTo(bx-3,104);
+      g.stroke();
+      g.strokeStyle="#e8a33c"; g.lineWidth=1.3; g.stroke();
+      g.restore();
+    }
   }
   if(WX.mode==="snow"){
     g.save(); g.fillStyle="#fffdf7";
@@ -3585,8 +3651,9 @@ function drawTallyYard(g,W,H){
   /* 停著的雲:大小高度都不一樣 */
   const sInk=skyInk();
   g.strokeStyle=sInk; g.lineWidth=1.5;
-  for(const [cx,cy,cs] of [[W*0.16,52,.9],[W*0.30,38,.62],[W*0.53,46,.78],
-                           [W*0.68,34,.55],[W*0.80,50,.7]]){
+  /* 雲避開左邊的棚子(屋頂到 y≈56),所以往右擺、往上收 */
+  for(const [cx,cy,cs] of [[W*0.42,30,.85],[W*0.55,20,.6],[W*0.68,34,.75],
+                           [W*0.80,22,.55],[W*0.90,32,.68]]){
     g.fillStyle = darkSky() ? blendHex(paper,"#4a5a7a",.25) : paper;
     g.beginPath();
     g.ellipse(cx,cy,19*cs,7*cs,0,0,7);
@@ -3596,7 +3663,7 @@ function drawTallyYard(g,W,H){
   }
   /* 幾隻鳥 */
   g.strokeStyle=sInk; g.lineWidth=1.4;
-  for(const [bx,by] of [[W*0.42,58],[W*0.46,50],[W*0.50,62]]){
+  for(const [bx,by] of [[W*0.60,52],[W*0.64,44],[W*0.68,56]]){
     g.beginPath(); g.moveTo(bx-6,by); g.quadraticCurveTo(bx,by-5,bx+6,by); g.stroke();
   }
   /* 遠山壓在地平線上、很扁,而且畫在角色之前 —— 高過人物就會像穿過去。 */
@@ -3609,41 +3676,50 @@ function drawTallyYard(g,W,H){
   }
 
   /* 棚子:左邊三分之一,寬扁,屋頂略拱 */
-  const bx0=14, bw=Math.min(360,W*0.34), bh=64, by=FLR-bh;
+  /* 棚子要明顯高過人:工人連安全帽約 65px,所以棚身給 100。 */
+  const bx0=14, bw=Math.min(400,W*0.36), bh=100, by=FLR-bh;
   g.strokeStyle=ink; g.lineWidth=2;
   skRect(g,bx0,by,bw,bh,31,blendHex(paper,line,.25));
   g.fillStyle=blendHex(paper,line,.45);
   g.beginPath();
-  g.moveTo(bx0-8,by+4);
-  g.quadraticCurveTo(bx0+bw/2,by-16,bx0+bw+8,by+4);
-  g.lineTo(bx0+bw+8,by+9);
-  g.quadraticCurveTo(bx0+bw/2,by-10,bx0-8,by+9);
+  g.moveTo(bx0-10,by+5);
+  g.quadraticCurveTo(bx0+bw/2,by-22,bx0+bw+10,by+5);
+  g.lineTo(bx0+bw+10,by+11);
+  g.quadraticCurveTo(bx0+bw/2,by-14,bx0-10,by+11);
   g.closePath(); g.fill(); g.stroke();
   /* 招牌 */
-  const sgw=bw*0.55, sgx=bx0+bw*0.22;
-  skRect(g,sgx,by+16,sgw,17,32,ink);
+  const sgw=bw*0.52, sgx=bx0+bw*0.24;
+  skRect(g,sgx,by+22,sgw,21,32,ink);
   g.fillStyle=pal("--tab","#ffb500"); g.textAlign="center";
-  g.font='700 13px "Reprice Sketch","Segoe Print","Ink Free",system-ui';
-  g.fillText("TALLY",sgx+sgw/2,by+29);
+  g.font='700 15px "Reprice Sketch","Segoe Print","Ink Free",system-ui';
+  g.fillText("TALLY",sgx+sgw/2,by+38);
   g.textAlign="left";
   /* 捲門兩扇 */
   for(const d of [0.06,0.52]){
-    const dx=bx0+bw*d, dw=bw*0.36, dy=by+38, dh=bh-38;
+    const dx=bx0+bw*d, dw=bw*0.36, dy=by+52, dh=bh-52;
     skRect(g,dx,dy,dw,dh,33,paper);
     g.lineWidth=1.1;
     for(let k=1;k<4;k++) skLine(g,dx,dy+k*dh/4,dx+dw,dy+k*dh/4,33+k);
     g.lineWidth=2;
   }
 
-  /* 貨櫃堆:兩疊,中間偏左 */
-  g.lineWidth=1.7;
-  for(const [cx,rows] of [[bx0+bw+30,2],[bx0+bw+150,1]]){
+  /* 貨櫃堆:兩疊。一個貨櫃跟人差不多高,不然看起來像紙箱。 */
+  g.lineWidth=1.9;
+  for(const [cx,rows] of [[bx0+bw+34,2],[bx0+bw+210,1]]){
     for(let r=0;r<rows;r++){
-      const cw=104, ch=30, cy2=FLR-ch*(r+1)-2;
+      const cw=160, ch=52, cy2=FLR-ch*(r+1)-2;
       skRect(g,cx,cy2,cw,ch,40+r,r?blendHex(paper,line,.3):pal("--tab","#ffb500"));
-      g.lineWidth=1;
-      for(let k=1;k<6;k++) skLine(g,cx+k*cw/6,cy2+3,cx+k*cw/6,cy2+ch-3,45+k);
-      g.lineWidth=1.7;
+      /* 浪板直紋 */
+      g.lineWidth=1.1;
+      for(let k=1;k<9;k++) skLine(g,cx+k*cw/9,cy2+5,cx+k*cw/9,cy2+ch-5,45+k+r*9);
+      /* 上下橫樑,少了這個會像一塊木板 */
+      g.lineWidth=1.6;
+      skLine(g,cx+2,cy2+6,cx+cw-2,cy2+6,60+r);
+      skLine(g,cx+2,cy2+ch-6,cx+cw-2,cy2+ch-6,62+r);
+      /* 門把 */
+      g.lineWidth=1.4;
+      skLine(g,cx+cw*0.5,cy2+12,cx+cw*0.5,cy2+ch-12,64+r);
+      g.lineWidth=1.9;
     }
   }
   /* 地平線 */
@@ -3728,7 +3804,9 @@ function sceneDraw(){
   }
 }
 function sceneLoop(){
-  SCENE.t++; sceneStep(); sceneDraw();
+  /* stormTick 要在 sceneStep 之前:貓讀 FLASH 決定要不要嚇到,
+     順序反過來的話貓永遠比閃電慢一幀。 */
+  SCENE.t++; stormTick(SCENE.t); sceneStep(); sceneDraw();
   SCENE.raf=requestAnimationFrame(sceneLoop);
 }
 
@@ -3823,7 +3901,8 @@ function drawCal(){ drawDateCard(); }
 
 /* ---- 啟動 ---- */
 const WX_MODES=[["clear",["晴","Clear"]],["cloud",["多雲","Cloudy"]],
-                ["rain",["雨","Rain"]],["snow",["雪","Snow"]],
+                ["rain",["雨","Rain"]],["storm",["雷雨","Thunderstorm"]],
+                ["snow",["雪","Snow"]],
                 ["live",["即時(連網)","Live (network)"]]];
 function fillWxSel(){
   const s=$("#wxSel"); if(!s) return;
@@ -3841,8 +3920,9 @@ async function fetchWx(){
     const r=await fetch(url);
     const j=await r.json();
     const c=j.current.weather_code;
-    WX.mode = (c>=71&&c<=77)||c===85||c===86 ? "snow"
-            : (c>=51&&c<=67)||(c>=80&&c<=82)||(c>=95) ? "rain"
+    WX.mode = c>=95 ? "storm"
+            : (c>=71&&c<=77)||c===85||c===86 ? "snow"
+            : (c>=51&&c<=67)||(c>=80&&c<=82) ? "rain"
             : (c>=1&&c<=48) ? "cloud" : "clear";
     WX.temp=j.current.temperature_2m; WX.at=Date.now(); WX.live=true;
     wxSave();
@@ -3885,7 +3965,7 @@ $("#langSel").onchange=e=>{
     ? (LANG?"Ready":"就緒")
     : "");
 };
-$("#brandSel").onchange=e=>{ applyBrand(e.target.value); sceneDraw(); };
+$("#brandSel").onchange=e=>{ applyBrand(e.target.value); spreadActors(); sceneDraw(); };
 $("#themeSel").onchange=e=>{ applyTheme(e.target.value); drawClock(); drawDateCard(); };
 $("#tzSel").onchange=e=>{ TZI=+e.target.value; drawClock(); drawDateCard();
   if(WX.live) fetchWx(); };
