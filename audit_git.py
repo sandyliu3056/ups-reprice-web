@@ -33,18 +33,17 @@ SENSITIVE = [
 SAFE = re.compile(r"sample", re.I)
 
 TOKEN_RE = re.compile(r"gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}")
-# Identifiers are matched by SHAPE, not by value. Hard-coding an account
-# number into an audit script means the script itself leaks it the moment
-# it lands in a public repository.
+# Account number and machine identifiers that leak even from source comments.
+# Matched by SHAPE, not by value. Hard-coding an account number into an
+# audit script means the script itself leaks it once it lands in a repo.
 IDENT_PATTERNS = [
-    (re.compile(r"\b1Z[0-9A-Z]{16}\b"),                "UPS tracking number"),
-    (re.compile(r"\b0{4,6}[0-9A-F]{6}\d{2,3}\b"),      "UPS account / invoice number"),
+    (re.compile(r"\b1Z[0-9A-Z]{16}\b"),           "UPS tracking number"),
+    (re.compile(r"\b0{4,6}[0-9A-F]{6}\d{2,3}\b"), "UPS account / invoice number"),
     (re.compile(r"[A-Za-z]:[\\/]Users[\\/][^\\/\s\"']+"), "local Windows user path"),
 ]
 
 
 def ident_hit(text):
-    """First identifier shape found in this text, or None."""
     for pat, what in IDENT_PATTERNS:
         if pat.search(text):
             return what

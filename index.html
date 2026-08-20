@@ -1,0 +1,3776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UPS Reprice Platform</title>
+<!-- 我的最愛圖示:貓、狗、金幣。內嵌成 data URI,
+     所以不需要另一個檔案,也不會產生網路請求。 -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxyZWN0IHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgcng9IjEzIiBmaWxsPSIjNWEzNTI0Ii8+CjxnIHN0cm9rZT0iIzM1MWMxNSIgc3Ryb2tlLXdpZHRoPSIyLjEiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+CiAgPGVsbGlwc2UgY3g9IjguNSIgY3k9IjIyLjUiIHJ4PSI0LjgiIHJ5PSI3LjgiIGZpbGw9IiNiNTc5M2YiLz4KICA8ZWxsaXBzZSBjeD0iMjcuNSIgY3k9IjIyLjUiIHJ4PSI0LjgiIHJ5PSI3LjgiIGZpbGw9IiNiNTc5M2YiLz4KICA8Y2lyY2xlIGN4PSIxOCIgY3k9IjIxIiByPSIxMC42IiBmaWxsPSIjZjVlZmU2Ii8+CiAgPHBhdGggZD0iTTEyIDE1LjRhNS42IDQuNCAwIDEgMCA2IDQuMiA1LjYgNC40IDAgMCAwLTYtNC4yeiIgZmlsbD0iI2I1NzkzZiIgc3Ryb2tlPSJub25lIi8+CiAgPGVsbGlwc2UgY3g9IjIwIiBjeT0iMjQuNCIgcng9IjYuMiIgcnk9IjQuNiIgZmlsbD0iI2ZmZjlmMCIvPgogIDxwYXRoIGQ9Ik0zNiA3LjVsMiAxMSA4LjUtNXoiIGZpbGw9IiNmMmVjZTEiLz4KICA8cGF0aCBkPSJNNTcgNy41bC0yIDExLTguNS01eiIgZmlsbD0iI2YyZWNlMSIvPgogIDxjaXJjbGUgY3g9IjQ2LjUiIGN5PSIyMSIgcj0iMTAuNiIgZmlsbD0iI2YyZWNlMSIvPgo8L2c+CjxnIGZpbGw9IiMzNTFjMTUiPgogIDxjaXJjbGUgY3g9IjE0LjciIGN5PSIxOS42IiByPSIyLjQiLz48Y2lyY2xlIGN4PSIyMi41IiBjeT0iMTkuNiIgcj0iMi40Ii8+CiAgPGNpcmNsZSBjeD0iNDIuNSIgY3k9IjE5LjYiIHI9IjIuNCIvPjxjaXJjbGUgY3g9IjUwLjUiIGN5PSIxOS42IiByPSIyLjQiLz4KPC9nPgo8ZyBmaWxsPSIjZmZmZmZmIj4KICA8Y2lyY2xlIGN4PSIxMy45IiBjeT0iMTguNyIgcj0iMC45Ii8+PGNpcmNsZSBjeD0iMjEuNyIgY3k9IjE4LjciIHI9IjAuOSIvPgogIDxjaXJjbGUgY3g9IjQxLjciIGN5PSIxOC43IiByPSIwLjkiLz48Y2lyY2xlIGN4PSI0OS43IiBjeT0iMTguNyIgcj0iMC45Ii8+CjwvZz4KPGcgZmlsbD0iI2U4OGE4NiIgb3BhY2l0eT0iMC42Ij4KICA8ZWxsaXBzZSBjeD0iMzguNiIgY3k9IjI0IiByeD0iMi45IiByeT0iMS45Ii8+PGVsbGlwc2UgY3g9IjU0LjQiIGN5PSIyNCIgcng9IjIuOSIgcnk9IjEuOSIvPgo8L2c+CjxnIGZpbGw9IiMzNTFjMTUiPgogIDxlbGxpcHNlIGN4PSIyMCIgY3k9IjIyLjYiIHJ4PSIyLjIiIHJ5PSIxLjciLz4KICA8cGF0aCBkPSJNNDYuNSAyMy42bC0yLjEtMmg0LjJ6Ii8+CjwvZz4KPGcgc3Ryb2tlPSIjZjJlY2UxIiBzdHJva2Utd2lkdGg9IjEiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSI+CiAgPHBhdGggZD0iTTM2IDIwLjhsLTQuNC0uOU0zNS44IDIzLjRsLTQuNC41TTM2LjIgMjZsLTQuMiAxLjYiLz4KICA8cGF0aCBkPSJNNTcgMjAuOGw0LjQtLjlNNTcuMiAyMy40bDQuNC41TTU2LjggMjZsNC4yIDEuNiIvPgo8L2c+CjxwYXRoIGQ9Ik00My43IDI2LjZhMyAzIDAgMCAwIDUuNiAwIiBmaWxsPSJub25lIiBzdHJva2U9IiMzNTFjMTUiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxjaXJjbGUgY3g9IjMyIiBjeT0iNDcuNSIgcj0iMTMuNSIgZmlsbD0iI2ZmYjUwMCIgc3Ryb2tlPSIjMzUxYzE1IiBzdHJva2Utd2lkdGg9IjIuNSIvPgo8Y2lyY2xlIGN4PSIzMiIgY3k9IjQ3LjUiIHI9IjkuNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMzUxYzE1IiBzdHJva2Utd2lkdGg9IjEuMiIvPgo8cGF0aCBkPSJNMzIgNDAuNnYxMy44TTI4LjYgNDMuOGMwLTIgNi44LTIgNi44IDBzLTYuOCAxLjYtNi44IDMuNyA2LjggMi4xIDYuOCAwIgogICAgICBmaWxsPSJub25lIiBzdHJva2U9IiMzNTFjMTUiIHN0cm9rZS13aWR0aD0iMi40IgogICAgICBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+">
+<meta name="theme-color" content="#351c15">
+<style>
+:root{
+  --bg:#f4ecdc; --panel:#fffdf7; --tab:#ffb500; --accent:#351c15;
+  --text:#2b1a10; --line:#caa356; --select:#ffdd8f; --stripe:#f7f1e4;
+  --neg:#b3261e; --run:#351c15; --run-hover:#1f100b;
+  --run2:#8a6104; --run2-hover:#6b4b03; --muted:#8a755a;
+  --rad:9px; --bw:2px; --bstyle:solid; --bcol:var(--accent);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;max-width:100%;overflow-x:hidden}
+body{
+  background:var(--bg);color:var(--text);justify-content:flex-start;
+  font-family:var(--bodyfam,"Microsoft JhengHei UI","Microsoft JhengHei",
+              "PingFang TC","Noto Sans TC",sans-serif);
+  font-size:14px;line-height:1.55;display:flex;flex-direction:column;
+}
+.num,.mono,td.num{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  font-variant-numeric:tabular-nums}
+svg.defs{position:absolute;width:0;height:0}
+
+/* 手繪抖線只給面板外框:整片套下去連輸入框和儲存格邊都會扭。 */
+.sketch{position:relative;border:none;border-radius:var(--rad);background:var(--stripe)}
+.sketch::before{content:"";position:absolute;inset:0;pointer-events:none;
+  border:var(--bw) var(--bstyle) var(--bcol);border-radius:var(--rad);
+  filter:var(--wob,url(#wobble))}
+.sketch-soft{position:relative;border:none;border-radius:var(--rad);background:transparent}
+.sketch-soft::before{content:"";position:absolute;inset:0;pointer-events:none;
+  border:1.5px var(--bstyle) var(--line);border-radius:var(--rad);
+  filter:var(--wob2,url(#wobble-soft))}
+table,table *,input,select,.tablewrap{filter:none !important}
+
+/* 設計字 */
+.display{font-family:var(--dispfam,inherit);letter-spacing:.6px}
+
+/* ---- 標題列 ---- */
+.titlebar{background:var(--accent);color:var(--tab);flex-wrap:wrap;
+  padding:8px 18px;display:flex;align-items:center;gap:0;font-size:13px;flex:none}
+.titlebar #appTitle{font-size:21px;letter-spacing:4px;font-weight:700;
+  font-family:var(--titlefam,inherit);
+  color:var(--titlefill,var(--tab));
+  -webkit-text-stroke:var(--titlestroke,0) var(--tab);
+  paint-order:stroke fill}
+.titlebar .devby{font-size:10.5px;letter-spacing:2px;opacity:.6;margin-left:20px}
+.titlebar .ctrls{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.titlebar select{font:inherit;font-size:11.5px;background:transparent;color:var(--tab);
+  border:1px solid var(--tab);border-radius:5px;padding:3px 7px;cursor:pointer;opacity:.85;
+  /* 聚焦時瀏覽器會在 select 裡畫一條文字游標,看起來像可以打字。
+     關掉游標,改用外框表示焦點。 */
+  caret-color:transparent}
+.titlebar select:hover{opacity:1}
+.titlebar select:focus{opacity:1;outline:2px solid var(--tab);outline-offset:1px}
+.titlebar select:focus-visible{outline:2px solid var(--tab);outline-offset:1px}
+.titlebar select option{color:#000}
+.bigclock{display:flex;flex-direction:column;align-items:flex-end;
+  margin-left:30px;line-height:1.05}
+.bigclock #clkBig{font-size:30px;font-weight:700;letter-spacing:1px}
+.bigclock #clkSub{font-size:10.5px;opacity:.7;margin-top:3px;letter-spacing:.3px}
+.titlebar #who{font-size:12px;opacity:.85;margin-left:30px;white-space:nowrap}
+.titlebar button{font:inherit;font-size:11.5px;cursor:pointer;margin-left:14px;
+  background:transparent;color:var(--tab);border:1px solid var(--tab);
+  border-radius:5px;padding:2px 9px}
+.titlebar button:hover{background:rgba(255,181,0,.25)}
+
+/* ---- 分頁條 ---- */
+.tabstrip{background:var(--tab);border-bottom:2.5px solid var(--accent);
+  display:flex;gap:2px;padding:6px 10px 0;overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:none;flex:none;min-height:42px;align-items:flex-end}
+.tabstrip::-webkit-scrollbar{height:0}
+.tabstrip button{font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+  background:rgba(255,255,255,.42);color:var(--accent);
+  border:1.5px solid var(--accent);border-bottom:none;
+  border-radius:8px 8px 0 0;padding:7px 15px 6px;white-space:nowrap;
+  filter:var(--wob2,url(#wobble-soft))}
+.tabstrip button:hover{background:rgba(255,255,255,.72)}
+.tabstrip button[aria-selected=true]{background:var(--panel);padding-bottom:8px;margin-bottom:-2px}
+.tabstrip button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+main{flex:0 1 auto;overflow-y:auto;overflow-x:hidden;padding:12px 10px 0}
+.page{display:none;max-width:none;margin:0;min-width:0}
+.page.on{display:block}
+#p-files{position:relative}
+.lf{padding:14px 16px;margin-bottom:14px;background:var(--stripe)}
+.lf>h3{margin:-4px 0 10px;font-size:14.5px;color:var(--accent);
+  display:flex;align-items:center;gap:7px}
+.lf>h3 .em{font-size:16px}
+.hint{color:var(--muted);font-size:12.5px;margin:0 0 10px;line-height:1.6}
+.subhd{font-weight:600;color:var(--accent);font-size:13px;margin:14px 0 8px;
+  border-bottom:1.5px solid var(--line);padding-bottom:4px}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.inlab{font-size:12.5px;color:var(--accent);font-weight:600;margin-left:12px}
+
+button.act{font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+  border:2px solid var(--accent);border-radius:7px;padding:7px 17px;
+  background:var(--run);color:#fff;letter-spacing:.2px}
+button.act:hover:not(:disabled){background:var(--run-hover)}
+button.act.alt{background:var(--run2);border-color:var(--run2)}
+button.act.alt:hover:not(:disabled){background:var(--run2-hover)}
+button.act.ghost{background:transparent;color:var(--accent)}
+button.act.ghost:hover:not(:disabled){background:var(--select)}
+button.act:disabled{opacity:.72;cursor:not-allowed;filter:saturate(.55)}
+button.act:focus-visible{outline:3px solid var(--run2);outline-offset:2px}
+input[type=file]{display:none}
+
+.grid3{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center}
+.grid3 label{color:var(--accent);font-weight:600;font-size:13.5px;white-space:nowrap}
+.grid3 input[readonly]{font:inherit;font-size:12.5px;padding:6px 10px;
+  border:1.5px solid var(--line);border-radius:6px;background:var(--panel);
+  color:var(--muted);min-width:0}
+@media(max-width:640px){.grid3{grid-template-columns:1fr}}
+
+input.cell{font:inherit;font-size:12.5px;width:74px;text-align:right;
+  padding:4px 7px;border:1.4px solid var(--line);border-radius:5px;
+  background:var(--panel);color:var(--text);
+  font-family:Consolas,"Cascadia Mono",monospace}
+input.cell:focus{outline:2px solid var(--run2);outline-offset:1px}
+input.cell:disabled{opacity:.6;background:transparent;border-style:dashed}
+select.chansel{font:inherit;font-size:12px;padding:3px 5px;max-width:170px;caret-color:transparent;
+  border:1.4px solid var(--line);border-radius:5px;
+  background:var(--panel);color:var(--text);cursor:pointer}
+select.chansel:disabled{opacity:.6;background:transparent;border-style:dashed;cursor:default}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.tile{padding:10px 12px}
+.tile .k{font-size:11.5px;color:var(--muted)}
+.tile .v{font-size:20px;font-weight:700;color:var(--accent)}
+.tile .v.neg{color:var(--neg)}
+.tile .sub{font-size:11.5px;color:var(--muted)}
+
+.tablewrap{overflow:auto;max-height:60vh;border-radius:6px;max-width:100%}
+table{border-collapse:collapse;width:100%;font-size:13px;background:var(--stripe)}
+th{background:var(--accent);color:var(--tab);text-align:left;padding:7px 9px;
+  font-weight:600;white-space:nowrap;position:sticky;top:0;z-index:1}
+td{padding:6px 9px;border-bottom:1px solid #eadfc6;white-space:nowrap}
+tbody tr:nth-child(even){background:var(--stripe)}
+tbody tr:hover{background:color-mix(in srgb, var(--select) 45%, transparent)}
+td.num,th.num{text-align:right}
+td.neg{color:var(--neg)}
+td.wrap{white-space:normal;min-width:190px}
+td.cells{white-space:normal}
+.empty{color:var(--muted);text-align:center;padding:24px 10px;font-size:13px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:600;color:var(--accent)}
+.note{border-left:4px solid var(--run2);background:#fff8e4;padding:9px 12px;
+  margin:10px 0 0;font-size:12.5px;border-radius:0 5px 5px 0}
+.note.warn{border-left-color:var(--neg);background:#fdeceb}
+.note b{color:var(--run2)} .note.warn b{color:var(--neg)}
+
+/* 附加費:Zone 直欄 + 固定金額網格 */
+.zonecols{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.zonecol{padding:10px 12px;border:1.5px solid var(--line);border-radius:7px;background:var(--panel)}
+.zonecol .zt{font-size:12.5px;font-weight:600;color:var(--accent);margin-bottom:6px;line-height:1.3}
+.zonecol .zsel{font-size:11.5px;color:var(--muted);margin-bottom:6px}
+.zrow{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}
+.zrow .zl{flex:1;color:var(--muted)}
+.flatgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px}
+.flatitem{display:flex;align-items:center;gap:6px;font-size:12px}
+.flatitem .fl{flex:1;color:var(--text);line-height:1.25}
+#dvRow{gap:14px;flex-wrap:wrap}
+#dvRow label{font-size:12.5px;color:var(--accent);font-weight:600}
+
+/* 批量設定 */
+.bulkwrap{display:grid;grid-template-columns:minmax(0,0.85fr) minmax(0,1.15fr);gap:14px}
+@media(max-width:700px){.bulkwrap{grid-template-columns:1fr}}
+.bulkbox{padding:10px 12px}
+.bulkhd{font-weight:600;color:var(--accent);font-size:13px;margin-bottom:7px}
+.bulkchk{display:flex;align-items:center;gap:6px;font-size:12.5px;padding:2px 0}
+.bulkval{display:grid;grid-template-columns:minmax(0,1fr) 86px;
+  align-items:center;gap:8px;font-size:12px;padding:3px 0}
+.bulkval label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bulkval input.cell{width:100%}
+.bulkcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:0 20px;margin-top:6px}
+.bulkgrp{min-width:0}
+.bulkgt{font-size:11.5px;font-weight:600;color:var(--accent);
+  border-bottom:1px solid var(--line);padding-bottom:3px;margin:8px 0 5px}
+.bulkwide{border-bottom:1.5px solid var(--line);padding-bottom:7px}
+
+/* Demand 子分頁 */
+.subtabs{display:flex;gap:3px;margin:14px 0 0;padding:0 4px;
+  border-bottom:2px solid var(--accent);flex-wrap:wrap}
+.subtabs button{font:inherit;font-size:13px;cursor:pointer;padding:7px 16px 6px;
+  border:2px solid var(--accent);border-bottom:none;border-radius:8px 8px 0 0;
+  background:transparent;color:var(--accent);margin-bottom:-2px;opacity:.62}
+.subtabs button:hover{opacity:.85;background:var(--select)}
+.subtabs button[aria-selected=true]{background:var(--tab);font-weight:600;opacity:1;padding-bottom:8px}
+.subpanel{border:2px solid var(--accent);border-top:none;border-radius:0 0 9px 9px;
+  padding:12px 14px;background:var(--panel)}
+.subpanel .hint{margin:0 0 10px}
+
+/* 燃油視窗 */
+.modalbg{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.35);
+  align-items:flex-start;justify-content:center;padding:26px 16px;overflow:auto}
+.modalbg.on{display:flex}
+.modal{width:min(900px,100%);background:var(--stripe);max-height:100%;
+  display:flex;flex-direction:column}
+.modalhd{background:var(--accent);color:var(--tab);padding:8px 14px;
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:14px;font-weight:600;border-radius:7px 7px 0 0}
+.modalhd .mx{font:inherit;background:transparent;border:none;color:var(--tab);
+  cursor:pointer;font-size:15px;padding:0 4px}
+.modalbody{padding:14px 16px;overflow:auto;flex:1}
+.modalft{padding:10px 16px;display:flex;justify-content:space-between;
+  border-top:1.5px solid var(--line)}
+.chkgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:4px 12px;max-height:150px;overflow:auto}
+.chkgrid label{display:flex;align-items:center;gap:6px;font-size:12.5px}
+
+/* 場景與時鐘 */
+#scene{width:100%;height:200px;display:block;border-radius:0}
+/* 場景貼在視窗最底,statusbar 之上。它是裝飾,不該把內容往上擠,
+   所以放在 main 外面、不跟著分頁捲動。 */
+.sceneBox{padding:0;overflow:hidden;border:none;filter:none;
+  background:transparent;flex:none;line-height:0;margin-top:auto}
+.clockcard{position:absolute;top:12px;right:22px;padding:0;z-index:5;
+  background:transparent;border:none;pointer-events:none}
+/* 第一塊面板要讓出時鐘的位置,不然輸入框會壓到日曆 */
+.filesCard{padding-right:250px}
+@media(max-width:900px){.filesCard{padding-right:16px}}
+.clockbox{display:flex;gap:12px;align-items:flex-start}
+.clockbox .lab{font-size:11.5px;color:var(--muted);text-align:center;margin-top:3px}
+@media(max-width:820px){.clockcard{position:static;margin-bottom:12px}}
+
+/* 登入 */
+.frow{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.frow label{min-width:74px;color:var(--accent);font-weight:600;font-size:13px}
+.frow input{flex:1;font:inherit;font-size:13.5px;padding:5px 9px;
+  border:1.6px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text)}
+.frow input:focus{outline:2px solid var(--run2);outline-offset:1px}
+
+.statusbar{background:var(--accent);color:var(--tab);padding:5px 14px;
+  font-size:12px;display:flex;gap:14px;align-items:center}
+
+/* 表格欄寬 */
+#tCode th:nth-child(1),#tCode td:nth-child(1){width:70px;text-align:center}
+#tCode th:nth-child(2),#tCode td:nth-child(2){max-width:420px}
+#tCode th:nth-child(3),#tCode td:nth-child(3){width:90px;text-align:center}
+#tCode th:nth-child(4),#tCode td:nth-child(4){width:80px}
+#tCode td{padding-top:7px;padding-bottom:7px}
+#tAcc th:nth-child(2),#tAcc td:nth-child(2){min-width:150px;white-space:nowrap}
+#tAcc th:nth-child(3),#tAcc td:nth-child(3){min-width:140px;white-space:nowrap}
+#tSize td,#tSize th{padding-top:5px;padding-bottom:5px}
+#tSize input.cell{width:70px}
+.zcell{display:inline-flex;flex-direction:column;align-items:center;gap:2px;
+  margin:2px 5px 2px 0;font-size:10.5px;color:var(--muted);line-height:1.1}
+.zcell input.cell{width:62px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+select{caret-color:transparent}
+select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
+</style>
+</head>
+<body>
+<svg class="defs" aria-hidden="true">
+  <filter id="wobble"><feTurbulence type="fractalNoise" baseFrequency="0.014"
+    numOctaves="3" seed="7" result="n"/><feDisplacementMap in="SourceGraphic"
+    in2="n" scale="1.4" xChannelSelector="R" yChannelSelector="G"/></filter>
+  <filter id="wobble-soft"><feTurbulence type="fractalNoise" baseFrequency="0.02"
+    numOctaves="2" seed="13" result="n"/><feDisplacementMap in="SourceGraphic"
+    in2="n" scale="0.8" xChannelSelector="R" yChannelSelector="G"/></filter>
+</svg>
+
+<div class="titlebar">
+  <b class="display" id="appTitle">UPS REPRICE PLATFORM</b>
+  <span class="devby">DEVELOPED BY SANDY LIU</span>
+  <div class="ctrls">
+    <select id="langSel"  title="Language"></select>
+    <select id="brandSel" title="Theme"></select>
+    <select id="themeSel" title="Colour"></select>
+    <select id="tzSel"    title="Clock"></select>
+    <select id="wxSel"    title="Weather" hidden></select>
+  </div>
+  <div class="bigclock">
+    <span id="clkBig" class="mono">--:--</span>
+    <span id="clkSub"></span>
+  </div>
+  <span id="who"></span>
+  <button id="bLogout" data-i18n="btn.logout">Sign out</button>
+</div>
+
+<div class="tabstrip" role="tablist" id="tabs">
+  <button role="tab" aria-selected="true"  data-p="files"  class="display" data-i18n="tab.files">Import Files</button>
+  <button role="tab" aria-selected="false" data-p="rules"  class="display" data-i18n="tab.rules">Surcharge Setup</button>
+  <button role="tab" aria-selected="false" data-p="size"   class="display" data-i18n="tab.size">Size Rules</button>
+  <button role="tab" aria-selected="false" data-p="chan"   class="display" data-i18n="tab.chan">Channels</button>
+  <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
+  <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
+  <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
+  <button role="tab" aria-selected="false" data-p="users"  class="display" data-i18n="tab.users">Users</button>
+</div>
+
+<main>
+<div id="gate" style="display:none">
+  <div class="lf sketch" style="max-width:400px;margin:40px auto">
+    <h3 class="display"><span class="em">🔑</span><span data-i18n="hd.signin">Sign in</span></h3>
+    <div class="frow"><label data-i18n="lb.username">Username</label>
+      <input id="inUser" autocomplete="username"></div>
+    <div class="frow"><label data-i18n="lb.pw">Password</label>
+      <input id="inPw" type="password" autocomplete="current-password"></div>
+    <div class="row" style="margin-top:11px">
+      <button class="act" id="bLogin" data-i18n="btn.login">Sign in</button>
+    </div>
+    <div id="gateNote"></div>
+  </div>
+</div>
+<div id="app">
+
+<!-- ==================== Import Files ==================== -->
+<section class="page on" id="p-files">
+  <div class="clockcard">
+    <div class="clockbox">
+      <div><canvas id="dateCv"></canvas></div>
+      <div><canvas id="clockCv"></canvas></div>
+    </div>
+  </div>
+
+  <div class="lf sketch filesCard">
+    <h3 class="display"><span class="em">📁</span><span data-i18n="hd.files">Import Files</span></h3>
+    <div class="grid3">
+      <label data-i18n="lb.inv">UPS Billing File</label>
+      <input id="pathInv" readonly>
+      <button class="act ghost" id="bInv" data-i18n="btn.browse">Browse</button>
+      <input type="file" id="fInv" accept=".csv,.txt">
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="act" id="bRun" data-i18n="btn.run" disabled>Generate Reprice Report</button>
+      <button class="act alt" id="bCsv" data-i18n="btn.csv" disabled>Generate Profit Report</button>
+    </div>
+    <p class="hint" id="filesStatus" style="margin:12px 0 0"></p>
+    <div class="row" style="margin-top:14px">
+      <button class="act ghost" id="bSaveTop" data-i18n="btn.save">Save Settings</button>
+      <button class="act ghost" id="bBilling" data-i18n="btn.billing">UPS Billing Center</button>
+    </div>
+    <div id="cfgNote"></div>
+  </div>
+
+  <div class="lf sketch" id="sumBox" style="display:none">
+    <h3 class="display"><span class="em">📊</span><span data-i18n="hd.sum">This Invoice</span></h3>
+    <div class="tiles" id="tiles"></div>
+    <div class="tablewrap" style="margin-top:12px">
+      <table id="tLayer"><thead><tr>
+        <th data-i18n="th.layer">Layer</th><th data-i18n="th.meaning">Means</th>
+        <th class="num" data-i18n="th.rows">Lines</th>
+        <th class="num" data-i18n="th.trk">Tracking</th>
+        <th class="num" data-i18n="th.upsamt">UPS Amount</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="lf sketch" id="rateBox" style="display:none">
+    <h3 class="display"><span class="em">🧮</span><span data-i18n="hd.rate">Repricing</span></h3>
+    <div class="tiles" id="tiles2" style="margin-bottom:12px"></div>
+    <div class="tablewrap"><table id="tRate"><thead></thead><tbody></tbody></table></div>
+    <div id="rateNote"></div>
+  </div>
+
+</section>
+
+<!-- ==================== Surcharge Setup ==================== -->
+<section class="page" id="p-rules">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">⛽</span><span data-i18n="hd.fuel">Fuel</span></h3>
+    <div class="row">
+      <label class="inlab" style="margin-left:0" data-i18n="lb.fuelsur">Fuel Surcharge</label>
+      <button class="act" id="bSetFuel" data-i18n="btn.setfuel">Set Fuel Percentage</button>
+      <button class="act alt" id="bFuelUrl" data-i18n="btn.fuelurl">Look Up UPS Fuel Percentage</button>
+      <span id="fuelNow" style="color:var(--run2);font-size:12.5px"></span>
+    </div>
+    <dl class="kv" id="fuelKV" style="margin-top:10px"></dl>
+  </div>
+
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">💵</span><span data-i18n="hd.acc">Surcharge Rates</span></h3>
+    <div class="row" style="margin-bottom:8px">
+      <button class="act" id="bCustomAcc" data-i18n="btn.customacc">Custom Surcharges…</button>
+      <button class="act" id="bSaveRates" data-i18n="btn.saverates">Save Rates</button>
+      <button class="act ghost" id="bRemoveTicked" data-i18n="btn.removeticked">Remove Ticked</button>
+      <button class="act ghost" id="bExportAcc" data-i18n="btn.exportacc">Export Accessorials Template</button>
+      <button class="act ghost" id="bImportAcc" data-i18n="btn.importacc">Import Accessorials Template</button>
+      <input type="file" id="fImportAcc" accept=".csv">
+    </div>
+    <div class="row" style="margin-bottom:10px">
+      <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
+      <select id="accFilter"></select>
+      <label class="inlab" data-i18n="lb.search">Search</label>
+      <input id="accSearch" class="cell" style="width:150px;text-align:left">
+      <span id="accCount" style="color:var(--muted);font-size:12.5px"></span>
+    </div>
+    <div class="grid3" style="margin-bottom:12px">
+      <label data-i18n="lb.cfg">Rate file</label>
+      <input id="pathCfg" readonly>
+      <button class="act ghost" id="bCfg" data-i18n="btn.browse">Browse</button>
+      <input type="file" id="fCfg" accept=".json">
+    </div>
+
+    <div id="accChanName" class="subhd"></div>
+    <div id="accZoneCols" class="zonecols"></div>
+    <div class="subhd" data-i18n="hd.flat">Flat amounts</div>
+    <div id="accFlat" class="flatgrid"></div>
+    <div class="subhd" data-i18n="hd.dv">Declared value tiers</div>
+    <div class="row" id="dvRow"></div>
+
+    <div class="tablewrap hidden" style="display:none"><table id="tAcc"><thead><tr>
+      <th><input type="checkbox" id="accAll"></th>
+      <th data-i18n="th.feetype">Fee Type</th>
+      <th data-i18n="th.shiptype">Shipment Type</th>
+      <th data-i18n="th.zones">Zones</th>
+      <th data-i18n="th.amount">Amount</th>
+    </tr></thead><tbody></tbody></table></div>
+
+    <div class="row saveRow" style="margin-top:10px">
+      <button class="act alt" onclick="downloadSettings()" data-i18n="btn.dl">Download settings file</button>
+      <span id="saveNote" style="color:var(--run2);font-size:12.5px"></span>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Size Rules ==================== -->
+<section class="page" id="p-size">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">⚙</span><span data-i18n="hd.dimf">DIM Factor</span></h3>
+    <div class="row">
+      <label class="inlab" style="margin-left:0" data-i18n="lb.defdim">Default DIM factor</label>
+      <input class="cell num" id="defDim" style="width:80px">
+      <button class="act" id="bSaveDim" data-i18n="btn.save">Save</button>
+      <button class="act ghost" id="bChanDim" data-i18n="btn.chandim">Set Channel DIM</button>
+    </div>
+  </div>
+
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">📏</span><span data-i18n="hd.rulesforce">Rules in Force</span></h3>
+    <div class="row" style="margin-bottom:8px">
+      <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
+      <select id="sizeFilter"></select>
+      <button class="act ghost" id="bDefThr" data-i18n="btn.defthr">Default Thresholds</button>
+      <button class="act ghost" id="bBulkChan" data-i18n="btn.bulkchan">Bulk Set Channels</button>
+    </div>
+    <div class="tablewrap" style="max-height:52vh"><table id="tSize"><thead><tr>
+      <th data-i18n="th.chan">Channel</th>
+      <th class="num">LPS <span data-i18n="c.longest">Longest</span> (in)</th>
+      <th class="num">LPS <span data-i18n="c.weight">Weight</span> (lb)</th>
+      <th class="num">LPS <span data-i18n="c.cubic">Cubic</span> (in³)</th>
+      <th class="num">LPS L+G (in)</th>
+      <th class="num">LPS <span data-i18n="c.minwt">Min Wt</span> (lb)</th>
+      <th class="num">AHS <span data-i18n="c.weight">Weight</span> (lb)</th>
+      <th class="num">AHS <span data-i18n="c.longest">Longest</span> (in)</th>
+      <th class="num">AHS <span data-i18n="c.second">2nd Side</span> (in)</th>
+      <th class="num">AHS <span data-i18n="c.cubic">Cubic</span> (in³)</th>
+      <th class="num">AHS L+G (in)</th>
+      <th class="num">AHS <span data-i18n="c.minwt">Min Wt</span> (lb)</th>
+    </tr></thead><tbody></tbody></table></div>
+    <p class="hint" id="sizeFoot" style="margin-top:8px"></p>
+    <div class="row saveRow" style="margin-top:10px">
+      <button class="act" onclick="saveSettings()" data-i18n="btn.saverules">Save Rules</button>
+      <button class="act alt" onclick="downloadSettings()" data-i18n="btn.dl">Download settings file</button>
+    </div>
+  </div>
+
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">📏</span><span data-i18n="hd.bulk">Bulk Set Channels</span></h3>
+    <p class="hint" data-i18n="hint.bulk"></p>
+    <div class="bulkwrap">
+      <div class="bulkbox sketch-soft">
+        <div class="bulkhd" data-i18n="hd.selchan">Select Channels</div>
+        <div id="bulkChans"></div>
+        <div class="row" style="margin-top:8px">
+          <button class="act ghost" id="bSelAll" data-i18n="btn.selall">Select All</button>
+          <button class="act ghost" id="bSelNone" data-i18n="btn.selnone">Deselect All</button>
+        </div>
+      </div>
+      <div class="bulkbox sketch-soft">
+        <div class="bulkhd" data-i18n="hd.valwrite">Values to Write</div>
+        <div id="bulkVals"></div>
+      </div>
+    </div>
+    <div class="row saveRow" style="margin-top:12px">
+      <button class="act" id="bApplyTicked" data-i18n="btn.applyticked">Apply to Ticked Channels</button>
+      <button class="act ghost" id="bLoadTicked" data-i18n="btn.loadticked">Load Values from Ticked Channel</button>
+      <button class="act ghost" id="bClearTicked" data-i18n="btn.clearticked">Clear Overrides on Ticked</button>
+      <span id="bulkNote" style="color:var(--run2);font-size:12.5px"></span>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Channels ==================== -->
+<section class="page" id="p-chan">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">①</span><span data-i18n="hd.chandata">Channel details</span></h3>
+    <div class="grid3" style="grid-template-columns:auto minmax(0,1fr)">
+      <label data-i18n="lb.channame">Channel name</label>
+      <input id="newChanName" class="cell" style="text-align:left;width:100%">
+      <label data-i18n="th.zones">Zones</label>
+      <input id="newChanZones" class="cell" style="text-align:left;width:100%">
+    </div>
+    <div class="row" style="margin-top:9px">
+      <label class="bulkchk"><input type="checkbox" id="newChanRes">
+        <span data-i18n="lb.reschan">Residential channel</span></label>
+      <label class="bulkchk"><input type="checkbox" id="newChanOn" checked>
+        <span data-i18n="lb.chanon">Enable this channel</span></label>
+      <button class="act" id="bAddChan" data-i18n="btn.addchan">Add channel</button>
+    </div>
+  </div>
+
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">②</span><span data-i18n="hd.ratestate">Rate table state</span></h3>
+    <div class="row" style="margin-bottom:8px">
+      <label class="inlab" style="margin-left:0" data-i18n="lb.pickrate">Rate table channel</label>
+      <select id="rateChan" style="min-width:260px"></select>
+    </div>
+    <div class="row">
+      <button class="act ghost" id="bExpRate" data-i18n="btn.exprate">Export base rate template</button>
+      <button class="act ghost" id="bImpRate" data-i18n="btn.imprate">Import completed base rates</button>
+      <button class="act ghost" id="bScanZone" data-i18n="btn.scanzone">Scan zones from invoice</button>
+      <input type="file" id="fImpRate" accept=".csv">
+    </div>
+    <div id="rateState"></div>
+  </div>
+
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">③</span><span data-i18n="hd.allchan">All channels</span></h3>
+    <div class="row" style="margin-bottom:8px">
+      <button class="act ghost" id="bDelChan" data-i18n="btn.delchan">Delete selected</button>
+      <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
+      <label class="inlab" data-i18n="lb.search">Search</label>
+      <input id="chanSearch" class="cell" style="width:150px;text-align:left">
+      <span id="chanCount" style="color:var(--muted);font-size:12.5px"></span>
+    </div>
+    <div class="tablewrap"><table id="tChan"><thead><tr>
+      <th style="width:30px"></th>
+      <th data-i18n="lb.channame">Channel name</th>
+      <th data-i18n="th.zones">Zones</th>
+      <th data-i18n="th.chantype">Type</th>
+      <th data-i18n="th.ratestate">Base rates</th>
+      <th data-i18n="th.enabled">Enabled</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ==================== Demand ==================== -->
+<section class="page" id="p-demand">
+  <div class="lf sketch">
+    <div class="row" style="justify-content:space-between">
+      <h3 class="display" style="margin:0"><span class="em">⚡</span>
+        <span data-i18n="hd.demand">Demand Surcharge</span></h3>
+      <span><label class="inlab" data-i18n="lb.applydemand">Apply to repricing</label>
+        <select id="demandOn"><option value="off">Off</option><option value="on">On</option></select></span>
+    </div>
+    <div class="subtabs" id="demandTabs">
+      <button data-d="pkg" aria-selected="true"  data-i18n="dt.pkg">Package surcharges</button>
+      <button data-d="svc" aria-selected="false" data-i18n="dt.svc">Service level rates</button>
+      <button data-d="grp" aria-selected="false" data-i18n="dt.grp">Service categories</button>
+      <button data-d="map" aria-selected="false" data-i18n="dt.map">Channel mapping</button>
+    </div>
+    <div class="subpanel">
+      <p class="hint" id="demandHint"></p>
+      <div class="tablewrap" style="max-height:40vh">
+        <table id="tDemand"><thead></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="act ghost" id="bAddPeriod" data-i18n="btn.addperiod">Add period</button>
+      <button class="act ghost" id="bDelPeriod" data-i18n="btn.delperiod">Delete selected</button>
+      <button class="act" onclick="saveSettings()" data-i18n="btn.savedemand">Save Demand settings</button>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Invoice History ==================== -->
+<section class="page" id="p-hist">
+  <div class="lf sketch">
+    <div class="row" style="margin-bottom:8px">
+      <button class="act" id="bHist" data-i18n="btn.imphist">Import Past Invoices</button>
+      <button class="act ghost" id="bHistRefresh" data-i18n="btn.refresh">Refresh</button>
+      <button class="act ghost" id="bHistStored" data-i18n="btn.stored">Stored Invoices</button>
+      <input type="file" id="fHist" accept=".csv,.txt" multiple>
+      <span id="vHist" style="color:var(--run2);font-size:12.5px"></span>
+    </div>
+    <p class="hint" id="histStats" style="margin:0 0 12px"></p>
+
+    <div class="subhd" data-i18n="hd.findtrk">Find a Tracking</div>
+    <div class="row sketch-soft" style="padding:11px 13px;margin-bottom:12px">
+      <label class="inlab" style="margin-left:0" data-i18n="th.trk">Tracking</label>
+      <input id="trkSearch" class="cell" style="width:280px;text-align:left">
+      <button class="act" id="bTrkSearch" data-i18n="btn.search">Search</button>
+      <button class="act ghost" id="bTrkBreak" data-i18n="btn.breakdown">Rating Breakdown</button>
+    </div>
+    <div id="histNote"></div>
+
+    <div class="tablewrap" style="max-height:56vh"><table id="tHist"><thead><tr>
+      <th data-i18n="th.invno">Invoice Number</th>
+      <th data-i18n="th.invdt">Invoice Date</th>
+      <th data-i18n="th.trandt">Transaction Date</th>
+      <th data-i18n="th.cat">Charge Category Code</th>
+      <th data-i18n="th.catdet">Charge Category Detail Code</th>
+      <th data-i18n="th.desccode">Charge Description Code</th>
+      <th data-i18n="th.desc2">Charge Description</th>
+      <th data-i18n="th.zones">Zone</th>
+      <th class="num" data-i18n="th.entwt">Entered Weight</th>
+      <th class="num" data-i18n="th.bilwt">Billed Weight</th>
+      <th data-i18n="th.pkgdim">Package Dimensions</th>
+      <th data-i18n="th.keydim">Detail Keyed Dimensions</th>
+      <th class="num" data-i18n="th.net">Net Amount</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ==================== Code Lookup ==================== -->
+<section class="page" id="p-code">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">🔎</span><span data-i18n="hd.code">UPS Charge Code Lookup</span></h3>
+    <p class="hint" data-i18n="hint.code"></p>
+    <div class="row" style="margin-bottom:10px">
+      <button class="act" id="bScanInv" data-i18n="btn.scaninv">Scan Loaded Invoice</button>
+      <button class="act ghost" id="bFullRef" data-i18n="btn.fullref">Show Full Reference</button>
+      <label class="inlab" data-i18n="lb.search">Search</label>
+      <input id="codeSearch" class="cell" style="width:150px;text-align:left">
+      <button class="act ghost" id="bClearSearch" data-i18n="btn.clearsearch">Clear</button>
+      <label class="inlab" data-i18n="lb.show">Show</label>
+      <select id="codeFilter"></select>
+      <span id="codeCount" style="color:var(--muted);font-size:12.5px"></span>
+    </div>
+    <div class="tablewrap"><table id="tCode"><thead><tr>
+      <th data-i18n="th.code">Code</th>
+      <th data-i18n="th.meaning2">Surcharge / Meaning</th>
+      <th data-i18n="th.ininv">In Invoice</th>
+      <th class="num" data-i18n="th.count">Count</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+
+<!-- ==================== Users ==================== -->
+<section class="page" id="p-users">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">👤</span><span data-i18n="hd.accounts">Accounts</span></h3>
+    <p class="hint" data-i18n="hint.accounts"></p>
+    <div class="tablewrap"><table id="tUsers"><thead><tr>
+      <th data-i18n="lb.name">Name</th>
+      <th data-i18n="th.role">Role</th>
+      <th data-i18n="lb.username">Username</th>
+      <th data-i18n="th.pw">Password</th>
+      <th data-i18n="th.edit">Edit</th>
+    </tr></thead><tbody></tbody></table></div>
+    <div class="subhd" data-i18n="hd.addacct">Add an account</div>
+    <div class="row">
+      <input id="newAcctName" class="cell" style="width:140px;text-align:left"
+             placeholder="name">
+      <select id="newAcctRole">
+        <option value="user">user</option><option value="admin">admin</option>
+      </select>
+      <input id="newAcctUser" class="cell" style="width:130px;text-align:left"
+             placeholder="username">
+      <input id="newAcctPw" class="cell" style="width:180px;text-align:left"
+             placeholder="password">
+      <button class="act" id="bAddAcct" data-i18n="btn.addacct">Add</button>
+      <button class="act alt" id="bDlAcct" data-i18n="btn.dlacct">Download accounts file</button>
+      <span id="acctNote" style="color:var(--run2);font-size:12.5px"></span>
+    </div>
+  </div>
+
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">📋</span><span data-i18n="hd.activity">Activity</span></h3>
+    <p class="hint" data-i18n="hint.activity"></p>
+    <div class="row" style="margin-bottom:8px">
+      <button class="act ghost" id="bLogExport" data-i18n="btn.logexport">Export log</button>
+      <button class="act ghost" id="bLogImport" data-i18n="btn.logimport">Import log</button>
+      <button class="act ghost" id="bLogClear" data-i18n="btn.logclear">Clear log</button>
+      <input type="file" id="fLogImport" accept=".json">
+      <span id="logCount" style="color:var(--muted);font-size:12.5px"></span>
+    </div>
+    <div class="tablewrap" style="max-height:50vh"><table id="tLog"><thead><tr>
+      <th data-i18n="th.when">When</th>
+      <th data-i18n="lb.username">Username</th>
+      <th data-i18n="lb.name">Name</th>
+      <th data-i18n="th.role">Role</th>
+      <th data-i18n="th.what">What</th>
+      <th data-i18n="th.detail">Detail</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+</div>
+</main>
+
+<div id="modalBg" class="modalbg">
+  <div class="modal sketch" id="fuelModal">
+    <div class="modalhd">
+      <span data-i18n="hd.fuelsetup">Fuel Setup</span>
+      <button class="mx" id="bFuelX">✕</button>
+    </div>
+    <div class="modalbody">
+      <div class="row">
+        <label class="inlab" style="margin-left:0" data-i18n="lb.deffuel">Default Fuel %</label>
+        <input id="fuelDefault" class="cell" style="width:100px">
+      </div>
+      <div class="subhd" data-i18n="hd.newrange">New Fuel Range</div>
+      <div class="row sketch-soft" style="padding:10px 12px">
+        <label class="inlab" style="margin-left:0" data-i18n="lb.from">From</label>
+        <input id="fuelFrom" type="date" class="cell" style="width:150px;text-align:left">
+        <label class="inlab" data-i18n="lb.to">To</label>
+        <input id="fuelTo" type="date" class="cell" style="width:150px;text-align:left">
+        <label class="inlab" data-i18n="lb.fuelpct">Fuel %</label>
+        <input id="fuelPct" class="cell" style="width:90px">
+        <button class="act" id="bAddRange" data-i18n="btn.addrange">Add Range</button>
+      </div>
+      <div class="subhd" data-i18n="hd.selchan">Select Channels</div>
+      <div class="sketch-soft" style="padding:10px 12px">
+        <div class="row" style="margin-bottom:8px">
+          <button class="act ghost" id="bFuelAll" data-i18n="btn.selall">Select All</button>
+          <button class="act ghost" id="bFuelNone" data-i18n="btn.selnone">Deselect All</button>
+        </div>
+        <div id="fuelChans" class="chkgrid"></div>
+      </div>
+      <div class="subhd" data-i18n="hd.fuelforce">Fuel Schedule in Effect</div>
+      <div class="tablewrap" style="max-height:230px">
+        <table id="tFuel"><thead><tr>
+          <th style="width:30px"></th>
+          <th data-i18n="th.chan">Channel</th>
+          <th data-i18n="th.start">Start Date</th>
+          <th data-i18n="th.end">End Date</th>
+          <th class="num" data-i18n="th.fuelpct">Fuel %</th>
+          <th class="num" data-i18n="th.defpct">Default %</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="act ghost" id="bFuelRowAll" data-i18n="btn.selall">Select All</button>
+        <button class="act ghost" id="bFuelRowNone" data-i18n="btn.selnone">Deselect All</button>
+        <button class="act ghost" id="bDelRange" data-i18n="btn.delticked">Delete Ticked</button>
+      </div>
+    </div>
+    <div class="modalft">
+      <button class="act" id="bFuelSave" data-i18n="btn.save">Save</button>
+      <button class="act ghost" id="bFuelClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="sceneBox" id="sceneBox"><canvas id="scene"></canvas></div>
+<div class="statusbar"><span id="status" data-i18n="ready">Ready</span></div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   欄位位置
+   ---------------------------------------------------------------------
+   UPS 出的帳單常常沒有標題列,桌面版因此用固定欄位序號讀
+   。這裡照抄,
+   有標題列時再用標題覆蓋。
+   ===================================================================== */
+const FIXED_COLS = {
+  "Invoice Date": 4, "Invoice Number": 5, "Lead Shipment Number": 13,
+  "Tracking Number": 20, "Charge Classification Code": 43,
+  "Charge Description Code": 44, "Charge Description": 45, "Net Amount": 52
+};
+/* 標題列存在時才找得到的欄位。找不到就留空,不猜。 */
+const BY_NAME = ["Transaction Date","Zone","Entered Weight","Billed Weight",
+                 "Billed Weight Type","Package Dimensions",
+                 "Detail Keyed Dimensions","Charge Category Code",
+                 "Charge Category Detail Code","Incentive Amount"];
+
+
+/* 狀態變數宣告在外殼,見下方畫面區 */
+
+/* ---- 小工具 ---- */
+/* $ / money / num 由外殼提供,見下方畫面區 */
+function toNum(v){
+  if(v===null||v===undefined)return 0;
+  const s=String(v).replace(/[$,\s]/g,"");
+  const n=parseFloat(s);
+  return isFinite(n)?n:0;
+}
+
+/* ---- CSV:引號、逗號、換行都要處理,UPS 的說明欄常常有逗號 ---- */
+function parseCSV(text){
+  const rows=[]; let row=[], cur="", q=false;
+  if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);   // BOM
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; }
+      else cur+=c;
+    }else if(c==='"'){ q=true; }
+    else if(c===","){ row.push(cur); cur=""; }
+    else if(c==="\n"){ row.push(cur); rows.push(row); row=[]; cur=""; }
+    else if(c!=="\r"){ cur+=c; }
+  }
+  if(cur!==""||row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(r=>r.length>1||(r[0]||"").trim()!=="");
+}
+
+/* 第一列是標題還是資料?
+   桌面版註解講得很清楚:把無標題檔當有標題讀,第一筆貨會被吃掉變成欄名,
+   一個包裹的費用就這樣不見了。所以這裡寧可保守。 */
+function detectHeader(rows){
+  if(!rows.length) return false;
+  const first=rows[0].map(c=>String(c).trim());
+  const hit=first.filter(c=>
+    /^(Tracking Number|Net Amount|Invoice Number|Invoice Date|Charge Description)$/i.test(c)
+  ).length;
+  return hit>=2;
+}
+
+function buildIndex(rows){
+  const hasHdr=detectHeader(rows);
+  const idx=Object.assign({},FIXED_COLS);
+  if(hasHdr){
+    const hdr=rows[0].map(c=>String(c).trim());
+    hdr.forEach((name,i)=>{
+      if(name) idx[name]=i;
+    });
+  }
+  return {idx, hasHdr, body: hasHdr?rows.slice(1):rows};
+}
+
+/* ---- 尺寸字串 "12x10x8" / "12 X 10 X 8" ---- */
+function parseDims(s){
+  if(!s)return null;
+  const m=String(s).match(/(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)/);
+  if(!m)return null;
+  const d=[+m[1],+m[2],+m[3]].sort((a,b)=>b-a);
+  return {l:d[0], w:d[1], h:d[2]};
+}
+
+/* =====================================================================
+   讀設定
+   ---------------------------------------------------------------------
+   一個原則,和桌面版一致:程式裡不放任何費率、門檻、代碼清單。
+   全部從這份 JSON 讀,讀不到就說讀不到,不套預設值。
+   ===================================================================== */
+function readConfig(cfg){
+  const g=cfg.global_rules||{};
+  const tables=(cfg.base_rate_tables||[]).map(t=>({
+    service:t.service, residential:String(t.residential).toLowerCase()==="true",
+    columns:t.columns||[], rows:t.rows||[]
+  }));
+  return {
+    raw:cfg,
+    dimFactor:      toNum(g.dim_factor),
+    defaultDim:     toNum(g.default_dim_factor),
+    fuelPct:        toNum(g.fuel_percent),
+    ahsMinBillable: toNum(g.ahs_min_billable_weight),
+    ovrMinBillable: toNum(g.oversize_min_billable_weight),
+    ahsWeightThr:   toNum(g.ahs_weight_threshold),
+    ahsLongest:     toNum(g.ahs_longest_side),
+    ahsSecond:      toNum(g.ahs_second_side),
+    ahsCubic:       toNum(g.ahs_cubic_inches),
+    ahsLG:          toNum(g.ahs_lg_limit),
+    ovrLongest:     toNum(g.oversize_longest_side),
+    ovrWeight:      toNum(g.oversize_actual_weight),
+    ovrCubic:       toNum(g.oversize_cubic_inches),
+    ovrLG:          toNum(g.oversize_length_girth),
+    tables, codeReg:cfg.ahs_lps_code_registry||{},
+    dynMap:cfg.dynamic_surcharge_mapping||{},
+    tableRowCount: tables.reduce((a,t)=>a+t.rows.length,0)
+  };
+}
+
+/* ---- 基本費率查表:service × residential × zone × 計費重量 ---- */
+function lookupBaseRate(cfg, service, residential, zone, billWeight){
+  /* Ground 的兩張表用名字分商/住("Ground Commercial" / "Ground Residential"),
+     空運則是同一個名字兩張表、靠 residential 旗標分。所以候選名要兩種都試,
+     再用 residential 旗標定案 —— 只比名字會讓住宅件查不到表,
+     只比旗標會讓 Ground 商業件配到住宅表。 */
+  const s=String(service).trim();
+  const cands=[s];
+  if(/^ground/i.test(s)){
+    cands.push(residential?"Ground Residential":"Ground Commercial");
+  }
+  const t=cfg.tables.find(x=>
+    cands.some(c=>String(x.service).trim().toLowerCase()===c.toLowerCase())
+    && x.residential===!!residential);
+  if(!t) return {rate:null,
+    why:"設定檔沒有這個服務的費率表:"+s+(residential?"(住宅)":"(商業)")};
+  const zi=t.columns.findIndex(c=>String(c).trim()==="Zone "+zone
+                                 ||String(c).trim()===String(zone));
+  if(zi<0) return {rate:null, why:"費率表沒有 Zone "+zone};
+  const wi=t.columns.findIndex(c=>String(c).trim()==="Weight");
+  if(wi<0) return {rate:null, why:"費率表沒有 Weight 欄"};
+  /* 重量級距:找第一個 >= 計費重量的列。表尾之外不外插 —— 桌面版
+     在這裡是報 rate issue 而不是猜一個數字出來。 */
+  let best=null;
+  for(const r of t.rows){
+    const w=toNum(r[wi]);
+    if(w>=billWeight && (best===null || w<toNum(best[wi]))) best=r;
+  }
+  if(!best) return {rate:null, why:"計費重量 "+billWeight+" lb 超出費率表範圍"};
+  const v=toNum(best[zi]);
+  if(!v) return {rate:null, why:"Zone "+zone+" 在 "+toNum(best[wi])+" lb 這一列是空的"};
+  return {rate:v, why:null};
+}
+
+/* =====================================================================
+   計費重量
+   ---------------------------------------------------------------------
+   已確認的規則(桌面版 + 你確認過的):
+     · 計費重 = max(輸入重量, DIM 重量),DIM = L×W×H ÷ dim_factor,無條件進位
+     · AHS 最低計費重量「只」套 AHS-Dimension。AHS-Weight、AHS-Packaging 沒有
+     · AHS/LPS 一律用尺寸與重量門檻判定,絕不看帳單上的附加費代碼
+     · OVR/OML 只在 UPS 實際收了才算,不自行依門檻判斷 —— 和 AHS 相反
+   ===================================================================== */
+function billableWeight(cfg, entered, dims){
+  const out={entered, dim:null, billable:entered, basis:"輸入重量",
+             ahsDim:false, ahsWeight:false, oversize:false};
+  if(dims && cfg.dimFactor>0){
+    out.dim=Math.ceil(dims.l*dims.w*dims.h/cfg.dimFactor);
+    if(out.dim>out.billable){ out.billable=out.dim; out.basis="DIM 重量"; }
+  }
+  if(dims){
+    const girth=dims.l+2*(dims.w+dims.h);
+    out.ahsDim = (cfg.ahsLongest>0 && dims.l>cfg.ahsLongest)
+              || (cfg.ahsSecond>0 && dims.w>cfg.ahsSecond)
+              || (cfg.ahsCubic>0 && dims.l*dims.w*dims.h>cfg.ahsCubic)
+              || (cfg.ahsLG>0 && girth>cfg.ahsLG);
+    out.oversize = (cfg.ovrLongest>0 && dims.l>cfg.ovrLongest)
+                || (cfg.ovrCubic>0 && dims.l*dims.w*dims.h>cfg.ovrCubic)
+                || (cfg.ovrLG>0 && girth>cfg.ovrLG);
+  }
+  out.ahsWeight = cfg.ahsWeightThr>0 && entered>cfg.ahsWeightThr;
+
+  /* 最低計費重量。AHS 這一條只套 Dimension —— Weight 和 Packaging 沒有下限。 */
+  if(out.ahsDim && cfg.ahsMinBillable>0 && out.billable<cfg.ahsMinBillable){
+    out.billable=cfg.ahsMinBillable; out.basis="AHS-Dimension 最低計費重";
+  }
+  if(out.oversize && cfg.ovrMinBillable>0 && out.billable<cfg.ovrMinBillable){
+    out.billable=cfg.ovrMinBillable; out.basis="超大件最低計費重";
+  }
+  return out;
+}
+
+
+/* =====================================================================
+   附加費
+   ---------------------------------------------------------------------
+   照 第 19090-19250 行移植。核心規則:
+   附加費「UPS 收了才收」—— 掃描帳單行的 Charge Description Code,
+   有這一項且金額不為 0,就查合約費率表收。不是自己依門檻判斷。
+   (AHS / LPS 例外:那兩項一律用尺寸與重量門檻,絕不看代碼。)
+
+   代碼對照表抄自原始碼,不是我推測的:
+     RES 住宅        RDC/RDR DAS 商/住      LDC/LDR DAS 延伸商/住
+     CAC/CAR 偏遠商/住   HIC/HIR 夏威夷       AKR 阿拉斯加
+     SHD 包裹保護     DDO 指定本人           ISW 退回寄件人
+     IRW 改道         IFW 改期               ERL/ALP 退貨標籤
+     FRT/FSC 走運費與燃油主線,不在這裡
+     NPF/SCF 是 UPS 的補收作業費,原始碼明定不重新計價
+   ===================================================================== */
+const ACC_CODE_MAP = {
+  RES:{fee:"Residential Surcharge", res:true},
+  RDC:{fee:"DAS Commercial",        com:true},
+  RDR:{fee:"DAS Residential",       res:true},
+  LDC:{fee:"DAS Extended Commercial", com:true},
+  LDR:{fee:"DAS Extended Residential",res:true},
+  CAC:{fee:"Remote Area Commercial",com:true},
+  CAR:{fee:"Remote Area Residential",res:true},
+  HIC:{fee:"Remote Area - HI",      com:true},
+  HIR:{fee:"Remote Area - HI",      res:true},
+  AKR:{fee:"Remote Area - AK"},
+  SHD:{fee:"Package Protection"},
+  DDO:{fee:"Direct Delivery Only"},
+  ISW:{fee:"Return To Sender"},
+  IRW:{fee:"Reroute"},
+  IFW:{fee:"Reschedule Delivery"},
+  ERL:{fee:"Returns Electronic Label"},
+  ALP:{fee:"Returns Print Label"},
+  /* 第三方付費的標記行,net 是 0,是已知代碼但不是可計價的附加費 */
+  FTP:{marker:"third_party"},
+  /* 商業重分類:UPS 把原本判成住宅的改成商業,這一行常常 net = 0 */
+  COM:{marker:"commercial_adj", com:true},
+  /* 宣告價值:金額在帳單的宣告價值欄,不是這一行的 net */
+  EVS:{marker:"declared_value"},
+};
+/* 原始碼:ACC_CODES_NOT_REPRICED */
+const NOT_REPRICED = new Set(["NPF","SCF"]);
+/* 走主線,不當附加費 */
+const MAIN_LINE = new Set(["FRT","FSC"]);
+
+/* AHS / LPS:代碼只用來認「UPS 收了哪一種」,金額一律走門檻判定 */
+const AHS_DIM  = new Set(["AHG","AHL","AHS","AHV"]);
+const AHS_WT   = new Set(["AHW"]);
+const AHS_PKG  = new Set(["AHC","AHP"]);
+const LPS_CODE = new Set(["LPS","LPR","LCC","LCR","LCT","LWC","LWR"]);
+const LPS_RES  = new Set(["LPR","LCR","LWR"]);
+const LPS_COM  = new Set(["LPS","LCT","LCC","LWC"]);
+
+function normZone(z){ return String(z==null?"":z).trim(); }
+
+/* 原始碼 accessorial_lookup 的移植。
+   查不到不回退成別的費率 —— 回 0 並且記成 issue,因為 0 只有在
+   問題清單裡才看得見。 */
+function accLookup(cfg, feeType, channel, zone, issues){
+  const t=cfg.raw.accessorial_rate_table||{};
+  const key=feeType+"|||"+channel;
+  if(!(key in t)){
+    issues.push(feeType+" @ "+channel+":這個管道沒有這項附加費的費率");
+    return 0;
+  }
+  const e=t[key];
+  if(e && typeof e==="object"){
+    const zk=normZone(zone);
+    if(zk in e){
+      const v=toNum(e[zk]);
+      if(!v) issues.push(feeType+" @ "+channel+" Zone "+zk+":費率是 0");
+      return v;
+    }
+    issues.push(feeType+" @ "+channel+":沒有 Zone "+zk+" 的費率");
+    return 0;
+  }
+  const v=toNum(e);
+  if(!v) issues.push(feeType+" @ "+channel+":費率是 0");
+  return v;
+}
+
+/* 掃一筆貨的所有帳單行,分出每一項 UPS 收了什麼 */
+function scanCharges(lines){
+  const seen={}, net={};
+  let resCode=false, comCode=false, notRepriced=0;
+  let declared=0, commercialAdj=false;
+  for(const l of lines){
+    const c=(l.code||"").toUpperCase();
+    if(!c || MAIN_LINE.has(c)) continue;
+    if(NOT_REPRICED.has(c)){ notRepriced+=l.net; continue; }
+    let bucket=null;
+    const cm=ACC_CODE_MAP[c];
+    if(cm){
+      if(cm.res) resCode=true;
+      if(cm.com) comCode=true;
+      if(cm.marker){
+        if(cm.marker==="declared_value")
+          declared=Math.max(declared, toNum(l.declaredValue||l.net));
+        if(cm.marker==="commercial_adj") commercialAdj=true;
+        continue;                     /* 標記行,不是可計價的附加費 */
+      }
+      bucket=cm.fee;
+    }
+    else if(AHS_DIM.has(c))  bucket="AHS Dimension";
+    else if(AHS_WT.has(c))   bucket="AHS Weight";
+    else if(AHS_PKG.has(c))  bucket="AHS Packaging";
+    else if(LPS_CODE.has(c)){
+      bucket="Large Package";
+      if(LPS_RES.has(c)) resCode=true;
+      if(LPS_COM.has(c)) comCode=true;
+    }
+    if(bucket){
+      seen[bucket]=true;
+      net[bucket]=(net[bucket]||0)+l.net;
+    }
+  }
+  return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj};
+}
+
+/* 一筆貨的完整計價 */
+/* 宣告價值。超過免費額度就整筆計費,含第一單位 —— $950 是 10 單位不是 9。
+   沒宣告或級距沒設定就回 null,讓呼叫端決定,而不是給一個看起來算過的 0。 */
+function quoteDeclaredValue(cfg, value){
+  value=toNum(value);
+  if(value<=0) return null;
+  const a=cfg.raw.accessorial_charges||{};
+  const free=toNum(a.dv_free_limit), unit=toNum(a.dv_unit),
+        rate=toNum(a.dv_unit_rate), floor=toNum(a.dv_min_charge);
+  if(unit<=0||rate<=0) return null;
+  if(value<=free) return 0;
+  const units=Math.ceil(Number((value/unit).toFixed(6)));
+  return Math.round(Math.max(floor, units*rate)*100)/100;
+}
+
+function priceShipment(cfg, s){
+  const issues=[];
+  const scan=scanCharges(s.lines);
+  /* 住宅/商業:帳單自己的代碼優先,和原始碼同一條規則。
+     兩邊都沒有代碼時只能看服務名稱 —— 跨期 ADJ 這時會不準,標出來。 */
+  let residential, resBasis;
+  if(scan.commercialAdj){ residential=false; resBasis=LANG?"commercial adjustment":"商業重分類"; }
+  else if(scan.resCode && !scan.comCode){ residential=true;  resBasis="帳單住宅代碼"; }
+  else if(scan.comCode && !scan.resCode){ residential=false; resBasis="帳單商業代碼"; }
+  else if(s.layer!=="SHP"){
+    /* 跨期單:先查歷史,查不到才退回服務名稱。
+       這是桌面版 history_service_for() 存在的唯一理由 —— SCC 那一行
+       沒有任何 RES/COM 字樣,不查歷史就一定被當成商業。 */
+    const h=typeof historyServiceFor==="function"?historyServiceFor(s.tracking):null;
+    if(h){ residential = h==="Ground Residential"; resBasis="歷史(原始出貨)"; }
+    else{
+      residential=/residential/i.test(s.service);
+      resBasis="服務名稱(跨期,無歷史)";
+      issues.push("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯");
+    }
+  }
+  else {
+    residential=/residential/i.test(s.service);
+    resBasis="服務名稱";
+  }
+  const svc=guessService(s.service);
+  const channel = svc==="Ground Commercial"||svc==="Ground Residential"
+      ? (residential?"Ground Residential":"Ground Commercial")
+      : svc;
+
+  const bw=billableWeight(cfg, s.entered, s.dims);
+  const zone=s.zone;
+
+  /* 運費 */
+  let base=null, baseWhy=null;
+  if(zone && s.service){
+    const lk=lookupBaseRate(cfg, svc, residential, zone, bw.billable);
+    base=lk.rate; baseWhy=lk.why;
+  }else baseWhy = !zone?"這一筆沒有 Zone":"認不出服務別";
+  if(baseWhy) issues.push(baseWhy);
+
+  /* 附加費:UPS 收了才收 */
+  const acc={};
+  for(const [bucket,on] of Object.entries(scan.seen)){
+    if(!on) continue;
+    if(Math.round((scan.net[bucket]||0)*100)===0) continue;   // 淨額 0 不收
+    if(bucket==="AHS Dimension"&&!bw.ahsDim){
+      issues.push("UPS 收了 AHS-Dimension,但尺寸未達門檻");
+    }
+    if(bucket==="AHS Weight"&&!bw.ahsWeight){
+      issues.push("UPS 收了 AHS-Weight,但重量未達門檻");
+    }
+    acc[bucket]=accLookup(cfg,bucket,channel,zone,issues);
+  }
+
+  /* 宣告價值:UPS 收了才算,金額用合約級距重算 */
+  if(scan.declared>0){
+    const dv=quoteDeclaredValue(cfg, scan.declared);
+    if(dv===null) issues.push("宣告價值級距沒設定,這一筆無法重算");
+    else acc["Declared Value"]=dv;
+  }
+
+  /* 燃油:附加費是否計燃油由設定檔的 fuel_eligible 決定,
+     沒登記的一律計 —— 和桌面版一致。 */
+  const accTotal=Object.values(acc).reduce((a,b)=>a+b,0);
+  const fuelBase=(base||0)+accTotal;
+  const fuel = cfg.fuelPct>0 ? fuelBase*cfg.fuelPct/100 : 0;
+
+  const total = base===null ? null : base+accTotal+fuel;
+  return {s, bw, residential, resBasis, channel, base, baseWhy,
+          acc, accTotal, fuel, total, issues,
+          notRepriced:scan.notRepriced,
+          diff: total===null?null: total-s.upsTotal};
+}
+
+/* =====================================================================
+   讀帳單
+   ===================================================================== */
+function ingest(text){
+  const raw=parseCSV(text);
+  if(!raw.length) throw new Error("檔案是空的。");
+  const {idx,hasHdr,body}=buildIndex(raw);
+  const g=(r,name)=>{
+    const i=idx[name];
+    return (i===undefined||i>=r.length)?"":String(r[i]).trim();
+  };
+  const rows=body.map(r=>{
+    const cls=g(r,"Charge Classification Code").toUpperCase();
+    const cat=g(r,"Charge Category Code").toUpperCase();
+    let layer=cat||cls;
+    if(!["SHP","ADJ","RTN"].includes(layer)) layer="MIS";
+    return {
+      invoice:g(r,"Invoice Number"), invDate:g(r,"Invoice Date"),
+      shipDate:g(r,"Transaction Date"),
+      tracking:g(r,"Tracking Number"), lead:g(r,"Lead Shipment Number"),
+      layer, cls, code:g(r,"Charge Description Code").toUpperCase(),
+      desc:g(r,"Charge Description"),
+      zone:g(r,"Zone"),
+      entered:toNum(g(r,"Entered Weight")),
+      billed:toNum(g(r,"Billed Weight")),
+      dimsC:g(r,"Package Dimensions"), dimsA:g(r,"Detail Keyed Dimensions"),
+      net:toNum(g(r,"Net Amount"))
+    };
+  }).filter(r=>r.tracking||r.net);
+  return {rows, hasHdr, cols:Object.keys(idx).length};
+}
+
+/* ---- 服務名稱:從 FRT 行的說明推出來,住宅與否看有沒有住宅附加費 ---- */
+function shipmentsOf(rows){
+  const by=new Map();
+  for(const r of rows){
+    if(!r.tracking) continue;
+    if(!by.has(r.tracking)) by.set(r.tracking,{tracking:r.tracking,lines:[]});
+    by.get(r.tracking).lines.push(r);
+  }
+  for(const s of by.values()){
+    const frt=s.lines.find(l=>/freight|ground|air|day/i.test(l.desc))||s.lines[0];
+    s.service=frt?frt.desc:"";
+    s.zone=(s.lines.find(l=>l.zone)||{}).zone||"";
+    s.entered=Math.max(...s.lines.map(l=>l.entered),0);
+    s.billedUPS=Math.max(...s.lines.map(l=>l.billed),0);
+    s.dims=parseDims((s.lines.find(l=>l.dimsC)||{}).dimsC)
+        || parseDims((s.lines.find(l=>l.dimsA)||{}).dimsA);
+    s.upsTotal=s.lines.reduce((a,l)=>a+l.net,0);
+    /* 住宅判定只在 SHP 層安全。跨期 ADJ 的住宅/商業要回頭查原始
+       shipment 的 FRT 說明,那要歷史資料庫 —— 這一版沒有,所以標不確定。 */
+    s.resiKnown = s.lines.some(l=>l.layer==="SHP");
+    s.residential = s.lines.some(l=>/residential/i.test(l.desc)
+                                 && !/pickup/i.test(l.desc));
+    s.layer = s.lines.some(l=>l.layer==="SHP") ? "SHP"
+            : (s.lines.find(l=>l.layer!=="MIS")||{layer:"MIS"}).layer;
+  }
+  return [...by.values()];
+}
+
+
+/* =====================================================================
+   跨期歷史
+   ---------------------------------------------------------------------
+   
+   描述,判定住宅或商業。跨期 SCC 那一行寫的是「Shipping Charge
+   Correction Ground」,裡面沒有任何 RES/COM 字樣,所以不查歷史就會
+   被當成商業,住宅附加費整個不見。
+
+   瀏覽器讀不了 ups_history.sqlite3,但不需要:過去每一期的帳單 CSV
+   本身就是歷史,原始出貨的描述就在裡面。一次選取多個檔案,建出
+   追蹤號 -> 商/住 的對照,同一件事就成立了。
+
+   只認 Ground —— 和桌面版同一個範圍,其他服務回 null,呼叫端行為
+   完全不變。
+   ===================================================================== */
+const HIST_KEY="ups_reprice_hist_v1";
+let HIST=null;                 /* { 追蹤號: "R" | "C" } */
+
+function buildHistory(texts){
+  const map={};
+  let files=0, rows=0, learned=0;
+  for(const t of texts){
+    files++;
+    let ing;
+    try{ ing=ingest(t); }catch(e){ continue; }
+    rows+=ing.rows.length;
+    /* 先把每個追蹤號在 SHP 層看到的訊號收齊 */
+    const sig={};
+    for(const r of ing.rows){
+      if(!r.tracking) continue;
+      const s=sig[r.tracking]||(sig[r.tracking]={ground:false,res:false,com:false});
+      const d=(r.desc||"").toLowerCase();
+      const c=(r.code||"").toUpperCase();
+      if(r.layer==="SHP"&&c==="FRT"){
+        if(/ground/.test(d)) s.ground=true;
+        if(/residential/.test(d)) s.res=true;
+        if(/commercial/.test(d)) s.com=true;
+      }
+      /* 附加費代碼也帶訊號,和 accessorial_lookup 同一套判斷 */
+      if(ACC_CODE_MAP[c]){
+        if(ACC_CODE_MAP[c].res) s.res=true;
+        if(ACC_CODE_MAP[c].com) s.com=true;
+      }
+    }
+    for(const [trk,s] of Object.entries(sig)){
+      if(!s.ground) continue;                  /* Ground 才判,同桌面版 */
+      if(s.res&&!s.com) { map[trk]="R"; learned++; }
+      else if(s.com&&!s.res){ map[trk]="C"; learned++; }
+    }
+  }
+  HIST=map;
+  try{ localStorage.setItem(HIST_KEY,JSON.stringify(map)); }catch(e){}
+  return {files,rows,learned:Object.keys(map).length};
+}
+
+/* 桌面版回傳 "Ground Residential" / "Ground Commercial" / None,這裡同樣 */
+function historyServiceFor(tracking){
+  if(!HIST) return null;
+  const v=HIST[tracking];
+  return v==="R" ? "Ground Residential" : v==="C" ? "Ground Commercial" : null;
+}
+
+/* 角色。admin 看得到設定分頁,user 只跑報表。
+   這是分工,不是安全機制 —— 比對在瀏覽器裡跑,按 F12 就繞得過去。
+   真正要保護的東西不能靠這一層。 */
+/* 帳號在這裡設定,沒有註冊功能。
+   密碼是明文,因為帳號分頁要顯示得出來。也就是說:開得了這個檔案
+   或這台瀏覽器的人,看得到全部人的密碼。這只是分角色,不是保護。 */
+const ACCOUNTS={"sandy":{"p":"sandy-dev","role":"admin","n":"Sandy Liu"},"candy":{"p":"candy-geniqua","role":"user","n":"Candy"},"quincy":{"p":"quincy-geniqua","role":"user","n":"Quincy"},"terry":{"p":"terry-geniqua","role":"user","n":"Terry"},"eunice":{"p":"eunice-programmar","role":"user","n":"Eunice"}};
+const SESS_KEY="ups_reprice_session";
+let ME=null;
+/* 設定分頁對所有人開放;只有帳號管理限管理者。 */
+const ADMIN_ONLY=["users"];
+
+/* 帳號:內建那份是出廠值,改過的存在這台瀏覽器。
+   要讓同事也套用,得下載帳號檔重發。 */
+const ACCT_KEY="ups_reprice_accounts";
+function users(){
+  try{ const s=localStorage.getItem(ACCT_KEY); if(s) return JSON.parse(s); }catch(e){}
+  return ACCOUNTS;
+}
+function saveAccounts(a){
+  try{ localStorage.setItem(ACCT_KEY,JSON.stringify(a)); }catch(e){}
+}
+
+/* 活動紀錄。只涵蓋這台瀏覽器 —— 同事在自己電腦上的紀錄在他們那邊,
+   要合併看就用匯出/匯入。 */
+const LOG_KEY="ups_reprice_log";
+function logRead(){
+  try{ return JSON.parse(localStorage.getItem(LOG_KEY))||[]; }catch(e){ return []; }
+}
+function logAdd(what,detail){
+  if(!ME) return;
+  const l=logRead();
+  l.push({t:new Date().toISOString(),u:ME.user||ME.name,n:ME.name,r:ME.role,w:what,d:detail||""});
+  while(l.length>500) l.shift();
+  try{ localStorage.setItem(LOG_KEY,JSON.stringify(l)); }catch(e){}
+  if(typeof renderLog==="function") renderLog();
+}
+
+async function login(username,pw){
+  const id=String(username).trim().toLowerCase();
+  const u=users()[id];
+  if(!u||u.p!==String(pw))
+    return {err:LANG?"Wrong username or password":"帳號或密碼不對"};
+  /* user = 登入用的帳號,name = 顯示用的姓名。沒設姓名就用帳號。 */
+  return {user:id, name:u.n||id, role:u.role};
+}
+function setMe(m){
+  ME=m;
+  try{ m?localStorage.setItem(SESS_KEY,JSON.stringify(m))
+        :localStorage.removeItem(SESS_KEY); }catch(e){}
+  applyRole();
+}
+function applyRole(){
+  const admin = ME && ME.role==="admin";
+  document.querySelectorAll("#tabs button[data-p]").forEach(b=>{
+    b.style.display = (!ME || (ADMIN_ONLY.includes(b.dataset.p)&&!admin))
+      ? "none" : "";
+  });
+  const gate=$("#gate"), app=$("#app");
+  if(gate) gate.style.display = ME?"none":"";
+  if(app)  app.style.display  = ME?"":"none";
+  const sb=$("#sceneBox");
+  if(sb) sb.style.display = (ME && currentTab()==="files") ? "" : "none";
+  const who=$("#who");
+  if(who) who.textContent = ME? (ME.name+" · "+(admin?(LANG?"admin":"管理者")
+                                                    :(LANG?"user":"使用者"))) : "";
+  if(ME && ADMIN_ONLY.includes(currentTab()) && !admin) showTab("files");
+  if(admin){ renderUsers(); renderLog(); }
+}
+function currentTab(){
+  const b=document.querySelector("#tabs button[aria-selected=true]");
+  return b?b.dataset.p:"files";
+}
+function showTab(p){
+  document.querySelectorAll("#tabs button[data-p]").forEach(b=>
+    b.setAttribute("aria-selected", b.dataset.p===p));
+  document.querySelectorAll(".page").forEach(s=>
+    s.classList.toggle("on", s.id==="p-"+p));
+  const sb=document.querySelector("#sceneBox");
+  if(sb) sb.style.display = p==="files" ? "" : "none";
+}
+
+/* =====================================================================
+   畫面
+   ===================================================================== */
+const $=s=>document.querySelector(s);
+const money=n=>(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("en-US",
+  {minimumFractionDigits:2,maximumFractionDigits:2});
+const num=n=>Number(n).toLocaleString("en-US",
+  {minimumFractionDigits:0,maximumFractionDigits:2});
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,
+  c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const setStatus=t=>{ const a=$("#status"), b=$("#filesStatus");
+  if(a) a.textContent=t; if(b) b.textContent=t; };
+
+/* 分頁切換 */
+$("#tabs").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-p]"); if(!b) return;
+  [...$("#tabs").children].forEach(x=>x.setAttribute("aria-selected",x===b));
+  document.querySelectorAll(".page").forEach(p=>
+    p.classList.toggle("on", p.id==="p-"+b.dataset.p));
+  const sb=$("#sceneBox");
+  if(sb) sb.style.display = b.dataset.p==="files" ? "" : "none";
+});
+
+/* ---------------------------------------------------------------------
+   設定檔記憶
+   ---------------------------------------------------------------------
+   設定檔一年改不了幾次,帳單每期換。每次重整都要重挑那個 400 KB 的
+   JSON 是純粹的阻力,所以存在 localStorage。
+   存的是設定檔內容 —— 那裡面有議價費率,所以只留在這台瀏覽器,
+   不會送到任何地方。
+   --------------------------------------------------------------------- */
+/* 預設設定:結構、UPS 公告門檻、代碼登錄、渠道與 Zone 清單。
+   費率表是空的,附加費全部是 0 —— 議價費率不在這裡,也不該在這裡。
+   一開就能看規則和代碼;要算錢,載入自己的設定檔。 */
+const DEFAULT_CONFIG={"global_rules":{"dim_factor":"","default_dim_factor":"139","fuel_percent":"","use_oversize_longest":true,"use_oversize_weight":true,"use_oversize_cubic":true,"use_oversize_lg":true,"oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","use_ahs_weight":true,"use_ahs_longest":true,"use_ahs_second":true,"use_ahs_cubic":true,"use_ahs_lg":true,"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40"},"billing_path":"","last_report_path":"","base_rate_service":"Ground Commercial","base_rate_paths":[],"base_rate_tables":[],"accessorial_rate_table":{"AHS Weight|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Dimension|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Packaging|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"Large Package|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"DAS Commercial|||Ground Commercial":0,"DAS Residential|||Ground Commercial":0,"DAS Extended Commercial|||Ground Commercial":0,"DAS Extended Residential|||Ground Commercial":0,"Remote Area Commercial|||Ground Commercial":0,"Remote Area Residential|||Ground Commercial":0,"Remote Area - AK|||Ground Commercial":0,"Remote Area - HI|||Ground Commercial":0,"Residential Surcharge|||Ground Commercial":0,"Return To Sender|||Ground Commercial":0,"Reroute|||Ground Commercial":0,"Reschedule Delivery|||Ground Commercial":0,"Returns Electronic Label|||Ground Commercial":0,"Returns Print Label|||Ground Commercial":0,"Signature|||Ground Commercial":0,"Adult Signature|||Ground Commercial":0,"Package Protection|||Ground Commercial":0,"Address Correction|||Ground Commercial":0,"Direct Delivery Only|||Ground Commercial":0,"Over Maximum Size Surcharge|||Ground Commercial":0,"AHS Weight|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Dimension|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Packaging|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"Large Package|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"DAS Commercial|||Ground Residential":0,"DAS Residential|||Ground Residential":0,"DAS Extended Commercial|||Ground Residential":0,"DAS Extended Residential|||Ground Residential":0,"Remote Area Commercial|||Ground Residential":0,"Remote Area Residential|||Ground Residential":0,"Remote Area - AK|||Ground Residential":0,"Remote Area - HI|||Ground Residential":0,"Residential Surcharge|||Ground Residential":0,"Return To Sender|||Ground Residential":0,"Reroute|||Ground Residential":0,"Reschedule Delivery|||Ground Residential":0,"Returns Electronic Label|||Ground Residential":0,"Returns Print Label|||Ground Residential":0,"Signature|||Ground Residential":0,"Adult Signature|||Ground Residential":0,"Package Protection|||Ground Residential":0,"Address Correction|||Ground Residential":0,"Direct Delivery Only|||Ground Residential":0,"Over Maximum Size Surcharge|||Ground Residential":0,"Future Day Pickup - Alternate Address - Web Request|||Ground Commercial":0,"Future Day Pickup - Alternate Address - Web Request|||Ground Residential":0,"Returns 3 UPS Pickup Attempts|||Ground Commercial":0,"Returns 3 UPS Pickup Attempts|||Ground Residential":0,"Residential Pickup surcharge|||Ground Commercial":0,"Residential Pickup surcharge|||Ground Residential":0},"fuel_schedule":[],"channel_fuel_schedules":{},"channel_fuel_percents":{},"demand_config":{"special_rows":[],"service_rows":[],"service_groups":{},"enabled":false,"service_group_names":[]},"channel_rule_overrides":{"Ground Commercial":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Ground Residential":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"SurePost":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"3 Day Select":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"2nd Day Air":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"2nd Day Air AM":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air Saver":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air Early":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Standard":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Expedited":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Saver":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Express":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Express Plus":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Economy":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"}},"channel_dim_factors":{"Ground Commercial":"300","Ground Residential":"300","SurePost":"300","3 Day Select":"300","2nd Day Air":"300","2nd Day Air AM":"300","Next Day Air Saver":"300","Next Day Air":"300","Next Day Air Early":"300","Standard":"300","Worldwide Expedited":"300","Worldwide Saver":"300","Worldwide Express":"300","Worldwide Express Plus":"300","Worldwide Economy":"300"},"builtin_service_zones":{"Ground Commercial":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Ground Residential":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","SurePost":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","3 Day Select":"302, 303, 304, 305, 306, 307, 308","2nd Day Air":"202, 203, 204, 205, 206, 207, 208, 224, 225, 226","2nd Day Air AM":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Next Day Air Saver":"132, 133, 134, 135, 136, 137, 138","Next Day Air":"102, 103, 104, 105, 106, 107, 108, 124, 125, 126","Next Day Air Early":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Standard":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Expedited":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Saver":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Express":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Express Plus":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Economy":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46"},"builtin_service_disabled":[],"ui_theme":"Brown Gold","ui_tz":"Taipei","ui_brand":"Scoobi","custom_service_registry":{},"dynamic_surcharge_mapping":{"AFW":{"ar":"ACC","name":"Future Day Pickup - Alternate Address - Web Request","type":"REPRICE","fuel_eligible":true,"enabled":true},"ART":{"ar":"ACC","name":"Returns 3 UPS Pickup Attempts","type":"REPRICE","fuel_eligible":true,"enabled":true},"REP":{"ar":"ACC","name":"Residential Pickup surcharge","type":"REPRICE","fuel_eligible":true,"enabled":true}},"dynamic_surcharge_code_map":{},"ahs_lps_code_registry":{"AHG":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Length+Girth"},"AHL":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Longest Side"},"AHS":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Second Longest Side"},"AHV":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Volume / Dimension"},"AHW":{"charge_type":"AHS - Weight","category":"AHS","rc_class":"None","description":"Additional Handling - Weight"},"AHC":{"charge_type":"AHS - Packaging","category":"AHS","rc_class":"None","description":"Additional Handling - Packaging"},"AHP":{"charge_type":"AHS - Packaging","category":"AHS","rc_class":"None","description":"Additional Handling - Packaging"},"LPS":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge (Commercial)"},"LPR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge (Residential)"},"LCR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge Resi - Cubic"},"LCT":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge - Cubic"},"LCC":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge Comm - Cubic Volume"},"LWC":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge Comm - Weight"},"LWR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge Resi - Weight"}},"accessorial_charges":{"residential_fee":"","das_com_fee":"","das_res_fee":"","das_ext_com_fee":"","das_ext_res_fee":"","remote_com_fee":"","remote_res_fee":"","ahs_weight_fee":"","ahs_dimension_fee":"","ahs_packaging_fee":"","oversize_fee":"","ovr_fee":"","signature_fee":"","package_protection_fee":"","dv_column":"","dv_free_limit":"","dv_min_charge":"","dv_unit":"","dv_unit_rate":""},"_note":"Default defaults: structure, published thresholds and code registry only. No contract rates."};
+
+/* UPS 收費代碼預設參考表:每個代碼代表哪一項附加費。 */
+const CODE_REF={"AHG":"Additional Handling Surcharge - Dimension","AHL":"Additional Handling Surcharge - Dimension","AHV":"Additional Handling Surcharge - Dimension","AHS":"Additional Handling Surcharge - Dimension","AHW":"Additional Handling Surcharge - Weight","AHC":"Additional Handling Surcharge - Packaging","AHP":"Additional Handling Surcharge - Packaging","CAC":"Remote Area Surcharge - Commercial","CAR":"Remote Area Surcharge - Residential","ERL":"Returns Electronic Label","EVS":"Declared Value","FTP":"Third Party Billing Service","ISW":"Return To Sender - Web Request","LCR":"Large Package Surcharge","LDC":"Delivery Area Surcharge - Extended - Commercial","LDR":"Delivery Area Surcharge - Extended - Residential","LPR":"Large Package Surcharge","LPS":"Large Package Surcharge","RDC":"Delivery Area Surcharge - Commercial","RDR":"Delivery Area Surcharge - Residential","RES":"Residential Surcharge","ADS":"Adult Signature Required","AFW":"Future Day Pickup - Alternate Address - Web Request","CSG":"Delivery Confirmation Signature - Commercial","DCS":"Delivery Confirmation Signature","HIC":"Remote Area Surcharge - Commercial","HIR":"Remote Area Surcharge - Residential","IRW":"Reroute - Web Request","LCC":"Large Package Surcharge","LWC":"Large Package Surcharge","LWR":"Large Package Surcharge","OML":"Over Maximum Limits","OVR":"Over Maximum Surcharge","REP":"Residential Pickup surcharge","AKR":"Remote Area Surcharge","ART":"Returns 3 UPS Pickup Attempts","NPF":"Net Payment Fee","SCF":"Service Charge Fee","LCT":"Large Package Surcharge - Cubic","003":"Freight / Transportation Charge","205":"Service Charge","ADC":"Address Correction","ASR":"Adult Signature Required","DDO":"Direct Delivery Only","ALP":"Returns Print Label","COM":"Commercial Adjustment","FSC":"Fuel Surcharge","FRT":"Freight / Transportation Charge","IFW":"Reschedule Delivery - Web Request","SHD":"Package Protection","SCC":"Shipping Charge Correction","DIN":"Delivery Intercept"};
+
+const CFG_KEY="ups_reprice_cfg_v1", CFG_NAME="ups_reprice_cfg_name_v1";
+let CFG=null, INV=null, RATED=null, SHIPS=null, ROWS=null;
+
+function applyConfig(text,name,remember){
+  try{
+    CFG=readConfig(JSON.parse(text));
+  }catch(e){
+    CFG=null;
+    $("#cfgNote").innerHTML=`<div class="note warn"><b>這不是有效的 JSON。</b>${esc(e.message)}</div>`;
+    return false;
+  }
+  $("#pathCfg") && ($("#pathCfg").value=name);
+  if(remember!==false){
+    try{ localStorage.setItem(CFG_KEY,text); localStorage.setItem(CFG_NAME,name); }
+    catch(e){ $("#pathCfg") && ($("#pathCfg").value=name+" ("+(LANG?"too large to remember":"太大無法記住")+")"); }
+  }
+  $("#cfgNote").innerHTML = CFG.tableRowCount===0 ? ""
+    : `<div class="note">${LANG?"Rate tables":"費率表"} <b>${CFG.tables.length}</b> ·
+        <b>${CFG.tableRowCount.toLocaleString()}</b> ${LANG?"rows":"列"} ·
+        DIM <b>${CFG.dimFactor||"—"}</b> ·
+        ${LANG?"Fuel":"燃油"} <b>${CFG.fuelPct||0}%</b></div>`;
+  renderConfigTabs();
+  ready();
+  return true;
+}
+
+/* 開啟就套用記住的設定檔 */
+/* 載入設定。放在啟動段呼叫,不在這裡立即執行 ——
+   這裡跑的話 LANG 還沒宣告。 */
+function restoreConfig(){
+  let t=null,n=null;
+  try{ t=localStorage.getItem(CFG_KEY); n=localStorage.getItem(CFG_NAME); }catch(e){}
+  if(t&&n){ applyConfig(t,n); setStatus((LANG?"Loaded saved settings: ":"已載入記住的設定:")+n); return; }
+  applyConfig(JSON.stringify(DEFAULT_CONFIG),
+              LANG?"defaults":"預設值", false);
+  setStatus("");
+}
+
+function pick(inputSel,onText){
+  const inp=$(inputSel);
+  inp.onchange=e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>onText(rd.result,f.name,f.size);
+    rd.onerror=()=>setStatus("讀不到 "+f.name);
+    rd.readAsText(f,"utf-8");
+  };
+}
+pick("#fCfg",(t,n)=>{ applyConfig(t,n); setStatus("設定檔已載入:"+n); });
+pick("#fInv",(t,n,sz)=>{
+  INV=t;
+  $("#pathInv").value=n+"  ("+(sz/1024).toFixed(0)+" KB)";
+  setStatus("帳單已載入:"+n); ready();
+});
+/* 過去各期帳單 -> 跨期對照 */
+$("#fHist").onchange=e=>{
+  const fs=[...e.target.files]; if(!fs.length) return;
+  setStatus(LANG?"Reading past invoices…":"讀取過去帳單…");
+  Promise.all(fs.map(f=>new Promise((res,rej)=>{
+    const rd=new FileReader();
+    rd.onload=()=>res(rd.result); rd.onerror=rej; rd.readAsText(f,"utf-8");
+  }))).then(texts=>{
+    /* 明細留著,查追蹤號時要用 */
+    HISTROWS=[];
+    for(const tx of texts){
+      try{ HISTROWS.push(...ingest(tx).rows); }catch(e){}
+    }
+    const r=buildHistory(texts);
+    $("#vHist").textContent=r.files+(LANG?" files":" 個檔案");
+    $("#vHist").className="val ok";
+    $("#histNote").innerHTML=`<div class="note">`
+      +(LANG?`<b>${r.learned.toLocaleString()}</b> tracking numbers indexed from `
+             +`<b>${r.rows.toLocaleString()}</b> lines. Cross-period corrections `
+             +`can now be classed from the original shipment.`
+            :`從 <b>${r.rows.toLocaleString()}</b> 列建出 `
+             +`<b>${r.learned.toLocaleString()}</b> 個追蹤號的對照。`
+             +`跨期更正現在可以依原始出貨判定住宅或商業。`)+`</div>`;
+    renderHist();
+    setStatus(LANG?"History ready":"歷史已建立");
+    if(RATED){ $("#bRun").click(); }
+  }).catch(()=>setStatus(LANG?"Could not read those files":"讀不到那些檔案"));
+};
+$("#bHist").onclick=()=>$("#fHist").click();
+
+/* ---- 對外連結 ----
+   網址照桌面版: UPS_FUEL_SURCHARGE_URL、
+    UPS_BILLING_CENTER。
+   帳務中心那顆在桌面版會順手把追蹤號複製到剪貼簿(),
+   這裡同樣 —— 到了網站第一件事就是貼上查件。 */
+const UPS_FUEL_SURCHARGE_URL=
+  "https://www.ups.com/us/en/support/shipping-support/shipping-costs-rates/fuel-surcharges";
+const UPS_BILLING_CENTER="https://billing.ups.com/";
+function openUrl(u){
+  window.open(u,"_blank","noopener");
+  setStatus((LANG?"Opened ":"已開啟 ")+u);
+}
+$("#bFuelUrl").onclick=()=>openUrl(UPS_FUEL_SURCHARGE_URL);
+$("#bBilling").onclick=()=>{
+  const trk=RATED&&RATED.length?RATED[0].s.tracking:"";
+  if(trk&&navigator.clipboard){
+    navigator.clipboard.writeText(trk).then(()=>{
+      setStatus((LANG?"Opening UPS Billing Center — ":"開啟 UPS 帳務中心 — ")
+        +trk+(LANG?" copied to clipboard":" 已複製到剪貼簿"));
+    }).catch(()=>{});
+  }
+  openUrl(UPS_BILLING_CENTER);
+};
+$("#sizeFilter") && ($("#sizeFilter").onchange=()=>renderConfigTabs());
+$("#bDefThr") && ($("#bDefThr").onclick=()=>{
+  if($("#sizeFilter")) $("#sizeFilter").value="__all";
+  renderConfigTabs(); setStatus(LANG?"Showing default thresholds":"顯示預設門檻"); });
+$("#bBulkChan") && ($("#bBulkChan").onclick=()=>{
+  const el=$("#bulkChans"); if(el) el.closest(".lf").scrollIntoView({behavior:"smooth"}); });
+$("#bSaveDim") && ($("#bSaveDim").onclick=()=>{
+  CFG.raw.global_rules.default_dim_factor=String($("#defDim").value).trim();
+  CFG=readConfig(CFG.raw); DIRTY=true; saveSettings(); renderConfigTabs(); });
+$("#bChanDim") && ($("#bChanDim").onclick=()=>{
+  const el=$("#bulkChans"); if(el) el.closest(".lf").scrollIntoView({behavior:"smooth"});
+  setStatus(LANG?"Set DIM per channel in Bulk Set Channels below"
+                :"渠道除數在下面的批量設定渠道裡改"); });
+$("#bSelAll")  && ($("#bSelAll").onclick =()=>{document.querySelectorAll(".bulkc").forEach(c=>c.checked=true);});
+$("#bSelNone") && ($("#bSelNone").onclick=()=>{document.querySelectorAll(".bulkc").forEach(c=>c.checked=false);});
+$("#bApplyTicked") && ($("#bApplyTicked").onclick=bulkApply);
+$("#bLoadTicked")  && ($("#bLoadTicked").onclick =bulkLoad);
+$("#bClearTicked") && ($("#bClearTicked").onclick=bulkClear);
+/* 附加費:篩選、勾選移除、範本匯出匯入 */
+$("#demandTabs") && ($("#demandTabs").onclick=e=>{
+  const b=e.target.closest("button[data-d]"); if(!b) return;
+  DEMAND_TAB=b.dataset.d;
+  [...$("#demandTabs").children].forEach(x=>x.setAttribute("aria-selected",x===b));
+  renderDemand();
+});
+$("#demandOn") && ($("#demandOn").onchange=e=>{
+  (CFG.raw.demand_config||(CFG.raw.demand_config={})).enabled=(e.target.value==="on");
+  CFG=readConfig(CFG.raw); DIRTY=true;
+  setStatus(LANG?("Demand "+e.target.value):("Demand 已"+(e.target.value==="on"?"開啟":"關閉")));
+});
+$("#chanSearch") && ($("#chanSearch").oninput=()=>renderConfigTabs());
+$("#rateChan") && ($("#rateChan").onchange=()=>renderConfigTabs());
+$("#bAddChan") && ($("#bAddChan").onclick=()=>{
+  const n=($("#newChanName").value||"").trim();
+  if(!n){ setStatus(LANG?"Channel name required":"請填渠道名稱"); return; }
+  const z=($("#newChanZones").value||"").trim()
+      || (CFG.raw.builtin_service_zones["Ground Commercial"]||"");
+  CFG.raw.builtin_service_zones[n]=z;
+  if(!$("#newChanOn").checked)
+    (CFG.raw.builtin_service_disabled||(CFG.raw.builtin_service_disabled=[])).push(n);
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+  $("#newChanName").value=""; $("#newChanZones").value="";
+  setStatus((LANG?"Added channel ":"已新增渠道 ")+n);
+});
+$("#bDelChan") && ($("#bDelChan").onclick=()=>{
+  const t=[...document.querySelectorAll(".chanc:checked")].map(c=>c.value);
+  if(!t.length){ setStatus(LANG?"Tick a channel first":"請先勾選渠道"); return; }
+  for(const s of t){ delete CFG.raw.builtin_service_zones[s];
+    if(CFG.raw.channel_rule_overrides) delete CFG.raw.channel_rule_overrides[s]; }
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+  setStatus((LANG?"Deleted ":"已刪除 ")+t.length);
+});
+$("#bExpRate") && ($("#bExpRate").onclick=()=>{
+  const pick=($("#rateChan")||{}).value||"";
+  const [svc,rc]=pick.split("|");
+  const res=rc==="R";
+  const zn=(CFG.raw.builtin_service_zones||{})[svc]||"";
+  const zones=String(zn).split(",").map(z=>z.trim()).filter(Boolean);
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const head=["Service","Weight",...zones.map(z=>"Zone "+z),"Residential"];
+  const lines=[head.join(",")];
+  /* 1-150 lb 的空白列,填好再匯回來 */
+  for(let wt=1;wt<=150;wt++)
+    lines.push([q(svc),wt,...zones.map(()=>""),res?"YES":"NO"].join(","));
+  const b=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b);
+  a.download="base_rates_"+svc.replace(/ /g,"_")+(res?"_Res":"_Com")+".csv";
+  a.click(); URL.revokeObjectURL(a.href);
+  setStatus((LANG?"Template exported for ":"已匯出模板:")+svc);
+});
+$("#bImpRate") && ($("#bImpRate").onclick=()=>$("#fImpRate").click());
+$("#fImpRate") && ($("#fImpRate").onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const rows=parseCSV(rd.result);
+    if(rows.length<2){ setStatus(LANG?"That file is empty":"這個檔是空的"); return; }
+    const cols=rows[0].map(c=>c.trim());
+    const wi=cols.indexOf("Weight");
+    if(wi<0){ setStatus(LANG?"That file has no Weight column":"這個檔沒有 Weight 欄"); return; }
+    const pick=($("#rateChan")||{}).value||"";
+    const [svc,rc]=pick.split("|");
+    const body=rows.slice(1).filter(r=>String(r[wi]).trim()!=="")
+      .map(r=>cols.map((c,i)=>c==="Weight"?toNum(r[i]):(c==="Service"||c==="Residential"?r[i]:toNum(r[i]))));
+    const t=CFG.raw.base_rate_tables||(CFG.raw.base_rate_tables=[]);
+    const idx=t.findIndex(x=>x.service===svc && String(x.residential).toLowerCase()===String(rc==="R"));
+    const rec={service:svc,residential:String(rc==="R"),columns:cols,rows:body};
+    if(idx>=0) t[idx]=rec; else t.push(rec);
+    CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+    if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+    setStatus((LANG?"Imported ":"已匯入 ")+body.length+(LANG?" rate rows for ":" 列費率:")+svc);
+  };
+  rd.readAsText(f,"utf-8");
+});
+$("#bScanZone") && ($("#bScanZone").onclick=()=>{
+  if(!ROWS){ setStatus(LANG?"Import an invoice first":"請先匯入帳單"); return; }
+  const z=[...new Set(ROWS.map(r=>r.zone).filter(Boolean))]
+    .sort((a,b)=>(+a||999)-(+b||999));
+  setStatus((LANG?"Zones in this invoice: ":"這張帳單的 Zone:")+z.join(", "));
+});
+$("#accFilter") && ($("#accFilter").onchange=()=>renderConfigTabs());
+$("#accSearch") && ($("#accSearch").oninput=()=>renderConfigTabs());
+$("#accAll") && ($("#accAll").onchange=e=>{
+  document.querySelectorAll(".accc").forEach(c=>c.checked=e.target.checked); });
+$("#bSaveRates") && ($("#bSaveRates").onclick=()=>saveSettings());
+$("#bRemoveTicked") && ($("#bRemoveTicked").onclick=()=>{
+  const ticked=[...document.querySelectorAll(".accc:checked")].map(c=>c.value);
+  if(!ticked.length){ setStatus(LANG?"Tick a row first":"請先勾選"); return; }
+  for(const k of ticked) delete CFG.raw.accessorial_rate_table[k];
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+  setStatus((LANG?"Removed ":"已移除 ")+ticked.length+(LANG?" rate row(s)":" 列費率"));
+});
+$("#bCustomAcc") && ($("#bCustomAcc").onclick=()=>{
+  const fee=prompt(LANG?"Surcharge name":"附加費名稱"); if(!fee) return;
+  /* 渠道用目前選的那個,不要再叫使用者打字 —— 打錯就是一筆查不到的鍵 */
+  const ch=($("#accFilter")||{}).value||"";
+  if(!ch){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
+  const key=fee.trim()+"|||"+ch.trim();
+  if(CFG.raw.accessorial_rate_table[key]){
+    setStatus(LANG?"That row already exists":"這一列已經有了"); return; }
+  CFG.raw.accessorial_rate_table[key]=0;
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+  setStatus((LANG?"Added ":"已新增 ")+key);
+});
+$("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
+  const t=CFG.raw.accessorial_rate_table||{};
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const lines=["Fee Type,Shipment Type,Zone,Amount"];
+  for(const [k,v] of Object.entries(t)){
+    const [fee,ch]=k.split("|||");
+    if(v&&typeof v==="object")
+      for(const [z,r] of Object.entries(v)) lines.push([q(fee),q(ch),z,toNum(r)].join(","));
+    else lines.push([q(fee),q(ch),"",toNum(v)].join(","));
+  }
+  const b=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b); a.download="accessorials_template.csv";
+  a.click(); URL.revokeObjectURL(a.href);
+  setStatus(LANG?"Template exported":"範本已匯出");
+});
+$("#bImportAcc") && ($("#bImportAcc").onclick=()=>$("#fImportAcc").click());
+$("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const rows=parseCSV(rd.result);
+    const hdr=rows[0].map(c=>c.trim().toLowerCase());
+    const ci={fee:hdr.indexOf("fee type"),ch:hdr.indexOf("shipment type"),
+              z:hdr.indexOf("zone"),amt:hdr.indexOf("amount")};
+    if(ci.fee<0||ci.ch<0||ci.amt<0){
+      setStatus(LANG?"That file has no Fee Type / Shipment Type / Amount columns"
+                    :"這個檔沒有 Fee Type / Shipment Type / Amount 欄"); return; }
+    let n=0;
+    for(const r of rows.slice(1)){
+      const fee=(r[ci.fee]||"").trim(), ch=(r[ci.ch]||"").trim();
+      if(!fee||!ch) continue;
+      const key=fee+"|||"+ch, z=(ci.z>=0?(r[ci.z]||"").trim():"");
+      if(z){
+        if(typeof CFG.raw.accessorial_rate_table[key]!=="object")
+          CFG.raw.accessorial_rate_table[key]={};
+        CFG.raw.accessorial_rate_table[key][z]=toNum(r[ci.amt]);
+      }else CFG.raw.accessorial_rate_table[key]=toNum(r[ci.amt]);
+      n++;
+    }
+    CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+    setStatus((LANG?"Imported ":"已匯入 ")+n+(LANG?" rate row(s)":" 列費率"));
+  };
+  rd.readAsText(f,"utf-8");
+});
+$("#bSetFuel") && ($("#bSetFuel").onclick=()=>openFuel());
+
+$("#bScanInv") && ($("#bScanInv").onclick=()=>{
+  if(!ROWS){ setStatus(LANG?"Import an invoice first":"請先匯入帳單"); return; }
+  CODE_MODE="scan"; renderCode();
+  setStatus(LANG?"Scanned the loaded invoice":"已掃描載入的帳單");
+});
+$("#bFullRef") && ($("#bFullRef").onclick=()=>{ CODE_MODE="ref"; renderCode(); });
+$("#codeSearch") && ($("#codeSearch").oninput=()=>renderCode());
+$("#bClearSearch") && ($("#bClearSearch").onclick=()=>{
+  $("#codeSearch").value=""; renderCode(); });
+$("#codeFilter") && ($("#codeFilter").onchange=()=>renderCode());
+$("#bTrkSearch") && ($("#bTrkSearch").onclick=()=>renderHist());
+$("#trkSearch") && ($("#trkSearch").onkeydown=e=>{ if(e.key==="Enter") renderHist(); });
+$("#bHistRefresh") && ($("#bHistRefresh").onclick=()=>{ renderHist();
+  setStatus(LANG?"Refreshed":"已重新整理"); });
+$("#bHistStored") && ($("#bHistStored").onclick=()=>{
+  const src=HISTROWS&&HISTROWS.length?HISTROWS:(ROWS||[]);
+  const by={};
+  for(const r of src){ const k=r.invoice||"—";
+    (by[k]=by[k]||{n:0,d:r.invDate,trk:new Set()});
+    by[k].n++; if(r.tracking) by[k].trk.add(r.tracking); }
+  const list=Object.entries(by).sort();
+  $("#histNote").innerHTML=list.length
+    ? `<div class="note">`+list.map(([k,v])=>
+        `${esc(k)} · ${esc(v.d)} · ${v.n.toLocaleString()}${LANG?" rows":" 列"} · ${
+         v.trk.size.toLocaleString()}${LANG?" tracking":" 個追蹤號"}`).join("<br>")+`</div>`
+    : "";
+});
+$("#bTrkBreak") && ($("#bTrkBreak").onclick=()=>{
+  const q=($("#trkSearch").value||"").trim();
+  if(!q){ setStatus(LANG?"Type a tracking number first":"請先輸入追蹤號"); return; }
+  if(!RATED){ setStatus(LANG?"Build a report first":"請先產生報表"); return; }
+  const o=RATED.find(x=>x.s.tracking===q);
+  if(!o){ setStatus(LANG?"That tracking is not in the current report"
+                        :"目前的報表裡沒有這個追蹤號"); return; }
+  const accList=Object.entries(o.acc).map(([k,v])=>`${esc(k)} ${money(v)}`);
+  const accs=accList.length?"<br>"+accList.join("<br>"):"";
+  $("#histNote").innerHTML=`<div class="note">
+    <b>${esc(o.s.tracking)}</b> · ${esc(o.channel)} · Zone ${esc(o.s.zone)}<br>
+    ${LANG?"Entered":"輸入重"} ${num(o.bw.entered)} · DIM ${o.bw.dim??"—"} ·
+    <b>${LANG?"Billable":"計費重"} ${num(o.bw.billable)}</b> (${esc(o.bw.basis)})<br>
+    ${LANG?"Base rate":"運費"} ${o.base!==null?money(o.base):"—"}${accs}<br>
+    ${LANG?"Fuel":"燃油"} ${money(o.fuel)} ·
+    <b>${LANG?"Total":"合約試算"} ${o.total!==null?money(o.total):"—"}</b> ·
+    UPS ${money(o.s.upsTotal)}</div>`;
+});
+$("#bAddAcct") && ($("#bAddAcct").onclick=()=>{
+  const n=($("#newAcctUser").value||"").trim().toLowerCase();
+  const nm=($("#newAcctName").value||"").trim();
+  const pw=($("#newAcctPw").value||"").trim();
+  if(!n||!pw){ $("#acctNote").textContent=LANG?"Username and password required":"帳號和密碼都要填"; return; }
+  const a=users();
+  if(a[n]){ $("#acctNote").textContent=LANG?"That username is taken":"這個帳號已經有了"; return; }
+  a[n]={p:pw,role:$("#newAcctRole").value,n:nm||n};
+  saveAccounts(a); logAdd("add account",n+" ("+$("#newAcctRole").value+")");
+  $("#newAcctUser").value=""; $("#newAcctName").value=""; $("#newAcctPw").value="";
+  renderUsers(); $("#acctNote").textContent=(LANG?"Added ":"已新增 ")+n;
+});
+$("#bDlAcct") && ($("#bDlAcct").onclick=()=>{
+  const b=new Blob([JSON.stringify(users(),null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b); a.download="ups_reprice_accounts.json";
+  a.click(); URL.revokeObjectURL(a.href);
+  setStatus(LANG?"Accounts file downloaded":"帳號檔已下載");
+});
+$("#bLogExport") && ($("#bLogExport").onclick=()=>{
+  const b=new Blob([JSON.stringify(logRead(),null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b);
+  a.download="activity_"+(ME?ME.name:"log")+".json";
+  a.click(); URL.revokeObjectURL(a.href);
+  setStatus(LANG?"Log exported":"紀錄已匯出");
+});
+$("#bLogImport") && ($("#bLogImport").onclick=()=>$("#fLogImport").click());
+$("#fLogImport") && ($("#fLogImport").onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    let inc; try{ inc=JSON.parse(rd.result); }catch(err){
+      setStatus(LANG?"That is not a log file":"這不是紀錄檔"); return; }
+    if(!Array.isArray(inc)){ setStatus(LANG?"That is not a log file":"這不是紀錄檔"); return; }
+    /* 合併並去重:同一個人同一秒同一件事只留一筆 */
+    const cur=logRead(), seen=new Set(cur.map(x=>x.t+x.n+x.w));
+    let n=0;
+    for(const x of inc) if(!seen.has(x.t+x.n+x.w)){ cur.push(x); seen.add(x.t+x.n+x.w); n++; }
+    cur.sort((a,b)=>String(a.t).localeCompare(String(b.t)));
+    try{ localStorage.setItem(LOG_KEY,JSON.stringify(cur)); }catch(err){}
+    renderLog(); setStatus((LANG?"Merged ":"已合併 ")+n+(LANG?" entries":" 筆"));
+  };
+  rd.readAsText(f,"utf-8");
+});
+$("#bLogClear") && ($("#bLogClear").onclick=()=>{
+  try{ localStorage.removeItem(LOG_KEY); }catch(e){}
+  renderLog(); setStatus(LANG?"Log cleared":"紀錄已清除");
+});
+$("#bFuelX") && ($("#bFuelX").onclick=closeFuel);
+$("#bFuelClose") && ($("#bFuelClose").onclick=closeFuel);
+$("#modalBg") && ($("#modalBg").onclick=e=>{ if(e.target.id==="modalBg") closeFuel(); });
+$("#bAddRange") && ($("#bAddRange").onclick=addFuelRange);
+$("#bDelRange") && ($("#bDelRange").onclick=delFuelRanges);
+$("#bFuelAll")  && ($("#bFuelAll").onclick =()=>document.querySelectorAll(".fchan").forEach(c=>c.checked=true));
+$("#bFuelNone") && ($("#bFuelNone").onclick=()=>document.querySelectorAll(".fchan").forEach(c=>c.checked=false));
+$("#bFuelRowAll")  && ($("#bFuelRowAll").onclick =()=>document.querySelectorAll(".fuelrow").forEach(c=>c.checked=true));
+$("#bFuelRowNone") && ($("#bFuelRowNone").onclick=()=>document.querySelectorAll(".fuelrow").forEach(c=>c.checked=false));
+$("#bFuelSave") && ($("#bFuelSave").onclick=()=>{
+  CFG.raw.global_rules.fuel_percent=String($("#fuelDefault").value).trim();
+  CFG=readConfig(CFG.raw); saveSettings(); renderConfigTabs(); closeFuel();
+});
+$("#bCfg") && ($("#bCfg").onclick=()=>$("#fCfg").click());
+$("#bSaveTop") && ($("#bSaveTop").onclick=()=>saveSettings());
+$("#bInv").onclick=()=>$("#fInv").click();
+
+function ready(){
+  $("#bRun").disabled=!(CFG&&CFG.tableRowCount>0&&INV);
+  $("#bCsv").disabled=!RATED;
+}
+
+/* ---- 設定檔相關分頁 ---- */
+/* 這個渠道的費率存在哪個 Shipment Type 底下。
+   名稱已經結尾是 Commercial 或 Residential 就保留 —— 盲目接上去會變成
+   「Ground Commercial Commercial」,那是查不到的。 */
+function channelSurchargeLabel(service,residential){
+  const name=String(service).trim(), low=name.toLowerCase();
+  if(low.endsWith("commercial")||low.endsWith("residential")) return name;
+  return name+(residential?" Residential":" Commercial");
+}
+function shipmentTypeOptions(){
+  const out=new Set();
+  /* 使用者設定檔裡的渠道,加上預設的全部服務 —— 使用者的檔案通常只
+     存了他填過費率的那幾個,但要新增費率就得先選得到那個渠道。 */
+  const svcs=new Set([
+    ...Object.keys((CFG&&CFG.raw.builtin_service_zones)||{}),
+    ...Object.keys(DEFAULT_CONFIG.builtin_service_zones||{}),
+  ]);
+  for(const svc of svcs){
+    out.add(channelSurchargeLabel(svc,false));
+    out.add(channelSurchargeLabel(svc,true));
+  }
+  for(const k of Object.keys((CFG&&CFG.raw.accessorial_rate_table)||{}))
+    out.add(k.split("|||")[1]);
+  return [...out].filter(Boolean).sort();
+}
+
+function renderConfigTabs(){
+  if(!CFG) return;
+  const admin = ME && ME.role==="admin";
+  const ro = admin?"":" disabled";
+  /* 分隔符不能用 | —— 附加費的鍵本身就含 |||,切出來會全錯。 */
+  const numIn=(id,val)=>`<input class="cell num" data-k="${esc(id)}" value="${val==null?"":esc(val)}"${ro}>`;
+
+  /* ---- 附加費:Zone 分級的直欄區塊 + 固定金額網格 + 申報價值級距 ---- */
+  const t=CFG.raw.accessorial_rate_table||{};
+  const zonesOf=v=>Object.keys(v).sort((a,b)=>(+a||999)-(+b||999));
+  /* 全部內建渠道都要在,不是只有已經填過費率的那幾個 ——
+     沒有費率的渠道正是需要被找到、被填的那些。 */
+  const withRates=new Set(Object.keys(t).map(k=>k.split("|||")[1]));
+  const allChans=[...new Set([...shipmentTypeOptions(),...withRates])].sort();
+  const sel=$("#accFilter");
+  if(sel){
+    const cur=sel.value||[...withRates].sort()[0]||allChans[0]||"";
+    sel.innerHTML=allChans.map(c=>
+      `<option value="${esc(c)}"${c===cur?" selected":""}>${esc(c)}</option>`).join("");
+  }
+  const fc=(sel&&sel.value)||allChans[0]||"";
+  if($("#accChanName")) $("#accChanName").textContent=fc;
+
+  const mine=Object.keys(t).filter(k=>k.split("|||")[1]===fc);
+  const zoneKeys=mine.filter(k=>t[k]&&typeof t[k]==="object");
+  const flatKeys=mine.filter(k=>!(t[k]&&typeof t[k]==="object"));
+
+  $("#accZoneCols").innerHTML=zoneKeys.map(k=>{
+    const fee=k.split("|||")[0], v=t[k];
+    return `<div class="zonecol">
+      <div class="zt">${esc(fee)}</div>
+      <div class="zsel"><label><input type="checkbox" class="accc" value="${esc(k)}"${ro}>
+        ${LANG?"Select":"勾選"}</label></div>
+      ${zonesOf(v).map(z=>`<div class="zrow"><span class="zl">Zone ${z}</span>
+        <span>$</span>${numIn("acc\u241F"+k+"\u241F"+z,v[z])}</div>`).join("")}
+    </div>`;
+  }).join("")||`<div class="empty">${LANG
+      ? "No zone-banded surcharges on this channel yet."
+      : "這個渠道還沒有依 Zone 分級的附加費。"}</div>`;
+
+  $("#accFlat").innerHTML=flatKeys.map(k=>{
+    const fee=k.split("|||")[0];
+    return `<div class="flatitem">
+      <input type="checkbox" class="accc" value="${esc(k)}"${ro}>
+      <span class="fl">${esc(fee)}</span><span>$</span>${numIn("acc\u241F"+k,t[k])}</div>`;
+  }).join("")||`<div class="empty">${LANG
+      ? "No flat surcharges on this channel yet. Use Custom Surcharges… or Import Accessorials Template."
+      : "這個渠道還沒有固定金額的附加費。用「自訂附加費…」或「匯入附加費模板」加。"}</div>`;
+
+  if($("#accCount")) $("#accCount").textContent = LANG
+    ? `${zoneKeys.length} zone-banded, ${flatKeys.length} flat`
+    : `依 Zone ${zoneKeys.length} 項,固定 ${flatKeys.length} 項`;
+
+  /* 申報價值級距 */
+  const a=CFG.raw.accessorial_charges||{};
+  $("#dvRow").innerHTML=[
+    ["dv_free_limit","lb.dvfree"],["dv_min_charge","lb.dvmin"],
+    ["dv_unit","lb.dvunit"],["dv_unit_rate","lb.dvrate"],
+  ].map(([k,lab])=>`<label>${T(lab)}</label>${numIn("chg\u241F"+k,a[k])}`).join("");
+  if($("#fuelNow")) $("#fuelNow").textContent=(CFG.fuelPct||0)+"%";
+
+  /* ---- 尺寸規則:預設一列,每個渠道一列,12 個門檻欄 ---- */
+  const g=CFG.raw.global_rules||{};
+  const THR_COLS=["oversize_longest_side","oversize_actual_weight",
+    "oversize_cubic_inches","oversize_length_girth","oversize_min_billable_weight",
+    "ahs_weight_threshold","ahs_longest_side","ahs_second_side",
+    "ahs_cubic_inches","ahs_lg_limit","ahs_min_billable_weight"];
+  const ovr2=CFG.raw.channel_rule_overrides||{};
+  const zn2=Object.keys(CFG.raw.builtin_service_zones||{});
+  const sf=$("#sizeFilter");
+  if(sf){
+    const cur=sf.value||"__all";
+    sf.innerHTML=`<option value="__all">${LANG?"All channels":"所有渠道"}</option>`
+      +zn2.map(s=>`<option value="${esc(s)}"${s===cur?" selected":""}>${esc(s)}</option>`).join("");
+  }
+  const sfv=(sf&&sf.value)||"__all";
+  const defRow=`<tr><td><b>${LANG?"Default":"預設"}</b></td>`
+    +THR_COLS.map(k=>`<td class="num">${numIn("rule\u241F"+k,g[k])}</td>`).join("")+`</tr>`;
+  const chanRows=zn2.filter(s=>sfv==="__all"||s===sfv).map(svc=>{
+    const o=ovr2[svc]||{};
+    return `<tr><td>${esc(svc)}</td>`+THR_COLS.map(k=>{
+      const own=o[k]!==undefined && String(o[k])!==String(g[k]);
+      return `<td class="num">${numIn("chan\u241F"+svc+"\u241F"+k, o[k]??g[k])}${
+        own?'<span title="channel value" style="color:var(--run2)">*</span>':""}</td>`;
+    }).join("")+`</tr>`;
+  }).join("");
+  $("#tSize").tBodies[0].innerHTML=(sfv==="__all"?defRow:"")+chanRows;
+  if($("#sizeFoot")) $("#sizeFoot").textContent = LANG
+    ? "* = value set on this channel   |   no star = follows the default   |   blank = follows the default"
+    : "* = 這個渠道自己設定的值　|　沒有星號 = 沿用預設　|　留空 = 沿用預設";
+  if($("#defDim")) $("#defDim").value=g.default_dim_factor??"";
+
+  /* ---- 渠道:三段式。① 新增 ② 費率表狀態 ③ 全部渠道 ---- */
+  const zn=CFG.raw.builtin_service_zones||{};
+  const disabled=new Set(CFG.raw.builtin_service_disabled||[]);
+  const loaded={};
+  for(const tb of CFG.tables){
+    const key=tb.service+(tb.residential?"|R":"|C");
+    loaded[key]=tb.rows.length;
+  }
+  const isRes=s=>/residential/i.test(s);
+  const rows=[];
+  for(const svc of Object.keys(zn)){
+    for(const res of (isRes(svc)||/commercial/i.test(svc)?[isRes(svc)]:[false,true])){
+      rows.push({svc,res,zones:zn[svc],
+        n:loaded[svc+(res?"|R":"|C")]||0, on:!disabled.has(svc)});
+    }
+  }
+  const cq=(($("#chanSearch")||{}).value||"").toLowerCase();
+  const shown=rows.filter(r=>!cq||r.svc.toLowerCase().includes(cq));
+  $("#tChan").tBodies[0].innerHTML=shown.map(r=>
+    `<tr><td><input type="checkbox" class="chanc" value="${esc(r.svc)}"${ro}></td>
+     <td>${esc(r.svc)}</td>
+     <td class="wrap" style="font-size:11.5px">${esc(r.zones)}</td>
+     <td>${r.res?(LANG?"Residential":"住宅"):(LANG?"Commercial":"商業")}</td>
+     <td>${r.n?(LANG?"loaded":"已載入")+" ("+r.n+")"
+              :`<span style="color:var(--neg)">${LANG?"not loaded":"未載入"}</span>`}</td>
+     <td>${r.on?(LANG?"Yes":"是"):(LANG?"No":"否")}</td></tr>`).join("")
+    ||`<tr><td colspan="6" class="empty">—</td></tr>`;
+  if($("#chanCount")) $("#chanCount").textContent = LANG
+    ? `${shown.length} / ${rows.length} channels` : `顯示 ${shown.length} / ${rows.length} 條渠道`;
+  const rc=$("#rateChan");
+  if(rc){
+    const cur=rc.value;
+    rc.innerHTML=rows.map(r=>{
+      const v=r.svc+(r.res?"|R":"|C");
+      return `<option value="${esc(v)}"${v===cur?" selected":""}>${esc(r.svc)} — ${
+        r.res?(LANG?"Residential":"住宅"):(LANG?"Commercial":"商業")}</option>`;
+    }).join("");
+  }
+  const pick=(rc&&rc.value)||"";
+  const pn=loaded[pick]||0;
+  if($("#rateState")) $("#rateState").innerHTML=pn
+    ? `<div class="note">${LANG?`${pn} rate rows loaded for this channel.`
+                              :`這個渠道已載入 ${pn} 列費率。`}</div>`
+    : `<div class="note">${LANG?"No base rates for this channel yet. Export the template, fill it in, then import."
+                              :"這個渠道還沒有基本運費表。匯出模板、填好、再匯入。"}</div>`;
+
+  /* ---- Demand:四個子分頁 ---- */
+  const dcfg=CFG.raw.demand_config||{};
+  if($("#demandOn")) $("#demandOn").value=dcfg.enabled?"on":"off";
+  renderDemand();
+
+  document.querySelectorAll("#app input.cell").forEach(el=>{
+    el.onchange=()=>editCell(el.dataset.k, el.value);
+  });
+  /* 換渠道就是把整列費率搬到新的 Shipment Type 底下 */
+  document.querySelectorAll("#app select.chansel").forEach(el=>{
+    el.onchange=()=>moveRateRow(el.dataset.key, el.value);
+  });
+  document.querySelectorAll(".saveRow").forEach(el=>{
+    el.style.display = admin?"":"none";
+  });
+  renderBulk();
+}
+
+/* 把一列費率搬到另一個 Shipment Type 底下 */
+function moveRateRow(oldKey,newChan){
+  const t=CFG.raw.accessorial_rate_table||{};
+  const fee=oldKey.split("|||")[0];
+  const newKey=fee+"|||"+newChan;
+  if(newKey===oldKey) return;
+  if(newKey in t){
+    setStatus(LANG?"That fee already has a row on this channel"
+                  :"這個渠道已經有這一項附加費了");
+    renderConfigTabs(); return;
+  }
+  t[newKey]=t[oldKey]; delete t[oldKey];
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+  if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+  setStatus((LANG?"Moved to ":"已移到 ")+newChan);
+}
+
+/* Demand 四個子分頁 */
+let DEMAND_TAB="pkg";
+const DEMAND_DEF={
+  pkg:{cols:[["start","開始日期","Start"],["end","結束日期","End"],
+             ["cat","適用類別","Category"],["ah","Additional Handling","Additional Handling"],
+             ["lp","Large Package","Large Package"],["ovr","Over Maximum Limits","Over Maximum Limits"]],
+       key:"special_rows",
+       hint:["一件只收一個:OVR 優先,其次 LPS,最後 AHS。住宅商業都收。<br>一列 = 一段日期加上該段的金額。出貨日沒落在任何一列 = 不收。",
+             "One per parcel: OVR first, then LPS, then AHS. Charged on both residential and commercial.<br>One row is one date range and its amounts. A ship date in no row is not charged."]},
+  svc:{cols:[["start","開始日期","Start"],["end","結束日期","End"],
+             ["grp","服務類別","Category"],["rate","費率","Rate"]],
+       key:"service_rows",
+       hint:["每個服務類別在該期間的加收金額。","The amount added for each service category in that period."]},
+  grp:{cols:[["name","類別名稱","Category"],["members","包含服務","Services"]],
+       key:"service_group_names",
+       hint:["服務類別的定義。","What each service category contains."]},
+  map:{cols:[["chan","渠道","Channel"],["grp","服務類別","Category"]],
+       key:"service_groups",
+       hint:["每個渠道算哪一個類別。預設渠道已經對好,只有自己新增的需要指定。",
+             "Which category each channel counts as. The default channels need no attention; only ones you added do."]},
+};
+function renderDemand(){
+  const d=DEMAND_DEF[DEMAND_TAB], cfgd=CFG.raw.demand_config||{};
+  if($("#demandHint")) $("#demandHint").innerHTML=d.hint[LANG];
+  const th=$("#tDemand")&&$("#tDemand").querySelector("thead");
+  if(th) th.innerHTML=`<tr><th style="width:30px"></th>`
+    +d.cols.map(c=>`<th>${LANG?c[2]:c[1]}</th>`).join("")+`</tr>`;
+  let data=cfgd[d.key];
+  if(!Array.isArray(data)){
+    data = data && typeof data==="object"
+      ? Object.entries(data).map(([k,v])=>({chan:k,grp:v,name:k,members:v})) : [];
+  }
+  const tb=$("#tDemand")&&$("#tDemand").tBodies[0];
+  if(tb) tb.innerHTML=data.length
+    ? data.map((r,i)=>`<tr><td><input type="checkbox" class="demc" value="${i}"></td>`
+        +d.cols.map(c=>`<td>${esc(r[c[0]]??"")}</td>`).join("")+`</tr>`).join("")
+    : `<tr><td colspan="${d.cols.length+1}" class="empty">${
+        LANG?"No rows. Demand is not charged.":"沒有資料,不加收 Demand。"}</td></tr>`;
+}
+
+/* 燃油設定視窗 */
+function fuelSched(){
+  const s=CFG.raw.channel_fuel_schedules||(CFG.raw.channel_fuel_schedules={});
+  return s;
+}
+function openFuel(){
+  $("#fuelDefault").value=(CFG.raw.global_rules||{}).fuel_percent??"";
+  const chans=Object.keys(CFG.raw.builtin_service_zones||{});
+  $("#fuelChans").innerHTML=chans.map(c=>
+    `<label><input type="checkbox" class="fchan" value="${esc(c)}"> ${esc(c)}</label>`).join("");
+  renderFuelRows();
+  $("#modalBg").classList.add("on");
+}
+function closeFuel(){ $("#modalBg").classList.remove("on"); }
+function renderFuelRows(){
+  const s=fuelSched(), rows=[];
+  for(const [ch,list] of Object.entries(s))
+    (Array.isArray(list)?list:[]).forEach((r,i)=>rows.push({ch,i,...r}));
+  const def=(CFG.raw.global_rules||{}).fuel_percent;
+  $("#tFuel").tBodies[0].innerHTML=rows.length
+    ? rows.map(r=>`<tr>
+        <td><input type="checkbox" class="fuelrow" data-ch="${esc(r.ch)}" data-i="${r.i}"></td>
+        <td>${esc(r.ch)}</td><td>${esc(r.start||"")}</td><td>${esc(r.end||"")}</td>
+        <td class="num">${r.pct!==undefined?r.pct+"%":"—"}</td>
+        <td class="num">${r.pct!==undefined?"—":(def?def+"%":"—")}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="empty">${LANG
+        ?"No ranges. Every ship date uses the default percent."
+        :"沒有區間,所有出貨日都用預設 %。"}</td></tr>`;
+}
+function addFuelRange(){
+  const from=$("#fuelFrom").value, to=$("#fuelTo").value, pct=$("#fuelPct").value.trim();
+  const chans=[...document.querySelectorAll(".fchan:checked")].map(c=>c.value);
+  if(!from||!to){ setStatus(LANG?"Both dates required":"開始與結束日期都要填"); return; }
+  if(pct===""){ setStatus(LANG?"Fuel % required":"請填燃油 %"); return; }
+  if(!chans.length){ setStatus(LANG?"Tick at least one channel":"請至少勾一個渠道"); return; }
+  const s=fuelSched();
+  for(const c of chans){
+    if(!Array.isArray(s[c])) s[c]=[];
+    s[c].push({start:from,end:to,pct:toNum(pct)});
+    s[c].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+  }
+  CFG=readConfig(CFG.raw); DIRTY=true; renderFuelRows();
+  $("#fuelFrom").value=""; $("#fuelTo").value=""; $("#fuelPct").value="";
+  setStatus((LANG?"Added a range to ":"已新增區間到 ")+chans.length
+    +(LANG?" channel(s)":" 個渠道"));
+}
+function delFuelRanges(){
+  const t=[...document.querySelectorAll(".fuelrow:checked")]
+    .map(c=>({ch:c.dataset.ch,i:+c.dataset.i}));
+  if(!t.length){ setStatus(LANG?"Tick a row first":"請先勾選"); return; }
+  const s=fuelSched();
+  /* 由後往前刪,不然索引會位移 */
+  const byCh={};
+  for(const x of t) (byCh[x.ch]=byCh[x.ch]||[]).push(x.i);
+  for(const [ch,idx] of Object.entries(byCh)){
+    idx.sort((a,b)=>b-a);
+    for(const i of idx) s[ch].splice(i,1);
+    if(!s[ch].length) delete s[ch];
+  }
+  CFG=readConfig(CFG.raw); DIRTY=true; renderFuelRows();
+  setStatus((LANG?"Deleted ":"已刪除 ")+t.length);
+}
+
+/* 帳號與活動紀錄 */
+let EDIT_ROW=null;   /* 正在編輯哪一列。null = 全部唯讀 */
+
+function renderUsers(){
+  const tb=$("#tUsers"); if(!tb) return;
+  const a=users();
+  tb.tBodies[0].innerHTML=Object.entries(a).map(([n,v])=>{
+    const editing = EDIT_ROW===n;
+    if(!editing){
+      /* 唯讀:手滑打不到密碼欄 */
+      return `<tr>
+        <td>${esc(v.n||n)}</td>
+        <td>${esc(v.role)}</td>
+        <td class="mono">${esc(n)}</td>
+        <td class="mono">${esc(v.p||"")}</td>
+        <td><button class="act ghost uEdit" data-n="${esc(n)}"
+             style="padding:3px 10px;font-size:12px">${LANG?"Edit":"編輯"}</button>
+            <button class="act ghost uDel" data-n="${esc(n)}"
+             style="padding:3px 10px;font-size:12px">${LANG?"Remove":"移除"}</button></td>
+      </tr>`;
+    }
+    return `<tr>
+      <td><input class="cell eName" type="text"
+           style="width:150px;text-align:left" value="${esc(v.n||n)}"></td>
+      <td><select class="chansel eRole">
+        <option value="user"${v.role==="user"?" selected":""}>user</option>
+        <option value="admin"${v.role==="admin"?" selected":""}>admin</option>
+      </select></td>
+      <td><input class="cell eUser mono" type="text"
+           style="width:140px;text-align:left" value="${esc(n)}"></td>
+      <td><input class="cell ePw" type="text"
+           style="width:190px;text-align:left" value="${esc(v.p||"")}"></td>
+      <td><button class="act uSave" data-n="${esc(n)}"
+           style="padding:3px 12px;font-size:12px">${LANG?"Save":"儲存"}</button>
+          <button class="act ghost uCancel"
+           style="padding:3px 10px;font-size:12px">${LANG?"Cancel":"取消"}</button></td>
+    </tr>`;
+  }).join("");
+
+  document.querySelectorAll(".uEdit").forEach(el=>el.onclick=()=>{
+    EDIT_ROW=el.dataset.n; renderUsers(); $("#acctNote").textContent="";
+  });
+  document.querySelectorAll(".uCancel").forEach(el=>el.onclick=()=>{
+    EDIT_ROW=null; renderUsers(); $("#acctNote").textContent="";
+  });
+  document.querySelectorAll(".uSave").forEach(el=>el.onclick=()=>{
+    const oldId=el.dataset.n;
+    const tr=el.closest("tr");
+    const nm=tr.querySelector(".eName").value.trim();
+    const role=tr.querySelector(".eRole").value;
+    const newId=tr.querySelector(".eUser").value.trim().toLowerCase();
+    const pw=tr.querySelector(".ePw").value.trim();
+    if(!newId||!pw){
+      $("#acctNote").textContent=LANG?"Username and password cannot be empty"
+                                     :"帳號和密碼不能空白"; return; }
+    const a2=users();
+    /* 改帳號等於換掉這筆的鍵,撞名要擋,不然會蓋掉別人 */
+    if(newId!==oldId && a2[newId]){
+      $("#acctNote").textContent=LANG?"That username is taken":"這個帳號已經有人用了"; return; }
+    const rec={p:pw, role, n:nm||newId};
+    if(newId!==oldId) delete a2[oldId];
+    a2[newId]=rec; saveAccounts(a2);
+    logAdd("edit account", oldId+(newId!==oldId?(" -> "+newId):""));
+    if(ME&&ME.user===oldId){ ME.user=newId; ME.name=rec.n; ME.role=role; setMe(ME); }
+    EDIT_ROW=null; renderUsers();
+    $("#acctNote").textContent=(LANG?"Saved: ":"已儲存:")+newId;
+  });
+  document.querySelectorAll(".uDel").forEach(el=>el.onclick=()=>{
+    if(ME&&ME.user===el.dataset.n){
+      $("#acctNote").textContent=LANG?"You cannot remove the account you are signed in as."
+                                     :"不能移除自己正在使用的帳號。"; return; }
+    const a2=users(); delete a2[el.dataset.n]; saveAccounts(a2);
+    logAdd("remove account", el.dataset.n);
+    renderUsers(); $("#acctNote").textContent=(LANG?"Removed ":"已移除 ")+el.dataset.n;
+  });
+}
+
+function renderLog(){
+  const tb=$("#tLog"); if(!tb) return;
+  const l=logRead().slice().reverse();
+  tb.tBodies[0].innerHTML=l.length
+    ? l.slice(0,300).map(e=>{
+        const d=new Date(e.t);
+        return `<tr><td class="mono">${d.toLocaleString(LANG?"en-CA":"zh-TW",{hour12:false})}</td>
+          <td>${esc(e.u||e.n)}</td><td>${esc(e.n)}</td><td>${esc(e.r)}</td><td>${esc(e.w)}</td>
+          <td class="wrap">${esc(e.d)}</td></tr>`;
+      }).join("")
+    : `<tr><td colspan="5" class="empty">${LANG?"Nothing recorded yet.":"還沒有紀錄。"}</td></tr>`;
+  if($("#logCount")) $("#logCount").textContent = LANG
+    ? `${l.length} entries — this browser only`
+    : `${l.length} 筆 — 只涵蓋這台瀏覽器`;
+}
+
+/* 批量設定渠道 */
+const BULK_KEYS=["dim_factor","ahs_weight_threshold","ahs_longest_side",
+  "ahs_second_side","ahs_cubic_inches","ahs_lg_limit","ahs_min_billable_weight",
+  "oversize_longest_side","oversize_actual_weight","oversize_cubic_inches",
+  "oversize_length_girth","oversize_min_billable_weight"];
+const BULK_LAB={dim_factor:["DIM 除數","DIM factor"],
+  ahs_weight_threshold:["AHS 重量","AHS weight"],
+  ahs_longest_side:["AHS 最長邊","AHS longest"],
+  ahs_second_side:["AHS 次長邊","AHS second"],
+  ahs_cubic_inches:["AHS 材積","AHS cubic"],
+  ahs_lg_limit:["AHS 長+圍","AHS L+G"],
+  ahs_min_billable_weight:["AHS 最低計費重","AHS min billable"],
+  oversize_longest_side:["LPS 最長邊","LPS longest"],
+  oversize_actual_weight:["LPS 實重","LPS weight"],
+  oversize_cubic_inches:["LPS 材積","LPS cubic"],
+  oversize_length_girth:["LPS 長+圍","LPS L+G"],
+  oversize_min_billable_weight:["LPS 最低計費重","LPS min billable"]};
+
+function renderBulk(){
+  const box=$("#bulkChans"); if(!box||!CFG) return;
+  const zn=CFG.raw.builtin_service_zones||{};
+  /* 重畫會把勾選清掉,而套用之後就是要重畫表格 —— 先記下來再還原。 */
+  const wasTicked=new Set(tickedChannels());
+  box.innerHTML=Object.keys(zn).map(s=>
+    `<label class="bulkchk"><input type="checkbox" class="bulkc" value="${esc(s)}"${
+      wasTicked.has(s)?" checked":""}> ${esc(s)}</label>`
+  ).join("");
+  const kept={};
+  for(const k of BULK_KEYS){ const el=$("#bv_"+k); if(el) kept[k]=el.value; }
+  const field=k=>`<div class="bulkval"><label>${BULK_LAB[k][LANG]}</label>
+     <input class="cell num" id="bv_${k}" value="${esc(kept[k]||"")}"
+      placeholder="—"></div>`;
+  const grp=(title,keys)=>`<div class="bulkgrp">
+      <div class="bulkgt">${title}</div>${keys.map(field).join("")}</div>`;
+  $("#bulkVals").innerHTML=
+    `<div class="bulkval bulkwide">${field("dim_factor").replace(/^<div class="bulkval">|<\/div>$/g,"")}</div>`
+    +`<div class="bulkcols">`
+    +grp(LANG?"AHS — Additional Handling Surcharge":"AHS — 額外處理費",
+        ["ahs_weight_threshold","ahs_longest_side","ahs_second_side",
+         "ahs_cubic_inches","ahs_lg_limit","ahs_min_billable_weight"])
+    +grp(LANG?"LPS — Large Package Surcharge":"LPS — 大型包裹附加費",
+        ["oversize_longest_side","oversize_actual_weight","oversize_cubic_inches",
+         "oversize_length_girth","oversize_min_billable_weight"])
+    +`</div>`;
+}
+function tickedChannels(){
+  return [...document.querySelectorAll(".bulkc:checked")].map(c=>c.value);
+}
+function bulkApply(){
+  const chans=tickedChannels();
+  if(!chans.length){ $("#bulkNote").textContent=LANG?"Tick a channel first":"請先勾選渠道"; return; }
+  const c=CFG.raw.channel_rule_overrides||(CFG.raw.channel_rule_overrides={});
+  let n=0;
+  for(const svc of chans){
+    const o=c[svc]||(c[svc]={});
+    for(const k of BULK_KEYS){
+      const v=($("#bv_"+k)||{}).value;
+      if(v===undefined||String(v).trim()==="") continue;   /* 留空的欄位不動 */
+      o[k]=String(v).trim(); n++;
+      if(k==="dim_factor")
+        (CFG.raw.channel_dim_factors||(CFG.raw.channel_dim_factors={}))[svc]=String(v).trim();
+    }
+  }
+  CFG=readConfig(CFG.raw); DIRTY=true;
+  $("#bulkNote").textContent=LANG
+    ? `Wrote ${n} value(s) to ${chans.length} channel(s). Save to keep it.`
+    : `寫入 ${n} 個值到 ${chans.length} 個渠道,記得儲存。`;
+  renderConfigTabs();
+  if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+}
+function bulkLoad(){
+  const chans=tickedChannels();
+  if(chans.length!==1){
+    $("#bulkNote").textContent=LANG?"Tick exactly one channel to load from"
+                                   :"載入現值請只勾一個渠道"; return; }
+  const o=(CFG.raw.channel_rule_overrides||{})[chans[0]]||{};
+  for(const k of BULK_KEYS){ const el=$("#bv_"+k); if(el) el.value=o[k]??""; }
+  $("#bulkNote").textContent=LANG?`Loaded from ${chans[0]}`:`已載入 ${chans[0]} 的現值`;
+}
+function bulkClear(){
+  const chans=tickedChannels();
+  if(!chans.length){ $("#bulkNote").textContent=LANG?"Tick a channel first":"請先勾選渠道"; return; }
+  const c=CFG.raw.channel_rule_overrides||{};
+  for(const svc of chans){ delete c[svc];
+    if(CFG.raw.channel_dim_factors) delete CFG.raw.channel_dim_factors[svc]; }
+  CFG=readConfig(CFG.raw); DIRTY=true;
+  $("#bulkNote").textContent=LANG
+    ? `Cleared ${chans.length} channel(s). They follow the default now.`
+    : `已清除 ${chans.length} 個渠道的覆寫,改為跟著預設。`;
+  renderConfigTabs();
+}
+
+/* 改一格就寫回設定物件,並且把重讀過的值同步給計價引擎 */
+function editCell(key,val){
+  const p=key.split("\u241F");
+  if(p[0]==="rule"){
+    CFG.raw.global_rules[p[1]] = val.trim();
+  }else if(p[0]==="chg"){
+    (CFG.raw.accessorial_charges||(CFG.raw.accessorial_charges={}))[p[1]]=val.trim();
+  }else if(p[0]==="chan"){
+    const c=CFG.raw.channel_rule_overrides||(CFG.raw.channel_rule_overrides={});
+    (c[p[1]]||(c[p[1]]={}))[p[2]]=val.trim();
+    if(p[2]==="dim_factor"){
+      (CFG.raw.channel_dim_factors||(CFG.raw.channel_dim_factors={}))[p[1]]=val.trim();
+    }
+  }else if(p[0]==="acc"){
+    const k=p[1];
+    if(p.length===3){ CFG.raw.accessorial_rate_table[k][p[2]] = toNum(val); }
+    else            { CFG.raw.accessorial_rate_table[k]       = toNum(val); }
+  }
+  CFG=readConfig(CFG.raw);
+  DIRTY=true;
+  /* 渠道門檻改了要重畫,星號(這個渠道自己設定的值)才會出現 */
+  if(p[0]==="chan"||p[0]==="rule"||p[0]==="chg") renderConfigTabs();
+  $("#saveNote") && ($("#saveNote").textContent =
+    LANG?"Changed. Save to keep it.":"已修改,記得儲存。");
+  setStatus(LANG?"Setting changed":"設定已修改");
+  if(RATED && ROWS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+}
+let DIRTY=false;
+
+/* 存回瀏覽器,並且可以下載成設定檔換回桌面版用 */
+function saveSettings(){
+  const txt=JSON.stringify(CFG.raw,null,2);
+  try{ localStorage.setItem(CFG_KEY,txt); }catch(e){}
+  DIRTY=false;
+  logAdd("save settings","");
+  $("#saveNote") && ($("#saveNote").textContent=LANG?"Saved in this browser.":"已存進這個瀏覽器。");
+  setStatus(LANG?"Settings saved":"設定已儲存");
+}
+function downloadSettings(){
+  const b=new Blob([JSON.stringify(CFG.raw,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b); a.download="ups_billing_tool_config.json";
+  a.click(); URL.revokeObjectURL(a.href);
+  setStatus(LANG?"Downloaded settings file":"設定檔已下載");
+}
+
+/* ---- 產生報表 ---- */
+$("#bRun").onclick=()=>{
+  setStatus("讀取中…");
+  try{
+    const ing=ingest(INV);
+    ROWS=ing.rows; SHIPS=shipmentsOf(ROWS);
+    RATED=SHIPS.map(s=>priceShipment(CFG,s));
+    renderSummary(); renderRate(); renderCode(); renderHist();
+    $("#sumBox").style.display=""; $("#rateBox").style.display="";
+    ready();
+    logAdd("reprice report", ROWS.length+" rows / "+SHIPS.length+" tracking");
+    setStatus(`完成:${ROWS.length.toLocaleString()} 列 / `
+      +`${SHIPS.length.toLocaleString()} 個追蹤號`
+      +(ing.hasHdr?"(有標題列)":"(無標題列,用固定欄位序號)"));
+  }catch(e){
+    $("#cfgNote").innerHTML=`<div class="note warn"><b>讀不動這張帳單。</b>${esc(e.message)}</div>`;
+    setStatus("失敗");
+  }
+};
+
+const LAYER_MEANING={SHP:"本期出貨",ADJ:"調整/更正",RTN:"退件",MIS:"其他"};
+
+function renderSummary(){
+  const tot=ROWS.reduce((a,r)=>a+r.net,0);
+  const invs=[...new Set(ROWS.map(r=>r.invoice).filter(Boolean))];
+  $("#tiles").innerHTML=[
+    ["帳單筆數",ROWS.length.toLocaleString(),""],
+    ["追蹤號",SHIPS.length.toLocaleString(),""],
+    ["發票",invs.length,invs.slice(0,1).join("")],
+    ["UPS 收取總額",money(tot),"",tot<0],
+  ].map(([k,v,sub,neg])=>`<div class="tile sketch-soft"><div class="k">${k}</div>
+    <div class="v${neg?" neg":""}">${v}</div>
+    <div class="sub">${esc(sub)||"&nbsp;"}</div></div>`).join("");
+
+  const by={};
+  ROWS.forEach(r=>{
+    (by[r.layer]=by[r.layer]||{n:0,amt:0,trk:new Set()});
+    by[r.layer].n++; by[r.layer].amt+=r.net;
+    if(r.tracking) by[r.layer].trk.add(r.tracking);
+  });
+  $("#tLayer").tBodies[0].innerHTML=Object.entries(by).sort((a,b)=>b[1].n-a[1].n)
+    .map(([L,v])=>`<tr><td><b>${L}</b></td><td>${LAYER_MEANING[L]||""}</td>
+      <td class="num">${v.n.toLocaleString()}</td>
+      <td class="num">${v.trk.size.toLocaleString()}</td>
+      <td class="num${v.amt<0?" neg":""}">${money(v.amt)}</td></tr>`).join("");
+}
+
+function renderRate(){
+  const priced=RATED.filter(o=>o.total!==null);
+  const within=p=>priced.filter(o=>
+    Math.abs(o.diff)<=Math.max(0.01,Math.abs(o.s.upsTotal)*p)).length;
+  const pct=n=>RATED.length?(n/RATED.length*100).toFixed(1)+"%":"—";
+  $("#tiles2").innerHTML=[
+    ["可計價",priced.length.toLocaleString()+" / "+RATED.length.toLocaleString(),pct(priced.length)],
+    ["差距 ≤1%",within(0.01).toLocaleString(),pct(within(0.01))],
+    ["差距 ≤5%",within(0.05).toLocaleString(),pct(within(0.05))],
+    ["合約試算",money(priced.reduce((a,o)=>a+o.total,0)),""],
+    ["UPS 實收",money(RATED.reduce((a,o)=>a+o.s.upsTotal,0)),""],
+  ].map(([k,v,sub])=>`<div class="tile sketch-soft"><div class="k">${k}</div>
+    <div class="v" style="font-size:18px">${v}</div>
+    <div class="sub">${sub||"&nbsp;"}</div></div>`).join("");
+
+  const accN=[...new Set(RATED.flatMap(o=>Object.keys(o.acc)))].sort();
+  $("#tRate").querySelector("thead").innerHTML=`<tr>
+    <th>追蹤號</th><th>渠道</th><th class="num">Zone</th>
+    <th class="num">輸入</th><th class="num">DIM</th><th class="num">計費重</th>
+    <th>重量依據</th><th class="num">運費</th>
+    ${accN.map(n=>`<th class="num">${esc(n)}</th>`).join("")}
+    <th class="num">燃油</th><th class="num">合約試算</th>
+    <th class="num">UPS 實收</th><th class="num">差額</th><th>備註</th></tr>`;
+  $("#tRate").tBodies[0].innerHTML=RATED.slice(0,300).map(o=>`<tr>
+    <td class="mono">${esc(o.s.tracking)}</td>
+    <td>${esc(o.channel)}<br><span style="font-size:11px;color:var(--muted)">${esc(o.resBasis)}</span></td>
+    <td class="num">${esc(o.s.zone)||"—"}</td>
+    <td class="num">${num(o.bw.entered)}</td>
+    <td class="num">${o.bw.dim!==null?num(o.bw.dim):"—"}</td>
+    <td class="num"><b>${num(o.bw.billable)}</b></td>
+    <td style="font-size:11.5px">${esc(o.bw.basis)}</td>
+    <td class="num">${o.base!==null?money(o.base):'<span style="color:var(--neg)">—</span>'}</td>
+    ${accN.map(n=>`<td class="num">${o.acc[n]!==undefined?money(o.acc[n]):""}</td>`).join("")}
+    <td class="num">${money(o.fuel)}</td>
+    <td class="num"><b>${o.total!==null?money(o.total):"—"}</b></td>
+    <td class="num">${money(o.s.upsTotal)}</td>
+    <td class="num${o.diff!==null&&o.diff<0?" neg":""}">${o.diff!==null?money(o.diff):"—"}</td>
+    <td class="wrap" style="font-size:11px;color:var(--neg)">${esc(o.issues.slice(0,2).join(";"))}</td>
+  </tr>`).join("");
+
+  const all={}; RATED.forEach(o=>o.issues.forEach(i=>all[i]=(all[i]||0)+1));
+  const top=Object.entries(all).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  $("#rateNote").innerHTML=
+    (RATED.length>300?`<div class="note">表格顯示前 300 筆,完整資料請匯出 CSV。</div>`:"")
+    +(top.length?`<div class="note"><b>最常見的問題</b><br>`
+      +top.map(([i,n])=>`${n.toLocaleString()} 筆 — ${esc(i)}`).join("<br>")+`</div>`:"");
+}
+
+const CODE_FILTERS=[["all",["全部代碼","All codes"]],
+                    ["inv",["只看這張帳單","In this invoice only"]],
+                    ["unk",["只看未收錄","Unknown codes only"]]];
+let CODE_MODE="ref";      /* ref = 完整參考表, scan = 掃描帳單 */
+
+/* 兩段文字是不是在講同一件事:去掉標點空白與 surcharge 這類贅字後比對,
+   一邊包含另一邊就算同一件。 */
+function sameThing(a,b){
+  const norm=s=>String(s||"").toLowerCase()
+    .replace(/surcharge|additional handling|addl\.?\s*handling/g,"ahs")
+    .replace(/large package/g,"lps")
+    .replace(/[^a-z0-9]/g,"");
+  const x=norm(a), y=norm(b);
+  if(!x||!y) return false;
+  return x===y || x.includes(y) || y.includes(x);
+}
+
+/* 這個代碼在計價裡怎麼被處理 */
+function codeHandling(c){
+  if(MAIN_LINE.has(c))    return LANG?"Freight / fuel main line":"走運費與燃油主線";
+  if(NOT_REPRICED.has(c)) return LANG?"Not repriced":"不重新計價";
+  if(ACC_CODE_MAP[c]){
+    const m=ACC_CODE_MAP[c];
+    if(m.marker) return LANG?"Marker line":"標記行";
+    return m.fee;
+  }
+  if(AHS_DIM.has(c))  return "AHS - Dimension";
+  if(AHS_WT.has(c))   return "AHS - Weight";
+  if(AHS_PKG.has(c))  return "AHS - Packaging";
+  if(LPS_CODE.has(c)) return "Large Package";
+  return null;
+}
+
+function renderCode(){
+  const tb=$("#tCode"); if(!tb) return;
+  /* 這張帳單裡實際出現的代碼與筆數 */
+  const inInv={};
+  if(ROWS) for(const r of ROWS){
+    const c=(r.code||"").toUpperCase(); if(!c) continue;
+    (inInv[c]=inInv[c]||{n:0,amt:0,desc:r.desc}); inInv[c].n++; inInv[c].amt+=r.net;
+  }
+  /* 代碼來源:預設參考表 + 設定檔的 registry / mapping + 帳單裡出現的 */
+  const all={};
+  for(const [c,d] of Object.entries(CODE_REF)) all[c]=d;
+  if(CFG){
+    for(const [c,v] of Object.entries(CFG.codeReg||{})) all[c]=v.description||all[c]||"";
+    for(const [c,v] of Object.entries(CFG.dynMap||{}))  all[c]=v.name||all[c]||"";
+  }
+  for(const c of Object.keys(inInv)) if(!(c in all)) all[c]="";
+
+  const q=($("#codeSearch")||{}).value||"";
+  const mode=($("#codeFilter")||{}).value||"all";
+  const rows=Object.keys(all).sort().filter(c=>{
+    if(CODE_MODE==="scan" && !inInv[c]) return false;
+    if(mode==="inv" && !inInv[c]) return false;
+    if(mode==="unk" && (codeHandling(c) || all[c])) return false;
+    if(q){ const s=(c+" "+all[c]).toLowerCase();
+           if(!s.includes(q.toLowerCase())) return false; }
+    return true;
+  });
+
+  tb.tBodies[0].innerHTML=rows.map(c=>{
+    const hit=inInv[c], how=codeHandling(c);
+    const meaning=all[c]||(hit&&hit.desc)||"";
+    const known=how||all[c];
+    return `<tr>
+      <td class="mono"><b>${esc(c)}</b></td>
+      <td class="wrap">${esc(meaning)||`<span style="color:var(--neg)">${
+        LANG?"not registered":"未收錄"}</span>`}${
+        /* 說明已經講了同一件事就不要再寫一次分類 ——
+           「Additional Handling - Packaging」底下再掛「AHS - Packaging」是重複。 */
+        (how && !sameThing(meaning,how))
+          ? `<br><span style="font-size:11px;color:var(--muted)">${esc(how)}</span>` : ""}</td>
+      <td style="text-align:center">${hit?"✓":""}</td>
+      <td class="num">${hit?hit.n.toLocaleString():""}</td></tr>`;
+  }).join("")||`<tr><td colspan="4" class="empty">${LANG?"Nothing matches.":"沒有符合的代碼。"}</td></tr>`;
+
+  const unk=rows.filter(c=>!codeHandling(c)&&!all[c]).length;
+  $("#codeCount").textContent = LANG
+    ? `${rows.length} shown, ${Object.keys(inInv).length} in invoice, ${unk} unknown`
+    : `顯示 ${rows.length} 個,帳單裡 ${Object.keys(inInv).length} 個,未收錄 ${unk} 個`;
+}
+
+function renderHist(){
+  const src=HISTROWS&&HISTROWS.length?HISTROWS:(ROWS||[]);
+  const invs=new Set(), trks=new Set();
+  let minD="", maxD="";
+  for(const r of src){
+    if(r.invoice) invs.add(r.invoice);
+    if(r.tracking) trks.add(r.tracking);
+    const dt=r.invDate||"";
+    if(dt){ if(!minD||dt<minD) minD=dt; if(!maxD||dt>maxD) maxD=dt; }
+  }
+  if($("#histStats")) $("#histStats").textContent = src.length
+    ? (LANG
+       ? `${invs.size} invoice(s), ${src.length.toLocaleString()} row(s), ${trks.size.toLocaleString()} tracking(s)   ${minD} ~ ${maxD}`
+       : `${invs.size} 張帳單、${src.length.toLocaleString()} 列、${trks.size.toLocaleString()} 個追蹤號　${minD} ~ ${maxD}`)
+    : (LANG ? "No invoices loaded yet." : "還沒有載入任何帳單。");
+
+  const q=(($("#trkSearch")||{}).value||"").trim().toLowerCase();
+  const show=q ? src.filter(r=>(r.tracking||"").toLowerCase().includes(q)) : [];
+  const tb=$("#tHist")&&$("#tHist").tBodies[0];
+  if(!tb) return;
+  tb.innerHTML = show.length
+    ? show.slice(0,400).map(r=>`<tr>
+        <td class="mono">${esc(r.invoice)}</td><td>${esc(r.invDate)}</td>
+        <td>${esc(r.shipDate)}</td><td>${esc(r.layer)}</td>
+        <td>${esc(r.detail||"")}</td><td class="mono">${esc(r.code)}</td>
+        <td class="wrap">${esc(r.desc)}</td><td>${esc(r.zone)}</td>
+        <td class="num">${r.entered||""}</td><td class="num">${r.billed||""}</td>
+        <td>${esc(r.dimsC||"")}</td><td>${esc(r.dimsA||"")}</td>
+        <td class="num${r.net<0?" neg":""}">${money(r.net)}</td></tr>`).join("")
+    : `<tr><td colspan="13" class="empty">${
+        q ? (LANG?"No lines for that tracking number.":"這個追蹤號沒有資料。")
+          : (LANG?"Type a tracking number above and press Search."
+                 :"在上面輸入追蹤號後按查詢。")}</td></tr>`;
+}
+let HISTROWS=null;
+
+/* ---- 匯出 ---- */
+$("#bCsv").onclick=()=>{
+  const accN=[...new Set(RATED.flatMap(o=>Object.keys(o.acc)))].sort();
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const head=["Tracking","Channel","ResidentialBasis","Zone","EnteredWeight",
+    "DimWeight","BillableWeight","WeightBasis","AHS_Dim","AHS_Weight","Oversize",
+    "BaseRate",...accN.map(n=>n.replace(/ /g,"_")),"Fuel","ContractTotal",
+    "UPS_Net","Diff","Issues"];
+  const lines=[head.join(",")];
+  for(const o of RATED){
+    lines.push([o.s.tracking,q(o.channel),q(o.resBasis),o.s.zone,o.bw.entered,
+      o.bw.dim===null?"":o.bw.dim,o.bw.billable,q(o.bw.basis),
+      o.bw.ahsDim?1:0,o.bw.ahsWeight?1:0,o.bw.oversize?1:0,
+      o.base===null?"":o.base.toFixed(2),
+      ...accN.map(n=>o.acc[n]!==undefined?o.acc[n].toFixed(2):""),
+      o.fuel.toFixed(2), o.total===null?"":o.total.toFixed(2),
+      o.s.upsTotal.toFixed(2), o.diff===null?"":o.diff.toFixed(2),
+      q(o.issues.join(" | "))].join(","));
+  }
+  const b=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b); a.download="reprice_statement.csv";
+  a.click(); URL.revokeObjectURL(a.href);
+  setStatus((LANG?"Statement exported: ":"對帳單已匯出:")+RATED.length.toLocaleString()+(LANG?" lines":" 筆"));
+};
+
+function guessService(d0){
+  const d=String(d0).toLowerCase();
+  if(/next day air saver/.test(d)) return "Next Day Air Saver";
+  if(/next day air|1da/.test(d))   return "Next Day Air";
+  if(/2nd day air|2da/.test(d))    return "2nd Day Air";
+  if(/3 day select/.test(d))       return "3 Day Select";
+  if(/ground/.test(d))             return "Ground Commercial";
+  return d0;
+}
+
+
+
+
+
+/* =====================================================================
+   主題
+   ---------------------------------------------------------------------
+   五組配色,值
+   桌面版註明:一組配色就是整個介面的六個顏色,加一個主題是六個值,
+   不是把每個元件改一遍。這裡用 CSS 變數,同一個做法。
+   ===================================================================== */
+const THEMES={
+  "Milk Tea":{zh:"奶茶",BG:"#cbb189",PANEL:"#dbc6a4",TAB:"#bfa477",
+    ACCENT:"#a9743f",TEXT:"#3b2f23",LINE:"#a98c63",SELECT:"#e3c79a",
+    STRIPE:"#d3bb96",NEG:"#8c2f2f",RUN:"#a9743f",RUNH:"#8c5e30",
+    RUN2:"#8c5a4a",RUN2H:"#74473a"},
+  "Slate":{zh:"灰藍",BG:"#cfd6dd",PANEL:"#e3e8ee",TAB:"#b3bec9",
+    ACCENT:"#41586e",TEXT:"#22303c",LINE:"#93a2b1",SELECT:"#c3d2e0",
+    STRIPE:"#d9e0e7",NEG:"#a3323c",RUN:"#41586e",RUNH:"#324556",
+    RUN2:"#5c6b7a",RUN2H:"#46525e"},
+  "Sage":{zh:"草綠",BG:"#c9d5c2",PANEL:"#e0e8da",TAB:"#adbea4",
+    ACCENT:"#4f6b48",TEXT:"#263323",LINE:"#93a889",SELECT:"#cfe0c6",
+    STRIPE:"#d6e0cf",NEG:"#8e3630",RUN:"#4f6b48",RUNH:"#3c5236",
+    RUN2:"#6b7f5c",RUN2H:"#556647"},
+  "Brown Gold":{zh:"棕金",BG:"#f4ecdc",PANEL:"#fffdf7",TAB:"#ffb500",
+    ACCENT:"#351c15",TEXT:"#2b1a10",LINE:"#caa356",SELECT:"#ffdd8f",
+    STRIPE:"#f7f1e4",NEG:"#b3261e",RUN:"#351c15",RUNH:"#1f100b",
+    RUN2:"#8a6104",RUN2H:"#6b4b03"},
+  "Graphite":{zh:"石墨",BG:"#3a3d42",PANEL:"#4a4e55",TAB:"#2f3237",
+    ACCENT:"#c08a3e",TEXT:"#f0ece4",LINE:"#5c626b",SELECT:"#5f6672",
+    STRIPE:"#43474e",NEG:"#f0a48c",RUN:"#c08a3e",RUNH:"#9c6d2d",
+    RUN2:"#6e7480",RUN2H:"#585d67"},
+};
+/* 品牌:同一支工具的兩張臉。Tally 是手繪素描那一套,Scoobi 是圓角積木那一套。
+   Theme 選單選的是這個,Colour 選單照舊 —— 兩者互不影響,四種組合都成立。 */
+const BRANDS=["Tally","Scoobi"];
+const BRAND_KEY="ups_reprice_brand";
+let BRAND="Scoobi";
+function applyBrand(name){
+  BRAND = BRANDS.includes(name)?name:"Scoobi";
+  const tally = BRAND==="Tally";
+  const r=document.documentElement.style;
+  /* Tally:抖線塗層開著,邊框本身要收掉 —— 兩層邊會變成雙框。
+     Scoobi:塗層關著,實線邊就是唯一的邊,不畫的話整頁沒有框。 */
+  r.setProperty("--wob",   tally?"url(#wobble)":"none");
+  r.setProperty("--wob2",  tally?"url(#wobble-soft)":"none");
+  r.setProperty("--rad",   tally?"9px":"14px");
+  r.setProperty("--bw",    tally?"2px":"2px");
+  r.setProperty("--bstyle",tally?"solid":"solid");
+  r.setProperty("--bcol",  tally?"var(--accent)":"var(--line)");
+  /* 標題字:Tally 走手繪字,Scoobi 走一般介面字 */
+  const hand='"Reprice Sketch","王漢宗標楷體空心","Sketch Block","芫荽","Iansui",'
+            +'"LXGW WenKai TC","霞鶩文楷 TC","Segoe Print","Ink Free"';
+  r.setProperty("--dispfam", tally ? hand+',sans-serif' : 'inherit');
+  /* 標題:Scoobi 用空心描邊字 —— 那是這個品牌的臉。
+     沒有描邊字型的機器上,用 text-stroke 加透明填色做出同樣的效果。 */
+  r.setProperty("--titlefam", tally
+    ? hand+',sans-serif'
+    : '"王漢宗標楷體空心","Sketch Block","Reprice Sketch",'
+      +'"Microsoft JhengHei UI",sans-serif');
+  r.setProperty("--titlefill", tally ? "var(--tab)" : "transparent");
+  r.setProperty("--titlestroke", tally ? "0" : "1.2px");
+  /* Tally 的手繪風是整套介面,不是只有標題 —— 桌面版整個視窗都是手寫字。 */
+  r.setProperty("--bodyfam", tally
+    ? hand+',"Microsoft JhengHei UI",sans-serif'
+    : '"Microsoft JhengHei UI","Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif');
+  try{ localStorage.setItem(BRAND_KEY,BRAND); }catch(e){}
+}
+
+const THEME_KEY="ups_reprice_theme";
+let THEME="Brown Gold";
+function applyTheme(name){
+  const t=THEMES[name]||THEMES["Brown Gold"];
+  THEME = THEMES[name]?name:"Brown Gold";
+  const r=document.documentElement.style;
+  r.setProperty("--bg",t.BG);       r.setProperty("--panel",t.PANEL);
+  r.setProperty("--tab",t.TAB);     r.setProperty("--accent",t.ACCENT);
+  r.setProperty("--text",t.TEXT);   r.setProperty("--line",t.LINE);
+  r.setProperty("--select",t.SELECT); r.setProperty("--stripe",t.STRIPE);
+  r.setProperty("--neg",t.NEG);     r.setProperty("--run",t.RUN);
+  r.setProperty("--run-hover",t.RUNH); r.setProperty("--run2",t.RUN2);
+  r.setProperty("--run2-hover",t.RUN2H);
+  /* Graphite 的底是深的,手繪墨線要跟著翻,不然畫面上是一團黑 */
+  r.setProperty("--muted", name==="Graphite" ? "#9aa1ab" : "#8a755a");
+  INK=t.ACCENT; BOX=t.RUN2; PAPER=t.PANEL;
+  try{ localStorage.setItem(THEME_KEY,THEME); }catch(e){}
+}
+
+/* =====================================================================
+   雙語
+   ---------------------------------------------------------------------
+   桌面版有 ui_language 切換,對照表在第 3200-3520 行。
+   這裡同一套做法:標了 data-i18n 的節點依語言換字。
+   ===================================================================== */
+const I18N={
+  "hd.chandata":["① 渠道資料","Channel details"],
+  "hd.ratestate":["② 費率表狀態","Rate table state"],
+  "hd.allchan":["③ 全部渠道","All channels"],
+  "lb.channame":["渠道名稱","Channel name"],
+  "lb.reschan":["住宅渠道","Residential channel"],
+  "lb.chanon":["啟用此渠道","Enable this channel"],
+  "btn.addchan":["新增渠道","Add channel"],
+  "lb.pickrate":["選擇費率表渠道","Rate table channel"],
+  "btn.exprate":["匯出基本運費表模板","Export base rate template"],
+  "btn.imprate":["匯入已完成的基本運費表","Import completed base rates"],
+  "btn.scanzone":["從帳單掃描 Zone","Scan zones from invoice"],
+  "btn.delchan":["刪除所選渠道","Delete selected"],
+  "th.chantype":["渠道類型","Type"],
+  "th.ratestate":["基本運費狀態","Base rates"],
+  "th.enabled":["啟用","Enabled"],
+  "lb.applydemand":["套用到重算","Apply to repricing"],
+  "dt.pkg":["① 包裹類附加費","① Package surcharges"],
+  "dt.svc":["② 服務別費率","② Service level rates"],
+  "dt.grp":["③ 服務類別","③ Service categories"],
+  "dt.map":["④ 渠道對應","④ Channel mapping"],
+  "btn.addperiod":["+ 新增期間","+ Add period"],
+  "btn.delperiod":["刪除所選","Delete selected"],
+  "btn.savedemand":["儲存 Demand 設定","Save Demand settings"],
+  "th.feetype":["費用類別","Fee Type"],
+  "th.shiptype":["出貨類型","Shipment Type"],
+  "th.zones":["Zone","Zones"],
+  "th.ratetbl":["費率表","Rate table"],
+  "th.dimf":["DIM 除數","DIM Factor"],
+  "hd.ahs":["AHS — 額外處理費","AHS — Additional Handling Surcharge"],
+  "hd.lps":["LPS — 大型包裹附加費","LPS — Large Package Surcharge"],
+  "hd.dimf":["材積除數","DIM Factor"],
+  "hd.rulesforce":["目前生效的規則","Rules in Force"],
+  "lb.defdim":["預設材積除數","Default DIM factor"],
+  "btn.chandim":["設定渠道除數","Set Channel DIM"],
+  "btn.defthr":["預設門檻","Default Thresholds"],
+  "btn.bulkchan":["批量設定渠道","Bulk Set Channels"],
+  "c.longest":["最長邊","Longest"], "c.weight":["實重","Weight"],
+  "c.cubic":["材積","Cubic"], "c.second":["第二長邊","2nd Side"],
+  "c.minwt":["最低計費重","Min Wt"],
+  "hd.fuelsetup":["燃油設定","Fuel Setup"],
+  "lb.deffuel":["預設燃油 %","Default Fuel %"],
+  "hd.newrange":["新增燃油區間","New Fuel Range"],
+  "lb.from":["開始日期","From"], "lb.to":["結束日期","To"],
+  "lb.fuelpct":["燃油 %","Fuel %"],
+  "btn.addrange":["+ 新增區間","+ Add Range"],
+  "hd.fuelforce":["目前生效的燃油區間","Fuel Schedule in Effect"],
+  "th.start":["開始日期","Start Date"], "th.end":["結束日期","End Date"],
+  "th.fuelpct":["燃油 %","Fuel %"], "th.defpct":["預設 %","Default %"],
+  "btn.delticked":["刪除勾選","Delete Ticked"],
+  "btn.close":["關閉","Close"],
+  "btn.imphist":["匯入歷史帳單","Import Past Invoices"],
+  "btn.refresh":["重新整理","Refresh"],
+  "btn.stored":["已存帳單","Stored Invoices"],
+  "hd.findtrk":["查詢單號","Find a Tracking"],
+  "btn.search":["查詢","Search"],
+  "btn.breakdown":["計費計算明細","Rating Breakdown"],
+  "th.trandt":["交易日期","Transaction Date"],
+  "th.cat":["收費類別代碼","Charge Category Code"],
+  "th.catdet":["收費類別明細","Charge Category Detail Code"],
+  "th.desccode":["收費說明代碼","Charge Description Code"],
+  "th.desc2":["收費說明","Charge Description"],
+  "th.entwt":["輸入重量","Entered Weight"],
+  "th.bilwt":["計費重量","Billed Weight"],
+  "th.pkgdim":["包裹尺寸","Package Dimensions"],
+  "th.keydim":["原始鍵入尺寸","Detail Keyed Dimensions"],
+  "th.net":["淨額","Net Amount"],
+  "tab.users":["👤 帳號","👤 Users"],
+  "hd.accounts":["帳號","Accounts"],
+  "hd.addacct":["新增帳號","Add an account"],
+  "hd.activity":["活動紀錄","Activity"],
+  "th.role":["角色","Role"],
+  "th.pw":["密碼","Password"],
+  "th.edit":["編輯","Edit"],
+  "th.when":["時間","When"],
+  "th.what":["動作","What"],
+  "th.detail":["內容","Detail"],
+  "btn.addacct":["新增","Add"],
+  "btn.dlacct":["下載帳號檔","Download accounts file"],
+  "btn.logexport":["匯出紀錄","Export log"],
+  "btn.logimport":["匯入紀錄","Import log"],
+  "btn.logclear":["清除紀錄","Clear log"],
+  "hint.accounts":["改動只存在這台瀏覽器。要讓同事也套用,下載帳號檔重發給他們。密碼是明文——開得了這個檔案或這台瀏覽器的人,看得到所有人的密碼。這是分角色,不是保護。",
+    "Changes are kept in this browser only. To apply them for colleagues, download the accounts file and send it out. Passwords are stored in plain text — anyone who can open this file or this browser can read every password. This separates roles, it does not protect anything."],
+  "hint.activity":["只涵蓋這台瀏覽器。同事的紀錄在他們自己的電腦上,請他們匯出後你再匯入合併。",
+    "This browser only. A colleague's activity stays on their machine — have them export it, then import it here to merge."],
+  "hd.bulk":["批量設定渠道","Bulk Set Channels"],
+  "hd.selchan":["選擇渠道","Select Channels"],
+  "hd.valwrite":["要寫入的值","Values to Write"],
+  "btn.selall":["全選","Select All"],
+  "btn.selnone":["取消全選","Deselect All"],
+  "btn.applyticked":["套用到勾選的渠道","Apply to Ticked Channels"],
+  "btn.loadticked":["載入勾選渠道的現值","Load Values from Ticked Channel"],
+  "btn.clearticked":["清除勾選渠道的覆寫","Clear Overrides on Ticked"],
+  "hint.bulk":["勾渠道,填要寫進去的門檻,按套用。留空的欄位不動。",
+    "Tick channels, type the thresholds, apply. A blank field is left alone."],
+  "th.amount":["金額","Amount"],
+  "btn.setfuel":["⛽ 設定燃油百分比","⛽ Set Fuel Percentage"],
+  "btn.customacc":["➕ 自訂附加費…","➕ Custom Surcharges…"],
+  "btn.removeticked":["✕ 移除勾選","✕ Remove Ticked"],
+  "btn.exportacc":["匯出附加費範本","Export Accessorials Template"],
+  "btn.importacc":["匯入附加費範本","Import Accessorials Template"],
+  "hd.code":["UPS 收費代碼查詢","UPS Charge Code Lookup"],
+  "hint.code":["每個收費代碼代表什麼。按「掃描已載入帳單」列出這張帳單實際出現的代碼。",
+    "Reference of what each charge code means. Click Scan Loaded Invoice to list the codes that actually appear in the imported raw invoice."],
+  "btn.scaninv":["掃描已載入帳單","Scan Loaded Invoice"],
+  "btn.fullref":["顯示完整參考表","Show Full Reference"],
+  "btn.clearsearch":["清除","Clear"],
+  "lb.search":["搜尋","Search"], "lb.show":["顯示","Show"],
+  "th.code":["代碼","Code"],
+  "th.meaning2":["附加費 / 意義","Surcharge / Meaning"],
+  "th.ininv":["在帳單中","In Invoice"],
+  "th.count":["筆數","Count"],
+  "hd.dim":["生效中的 DIM 除數","DIM Factors in Force"],
+  "btn.saverates":["💾 儲存費率","💾 Save Rates"],
+  "btn.saverules":["💾 儲存規則","💾 Save Rules"],
+  "btn.dl":["⬇ 下載設定檔","⬇ Download settings file"],
+  "tab.files":["📁 匯入檔案","📁 Import Files"],
+  "tab.rules":["💲 附加費設定","💲 Surcharge Setup"],
+  "tab.size":["📏 尺寸規則","📏 Size Rules"],
+  "tab.chan":["🚚 渠道","🚚 Channels"],
+  "tab.demand":["⚡ Demand 附加費","⚡ Demand Surcharge"],
+  "tab.hist":["📚 帳單歷史","📚 Invoice History"],
+  "tab.code":["🔎 代碼查詢","🔎 Code Lookup"],
+  "hd.files":["匯入檔案","Import Files"],
+  "hd.sum":["這張帳單","This Invoice"],
+  "hd.rate":["重新計價","Repricing"],
+  "lb.fuelsur":["燃油附加費","Fuel Surcharge"],
+  "hd.flat":["固定金額","Flat amounts"],
+  "hd.dv":["申報價值級距","Declared value tiers"],
+  "lb.dvfree":["免費上限","Free limit"], "lb.dvmin":["最低收費","Min charge"],
+  "lb.dvunit":["級距單位","Unit"], "lb.dvrate":["每級距","Per unit"],
+  "btn.reset":["重設","Reset"],
+  "hd.acc":["附加費設定","Surcharge Setup"],
+  "hd.fuel":["燃油","Fuel"],
+  "hd.size":["尺寸規則","Size Rules"],
+  "hd.chan":["渠道","Channels"],
+  "hd.demand":["Demand 附加費","Demand Surcharge"],
+  "hd.hist":["帳單歷史","Invoice History"],
+  "lb.hist":["過去各期帳單","Past invoices"],
+  "hist.why":["跨期 ADJ/SCC 要靠原始出貨的描述才能判住宅或商業。一次選取過去所有期的帳單 CSV,建好對照就記住,以後不用再選。",
+    "A cross-period ADJ/SCC can only be classed residential or commercial from the original shipment. Select every past invoice CSV at once; the lookup is then remembered."],
+  "btn.pick":["選擇…","Choose…"],
+  "btn.fuelurl":["🌐 查 UPS 燃油百分比","🌐 Look Up UPS Fuel Percentage"],
+  "btn.billing":["UPS 帳單中心","UPS Billing Center"],
+  "btn.browse":["瀏覽","Browse"],
+  "btn.save":["儲存設定","Save Settings"],
+  "btn.run":["產生運費重算報表","Generate Reprice Report"],
+  "btn.csv":["產生利潤報表","Generate Profit Report"],
+  "lb.inv":["UPS 帳單檔案","UPS Billing File"],
+  "lb.cfg":["費率檔","Rate file"],
+  "btn.login":["登入","Sign in"],
+  "btn.logout":["登出","Sign out"], "cap.theme":["Theme","Theme"], "cap.clock":["Clock","Clock"],
+  "hd.signin":["登入","Sign in"],
+  "lb.username":["帳號","Username"],
+  "lb.name":["姓名","Name"], "lb.pw":["密碼","Password"],
+  "none":["尚未選擇","Nothing chosen"],
+  "hint.files":["設定檔記在這台瀏覽器裡,重整不用重挑。帳單每期換。兩個檔案都只在本機讀取。",
+    "Settings are kept in this browser, so a refresh does not mean picking them again. The invoice changes each period. Both files are read locally."],
+  "hint.acc":["讀自設定檔,唯讀。要改請在桌面版改完存檔,再回來重新選設定檔。",
+    "Read from your settings file. To change a rate, edit it in the desktop tool and load the file again."],
+  "hint.size":["AHS 與大型包裹的門檻。這些決定計費重量,是全部金額的起點。",
+    "Additional Handling and Large Package thresholds. These decide billable weight, which every amount starts from."],
+  "hint.chan":["每個渠道的基本費率表:重量級距、Zone、有幾列費率。",
+    "Each channel's base rate table: weight bands, zones, how many rate rows."],
+  "hint.hist":["桌面版的歷史存在 ups_history.sqlite3。瀏覽器讀不了 SQLite,所以這裡只保留這次工作階段讀過的帳單。",
+    "The desktop tool keeps history in ups_history.sqlite3. A browser cannot read SQLite, so this holds only the invoices read in this session."],
+  "th.layer":["層","Layer"], "th.meaning":["意義","Means"],
+  "th.rows":["筆數","Lines"], "th.trk":["追蹤號","Tracking"],
+  "th.upsamt":["UPS 金額","UPS Amount"],
+  "th.acc":["附加費","Surcharge"], "th.chan":["渠道","Channel"],
+  "th.basis":["計費方式","Charged"], "th.rate":["費率","Rate"],
+  "th.rule":["規則","Rule"], "th.thr":["門檻","Threshold"],
+  "th.note":["說明","Note"], "th.type":["類型","Type"],
+  "th.nrows":["費率列數","Rate Rows"], "th.wrange":["重量範圍","Weight Range"],
+  "th.codecat":["分類","Category"], "th.how":["處理方式","Handled As"],
+  "th.amt":["金額","Amount"], "th.invno":["發票號","Invoice"],
+  "th.invdt":["發票日","Invoice Date"],
+  "safe":["檔案不離開這台電腦","Files never leave this computer"],
+  "foot":["費率一律讀自你的設定檔,程式內不含任何費率",
+          "Every rate comes from your settings file. None is written into this page."],
+  "ready":["就緒","Ready"],
+  "note.size":["最低計費重量只套 AHS-Dimension。AHS-Weight 和 AHS-Packaging 沒有下限 —— 這條規則在計價裡是分開處理的。",
+    "The minimum billable weight applies to AHS-Dimension only. AHS-Weight and AHS-Packaging have no floor — the engine keeps them apart."],
+  "note.rate":["尚未移植的欄位不會填 0,會標出來。跨期 ADJ/SCC 查歷史、住宅/商業重分類、宣告價值級距。對過帳之前不要拿這裡的數字對客戶收錢 —— 先比計費重量,不要先比總額。",
+    "Anything not yet ported is marked, not filled with 0: cross-period ADJ/SCC against history, residential reclassification, declared value tiers. Do not bill a client from these figures before reconciling — compare billable weight first, not the total."],
+  "t.priced":["可計價","Priced"], "t.d1":["差距 ≤1%","Within 1%"],
+  "t.d5":["差距 ≤5%","Within 5%"], "t.calc":["合約試算","Contract"],
+  "t.ups":["UPS 實收","UPS Charged"],
+  "t.lines":["帳單筆數","Invoice Lines"], "t.inv":["發票","Invoices"],
+  "t.tot":["UPS 收取總額","UPS Total"],
+};
+let LANG=1;   /* 0=中文 1=English。預設英文。 */
+function T(k){ const v=I18N[k]; return v?v[LANG]:k; }
+function applyLang(){
+  document.querySelectorAll("[data-i18n]").forEach(el=>{
+    el.textContent=T(el.dataset.i18n);
+  });
+  document.documentElement.lang = LANG?"en":"zh-Hant";
+  if(CFG) renderConfigTabs();
+  if(RATED){ renderSummary(); renderRate(); renderCode(); renderHist(); }
+}
+
+/* =====================================================================
+   倉庫場景
+   ---------------------------------------------------------------------
+   桌面版在匯入分頁上有一個動畫場景(第 3290-4480 行):工人、柯基、
+   貓,各自跑自己的狀態機。這裡用 canvas 重做同一批角色。
+
+   抖動用的是桌面版那個雜湊( _noise):同樣的座標永遠得到
+   同樣的偏移,所以重畫不會整張圖發抖 —— 那是原始碼特別註明的。
+   ===================================================================== */
+function noise(a,b){
+  let n=((a|0)*374761393 + (b|0)*668265263) & 0xFFFFFFFF;
+  n=((n ^ (n>>>13)) * 1274126177) & 0xFFFFFFFF;
+  return ((n ^ (n>>>16)) & 0xFFFF)/32767.5 - 1.0;
+}
+const SCENE={cv:null,ctx:null,t:0,actors:[],raf:null,run:0,W:0,H:0,dpr:1,progress:0};
+
+function skLine(g,x1,y1,x2,y2,k){
+  const wob=1.1, n1=noise(x1*7+k,y1*3), n2=noise(x2*5+k,y2*11);
+  g.beginPath(); g.moveTo(x1,y1);
+  g.quadraticCurveTo((x1+x2)/2+n1*wob*2,(y1+y2)/2+n2*wob*2,x2,y2);
+  g.stroke();
+}
+function skRect(g,x,y,w,h,k,fill){
+  const p=[[x,y],[x+w,y],[x+w,y+h],[x,y+h]].map(([px,py],i)=>
+    [px+noise(px+k,py+i)*1.2, py+noise(py+k,px+i)*1.2]);
+  g.beginPath(); g.moveTo(p[0][0],p[0][1]);
+  for(let i=1;i<4;i++) g.lineTo(p[i][0],p[i][1]);
+  g.closePath();
+  if(fill){ g.fillStyle=fill; g.fill(); }
+  g.stroke();
+}
+function skCircle(g,cx,cy,r,k,fill){
+  g.beginPath();
+  for(let a=0;a<=Math.PI*2+0.01;a+=Math.PI/9){
+    const rr=r+noise(cx+k+a*40,cy)*0.9;
+    const px=cx+Math.cos(a)*rr, py=cy+Math.sin(a)*rr;
+    a===0?g.moveTo(px,py):g.lineTo(px,py);
+  }
+  g.closePath();
+  if(fill){ g.fillStyle=fill; g.fill(); }
+  g.stroke();
+}
+
+/* ---------------------------------------------------------------------
+   角色
+   ---------------------------------------------------------------------
+   數字照桌面版 _doodle_person()搬,不是憑印象畫:
+     頭  hy = 地板 - 51,頭塊 x±14.5、hy-14..hy+13(29 寬 27 高)
+     身  y-37 .. y-19(18 高)   腿 y-19 .. y-6   鞋 15 寬 6.6 高往外攤
+   頭幾乎佔全高四成。照真人比例畫(小頭長腿)就會變成別的畫風。
+
+   兩件不能省的細節,原始碼都特別註明過:
+     頰上三道短線 —— 拿掉就少了這個畫法的味道
+     背心的開襟和反光帶 —— 不留開襟就只是一塊色斑,看不出是背心
+
+   貓狗毛色是奶油白加色塊(CAT_COAT #f2ece1 / DOG_COAT #f5efe6),
+   靠輪廓分:貓尖耳細尾坐姿偏高,狗垂耳粗尾上翹身上有色塊。
+   --------------------------------------------------------------------- */
+const BLUSH="#f0a9a4", SKIN="#ffe0bf";
+function shadow(g,x,y,w){
+  g.save(); g.globalAlpha=.14; g.fillStyle=INK;
+  g.beginPath(); g.ellipse(x,y+1,w,3.2,0,0,7); g.fill(); g.restore();
+}
+function blob(g,x1,y1,x2,y2,fill,r){
+  const w=x2-x1,h=y2-y1; r=Math.min(r,w/2,h/2);
+  g.beginPath();
+  g.moveTo(x1+r,y1);
+  g.arcTo(x2,y1,x2,y2,r); g.arcTo(x2,y2,x1,y2,r);
+  g.arcTo(x1,y2,x1,y1,r); g.arcTo(x1,y1,x2,y1,r);
+  g.closePath(); g.fillStyle=fill; g.fill(); g.stroke();
+}
+function limb(g,x1,y1,x2,y2,color,w){
+  g.save(); g.lineCap="round";
+  g.strokeStyle=INK; g.lineWidth=w+2.2;
+  g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
+  g.strokeStyle=color; g.lineWidth=w;
+  g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
+  g.restore();
+}
+function dot(g,x,y,rx,ry){ g.fillStyle=INK;
+  g.beginPath(); g.ellipse(x,y,rx,ry,0,0,7); g.fill(); }
+function patch(g,x,y,rx,ry,c){ g.save(); g.fillStyle=c;
+  g.beginPath(); g.ellipse(x,y,rx,ry,0,0,7); g.fill(); g.restore(); }
+/* 頰上三道短線 */
+function cheekLines(g,x,hy,sd){
+  g.strokeStyle=INK; g.lineWidth=1.1;
+  for(let k=0;k<3;k++){ const ly=hy+0.4+k*2.0;
+    g.beginPath(); g.moveTo(x+sd*12.4,ly); g.lineTo(x+sd*8.4,ly+1.1); g.stroke(); }
+}
+function hearts(g,a,t){
+  if(!a.love) return;
+  for(let i=0;i<3;i++){
+    const p=(t-a.love+i*8)/38; if(p<0||p>1) continue;
+    g.save(); g.globalAlpha=1-p; g.fillStyle="#e05a6a";
+    const hx=a.x+(i-1)*9, hy=a.y-64-p*26, s=4;
+    g.beginPath(); g.moveTo(hx,hy+s);
+    g.bezierCurveTo(hx-s*1.6,hy-s*.4,hx-s*.5,hy-s*1.6,hx,hy-s*.4);
+    g.bezierCurveTo(hx+s*.5,hy-s*1.6,hx+s*1.6,hy-s*.4,hx,hy+s);
+    g.fill(); g.restore();
+  }
+  if(t-a.love>70) a.love=0;
+}
+
+function drawWorker(g,a,t){
+  const x=a.x, y=a.y;
+  const sw=a.act==="walk"?Math.sin(t/8+a.seed)*2.6:0;
+  const lift=a.act==="lift"?6:0;
+  const blink=(Math.floor(t/7)+a.seed)%48===0;
+  shadow(g,x,y,17);
+  g.strokeStyle=INK; g.lineWidth=2.1; g.lineJoin="round";
+
+  /* 腿短、鞋寬且往外攤 —— 鞋是最容易畫小的一塊 */
+  for(const sd of [-1,1]){
+    const lx=x+sd*5.4+sw*sd*.45;
+    limb(g,lx,y-19,lx+sd*.5,y-6,"#4a5560",7);
+    g.lineWidth=2.1;
+    blob(g,lx-8+sd*1.6,y-6.6,lx+7+sd*1.6,y,"#2f2a26",3);
+  }
+  /* 手臂先畫,身體蓋上去;手掌等身體畫完再補,不然會被蓋住。 */
+  const hands=[];
+  const waving=a.act==="wave";
+  for(const sd of [-1,1]){
+    /* 揮手:手腕左右擺,不是舉著不動 —— 靜態的舉手看起來像在攔車。 */
+    let tipx=x+sd*15+sd*sw*.35, tipy=y-22-lift;
+    if(waving && sd>0){
+      const wob=Math.sin(t/4)*5.4;
+      tipx=x+19+wob; tipy=y-48-Math.abs(wob)*0.22;
+    }
+    limb(g,x+sd*10,y-34,tipx,tipy,a.coat,5.8);
+    hands.push([tipx,tipy]);
+  }
+  g.lineWidth=2.1;
+  /* 身體:矮而寬 */
+  blob(g,x-11.5,y-37,x+11.5,y-19,a.coat,5);
+  if(a.vest){
+    blob(g,x-11,y-35.5,x+11,y-20,a.vest,2.8);
+    g.strokeStyle=a.coat; g.lineWidth=2.4;              /* 開襟 */
+    g.beginPath(); g.moveTo(x,y-35.5); g.lineTo(x,y-20); g.stroke();
+    g.strokeStyle="#f6f1e6"; g.lineWidth=2.8;           /* 反光帶 */
+    g.beginPath(); g.moveTo(x-10.6,y-28); g.lineTo(x+10.6,y-28); g.stroke();
+    g.strokeStyle=INK; g.lineWidth=2.1;
+  }
+  for(const [hx2,hy2] of hands) blob(g,hx2-4.6,hy2-4,hx2+4.6,hy2+5,SKIN,4);
+  if(a.box){ blob(g,x-11,y-50,x+11,y-36,BOX,2.5);
+    g.beginPath(); g.moveTo(x-11,y-43); g.lineTo(x+11,y-43); g.stroke(); }
+
+  /* 頭:比身體寬,幾乎佔全高四成 */
+  const hy=y-51;
+  for(const sd of [-1,1]) blob(g,x+sd*14-3.2,hy+1,x+sd*14+3.2,hy+8,SKIN,2.5);
+  blob(g,x-14.5,hy-14,x+14.5,hy+13,SKIN,6.5);
+  /* 安全帽:半圓 + 帽簷 */
+  g.lineWidth=2.4; g.fillStyle=a.hat;
+  g.beginPath(); g.ellipse(x,hy-10,14,14,0,Math.PI,0); g.closePath();
+  g.fill(); g.stroke();
+  blob(g,x-17.5,hy-13,x+17.5,hy-6,a.hat,3.4);
+  g.lineWidth=2.1;
+  for(const sd of [-1,1]){
+    if(blink){ g.lineWidth=1.9;
+      g.beginPath(); g.moveTo(x+sd*5.6-2.1,hy-1.4);
+      g.lineTo(x+sd*5.6+2.1,hy-1.4); g.stroke(); g.lineWidth=2.1; }
+    else dot(g,x+sd*5.6,hy-1.4,2.1,2.2);
+    patch(g,x+sd*10,hy+3.3,3.4,1.9,BLUSH);
+    cheekLines(g,x,hy,sd);
+  }
+  g.strokeStyle=INK; g.lineWidth=1.9; g.lineCap="round";
+  g.beginPath(); g.ellipse(x,hy+3.4,4.4,3.6,0,
+    18*Math.PI/180,162*Math.PI/180); g.stroke();   /* 微笑 */
+  hearts(g,a,t);
+}
+
+/* 狗:垂耳、粗尾上翹、身上有色塊 */
+function drawDog(g,a,t){
+  const x=a.x, y=a.y, f=a.dir<0?-1:1, wag=Math.sin(t/3.6)*6;
+  const blink=(Math.floor(t/7)+a.seed)%52===0;
+  shadow(g,x,y,20);
+  g.strokeStyle=INK; g.lineWidth=2.1; g.lineJoin="round";
+  /* 粗尾上翹 */
+  limb(g,x-15*f,y-20,x-24*f,y-31+wag,DOG_COAT,7);
+  g.lineWidth=2.1;
+  const st=a.act==="walk"?Math.sin(t/9)*3:0;
+  const pee=a.act==="pee";
+  for(const dx of [-11,-4,5,12]){
+    /* 尿尿時後腿抬起來 */
+    const up=(pee&&dx===-11)?8:0;
+    const lx=x+dx*f+st*(dx<0?1:-1);
+    limb(g,lx,y-13-up,lx,y-3-up,DOG_COAT,5.4);
+    g.lineWidth=1.8;
+    blob(g,lx-4,y-4.5-up,lx+4,y-up,DOG_COAT,2.6);
+  }
+  if(pee){
+    g.save(); g.strokeStyle="#e8c65a"; g.lineWidth=1.6; g.lineCap="round";
+    const n=(t%18)/18;
+    g.beginPath();
+    g.moveTo(x-13*f,y-9);
+    g.quadraticCurveTo(x-18*f,y-6,x-21*f-n*3,y-1);
+    g.stroke();
+    g.globalAlpha=.55; g.fillStyle="#e8c65a";
+    g.beginPath(); g.ellipse(x-23*f,y,5+n*2,1.8,0,0,7); g.fill();
+    g.restore();
+    g.strokeStyle=INK; g.lineWidth=2.1;
+  }
+  blob(g,x-16,y-25,x+16,y-6,DOG_COAT,8);
+  patch(g,x-6*f,y-19,7,5,DOG_MARK);                    /* 身上的色塊 */
+  const hx=x+17*f, hy=y-36;
+  blob(g,hx-13.5,hy-12,hx+13.5,hy+12,DOG_COAT,7);
+  for(const sd of [-1,1])                              /* 垂耳 */
+    blob(g,hx+sd*13-5,hy-9,hx+sd*13+5,hy+7,DOG_MARK,4.5);
+  patch(g,hx+5*f,hy+4,8,5.5,DOG_MARK);
+  for(const sd of [-1,1]){
+    if(blink){ g.lineWidth=1.9; g.beginPath();
+      g.moveTo(hx+sd*5.4-2,hy-2); g.lineTo(hx+sd*5.4+2,hy-2); g.stroke(); g.lineWidth=2.1; }
+    else dot(g,hx+sd*5.4,hy-2,2.1,2.2);
+    patch(g,hx+sd*10,hy+3,3.2,1.8,BLUSH);
+  }
+  dot(g,hx,hy+4.4,2.6,2);                              /* 鼻 */
+  if(a.act==="bark"){
+    g.fillStyle="#e0707a"; g.beginPath();
+    g.ellipse(hx,hy+9.5,2.8,3.6,0,0,7); g.fill(); g.stroke();
+    g.font='700 12px "Comic Sans MS",system-ui'; g.fillStyle=INK;
+    g.fillText(LANG?"woof!":"汪!",hx+15*f,hy-14);
+  }
+  hearts(g,a,t);
+}
+
+/* 貓:尖耳、細尾、坐姿。身體是下寬上窄貼在地上的一團,
+   不是兩隻腳站著 —— 站姿會看成別的動物。 */
+function drawCat(g,a,t){
+  const x=a.x, y=a.y, sway=Math.sin(t/7)*4;
+  const blink=(Math.floor(t/7)+a.seed)%44===0;
+  const puff=a.act==="puff";
+  const sleep=a.act==="sit"&&!puff&&(Math.floor(t/260)%2===1);
+  shadow(g,x,y,puff?18:15);
+  g.strokeStyle=INK; g.lineWidth=2.1; g.lineJoin="round";
+
+  /* 尾巴:炸毛時豎起來變粗 */
+  if(puff){
+    limb(g,x+10,y-14,x+16,y-46,CAT_COAT,9);
+    g.strokeStyle=INK; g.lineWidth=1.4;
+    for(const [tx,ty] of [[13,-24],[18,-33],[12,-40]]){
+      g.beginPath(); g.moveTo(x+tx,y+ty); g.lineTo(x+tx+7,y+ty-5); g.stroke();
+    }
+  }else{
+    limb(g,x+11,y-14,x+21,y-30+sway,CAT_COAT,4.2);
+  }
+  g.strokeStyle=INK; g.lineWidth=2.1;
+
+  /* 坐姿身體:下緣貼地、上窄 */
+  const bw=puff?17:13, bh=puff?26:24;
+  g.fillStyle=CAT_COAT;
+  g.beginPath();
+  g.moveTo(x-bw,y);
+  g.quadraticCurveTo(x-bw-1,y-bh*0.62, x-bw*0.52,y-bh);
+  g.quadraticCurveTo(x,y-bh-3, x+bw*0.52,y-bh);
+  g.quadraticCurveTo(x+bw+1,y-bh*0.62, x+bw,y);
+  g.closePath(); g.fill(); g.stroke();
+  /* 前腳:貼在身體前緣的兩顆 */
+  for(const dx of [-5,4]){
+    g.fillStyle=CAT_COAT;
+    g.beginPath(); g.ellipse(x+dx,y-2.5,4.2,2.8,0,0,7); g.fill(); g.stroke();
+  }
+  for(let i=0;i<2;i++) patch(g,x-2+i*6,y-16,2,4,CAT_MARK);
+  /* 炸毛:身體周圍豎起的毛 */
+  if(puff){
+    g.strokeStyle=INK; g.lineWidth=1.5;
+    for(let k=0;k<9;k++){
+      const ang=Math.PI+k*Math.PI/8;
+      const px=x+Math.cos(ang)*bw, py=y-bh*0.5+Math.sin(ang)*bh*0.5;
+      g.beginPath(); g.moveTo(px,py);
+      g.lineTo(px+Math.cos(ang)*7,py+Math.sin(ang)*7); g.stroke();
+    }
+    g.lineWidth=2.1;
+  }
+
+  const hy=y-(puff?38:34);
+  for(const sd of [-1,1]){
+    g.fillStyle=CAT_COAT; g.beginPath();
+    g.moveTo(x+sd*4,hy-8); g.lineTo(x+sd*12,hy-26); g.lineTo(x+sd*15,hy-4);
+    g.closePath(); g.fill(); g.stroke();
+    patch(g,x+sd*10.4,hy-12,2.6,4.4,BLUSH);
+  }
+  blob(g,x-13,hy-11,x+13,hy+11,CAT_COAT,7);
+  for(const sd of [-1,1]){
+    if(puff){                                  /* 炸毛時眼睛瞪大 */
+      g.fillStyle="#fff";
+      g.beginPath(); g.ellipse(x+sd*5.4,hy-1,3.4,3.8,0,0,7); g.fill(); g.stroke();
+      dot(g,x+sd*5.4,hy-1,1.5,2.2);
+    }
+    else if(blink||sleep){ g.lineWidth=1.9; g.beginPath();
+      g.moveTo(x+sd*5.4-2.2,hy-1); g.lineTo(x+sd*5.4+2.2,hy-1); g.stroke(); g.lineWidth=2.1; }
+    else dot(g,x+sd*5.4,hy-1,2.1,2.3);
+    patch(g,x+sd*9.6,hy+4,3.2,1.8,BLUSH);
+    cheekLines(g,x,hy,sd);
+    g.strokeStyle=INK; g.lineWidth=.9;
+    for(const dy of [-.5,2.2]){ g.beginPath();
+      g.moveTo(x+sd*11,hy+2+dy); g.lineTo(x+sd*20,hy+dy*1.7); g.stroke(); }
+    g.lineWidth=2.1;
+  }
+  g.fillStyle="#e0707a"; g.beginPath();
+  g.moveTo(x,hy+3.4); g.lineTo(x-2.2,hy+1.4); g.lineTo(x+2.2,hy+1.4);
+  g.closePath(); g.fill();
+  if(puff){                                    /* 張嘴哈氣 */
+    g.fillStyle=INK; g.beginPath();
+    g.ellipse(x,hy+6.5,3,2.4,0,0,7); g.fill();
+    g.font='700 12px "Comic Sans MS",system-ui'; g.fillStyle=INK;
+    g.fillText(LANG?"hiss!":"哈!",x+16,hy-16);
+  }
+  if(sleep){ g.font='700 12px system-ui'; g.fillStyle=INK;
+    g.fillText("z",x+16,hy-14); g.fillText("z",x+21,hy-21); }
+  hearts(g,a,t);
+}
+
+let INK="#351c15", BOX="#8a6104", PAPER="#fffdf7",
+    CAT_COAT="#f2ece1", CAT_MARK="#cfc7b8",
+    DOG_COAT="#f5efe6", DOG_MARK="#b5793f";
+function sceneResize(){
+  const cv=SCENE.cv; if(!cv) return;
+  const r=cv.getBoundingClientRect();
+  SCENE.dpr=window.devicePixelRatio||1;
+  cv.width=r.width*SCENE.dpr; cv.height=r.height*SCENE.dpr;
+  SCENE.W=r.width; SCENE.H=r.height;
+  SCENE.ctx.setTransform(SCENE.dpr,0,0,SCENE.dpr,0,0);
+}
+function sceneInit(){
+  SCENE.cv=$("#scene"); if(!SCENE.cv) return;
+  SCENE.ctx=SCENE.cv.getContext("2d");
+  const cs=getComputedStyle(document.documentElement);
+  INK=cs.getPropertyValue("--accent").trim()||INK;
+  sceneResize(); addEventListener("resize",()=>{ sceneResize(); spreadActors(); });
+  SCENE.actors=[
+    /* 襯衫和背心必須是對比色 —— 同色系疊起來只會看成衣服上一塊補丁 */
+    {kind:"worker",x:72, y:150,seed:11,act:"walk",dir:1, box:false,tgt:230,
+     coat:"#5b86b8",vest:"#e8762c",hat:"#ffb500",hair:"#3a2b20",love:0},
+    {kind:"worker",x:214,y:156,seed:29,act:"idle",dir:-1,box:true, tgt:92,
+     coat:"#d8d2c6",vest:"#5b9e6b",hat:"#e8762c",hair:"#6b4a2e",love:0},
+    {kind:"dog",   x:150,y:162,seed:53,act:"walk",dir:1, tgt:300,love:0},
+    {kind:"cat",   x:334,y:160,seed:71,act:"sit",love:0},
+  ];
+  spreadActors();
+  /* 摸摸。桌面版的場景可以點角色互動( _pet_at),這裡同樣。 */
+  SCENE.cv.style.cursor="pointer";
+  SCENE.cv.title = LANG?"Click an animal":"點一下摸摸";
+  SCENE.cv.addEventListener("click",e=>{
+    const r=SCENE.cv.getBoundingClientRect();
+    const mx=e.clientX-r.left, my=e.clientY-r.top;
+    let best=null,bd=1e9;
+    for(const a of SCENE.actors){
+      const d=Math.hypot(a.x-mx,(a.y-20)-my);
+      if(d<bd){bd=d;best=a;}
+    }
+    if(best&&bd<42){
+      best.love=SCENE.t;
+      /* 點下去各有各的反應:狗抬腿尿尿,貓炸毛,工人揮手。 */
+      if(best.kind==="dog"){ best.act="pee";  best.wait=90; }
+      else if(best.kind==="cat"){ best.act="puff"; best.wait=110; }
+      else { best.act="wave"; best.wait=70; }
+    }
+  });
+  if(!matchMedia("(prefers-reduced-motion: reduce)").matches) sceneLoop();
+  else sceneDraw();
+}
+/* 角色沿著整條場景散開,不要全擠在左邊。
+   Tally 左三分之一是棚子和貨櫃,所以人往右擺;Scoobi 左邊是貨架。 */
+function spreadActors(){
+  const W=SCENE.W||900;
+  const lead = BRAND==="Tally" ? Math.min(0.42*W, 420) : Math.min(0.18*W, 190);
+  const span = Math.max(160, W-lead-70);
+  const a=SCENE.actors;
+  if(!a.length) return;
+  a.forEach((act,i)=>{
+    act.x = lead + span*(i+0.5)/a.length;
+    act.tgt = Math.min(W-50, act.x + span/a.length*0.8);
+    act.dir = 1;
+  });
+}
+
+function sceneStep(){
+  const W=SCENE.W||640, FLR=(SCENE.H||190)-22;
+  for(const a of SCENE.actors) a.y=FLR;
+  if(SCENE.t%3) return;
+  for(const a of SCENE.actors){
+    if(a.kind==="cat"){
+      /* 炸毛是被點出來的,時間到就坐回去 */
+      if(a.act==="puff"){ if(--a.wait<=0) a.act="sit"; continue; }
+      if(SCENE.t%900===0) a.act = a.act==="sit"?"idle":"sit";
+      continue;
+    }
+    if(a.kind==="worker" && a.act==="wave"){
+      if(--a.wait<=0) a.act="walk";
+      continue;
+    }
+    if(a.act==="walk"){
+      a.x += a.dir*(a.kind==="dog"?0.9:0.6);
+      if((a.dir>0&&a.x>=a.tgt)||(a.dir<0&&a.x<=a.tgt)){
+        a.dir*=-1;
+        a.tgt = a.dir>0? Math.min(W-50,a.x+170) : Math.max(50,a.x-170);
+        if(a.kind==="worker"){ a.act="lift"; a.wait=40; }
+        else {
+          const r=Math.random();
+          if(r<0.35){ a.act="pee";  a.wait=55; }
+          else if(r<0.6){ a.act="bark"; a.wait=30; }
+          else { a.act="idle"; a.wait=25; }
+        }
+      }
+    }else{
+      if(--a.wait<=0){
+        if(a.kind==="worker") a.box=!a.box;
+        a.act="walk";
+      }
+    }
+    a.x=Math.max(40,Math.min(W-40,a.x));
+  }
+}
+/* Tally:招牌寫著 TALLY 的手繪工棚,天空、太陽、遠山、雲、鳥。
+   Scoobi:室內倉庫,貨架與輸送帶,輸送帶跑報表時就是進度條。
+   兩套是不同的場景,不是同一張圖換濾鏡。 */
+
+/* =====================================================================
+   天色與天氣
+   ---------------------------------------------------------------------
+   時間完全離線:時區下拉已經知道當地幾點,天色照那個小時算。
+   天氣預設是手動選的,要即時天氣才會連網 —— 這個檔案其他地方
+   一個網路請求都沒有,那一個要由使用者自己開。
+   ===================================================================== */
+const TZ_COORD=[[25.03,121.57],[40.71,-74.01],[41.88,-87.63],
+                [39.74,-104.99],[34.05,-118.24],[51.48,-0.01]];
+const WX_KEY="ups_reprice_wx";
+let WX={mode:"clear", live:true, temp:null, at:0};
+try{ const s=localStorage.getItem(WX_KEY); if(s) WX=Object.assign(WX,JSON.parse(s)); }catch(e){}
+function wxSave(){ try{ localStorage.setItem(WX_KEY,JSON.stringify(WX)); }catch(e){} }
+
+/* 當地幾點,回 0..24 的小數 */
+function localHour(){
+  try{ const t=tzParts(); return t.H + t.m/60; }catch(e){ return 12; }
+}
+/* 這個小時屬於哪一段天色 */
+function skyPhase(h){
+  if(h<5)  return "night";
+  if(h<7)  return "dawn";
+  if(h<17) return "day";
+  if(h<19) return "dusk";
+  if(h<21) return "evening";
+  return "night";
+}
+const SKY={
+  night:  {top:"#22304a", bot:"#3d4a63", ink:.55},
+  dawn:   {top:"#f0b98a", bot:"#f6dfc4", ink:.85},
+  day:    {top:"#bcdcf0", bot:"#e6f2f9", ink:1},
+  dusk:   {top:"#e89a63", bot:"#f3cfa8", ink:.85},
+  evening:{top:"#6d6f96", bot:"#a9a2b4", ink:.7},
+};
+function skyColour(part){
+  const p=SKY[skyPhase(localHour())]||SKY.day;
+  const paper=pal("--panel","#fffdf7");
+  return blendHex(paper, p[part], part==="top"?.55:.35);
+}
+/* 天氣讓天色再暗一階 */
+function wxDim(){
+  return WX.mode==="rain"?.72 : WX.mode==="snow"?.86 : WX.mode==="cloud"?.9 : 1;
+}
+
+/* 太陽或月亮:依當地時間決定位置與樣子 */
+function drawSunMoon(g,W,H){
+  const h=localHour(), ph=skyPhase(h);
+  const night = ph==="night"||ph==="evening";
+  /* 白天 6-18 點走一條弧線,夜裡月亮走另一條 */
+  const t = night ? ((h<6? h+6 : h-18)/12) : ((h-6)/12);
+  const x = 40 + Math.max(0,Math.min(1,t))*(W-80);
+  const y = 46 - Math.sin(Math.max(0,Math.min(1,t))*Math.PI)*26;
+  g.save();
+  if(night){
+    g.strokeStyle=INK; g.lineWidth=1.6; g.fillStyle="#f2efdf";
+    skCircle(g,x,y,9,5,"#f2efdf");
+    g.fillStyle=skyColour("top");
+    g.beginPath(); g.arc(x+4,y-3,8,0,7); g.fill();
+    /* 幾顆星,位置固定不閃 */
+    g.fillStyle="#fffdf7";
+    for(let i=0;i<9;i++){
+      const sx=(W*0.08)+((i*137)%Math.max(1,W-60)), sy=18+((i*53)%40);
+      g.globalAlpha=.5+((i*7)%5)/10;
+      g.beginPath(); g.arc(sx,sy,1.2,0,7); g.fill();
+    }
+    g.globalAlpha=1;
+  }else{
+    const warm = (ph==="dawn"||ph==="dusk") ? "#e8683c" : "#f5c451";
+    g.strokeStyle="#e8a33c"; g.lineWidth=2.2; g.lineCap="round";
+    for(const a of [-2.4,-1.9,-1.2,-0.5,0.2]){
+      g.beginPath();
+      g.moveTo(x+Math.cos(a)*15,y+Math.sin(a)*15);
+      g.lineTo(x+Math.cos(a)*23,y+Math.sin(a)*23); g.stroke();
+    }
+    g.strokeStyle=INK; g.lineWidth=1.8;
+    skCircle(g,x,y,11,5,warm);
+  }
+  g.restore();
+}
+
+/* 雨、雪、烏雲 */
+function drawWeather(g,W,H,t){
+  if(WX.mode==="clear") return;
+  const FLR=H-22;
+  if(WX.mode==="cloud"||WX.mode==="rain"||WX.mode==="snow"){
+    g.save(); g.globalAlpha=WX.mode==="cloud"?.55:.75;
+    g.fillStyle=blendHex(pal("--panel","#fffdf7"),"#6b6f7a",.45);
+    g.strokeStyle=INK; g.lineWidth=1.5;
+    for(const [cp,cs] of [[0.22,1],[0.45,.8],[0.68,.95],[0.86,.7]]){
+      const cx=W*cp, cy=30;
+      g.beginPath();
+      g.ellipse(cx,cy,24*cs,9*cs,0,0,7);
+      g.ellipse(cx-15*cs,cy+4*cs,14*cs,7*cs,0,0,7);
+      g.ellipse(cx+16*cs,cy+4*cs,13*cs,6*cs,0,0,7);
+      g.fill(); g.stroke();
+    }
+    g.restore();
+  }
+  if(WX.mode==="rain"){
+    g.save(); g.strokeStyle="#7fa8c9"; g.lineWidth=1.4; g.lineCap="round";
+    for(let i=0;i<70;i++){
+      const sx=(i*97)%W, off=((t*3)+(i*31))%(FLR-40);
+      const sy=40+off;
+      g.globalAlpha=.55;
+      g.beginPath(); g.moveTo(sx,sy); g.lineTo(sx-2,sy+9); g.stroke();
+    }
+    g.restore();
+  }
+  if(WX.mode==="snow"){
+    g.save(); g.fillStyle="#fffdf7";
+    for(let i=0;i<55;i++){
+      const drift=Math.sin((t/28)+i)*7;
+      const sx=((i*113)%W)+drift, off=((t*0.9)+(i*37))%(FLR-40);
+      g.globalAlpha=.75;
+      g.beginPath(); g.arc(sx,40+off,1.9,0,7); g.fill();
+    }
+    g.restore();
+    /* 地上積雪 */
+    g.save(); g.globalAlpha=.8; g.fillStyle="#fffdf7";
+    g.fillRect(10,FLR-3,W-20,3); g.restore();
+  }
+}
+
+function blendHex(a,b,t){
+  const p=c=>[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)];
+  const [r1,g1,b1]=p(a),[r2,g2,b2]=p(b);
+  const f=(x,y)=>Math.round(x+(y-x)*t).toString(16).padStart(2,"0");
+  return "#"+f(r1,r2)+f(g1,g2)+f(b1,b2);
+}
+
+/* Tally:寬扁的戶外貨場。左邊是招牌寫 TALLY 的棚子,中間貨櫃堆,
+   右邊留空給走動的角色,太陽在右上。地平線壓在很低的位置。 */
+function drawTallyYard(g,W,H){
+  const FLR=H-14;
+  const ink=INK, paper=pal("--panel","#fffdf7"), line=pal("--line","#caa356");
+
+  drawSunMoon(g,W,H);
+
+  /* 停著的雲:大小高度都不一樣 */
+  g.lineWidth=1.5;
+  for(const [cx,cy,cs] of [[W*0.16,52,.9],[W*0.30,38,.62],[W*0.53,46,.78],
+                           [W*0.68,34,.55],[W*0.80,50,.7]]){
+    g.fillStyle=paper;
+    g.beginPath();
+    g.ellipse(cx,cy,19*cs,7*cs,0,0,7);
+    g.ellipse(cx-12*cs,cy+3*cs,11*cs,5.5*cs,0,0,7);
+    g.ellipse(cx+13*cs,cy+3*cs,10*cs,5*cs,0,0,7);
+    g.fill(); g.stroke();
+  }
+  /* 幾隻鳥 */
+  g.lineWidth=1.4;
+  for(const [bx,by] of [[W*0.42,58],[W*0.46,50],[W*0.50,62]]){
+    g.beginPath(); g.moveTo(bx-6,by); g.quadraticCurveTo(bx,by-5,bx+6,by); g.stroke();
+  }
+  /* 遠山:很扁的丘陵,壓在地平線上 */
+  /* 遠山壓在地平線上、很扁,而且畫在角色之前 —— 高過人物就會像穿過去。 */
+  g.fillStyle=blendHex(paper,line,.42);
+  for(const [hp,hw,hh] of [[0.58,180,15],[0.76,130,11],[0.92,150,13]]){
+    const hx=W*hp;
+    g.beginPath(); g.moveTo(hx-hw/2,FLR);
+    g.quadraticCurveTo(hx,FLR-hh*2.2,hx+hw/2,FLR);
+    g.closePath(); g.fill(); g.strokeStyle=ink; g.lineWidth=1.3; g.stroke();
+  }
+
+  /* 棚子:左邊三分之一,寬扁,屋頂略拱 */
+  const bx0=14, bw=Math.min(360,W*0.34), bh=64, by=FLR-bh;
+  g.strokeStyle=ink; g.lineWidth=2;
+  skRect(g,bx0,by,bw,bh,31,blendHex(paper,line,.25));
+  g.fillStyle=blendHex(paper,line,.45);
+  g.beginPath();
+  g.moveTo(bx0-8,by+4);
+  g.quadraticCurveTo(bx0+bw/2,by-16,bx0+bw+8,by+4);
+  g.lineTo(bx0+bw+8,by+9);
+  g.quadraticCurveTo(bx0+bw/2,by-10,bx0-8,by+9);
+  g.closePath(); g.fill(); g.stroke();
+  /* 招牌 */
+  const sgw=bw*0.55, sgx=bx0+bw*0.22;
+  skRect(g,sgx,by+16,sgw,17,32,ink);
+  g.fillStyle=pal("--tab","#ffb500"); g.textAlign="center";
+  g.font='700 13px "Reprice Sketch","Segoe Print","Ink Free",system-ui';
+  g.fillText("TALLY",sgx+sgw/2,by+29);
+  g.textAlign="left";
+  /* 捲門兩扇 */
+  for(const d of [0.06,0.52]){
+    const dx=bx0+bw*d, dw=bw*0.36, dy=by+38, dh=bh-38;
+    skRect(g,dx,dy,dw,dh,33,paper);
+    g.lineWidth=1.1;
+    for(let k=1;k<4;k++) skLine(g,dx,dy+k*dh/4,dx+dw,dy+k*dh/4,33+k);
+    g.lineWidth=2;
+  }
+
+  /* 貨櫃堆:兩疊,中間偏左 */
+  g.lineWidth=1.7;
+  for(const [cx,rows] of [[bx0+bw+30,2],[bx0+bw+150,1]]){
+    for(let r=0;r<rows;r++){
+      const cw=104, ch=30, cy2=FLR-ch*(r+1)-2;
+      skRect(g,cx,cy2,cw,ch,40+r,r?blendHex(paper,line,.3):pal("--tab","#ffb500"));
+      g.lineWidth=1;
+      for(let k=1;k<6;k++) skLine(g,cx+k*cw/6,cy2+3,cx+k*cw/6,cy2+ch-3,45+k);
+      g.lineWidth=1.7;
+    }
+  }
+  /* 地平線 */
+  g.strokeStyle=ink; g.lineWidth=1.8;
+  skLine(g,10,FLR,W-10,FLR,3);
+}
+function sceneDraw(){
+  const g=SCENE.ctx; if(!g) return;
+  const W=SCENE.W,H=SCENE.H,t=SCENE.t;
+  g.clearRect(0,0,W,H);
+  g.lineWidth=2.2; g.strokeStyle=INK;
+
+  if(BRAND==="Tally"){
+    skRect(g,3,3,W-6,H-6,101,skyColour("top"));
+    drawTallyYard(g,W,H);
+    drawWeather(g,W,H,t);
+  }else{
+    /* Scoobi:室內倉庫。招牌、窗、左邊貨架、橫貫全寬的輸送帶、右邊堆高機。 */
+    skRect(g,3,3,W-6,H-6,101,pal("--bg","#f4ecdc"));
+    const FLR=H-14, paper=pal("--panel","#fffdf7");
+    g.strokeStyle=INK; g.lineWidth=2;
+    skRect(g,26,14,140,30,20,paper);
+    g.fillStyle=INK; g.textAlign="center";
+    g.font='700 16px "Reprice Sketch","Segoe Print","Ink Free",system-ui';
+    g.fillText("Scoobi",96,35); g.textAlign="left";
+    g.lineWidth=1.6;
+    for(let k=0;k<4;k++){
+      const wx=200+k*64;
+      skRect(g,wx,16,40,28,30+k,skyColour("bot"));
+      skLine(g,wx+20,16,wx+20,44,34+k);
+      skLine(g,wx,30,wx+40,30,38+k);
+    }
+    const shx=20, shw=104, shy=FLR-78;
+    g.lineWidth=1.8;
+    for(let r=0;r<3;r++){
+      const ry=shy+r*26;
+      skLine(g,shx,ry+24,shx+shw,ry+24,52+r);
+      for(let b=0;b<3;b++) skRect(g,shx+4+b*33,ry+4,28,19,55+r*3+b,BOX);
+    }
+    skLine(g,shx,shy,shx,FLR,60); skLine(g,shx+shw,shy,shx+shw,FLR,61);
+    /* 輸送帶要高過角色頭頂,不然帶子會從貓狗身上穿過去。
+       貓最高約 45px(身體 30 + 頭 15),所以帶底至少留 52。 */
+    const by=FLR-72, bx0=shx+shw+22, bx1=W-120;
+    g.lineWidth=2;
+    skRect(g,bx0,by,bx1-bx0,11,70,blendHex(INK,paper,.3));
+    if(SCENE.progress>0){
+      g.fillStyle=pal("--tab","#ffb500");
+      g.fillRect(bx0+2,by+2,(bx1-bx0-4)*Math.min(1,SCENE.progress),7);
+    }
+    g.fillStyle=pal("--tab","#ffb500");
+    for(let x=bx0+30+((t/3)%36); x<bx1-8; x+=36){
+      g.beginPath(); g.arc(x,by+5.5,2.2,0,7); g.fill();
+    }
+    g.strokeStyle=INK; g.lineWidth=2;
+    for(const lx of [bx0+30,(bx0+bx1)/2,bx1-30]) skLine(g,lx,by+11,lx,FLR,72);
+    g.lineWidth=1.8;
+    skRect(g,W-66,FLR-64,42,64,80,paper);
+    for(let r=1;r<4;r++) skLine(g,W-66,FLR-64+r*16,W-24,FLR-64+r*16,82+r);
+    skRect(g,W-108,FLR-24,28,18,86,pal("--tab","#ffb500"));
+    skRect(g,W-112,FLR-40,18,16,87,BOX);
+    g.fillStyle=INK;
+    for(const wx of [W-102,W-86]){ g.beginPath(); g.arc(wx,FLR,4,0,7); g.fill(); }
+    g.strokeStyle=INK; g.lineWidth=1.8;
+    skLine(g,10,FLR,W-10,FLR,3);
+    /* 窗外的天氣:只畫在窗格範圍內 */
+    g.save();
+    g.beginPath();
+    for(let k=0;k<4;k++) g.rect(200+k*64,16,40,28);
+    g.clip();
+    drawSunMoon(g,W,60);
+    drawWeather(g,W,80,t);
+    g.restore();
+    g.fillStyle=INK;
+    g.font='600 13px "Reprice Sketch","Segoe Print","Ink Free",system-ui';
+    g.fillText(LANG?"Tap the cat or the dog!":"\u9ede\u4e00\u4e0b\u8c93\u6216\u72d7\uff01", bx0+8, FLR-64);
+  }
+
+  for(const a of SCENE.actors){
+    if(a.kind==="worker") drawWorker(g,a,t);
+    else if(a.kind==="dog") drawDog(g,a,t);
+    else drawCat(g,a,t);
+  }
+}
+function sceneLoop(){
+  SCENE.t++; sceneStep(); sceneDraw();
+  SCENE.raf=requestAnimationFrame(sceneLoop);
+}
+
+
+/* 時鐘與日曆:指針錶面加撕頁日曆,兩個都用主題色自己畫。
+   時區只影響顯示,計價完全不讀它。 */
+const TZ=[["台北","Taipei","Asia/Taipei"],["美東","US East","America/New_York"],
+          ["美中","US Cent","America/Chicago"],["美山","US Mtn","America/Denver"],
+          ["美西","US West","America/Los_Angeles"],["UTC","UTC","UTC"]];
+const WD_ZH=["日","一","二","三","四","五","六"];
+let TZI=0;
+
+function tzParts(){
+  const z=TZ[TZI][2], now=new Date();
+  const p={};
+  for(const x of new Intl.DateTimeFormat("en-US",{timeZone:z,hour12:false,
+      hour:"2-digit",minute:"2-digit",second:"2-digit",
+      year:"numeric",month:"2-digit",day:"2-digit",weekday:"short"})
+      .formatToParts(now)) p[x.type]=x.value;
+  return {h:+p.hour%12,H:+p.hour,m:+p.minute,s:+p.second,
+          y:+p.year,mo:+p.month,d:+p.day,wd:p.weekday};
+}
+function pal(k,f){
+  const v=getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  return v||f;
+}
+function drawClock(){
+  const cv=$("#clockCv"); if(!cv) return;
+  const t=tzParts();
+  const dpr=window.devicePixelRatio||1, S=88;
+  cv.width=S*dpr; cv.height=S*dpr; cv.style.width=S+"px"; cv.style.height=S+"px";
+  const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0);
+  /* 錶面用 PANEL、墨線用 TITLE:PANEL 在五組配色裡都比 BG 淺,
+     TITLE 在五組裡都讀得出來,包含深色那一組。 */
+  const rim=pal("--accent","#351c15"), face=pal("--panel","#fffdf7");
+  const c=S/2, R=S/2-5;
+  g.clearRect(0,0,S,S);
+  g.lineWidth=3; g.strokeStyle=rim; g.fillStyle=face;
+  g.beginPath(); g.arc(c,c,R,0,7); g.fill(); g.stroke();
+  g.lineWidth=2; g.strokeStyle=rim;
+  for(let i=0;i<12;i++){
+    const a=i*Math.PI/6, L=i%3===0?7:4;
+    g.beginPath();
+    g.moveTo(c+Math.sin(a)*(R-4),c-Math.cos(a)*(R-4));
+    g.lineTo(c+Math.sin(a)*(R-4-L),c-Math.cos(a)*(R-4-L));
+    g.stroke();
+  }
+  const hand=(ang,len,w)=>{ g.lineWidth=w; g.lineCap="round";
+    g.beginPath(); g.moveTo(c,c);
+    g.lineTo(c+Math.sin(ang)*len,c-Math.cos(ang)*len); g.stroke(); };
+  hand((t.h+t.m/60)*Math.PI/6, R*0.50, 4);
+  hand((t.m+t.s/60)*Math.PI/30, R*0.74, 3);
+  g.strokeStyle=pal("--run2","#8a6104"); hand(t.s*Math.PI/30, R*0.80, 1.5);
+  g.fillStyle=rim; g.beginPath(); g.arc(c,c,2.6,0,7); g.fill();
+  const big=$("#clkBig");
+  if(big) big.textContent=String(t.H).padStart(2,"0")+":"+String(t.m).padStart(2,"0");
+  const sub=$("#clkSub");
+  if(sub) sub.textContent=t.mo+"/"+t.d+"/"+t.y+" "+TZ[TZI][1];
+}
+function drawDateCard(){
+  const cv=$("#dateCv"); if(!cv) return;
+  const t=tzParts();
+  const dpr=window.devicePixelRatio||1, W=88, H=104;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+"px"; cv.style.height=H+"px";
+  const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0);
+  const rim=pal("--accent","#351c15"), face=pal("--panel","#fffdf7"),
+        band=pal("--tab","#ffb500");
+  g.clearRect(0,0,W,H);
+  const pad=6, bandH=24;
+  g.lineWidth=3; g.strokeStyle=rim; g.fillStyle=face;
+  g.beginPath(); g.roundRect(pad,pad,W-pad*2,H-pad*2,7); g.fill(); g.stroke();
+  g.fillStyle=band;
+  g.beginPath(); g.roundRect(pad,pad,W-pad*2,bandH,7); g.fill(); g.stroke();
+  /* 上面兩個環,這樣才讀得出是日曆不是卡片 */
+  g.lineWidth=2.4;
+  for(const k of [0.32,0.68]){
+    const rx=pad+(W-pad*2)*k;
+    g.beginPath(); g.moveTo(rx,pad-3); g.lineTo(rx,pad+7); g.stroke();
+  }
+  g.fillStyle=rim; g.textAlign="center";
+  g.font='700 13px "Microsoft JhengHei UI",system-ui';
+  g.fillText(LANG?["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT",
+    "NOV","DEC"][t.mo-1]:t.mo+"月", W/2, pad+bandH/2+5);
+  g.font='700 34px Consolas,"Cascadia Mono",monospace';
+  g.fillText(String(t.d), W/2, pad+bandH+(H-pad*2-bandH)*0.46);
+  g.font='700 12px "Microsoft JhengHei UI",system-ui';
+  g.fillText(LANG?t.wd.toUpperCase():"週"+WD_ZH[new Date(t.y,t.mo-1,t.d).getDay()],
+             W/2, H-pad-11);
+  g.textAlign="left";
+}
+function drawCal(){ drawDateCard(); }
+
+/* ---- 啟動 ---- */
+const WX_MODES=[["clear",["晴","Clear"]],["cloud",["多雲","Cloudy"]],
+                ["rain",["雨","Rain"]],["snow",["雪","Snow"]],
+                ["live",["即時(連網)","Live (network)"]]];
+function fillWxSel(){
+  const s=$("#wxSel"); if(!s) return;
+  const cur=WX.live?"live":WX.mode;
+  s.innerHTML=WX_MODES.map(([v,lab])=>
+    `<option value="${v}"${v===cur?" selected":""}>${lab[LANG]}</option>`).join("");
+}
+/* 即時天氣是唯一會連網的地方,而且要使用者自己選才會發生。
+   查的是時區對應的城市,不是使用者的實際位置。 */
+async function fetchWx(){
+  const [lat,lon]=TZ_COORD[TZI]||TZ_COORD[0];
+  const url="https://api.open-meteo.com/v1/forecast?latitude="+lat
+    +"&longitude="+lon+"&current=temperature_2m,weather_code";
+  try{
+    const r=await fetch(url);
+    const j=await r.json();
+    const c=j.current.weather_code;
+    WX.mode = (c>=71&&c<=77)||c===85||c===86 ? "snow"
+            : (c>=51&&c<=67)||(c>=80&&c<=82)||(c>=95) ? "rain"
+            : (c>=1&&c<=48) ? "cloud" : "clear";
+    WX.temp=j.current.temperature_2m; WX.at=Date.now(); WX.live=true;
+    wxSave();
+  }catch(e){
+    /* 連不到就靜靜維持晴天。天氣是裝飾,不值得打斷使用者。 */
+    WX.mode="clear";
+  }
+}
+$("#wxSel") && ($("#wxSel").onchange=e=>{
+  if(e.target.value==="live"){ WX.live=true; fetchWx(); }
+  else { WX.live=false; WX.mode=e.target.value; wxSave();
+         setStatus((LANG?"Weather set to ":"天氣設為 ")+e.target.value); }
+});
+function fillCodeFilter(){
+  const s=$("#codeFilter"); if(!s) return;
+  const cur=s.value||"all";
+  s.innerHTML=CODE_FILTERS.map(([v,lab])=>
+    `<option value="${v}"${v===cur?" selected":""}>${lab[LANG]}</option>`).join("");
+}
+function fillSelects(){
+  fillCodeFilter(); fillWxSel();
+  $("#langSel").innerHTML=["English","中文"].map((v,i)=>
+    `<option value="${i}"${i===(LANG?0:1)?" selected":""}>${v}</option>`).join("");
+  $("#brandSel").innerHTML=BRANDS.map(b=>
+    `<option value="${b}"${b===BRAND?" selected":""}>${b}</option>`).join("");
+  $("#themeSel").innerHTML=Object.keys(THEMES).map(k=>
+    `<option value="${k}"${k===THEME?" selected":""}>${LANG?k:THEMES[k].zh}</option>`).join("");
+  $("#tzSel").innerHTML=TZ.map((z,i)=>
+    `<option value="${i}"${i===TZI?" selected":""}>${z[LANG]}</option>`).join("");
+}
+function fillThemeSel(){ fillSelects(); }
+
+$("#langSel").onchange=e=>{
+  LANG = e.target.value==="0" ? 1 : 0;
+  applyLang(); drawClock(); drawDateCard(); fillSelects(); applyRole();
+  if(CFG) renderConfigTabs();
+  if(ROWS) renderCode();
+  /* 狀態列不是 data-i18n,切語言要自己重寫,不然會停在另一種語言 */
+  setStatus(CFG && CFG.tableRowCount>0
+    ? (LANG?"Ready":"就緒")
+    : "");
+};
+$("#brandSel").onchange=e=>{ applyBrand(e.target.value); sceneDraw(); };
+$("#themeSel").onchange=e=>{ applyTheme(e.target.value); drawClock(); drawDateCard(); };
+$("#tzSel").onchange=e=>{ TZI=+e.target.value; drawClock(); drawDateCard();
+  if(WX.live) fetchWx(); };
+
+try{ const t=localStorage.getItem(THEME_KEY); if(t) THEME=t; }catch(e){}
+try{ const b=localStorage.getItem(BRAND_KEY); if(b) BRAND=b; }catch(e){}
+applyTheme(THEME); applyBrand(BRAND); fillSelects();
+
+/* 記住的跨期對照 */
+try{
+  const hv=localStorage.getItem(HIST_KEY);
+  if(hv){ HIST=JSON.parse(hv);
+    $("#vHist").textContent=Object.keys(HIST).length.toLocaleString()
+      +(LANG?" tracking numbers (remembered)":" 個追蹤號(已記住)");
+    $("#vHist").className="val ok"; }
+}catch(e){}
+
+/* 每一步各自獨立。
+   先前 drawClock() 寫一個已經被移除的元素,null.textContent 拋錯,
+   把後面的 applyLang() 和 sceneInit() 一起帶走 —— 畫面就變成
+   分頁沒翻譯、動畫沒出現。啟動流程不該有連坐。 */
+function step(name,fn){
+  try{ fn(); }
+  catch(e){ console.error("啟動步驟失敗:"+name, e); }
+}
+step("clock",   ()=>{ drawClock(); setInterval(()=>{drawClock();drawDateCard();},1000); });
+step("calendar",()=>drawDateCard());
+step("auth",()=>{
+  try{ const s=localStorage.getItem(SESS_KEY); if(s) ME=JSON.parse(s); }catch(e){}
+  applyRole();
+  $("#bLogin").onclick=async()=>{
+    const r=await login($("#inUser").value,$("#inPw").value);
+    if(r.err){ $("#gateNote").innerHTML=`<div class="note warn">${r.err}</div>`; return; }
+    $("#gateNote").innerHTML=""; $("#inPw").value=""; setMe(r);
+    logAdd("sign in","");
+    setStatus((LANG?"Signed in as ":"已登入:")+r.name);
+  };
+
+  $("#bLogout").onclick=()=>{ logAdd("sign out",""); setMe(null); setStatus(LANG?"Signed out":"已登出"); };
+});
+step("language",()=>applyLang());
+step("config",  ()=>restoreConfig());
+step("codes",   ()=>renderCode());
+step("weather", ()=>{ if(WX.live) fetchWx(); });
+step("scene",   ()=>sceneInit());
+
+</script>
+</body>
+</html>
