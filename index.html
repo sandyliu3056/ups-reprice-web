@@ -2153,6 +2153,11 @@ function shipmentsOf(rows){
 
     const ref=s.lines.filter(l=>l.layer==="SHP"||l.layer==="RTN");
     s.refEntered=Math.max(0,...ref.map(l=>l.entered));
+    /* 報表上「Entered Weight」那一欄顯示的是原始出貨那一層的實重,
+       不是各層取大、也不會在為 0 時退回計費重 —— 那兩件事是計價要用的
+       (s.entered),不該讓客戶在報表上看到一個帳單上沒有的數字。 */
+    s.enteredShown = ref.length ? s.refEntered
+                                : Math.max(0,...s.lines.map(l=>l.entered));
     s.refBilled =Math.max(0,...ref.map(l=>l.billed));
     /* s.layer 在這一行之後才決定,所以直接看有沒有 ADJ 行,
        不要讀還沒賦值的 s.layer。 */
@@ -4505,7 +4510,7 @@ function reportRows(){
     o["Shipment Reference Number 2"]=s.ref2||0;
     o["Zone"]=s.zone||"";
     o["Shipment Type"]=r.channel||"";
-    o["Entered Weight"]=s.entered||0;
+    o["Entered Weight"]=(s.enteredShown!=null?s.enteredShown:s.entered)||0;
     o["Billable Weight"]=r.bw.billable||0;
     if(s.dims){ o["Length"]=s.dims.l; o["Width"]=s.dims.w; o["Height"]=s.dims.h; }
     /* 附加費要疊加,先確定底是數字 */
@@ -5254,8 +5259,10 @@ $("#bCsv").onclick=async ()=>{
     const ts=byInv[inv];
     const date=invDate[ts[0]]||"";
     const rows=ts.map(t=>{
-      const sv=sell[t]||0, cv=cost[t]||0;
-      return [inv,date,t,r2(sv),r2(cv),r2(sv-cv),sv?r6((sv-cv)/sv):0];
+      /* 先進位再算 —— Margin 要和同一列印出來的 Billed amount / Profit
+         對得起來,拿未進位的金額去除會得出一個對不上的百分比。 */
+      const sv=r2(sell[t]||0), cv=r2(cost[t]||0);
+      return [inv,date,t,sv,cv,r2(sv-cv),sv?r6((sv-cv)/sv):0];
     });
     sheets.push({name:sheetNameFor(date,inv), aoa:[DET,...rows]});
     /* 逐列先進位到分再加總 —— Overview 要等於明細那一張加起來,
