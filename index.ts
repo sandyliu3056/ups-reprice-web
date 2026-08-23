@@ -55,7 +55,15 @@ Deno.serve(async (req) => {
     return reply({ error: "bad request body" }, 400);
   }
   const action = String(body.action || "");
-  const email = String(body.email || "").trim().toLowerCase();
+  // 登入用帳號,不是 email。Supabase 的密碼登入一定要一個 email,所以
+  // 帳號補成 <帳號>@ups-reprice.invalid —— .invalid 是 RFC 2606 保留的,
+  // 永遠解析不到,寄不出信,也不會誤寄給別人。真的 email 是選填的聯絡
+  // 資訊,存在 user_metadata,不拿來當登入身分。
+  const DOMAIN = "ups-reprice.invalid";
+  const username = String(body.username || "").trim().toLowerCase();
+  const name = String(body.name || "").trim();
+  const contactEmail = String(body.email || "").trim().toLowerCase();
+  const email = username ? `${username}@${DOMAIN}` : "";
   const role = body.role === "admin" ? "admin" : "user";
   const userId = String(body.user_id || "");
 
@@ -65,7 +73,7 @@ Deno.serve(async (req) => {
       // 費率有沒有設定則看 user_settings 有沒有那一列。
       const { data: rows, error } = await admin
         .from("profiles")
-        .select("id,email,role,created_at")
+        .select("id,email,username,name,contact_email,role,created_at")
         .order("created_at", { ascending: true });
       if (error) throw error;
       const { data: cfgs } = await admin
@@ -75,6 +83,8 @@ Deno.serve(async (req) => {
       return reply({
         users: (rows || []).map((r) => ({
           ...r,
+          // 舊帳號(用真 email 開的)沒有 username 欄位,拿 email 的前段頂著。
+          username: r.username || String(r.email || "").split("@")[0],
           config_name: byId.get(r.id)?.config_name || "",
           config_at: byId.get(r.id)?.updated_at || "",
         })),
@@ -83,18 +93,32 @@ Deno.serve(async (req) => {
 
     if (action === "create") {
       const password = String(body.password || "");
-      if (!email || password.length < 8) {
-        return reply({ error: "email required, password at least 8 characters" }, 400);
+      if (!/^[a-z0-9._-]{2,}$/.test(username)) {
+        return reply({ error: "username: at least 2 of a-z 0-9 . _ -" }, 400);
+      }
+      if (password.length < 8) {
+        return reply({ error: "password must be at least 8 characters" }, 400);
       }
       const { data, error } = await admin.auth.admin.createUser({
         email,
         password,
         email_confirm: true,          // 主帳號開的帳號,不用再收信確認
         app_metadata: { role },
+        user_metadata: {
+          username,
+          display_name: name || username,
+          contact_email: contactEmail,
+        },
       });
-      if (error) throw error;
+      if (error) {
+        // Supabase 回的是 email 已存在,但使用者填的是帳號 —— 照他填的講。
+        const m = /already/i.test(error.message)
+          ? `username "${username}" is taken`
+          : error.message;
+        return reply({ error: m }, 400);
+      }
       // 費率留空白,由該帳號自己匯入。這裡不建 user_settings 的列。
-      return reply({ user: { id: data.user?.id, email, role } });
+      return reply({ user: { id: data.user?.id, username, role } });
     }
 
     if (action === "set_role") {

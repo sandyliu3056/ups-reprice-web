@@ -415,8 +415,8 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 <div id="gate">
   <div class="lf sketch" style="max-width:400px;margin:40px auto">
     <h3 class="display"><span class="em">🔑</span><span data-i18n="hd.signin">Sign in</span></h3>
-    <div class="frow"><label data-i18n="lb.email">Email</label>
-      <input id="inUser" type="email" inputmode="email" autocomplete="username"></div>
+    <div class="frow"><label data-i18n="lb.username">Username</label>
+      <input id="inUser" type="text" autocomplete="username"></div>
     <div class="frow"><label data-i18n="lb.pw">Password</label>
       <input id="inPw" type="password" autocomplete="current-password"></div>
     <div class="row" style="margin-top:11px">
@@ -432,8 +432,10 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   <div class="lf sketch">
     <h3 class="display"><span class="em">👥</span><span data-i18n="hd.users">Accounts</span></h3>
     <div class="row" style="margin:12px 0;gap:8px;flex-wrap:wrap">
-      <input id="nuEmail" type="email" placeholder="email" style="min-width:220px">
-      <input id="nuPass" type="password" placeholder="password" style="min-width:160px">
+      <input id="nuUser" type="text" placeholder="帳號" style="min-width:130px">
+      <input id="nuName" type="text" placeholder="名稱" style="min-width:130px">
+      <input id="nuEmail" type="email" placeholder="Email(選填)" style="min-width:190px">
+      <input id="nuPass" type="password" placeholder="密碼" style="min-width:140px">
       <select id="nuRole">
         <option value="user">user</option>
         <option value="admin">admin</option>
@@ -444,6 +446,8 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     <div id="usersNote"></div>
     <div class="tablewrap" style="max-height:44vh">
       <table id="tUsers"><thead><tr>
+        <th data-i18n="th.username">Username</th>
+        <th data-i18n="th.name">Name</th>
         <th data-i18n="th.email">Email</th>
         <th data-i18n="th.role">Role</th>
         <th data-i18n="th.rates">Rates</th>
@@ -2461,6 +2465,20 @@ function prefetchOriginals(ships){
   }).catch(()=>{ ORIG={}; return 0; });
 }
 
+/* 登入用「帳號」,不是 email。Supabase 的密碼登入一定要一個 email,
+   所以帳號會補成 <帳號>@ACCOUNT_DOMAIN 去驗;那個網域是 RFC 2606 保留的
+   .invalid,永遠不會解析得到,寄不出任何信,也不會誤寄給別人。
+   輸入裡本來就有 @ 的(例如最早用真 email 開的主帳號)照原樣送出。 */
+const ACCOUNT_DOMAIN="ups-reprice.invalid";
+function loginEmail(id){
+  const t=String(id||"").trim().toLowerCase();
+  return t.includes("@") ? t : (t ? t+"@"+ACCOUNT_DOMAIN : "");
+}
+function unameOf(email){
+  const t=String(email||"").toLowerCase();
+  return t.endsWith("@"+ACCOUNT_DOMAIN) ? t.slice(0,-("@"+ACCOUNT_DOMAIN).length) : t;
+}
+
 /* Supabase owns credentials and session validation. No passwords are stored
    in this application or in localStorage. */
 const AUTH_CONFIG=window.UPS_AUTH_CONFIG||{};
@@ -2487,10 +2505,12 @@ function authIdentity(user){
   if(!user) return null;
   const meta=user.user_metadata||{}, appMeta=user.app_metadata||{};
   const email=String(user.email||"").toLowerCase();
+  const uname=meta.username||unameOf(email);
   return {
     id:user.id,
-    user:email,
-    name:meta.display_name||meta.full_name||email.split("@")[0]||email,
+    user:uname,
+    email:meta.contact_email||"",
+    name:meta.display_name||meta.full_name||uname,
     role:appMeta.role==="admin"?"admin":"user"
   };
 }
@@ -2512,7 +2532,7 @@ function logAdd(what,detail){
 
 async function login(email,pw){
   if(!AUTH) return {err:authMissing()};
-  const id=String(email).trim().toLowerCase();
+  const id=loginEmail(email);
   if(!id||!pw) return {err:LANG
     ?"Email and password are required."
     :"請輸入 Email 和密碼。"};
@@ -2612,13 +2632,16 @@ function renderUsers(){
   const tb=$("#tUsers tbody");
   if(!tb) return;
   if(!USERS.length){
-    tb.innerHTML=`<tr><td colspan="4" class="empty">${
-      L("還沒有其他帳號。","No accounts yet.")}</td></tr>`;
+    tb.innerHTML=`<tr><td colspan="6" class="empty">${
+      L("還沒有帳號。用上面那一列新增。","No accounts yet — add one above.")}</td></tr>`;
     return;
   }
   tb.innerHTML=USERS.map(u=>{
     const me=ME&&u.id===ME.id;
-    return `<tr><td>${esc(u.email||"")}${me?" ·":""}</td>
+    return `<tr><td>${esc(u.username||"")}${me?" ·":""}</td>
+      <td>${esc(u.name||"")}</td>
+      <td>${u.contact_email?esc(u.contact_email)
+            :`<span class="empty">${L("未填","—")}</span>`}</td>
       <td>${esc(u.role||"user")}</td>
       <td>${u.config_name?esc(u.config_name):`<span class="empty">${
           L("未設定","not set")}</span>`}</td>
@@ -2627,7 +2650,7 @@ function renderUsers(){
             u.role==="admin"?"user":"admin"}">${
             u.role==="admin"?L("改成 user","Make user"):L("改成 admin","Make admin")}</button>
           <button data-act="pw" data-id="${esc(u.id)}">${L("改密碼","Password")}</button>
-          <button data-act="del" data-id="${esc(u.id)}" data-email="${esc(u.email||"")}">${
+          <button data-act="del" data-id="${esc(u.id)}" data-email="${esc(u.username||u.email||"")}">${
             L("刪除","Delete")}</button>`}
       </td></tr>`;
   }).join("");
@@ -2661,16 +2684,24 @@ $("#tUsers") && ($("#tUsers").onclick=e=>{
   }
 });
 $("#bUserAdd") && ($("#bUserAdd").onclick=()=>{
+  const username=($("#nuUser").value||"").trim().toLowerCase();
+  const name=($("#nuName").value||"").trim();
   const email=($("#nuEmail").value||"").trim();
   const pw=$("#nuPass").value||"";
   const role=$("#nuRole").value||"user";
-  if(!email||pw.length<8){
-    usersNote(L("要填 email,密碼至少 8 個字元。",
-                "Email required, password at least 8 characters."),false);
+  if(!/^[a-z0-9._-]{2,}$/.test(username)){
+    usersNote(L("帳號至少兩個字,只能用英數字和 . _ -。",
+                "Username needs at least 2 characters: letters, digits, . _ - only."),false);
     return;
   }
-  adminCall({action:"create",email:email,password:pw,role:role})
-    .then(()=>{ $("#nuEmail").value=""; $("#nuPass").value="";
+  if(pw.length<8){
+    usersNote(L("密碼至少 8 個字元。","Password must be at least 8 characters."),false);
+    return;
+  }
+  adminCall({action:"create",username:username,name:name,email:email,
+             password:pw,role:role})
+    .then(()=>{ $("#nuUser").value=""; $("#nuName").value="";
+      $("#nuEmail").value=""; $("#nuPass").value="";
       return loadUsers(true); })
     .then(()=>usersNote(L("帳號已建立。費率是空白的,由他自己匯入。",
       "Account created. Its rates start empty — they import their own."),true))
@@ -5883,6 +5914,8 @@ const I18N={
   "hd.users":["帳號","Accounts"],
   "btn.useradd":["新增帳號","Add account"],
   "th.rates":["費率","Rates"],
+  "th.username":["帳號","Username"],
+  "th.name":["名稱","Name"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
   "lb.cfg":["費率檔","Rate file"],
   "btn.login":["登入","Sign in"],

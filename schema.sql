@@ -12,11 +12,18 @@
 -- ---------------------------------------------------------------- profiles
 create table if not exists public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
-  email       text,
+  email       text,          -- 認證用的那個 email(帳號補成的),不是聯絡信箱
+  username    text,          -- 登入用的帳號
+  name        text,          -- 顯示名稱
+  contact_email text,        -- 選填的聯絡信箱
   role        text not null default 'user',
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+-- 舊版建過這張表的話,把新欄位補上。
+alter table public.profiles add column if not exists username      text;
+alter table public.profiles add column if not exists name          text;
+alter table public.profiles add column if not exists contact_email text;
 
 -- 建立/更新帳號時自動同步一列過來。
 create or replace function public.sync_profile()
@@ -26,12 +33,22 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, role, created_at, updated_at)
+  insert into public.profiles (id, email, username, name, contact_email,
+                               role, created_at, updated_at)
   values (new.id, new.email,
+          coalesce(new.raw_user_meta_data->>'username',
+                   split_part(new.email, '@', 1)),
+          coalesce(new.raw_user_meta_data->>'display_name',
+                   new.raw_user_meta_data->>'full_name',
+                   split_part(new.email, '@', 1)),
+          new.raw_user_meta_data->>'contact_email',
           coalesce(new.raw_app_meta_data->>'role', 'user'),
           coalesce(new.created_at, now()), now())
   on conflict (id) do update
     set email = excluded.email,
+        username = excluded.username,
+        name = excluded.name,
+        contact_email = excluded.contact_email,
         role  = excluded.role,
         updated_at = now();
   return new;
@@ -44,12 +61,21 @@ create trigger on_auth_user_synced
   for each row execute function public.sync_profile();
 
 -- 已經存在的帳號補進來(第一次執行時有用)。
-insert into public.profiles (id, email, role, created_at, updated_at)
-select u.id, u.email, coalesce(u.raw_app_meta_data->>'role','user'),
+insert into public.profiles (id, email, username, name, contact_email,
+                             role, created_at, updated_at)
+select u.id, u.email,
+       coalesce(u.raw_user_meta_data->>'username', split_part(u.email,'@',1)),
+       coalesce(u.raw_user_meta_data->>'display_name',
+                u.raw_user_meta_data->>'full_name',
+                split_part(u.email,'@',1)),
+       u.raw_user_meta_data->>'contact_email',
+       coalesce(u.raw_app_meta_data->>'role','user'),
        coalesce(u.created_at, now()), now()
 from auth.users u
 on conflict (id) do update
-  set email = excluded.email, role = excluded.role, updated_at = now();
+  set email = excluded.email, username = excluded.username,
+      name = excluded.name, contact_email = excluded.contact_email,
+      role = excluded.role, updated_at = now();
 
 -- ----------------------------------------------------------- user_settings
 create table if not exists public.user_settings (
