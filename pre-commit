@@ -5,7 +5,7 @@ fail=0
 for f in $(git diff --cached --name-only --diff-filter=ACM); do
   case "$f" in
     .githooks/*) continue;;                      # 規則本身帶著這些樣式,不掃自己
-    vendor/*) continue;;                         # 鎖版本的第三方檔,壓過的亂數字串會誤觸
+    supabase-js-*.js) continue;;                 # 鎖版本的第三方檔,壓過的亂數字串會誤觸
     ups_billing_tool_config.json|ups_history.sqlite3|*.csv|*.xlsx|Invoice_*|*_Repriced.*)
       echo "擋下:$f(客戶資料)"; fail=1; continue;;
   esac

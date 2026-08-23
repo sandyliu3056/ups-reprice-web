@@ -1032,8 +1032,10 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 
 <!-- Supabase 用戶端放在自己的網站裡,不跟 CDN 拿。理由跟 SheetJS 鎖版本一樣:
      這支工具在算客戶的錢,不能讓一個隨時會變的外部檔案跑在頁面上。
-     要升版就換掉 vendor/ 底下那個檔,並改這一行的檔名。 -->
-<script src="vendor/supabase-js-2.112.3.js"></script>
+     和 index.html 平放、不放子資料夾 —— GitHub Pages 會跳過 vendor/ 之類的
+     資料夾不發布,檔案在 repo 裡看得到,網址上卻是 404。
+     要升版就換掉這個檔,並改這一行的檔名。 -->
+<script src="supabase-js-2.112.3.js"></script>
 <script src="auth-config.js"></script>
 <script>
 "use strict";
@@ -2391,8 +2393,8 @@ const AUTH_CONFIG=window.UPS_AUTH_CONFIG||{};
    會讓人對著畫面猜。 */
 function authMissing(){
   if(!window.supabase) return LANG
-    ? "vendor/supabase-js-2.112.3.js did not load. Upload the whole folder, not index.html on its own."
-    : "vendor/supabase-js-2.112.3.js 沒有載到。請整個資料夾一起放上去,不要只放 index.html。";
+    ? "supabase-js-2.112.3.js did not load. Open that file's URL directly: if it 404s, the file is not on the server next to index.html."
+    : "supabase-js-2.112.3.js 沒有載到。直接開那個檔的網址看看:如果是 404,就是它沒有和 index.html 一起放在伺服器上。";
   if(!AUTH_CONFIG.url || !AUTH_CONFIG.anonKey) return LANG
     ? "auth-config.js is missing or empty. It must sit next to index.html with the Project URL and anon key filled in."
     : "auth-config.js 沒有載到、或裡面是空的。它要和 index.html 放在一起,並填好 Project URL 與 anon key。";
@@ -2516,9 +2518,28 @@ function exportLoginHistory(){
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
+let HIST_RESTORED=false;
+/* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
+   兩邊都補上畫面才會跟關掉之前一樣。只做一次。 */
+function restoreHistoryDetail(){
+  if(HIST_RESTORED) return;
+  HIST_RESTORED=true;
+  idbAllRows().then(rows=>{
+    if(!rows.length) return;
+    HISTROWS=rows;
+    renderHist();
+    const inv=Object.keys(histInv()).length;
+    setStatus((LANG?"History restored · ":"歷史已還原 · ")+inv
+      +(LANG?" invoice(s) · ":" 期 · ")+rows.length.toLocaleString()
+      +(LANG?" lines":" 列"));
+  }).catch(()=>{ /* 沒有 IndexedDB 就只是沒有明細,索引照樣在 */ });
+}
+
 function setMe(m){
+  const was=ME;
   ME=m;
   applyRole();
+  if(!was && m) restoreHistoryDetail();
 }
 function applyRole(){
   const admin = ME && ME.role==="admin";
@@ -2593,7 +2614,10 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,
   c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 /* 狀態列是唯一的訊息出口。原本同一句話同時寫進面板那行和狀態列,
    結果畫面上同樣的字出現兩次。 */
-const setStatus=t=>{ const a=$("#status"); if(a) a.textContent=t; };
+/* 狀態列在登入畫面也看得到,所以沒登入時一個字都不寫 ——
+   上一輪跑完的「677 個追蹤號」不該留在登入畫面上給人看。
+   登出時 setMe(null) 先跑,這裡就會把它清成空白。 */
+const setStatus=t=>{ const a=$("#status"); if(a) a.textContent = ME ? t : ""; };
 /* 畫面上的字一律走這裡,不要直接寫死中文 —— 寫死的那些切成英文之後
    會原封不動留在畫面上,報表裡的「備註」「重量依據」都中過。 */
 const L=(zh,en)=>LANG?en:zh;
@@ -6584,17 +6608,9 @@ step("config",  ()=>restoreConfig());
 step("codes",   ()=>renderCode());
 /* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
    兩邊都補上畫面才會跟關掉之前一樣。 */
-step("history", ()=>{
-  idbAllRows().then(rows=>{
-    if(!rows.length) return;
-    HISTROWS=rows;
-    renderHist();
-    const inv=Object.keys(histInv()).length;
-    setStatus((LANG?"History restored · ":"歷史已還原 · ")+inv
-      +(LANG?" invoice(s) · ":" 期 · ")+rows.length.toLocaleString()
-      +(LANG?" lines":" 列"));
-  }).catch(()=>{ /* 沒有 IndexedDB 就只是沒有明細,索引照樣在 */ });
-});
+/* 登入後才讀。開機時的 session 還原是非同步的,所以不在這裡直接叫,
+   由 setMe 在「沒人 -> 有人」那一刻觸發,重新整理和剛登入都涵蓋到。 */
+step("history", ()=>{ if(ME) restoreHistoryDetail(); });
 step("weather", ()=>{ if(WX.live) fetchWx(); });
 step("scene",   ()=>sceneInit());
 

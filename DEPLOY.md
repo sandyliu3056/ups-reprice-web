@@ -10,7 +10,8 @@
 | `auth-config.js` | 要。只放 Project URL 與 anon/publishable key |
 | `.gitignore` | 要 |
 | `.githooks/pre-commit` | 要 |
-| `vendor/supabase-js-2.112.3.js` | 要。登入用的 Supabase 用戶端 |
+| `supabase-js-2.112.3.js` | 要。登入用的 Supabase 用戶端 |
+| `.nojekyll` | 要,如果部署在 GitHub Pages |
 
 **不在包裡、也不該進 repo 的:**`ups_billing_tool_config.json`(你的合約費率)、`ups_history.sqlite3`、任何帳單 CSV 或 xlsx。費率是每次開工具時自己載進去的,不是打包進去的。
 
@@ -49,6 +50,10 @@
 
 只有三個,都跟帳單無關:開機抓一次天氣(`api.open-meteo.com`,連不到就畫晴天)、按鈕才開的 UPS 帳單中心與燃油費率頁、以及按到 Excel 才載的 SheetJS(版本鎖死並附 SRI)。
 
-登入用的 Supabase 用戶端放在 `vendor/` 裡,不跟 CDN 拿 —— 版本不會在你不知情的時候換掉,CDN 掛了也不影響登入。要升版就換掉 `vendor/` 底下那個檔,並改 `index.html` 裡引用的檔名。
+登入用的 Supabase 用戶端就放在網站自己的目錄裡,不跟 CDN 拿 —— 版本不會在你不知情的時候換掉,CDN 掛了也不影響登入。要升版就換掉那個檔,並改 `index.html` 裡引用的檔名。
+
+**六個檔全部平放在同一層,不要放進子資料夾。** GitHub Pages 會跳過 `vendor/`、`_` 開頭之類的路徑不發布,檔案在 repo 裡看得到、網址上卻是 404。`.nojekyll` 是同一件事的保險。
+
+登入畫面說某個檔沒載到時,直接把那個檔的網址打開(例如 `你的網址/supabase-js-2.112.3.js`)。看到 404 就是沒發布上去,不是程式的問題。
 
 **帳單資料完全不離開瀏覽器。**
