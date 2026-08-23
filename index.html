@@ -2341,10 +2341,14 @@ function buildHistory(texts){
         if(/residential/.test(d)) s.res=true;
         if(/commercial/.test(d)) s.com=true;
       }
-      /* 附加費代碼也帶訊號,和 accessorial_lookup 同一套判斷 */
-      if(ACC_CODE_MAP[c]){
-        if(ACC_CODE_MAP[c].res) s.res=true;
-        if(ACC_CODE_MAP[c].com) s.com=true;
+      /* 附加費代碼也帶訊號,和 accessorial_lookup 同一套判斷。
+         標記行(COM 商業重分類)不算 —— 歷史記的是「原始出貨是什麼」,
+         那是原件 FRT 說明的事;重分類是後來發生的另一件事,
+         把它算成商業訊號會讓這個追蹤號變成住商都有、學不到東西。 */
+      const cmH=ACC_CODE_MAP[c];
+      if(cmH && !cmH.marker){
+        if(cmH.res) s.res=true;
+        if(cmH.com) s.com=true;
       }
     }
     for(const [trk,s] of Object.entries(sig)){
@@ -4492,16 +4496,23 @@ function reportRows(){
     return o;
   });
 }
-function reportName(rows){
-  return "Invoice_"+String((rows&&rows[0]&&rows[0].invoice)||"report")
-    .replace(/[^A-Za-z0-9]+/g,"_")+"_Repriced.xlsx";
+/* 檔名照桌面版:原始檔名整個留著,後面接 _Repriced。
+   Invoice_0000XXXXXXX_081526.csv -> Invoice_0000XXXXXXX_081526_Repriced.xlsx
+   資料庫 reprice_runs.report_file 存的就是這個樣子。
+   讀不到原始檔名時(貼上文字之類)才退回用期號組一個。 */
+function baseName(ext){
+  const stem=String(INV_NAME||"").replace(/\.[^.]+$/,"").trim();
+  if(stem) return stem+"_Repriced"+ext;
+  return "Invoice_"+String((ROWS&&ROWS[0]&&ROWS[0].invoice)||"report")
+    .replace(/[^A-Za-z0-9]+/g,"_")+"_Repriced"+ext;
 }
+function reportName(){ return baseName(".xlsx"); }
 function exportReport(){
   if(!RATED||!RATED.length){
     setStatus(LANG?"Build a report first":"請先產生報表"); return;
   }
   const rows=reportRows();
-  const name=reportName(ROWS);
+  const name=reportName();
   loadXLSX().then(X=>{
     const aoa=[REPORT_COLS, ...rows.map(r=>REPORT_COLS.map(c=>r[c]))];
     const ws=X.utils.aoa_to_sheet(aoa);
@@ -4856,7 +4867,7 @@ $("#bRun").onclick=async ()=>{
   try{
     const ing=ingest(INV);
     /* 趁按鈕的授權還在,先問要存哪裡。取消就整個不跑,不要算完才發現沒地方放。 */
-    SAVE_TO=await pickSave(reportName(ing.rows));
+    SAVE_TO=await pickSave(reportName());
     if(SAVE_TO==="cancel"){ SAVE_TO=null; setStatus(L("已取消","Cancelled")); return; }
     /* 先歸檔再計價。桌面版把這一步放在最前面,理由是:計價失敗的那一期
        如果沒進歷史,下個月的跨期更正就沒有東西可以對照。 */
@@ -5137,7 +5148,11 @@ const HIST_PER=400;
 let HIST_PAGE=0, HIST_Q=null;
 
 /* ---- 匯出 ---- */
-$("#bCsv").onclick=()=>{
+$("#bCsv").onclick=async ()=>{
+  if(!RATED||!RATED.length){ setStatus(L("請先產生報表","Build a report first")); return; }
+  /* 存檔位置一樣在按下去的當下問,和報表同一條路。 */
+  SAVE_TO=await pickSave(baseName("_Statement.csv"));
+  if(SAVE_TO==="cancel"){ SAVE_TO=null; setStatus(L("已取消","Cancelled")); return; }
   const infoN=new Set(RATED.flatMap(o=>Object.keys(o.accInfo||{})));
   const accN=[...new Set(RATED.flatMap(o=>
     Object.keys(o.acc).concat(Object.keys(o.accInfo||{}))))].sort();
@@ -5161,11 +5176,11 @@ $("#bCsv").onclick=()=>{
       o.s.upsTotal.toFixed(2), o.diff===null?"":o.diff.toFixed(2),
       q(o.issues.join(" | "))].join(","));
   }
-  const b=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(b); a.download="reprice_statement.csv";
-  a.click(); URL.revokeObjectURL(a.href);
-  setStatus((LANG?"Statement exported: ":"對帳單已匯出:")+RATED.length.toLocaleString()+(LANG?" lines":" 筆"));
+  const ok=await dlBlob(new Blob(["\uFEFF"+lines.join("\n")],
+    {type:"text/csv;charset=utf-8"}), baseName("_Statement.csv"));
+  setStatus(ok?((LANG?"Statement exported: ":"對帳單已匯出:")
+                +RATED.length.toLocaleString()+(LANG?" lines":" 筆"))
+             :L("已取消存檔","Save cancelled"));
 };
 
 function guessService(d0){
