@@ -135,6 +135,21 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   border-radius:9px;background:var(--panel)}
 .strow .stat i{display:block;font-style:normal;font-size:12px;color:var(--muted)}
 .strow .stat b{font-size:18px;font-weight:800;color:var(--run2)}
+/* 瀏覽器空間的量表。數字自己不會說話,配一條條就看得出還剩多少。 */
+.storagebox{border:2px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 14px}
+.meter{height:14px;border:2px solid var(--ink);border-radius:8px;overflow:hidden;
+  background:var(--panel)}
+.meter .fill{height:100%;background:var(--run2);min-width:2px;
+  transition:width .3s ease}
+.meterline{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12.5px;
+  color:var(--muted)}
+.meterline b{color:var(--ink);font-size:13.5px}
+.meterbits{list-style:none;margin:10px 0 0;padding:0;display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:2px 16px}
+.meterbits li{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
+  border-bottom:1px dotted var(--line);padding:3px 0}
+.meterwhy{margin:10px 0 0;font-size:12.5px;line-height:1.6;color:var(--muted)}
+.meterwhy b{color:var(--ink)}
 #tDimForce td:nth-child(2),#tDimForce th:nth-child(2){text-align:right}
 #tStored td:nth-child(3),#tStored td:nth-child(4),
 #tStored th:nth-child(3),#tStored th:nth-child(4){text-align:right}
@@ -266,8 +281,18 @@ td.cells{white-space:normal}
 .modalbg{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.35);
   align-items:flex-start;justify-content:center;padding:26px 16px;overflow:auto}
 .modalbg.on{display:flex}
-.modal{width:min(900px,100%);background:var(--stripe);max-height:100%;
-  display:flex;flex-direction:column}
+/* 視窗可以自己拉大縮小。resize 需要 overflow 不是 visible,而且不能同時
+   壓 max-height,否則右下角拉不動。拉過的尺寸只在這次開啟期間有效。 */
+.modal{width:min(900px,100%);background:var(--stripe);
+  display:flex;flex-direction:column;
+  resize:both;overflow:hidden;
+  min-width:320px;min-height:220px;max-width:100%;max-height:none}
+/* 右下角給一個看得見的把手,不然沒人知道可以拉。 */
+.modal::after{content:"";position:absolute;right:2px;bottom:2px;width:14px;height:14px;
+  pointer-events:none;opacity:.55;
+  background:linear-gradient(135deg,transparent 46%,var(--ink) 46% 54%,transparent 54%,
+             transparent 66%,var(--ink) 66% 74%,transparent 74%)}
+.modal{position:relative}
 .modalhd{background:var(--accent);color:var(--tab);padding:8px 14px;
   display:flex;align-items:center;justify-content:space-between;
   font-size:14px;font-weight:600;border-radius:7px 7px 0 0}
@@ -890,8 +915,8 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
         <div class="row" style="margin-bottom:8px">
           <button class="act ghost" id="bDimAll" data-i18n="btn.selall">Select All</button>
           <button class="act ghost" id="bDimNone" data-i18n="btn.selnone">Deselect All</button>
-          <button class="act" id="bChanDimTicked" data-i18n="btn.applyticked">Apply to Ticked Channels</button>
-          <button class="act ghost" id="bChanDimClear" data-i18n="btn.clearticked">Clear Overrides on Ticked</button>
+          <button class="act" id="bChanDimTicked" data-i18n="btn.dimapply">Apply to Ticked Channels</button>
+          <button class="act ghost" id="bChanDimClear" data-i18n="btn.dimreset">Reset to default</button>
         </div>
         <div id="dimChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
       </div>
@@ -915,6 +940,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     </div>
     <div class="modalbody">
       <div class="strow" id="stSum"></div>
+      <div id="stStorage" class="storagebox"></div>
       <div class="tablewrap" style="max-height:52vh"><table id="tStored"><thead><tr>
         <th data-i18n="th.invno">Invoice Number</th>
         <th data-i18n="th.invdt">Invoice Date</th>
@@ -1478,7 +1504,15 @@ function normArCode(v){ return String(v||"").trim().toUpperCase().split(" - ")[0
 /* 原始碼:ACC_CODES_NOT_REPRICED */
 const NOT_REPRICED = new Set(["NPF","SCF"]);
 /* 走主線,不當附加費 */
-const MAIN_LINE = new Set(["FRT","FSC"]);
+const MAIN_LINE = new Set(["FRT","FSC","003"]);
+/* 這一行是不是運費。你的帳單把運費寫成 Charge Description Code "003",
+   Classification 才是 "FRT" —— 只比對描述代碼會一行都認不到。
+   桌面版的判斷是 (ar == "FRT" or as_code == "FRT"),兩欄都看。 */
+function isFreightLine(l){
+  if(!l) return false;
+  const c=String(l.code||"").toUpperCase(), k=String(l.cls||"").toUpperCase();
+  return c==="FRT"||k==="FRT"||c==="003";
+}
 
 /* AHS / LPS:代碼只用來認「UPS 收了哪一種」,金額一律走門檻判定 */
 const AHS_DIM  = new Set(["AHG","AHL","AHS","AHV"]);
@@ -1882,7 +1916,7 @@ function layerGroup(lines){
     bwt:0,
     details:new Set(lines.map(l=>l.detail).filter(Boolean)),
     /* 這一層自己有沒有運費。CLB 判定要用:ADJ + CLB + 有 FRT 才是第二段。 */
-    hasFreight:lines.some(l=>l.code==="FRT"||/freight/i.test(l.desc))
+    hasFreight:lines.some(l=>isFreightLine(l)||/freight/i.test(l.desc))
   };
   o.dims=o.dimsC||o.dimsA;
   for(const l of lines){
@@ -2074,7 +2108,7 @@ function buildHistory(texts){
       const s=sig[r.tracking]||(sig[r.tracking]={ground:false,res:false,com:false});
       const d=(r.desc||"").toLowerCase();
       const c=(r.code||"").toUpperCase();
-      if(r.layer==="SHP"&&c==="FRT"){
+      if(r.layer==="SHP"&&isFreightLine(r)){
         if(/ground/.test(d)) s.ground=true;
         if(/residential/.test(d)) s.res=true;
         if(/commercial/.test(d)) s.com=true;
@@ -3215,6 +3249,65 @@ $("#bHistRefresh") && ($("#bHistRefresh").onclick=()=>{ renderHist();
   setStatus(LANG?"Refreshed":"已重新整理"); });
 /* 已匯入的帳單開成一個視窗。原本是一大塊換行文字塞在頁面中間,
    十七期疊起來只能一行一行用眼睛掃。 */
+/* =====================================================================
+   瀏覽器存了多少東西
+   ---------------------------------------------------------------------
+   localStorage 沒有標準的「查上限」介面,瀏覽器一般給每個網站 5 MB。
+   用量可以精確量:字串是 UTF-16,一個字元兩個位元組,鍵名也算。
+   上限只能當成已知的常見值來標示,所以畫面上寫「約」。
+   ===================================================================== */
+const LS_CAP=5*1024*1024;
+function lsBytes(k){
+  let v="";
+  try{ v=localStorage.getItem(k)||""; }catch(e){ return 0; }
+  return (String(k).length+v.length)*2;
+}
+function storageUsage(){
+  const parts=[
+    {k:CFG_KEY,     lab:["費率與規則設定","Rates and rules"]},
+    {k:HIST_KEY,    lab:["追蹤號住宅／商業對照","Residential/commercial index"]},
+    {k:HISTINV_KEY, lab:["帳單歸檔索引","Filed invoice index"]},
+    {k:LOG_KEY,     lab:["操作紀錄","Activity log"]}
+  ].map(p=>Object.assign(p,{bytes:lsBytes(p.k)}));
+  let all=0;
+  try{
+    for(let i=0;i<localStorage.length;i++) all+=lsBytes(localStorage.key(i));
+  }catch(e){ all=parts.reduce((a,p)=>a+p.bytes,0); }
+  const invCount=Object.keys(histInv()).length;
+  const histBytes=lsBytes(HIST_KEY)+lsBytes(HISTINV_KEY);
+  return {parts, used:all, cap:LS_CAP, free:Math.max(0,LS_CAP-all),
+          invCount, perInvoice: invCount?Math.round(histBytes/invCount):0};
+}
+function fmtBytes(n){
+  if(n<1024) return n+" B";
+  if(n<1024*1024) return (n/1024).toFixed(n<10240?1:0)+" KB";
+  return (n/1048576).toFixed(2)+" MB";
+}
+function renderStorageMeter(){
+  const box=$("#stStorage");
+  if(!box) return;
+  const u=storageUsage();
+  const pct=Math.min(100, u.used/u.cap*100);
+  const room=u.perInvoice>0 ? Math.floor(u.free/u.perInvoice) : null;
+  const rows=u.parts.filter(p=>p.bytes>0).map(p=>
+    `<li><span>${esc(p.lab[LANG])}</span><b>${fmtBytes(p.bytes)}</b></li>`).join("");
+  box.innerHTML=`
+    <div class="meter"><div class="fill" style="width:${pct.toFixed(2)}%"></div></div>
+    <div class="meterline">
+      <span>${LANG?"Used":"已用"} <b>${fmtBytes(u.used)}</b></span>
+      <span>${LANG?"Free":"剩下"} <b>${fmtBytes(u.free)}</b></span>
+      <span>${LANG?"About":"上限約"} <b>${fmtBytes(u.cap)}</b></span>
+    </div>
+    <ul class="meterbits">${rows||`<li><span>—</span><b>0 B</b></li>`}</ul>
+    <p class="meterwhy">${LANG
+      ? `Filed invoices take about <b>${fmtBytes(u.perInvoice)}</b> each, so there is room for roughly `
+        +`<b>${room===null?"—":room.toLocaleString()}</b> more. Only the index is kept — invoice numbers, `
+        +`dates, counts and the residential/commercial lookup. The detail lines are not stored; `
+        +`re-import a file to browse them again.`
+      : `每一期歸檔大約占 <b>${fmtBytes(u.perInvoice)}</b>,以現在的用量還放得下約 `
+        +`<b>${room===null?"—":room.toLocaleString()}</b> 期。存的只有索引:期號、日期、筆數,`
+        +`以及追蹤號的住宅／商業對照。明細列不存,要看舊期明細就重新匯入那個檔案。`}</p>`;
+}
 function openStored(){
   /* 讀持久化的索引,不是這次載進來的那幾列 —— 重開瀏覽器之後
      這張表還要在。 */
@@ -3233,6 +3326,7 @@ function openStored(){
         <td>${esc((v.at||"").replace("T"," "))}</td></tr>`).join("")
     : `<tr><td colspan="5" class="empty">${
         LANG?"No invoices filed yet.":"還沒有任何帳單存進歷史。"}</td></tr>`;
+  renderStorageMeter();
   $("#stBg").classList.add("on");
 }
 function closeStored(){ $("#stBg").classList.remove("on"); }
@@ -4662,8 +4756,8 @@ const I18N={
   "hd.dimforce":["生效中的 DIM 除數","DIM Factors in Force"],
   "hint.bulkdim":["勾選渠道、填入除數、套用。留空等於清除該渠道的設定,改回沿用預設。","Tick channels, type a divisor, apply. Blank clears the override and follows the global one."],
   "lb.chandim":["渠道除數","Channel DIM factor"],
-  "btn.applyticked":["套用到勾選","Apply to ticked"],
-  "btn.clearticked":["清除勾選的","Clear on ticked"],
+  "btn.dimapply":["套用到勾選的渠道","Apply to Ticked Channels"],
+  "btn.dimreset":["改回預設","Reset to default"],
   "hd.stored":["已匯入的帳單","Stored invoices"],
   "th.filedat":["歸檔時間","Filed"],
   "th.rows":["帳單筆數","Rows"],
