@@ -144,12 +144,6 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .meterline{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12.5px;
   color:var(--muted)}
 .meterline b{color:var(--ink);font-size:13.5px}
-.meterbits{list-style:none;margin:10px 0 0;padding:0;display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:2px 16px}
-.meterbits li{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
-  border-bottom:1px dotted var(--line);padding:3px 0}
-.meterwhy{margin:10px 0 0;font-size:12.5px;line-height:1.6;color:var(--muted)}
-.meterwhy b{color:var(--ink)}
 #tDimForce td:nth-child(2),#tDimForce th:nth-child(2){text-align:right}
 #tStored td:nth-child(3),#tStored td:nth-child(4),
 #tStored th:nth-child(3),#tStored th:nth-child(4){text-align:right}
@@ -501,7 +495,6 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <label class="inlab" style="margin-left:0" data-i18n="lb.fuelsur">Fuel Surcharge</label>
       <button class="act" id="bSetFuel" data-i18n="btn.setfuel">Set Fuel Percentage</button>
       <button class="act alt" id="bFuelUrl" data-i18n="btn.fuelurl">Look Up UPS Fuel Percentage</button>
-      <span id="fuelNow" style="color:var(--run2);font-size:12.5px"></span>
     </div>
     <dl class="kv" id="fuelKV" style="margin-top:10px"></dl>
   </div>
@@ -622,7 +615,9 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act ghost" id="bImpRate" data-i18n="btn.imprate">Import completed base rates</button>
       <button class="act ghost" id="bScanZone" data-i18n="btn.scanzone">Scan zones from invoice</button>
       <button class="act ghost" id="bViewRates" data-i18n="btn.viewrates">View loaded rates</button>
+      <button class="act ghost" id="bImpRateBatch" data-i18n="btn.imprateb">Batch import base rates</button>
       <input type="file" id="fImpRate" accept=".csv,.txt,.xlsx,.xls">
+      <input type="file" id="fImpRateBatch" accept=".csv,.txt,.xlsx,.xls" multiple>
     </div>
     <div id="rateState"></div>
   </div>
@@ -3068,13 +3063,9 @@ $("#bExpRate") && ($("#bExpRate").onclick=()=>{
   });
 });
 $("#bImpRate") && ($("#bImpRate").onclick=()=>$("#fImpRate").click());
-$("#fImpRate") && ($("#fImpRate").onchange=e=>{
-  const inp=e.target, f=inp.files&&inp.files[0];
-  if(!f){ inp.value=""; return; }
-  setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
-  /* 桌面版的模板把渠道寫在隱藏的 _ChannelInfo 裡,不是靠畫面上選了誰。
-     照它走,選錯渠道就不會把費率悄悄寫到別條線上。 */
-  readWorkbookRows(f).then(bk=>{
+/* 一個檔案的匯入。單檔和批量共用同一段 —— 兩份會走歪。 */
+function importRateWorkbook(f){
+  return readWorkbookRows(f).then(bk=>{
     const dd=($("#rateChan")||{}).value||"";
     const dsvc=dd.split("|")[0]||"", dres=dd.split("|")[1]==="R";
     let svc="", res=null, src="";
@@ -3091,10 +3082,10 @@ $("#fImpRate") && ($("#fImpRate").onchange=e=>{
     const nm=bk.order.find(n=>n!=="_ChannelInfo"&&(bk.sheets[n]||[]).length>1)
             ||bk.order[0]||"";
     const rows=bk.sheets[nm]||[];
-    if(rows.length<2){ setStatus(LANG?"That file is empty":"這個檔是空的"); return; }
+    if(rows.length<2) throw new Error(LANG?"that file is empty":"這個檔是空的");
     const cols=sheetHeader(rows);
     const wi=cols.indexOf("Weight");
-    if(wi<0){ setStatus(LANG?"That file has no Weight column":"這個檔沒有 Weight 欄"); return; }
+    if(wi<0) throw new Error(LANG?"no Weight column":"沒有 Weight 欄");
 
     /* 沒有 _ChannelInfo 就看表身:Service 欄 + Residential 欄(本站匯出的
        CSV 模板就是這個形狀)。兩個都沒有才退回畫面上選的渠道。 */
@@ -3107,7 +3098,7 @@ $("#fImpRate") && ($("#fImpRate").onchange=e=>{
     if(!svc){ svc=dsvc; res=dres; src="picker"; }
     if(res===null||res===undefined) res=/residential/i.test(svc)?true:dres;
     const rc=res?"R":"C";
-    if(!svc){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
+    if(!svc) throw new Error(LANG?"no channel on this file and none picked":"檔案沒有渠道資訊,畫面也沒選");
     const body=rows.slice(1).filter(r=>String(r[wi]).trim()!=="")
       .map(r=>cols.map((c,i)=>c==="Weight"?toNum(r[i]):(c==="Service"||c==="Residential"?r[i]:toNum(r[i]))));
     /* 這條渠道的 Zone 以檔案為準。模板的 Zone 欄就是這條線實際跑的那組,
@@ -3134,15 +3125,55 @@ $("#fImpRate") && ($("#fImpRate").onchange=e=>{
     if(idx>=0) t[idx]=rec; else t.push(rec);
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
     if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
-    const chLabel=svc+(res?(LANG?" (Residential)":"(住宅)"):(LANG?" (Commercial)":"(商業)"));
-    setStatus((LANG?"Imported ":"已匯入 ")+body.length+(LANG?" rate rows for ":" 列費率:")+chLabel
-      +zoneNote
-      +(nm?(LANG?" · sheet ":" · 工作表 ")+nm:"")
-      +(src==="_ChannelInfo"&&(svc!==dsvc||res!==dres)
+    return {svc, res, rows:body.length, sheet:nm, zoneNote,
+            fromFile:src==="_ChannelInfo", dsvc, dres};
+  });
+}
+function rateChanLabel(r){
+  return r.svc+(r.res?(LANG?" (Residential)":"(住宅)"):(LANG?" (Commercial)":"(商業)"));
+}
+$("#fImpRate") && ($("#fImpRate").onchange=e=>{
+  const inp=e.target, f=inp.files&&inp.files[0];
+  if(!f){ inp.value=""; return; }
+  setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
+  importRateWorkbook(f).then(r=>{
+    setStatus((LANG?"Imported ":"已匯入 ")+r.rows+(LANG?" rate rows for ":" 列費率:")
+      +rateChanLabel(r)+r.zoneNote
+      +(r.sheet?(LANG?" · sheet ":" · 工作表 ")+r.sheet:"")
+      +(r.fromFile&&(r.svc!==r.dsvc||r.res!==r.dres)
         ?(LANG?"  — channel taken from the file":"  — 渠道以檔案為準"):""));
   }).catch(err=>{
-    setStatus((err&&err.message)||String(err));
+    setStatus((LANG?"Could not import ":"匯入失敗 ")+f.name+": "+((err&&err.message)||err));
   }).then(()=>{ inp.value=""; });
+});
+/* 批量匯入:一次選十個模板,一個一個照 _ChannelInfo 送到對應的渠道。
+   逐一處理而不是全部平行 —— 每個檔案都會改到同一份 CFG,同時寫會互相蓋掉。 */
+$("#bImpRateBatch") && ($("#bImpRateBatch").onclick=()=>$("#fImpRateBatch").click());
+$("#fImpRateBatch") && ($("#fImpRateBatch").onchange=e=>{
+  const inp=e.target, files=[...(inp.files||[])];
+  if(!files.length){ inp.value=""; return; }
+  const ok=[], bad=[];
+  let n=0;
+  const next=()=>{
+    if(!files.length){
+      renderConfigTabs();
+      const msg=(LANG?"Imported ":"已匯入 ")+ok.length+(LANG?" of ":" / ")+(ok.length+bad.length)
+        +(LANG?" files · ":" 個檔案 · ")+n+(LANG?" rate rows":" 列費率");
+      setStatus(msg+(ok.length?"  ·  "+ok.join(", "):"")
+        +(bad.length?"  ·  "+(LANG?"failed: ":"失敗:")+bad.join("; "):""));
+      toast(msg, bad.length===0);
+      inp.value="";
+      return;
+    }
+    const f=files.shift();
+    setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
+    importRateWorkbook(f).then(r=>{
+      n+=r.rows; ok.push(rateChanLabel(r));
+    }).catch(err=>{
+      bad.push(f.name+" ("+((err&&err.message)||err)+")");
+    }).then(next);
+  };
+  next();
 });
 $("#bScanZone") && ($("#bScanZone").onclick=()=>{
   if(!ROWS){ setStatus(LANG?"Import an invoice first":"請先匯入帳單"); return; }
@@ -3363,72 +3394,31 @@ $("#bHistRefresh") && ($("#bHistRefresh").onclick=()=>{ renderHist();
    用量可以精確量:字串是 UTF-16,一個字元兩個位元組,鍵名也算。
    上限只能當成已知的常見值來標示,所以畫面上寫「約」。
    ===================================================================== */
-const LS_CAP=5*1024*1024;
-function lsBytes(k){
-  let v="";
-  try{ v=localStorage.getItem(k)||""; }catch(e){ return 0; }
-  return (String(k).length+v.length)*2;
-}
-function storageUsage(){
-  const parts=[
-    {k:CFG_KEY,     lab:["費率與規則設定","Rates and rules"]},
-    {k:HIST_KEY,    lab:["追蹤號住宅／商業對照","Residential/commercial index"]},
-    {k:HISTINV_KEY, lab:["帳單歸檔索引","Filed invoice index"]},
-    {k:LOG_KEY,     lab:["操作紀錄","Activity log"]}
-  ].map(p=>Object.assign(p,{bytes:lsBytes(p.k)}));
-  let all=0;
-  try{
-    for(let i=0;i<localStorage.length;i++) all+=lsBytes(localStorage.key(i));
-  }catch(e){ all=parts.reduce((a,p)=>a+p.bytes,0); }
-  const invCount=Object.keys(histInv()).length;
-  const histBytes=lsBytes(HIST_KEY)+lsBytes(HISTINV_KEY);
-  return {parts, used:all, cap:LS_CAP, free:Math.max(0,LS_CAP-all),
-          invCount, perInvoice: invCount?Math.round(histBytes/invCount):0};
-}
 function fmtBytes(n){
   if(n<1024) return n+" B";
   if(n<1024*1024) return (n/1024).toFixed(n<10240?1:0)+" KB";
   return (n/1048576).toFixed(2)+" MB";
 }
+/* 只講三件事:帳單占多少、剩多少、總共多少。數字向瀏覽器要,
+   要不到就不畫這一塊 —— 編一個數字比不顯示更糟。 */
 function renderStorageMeter(){
   const box=$("#stStorage");
   if(!box) return;
-  const u=storageUsage();
-  const pct=Math.min(100, u.used/u.cap*100);
-  const room=u.perInvoice>0 ? Math.floor(u.free/u.perInvoice) : null;
-  const rows=u.parts.filter(p=>p.bytes>0).map(p=>
-    `<li><span>${esc(p.lab[LANG])}</span><b>${fmtBytes(p.bytes)}</b></li>`).join("");
-  box.innerHTML=`
-    <div class="meter"><div class="fill" style="width:${pct.toFixed(2)}%"></div></div>
-    <div class="meterline">
-      <span>${LANG?"Used":"已用"} <b>${fmtBytes(u.used)}</b></span>
-      <span>${LANG?"Free":"剩下"} <b>${fmtBytes(u.free)}</b></span>
-      <span>${LANG?"About":"上限約"} <b>${fmtBytes(u.cap)}</b></span>
-    </div>
-    <ul class="meterbits">${rows||`<li><span>—</span><b>0 B</b></li>`}</ul>
-    <p class="meterwhy">${LANG
-      ? `This bar is the small settings area only: invoice numbers, dates, counts and the `
-        +`residential/commercial lookup. About <b>${fmtBytes(u.perInvoice)}</b> per invoice, so `
-        +`room for roughly <b>${room===null?"—":room.toLocaleString()}</b> more.<br>`
-        +`The invoice detail lines are kept separately and are not limited by this bar — `
-        +`<b id="idbLine">checking…</b>`
-      : `這條只算小容量的設定區:期號、日期、筆數,以及追蹤號的住宅／商業對照。`
-        +`每一期約 <b>${fmtBytes(u.perInvoice)}</b>,以現在的用量還放得下約 `
-        +`<b>${room===null?"—":room.toLocaleString()}</b> 期。<br>`
-        +`帳單的明細列存在另一個地方,不受這條的限制 —— <b id="idbLine">查詢中…</b>`}</p>`;
-  /* 明細那一份問瀏覽器要用量,拿不到就講拿不到,不要編一個數字。 */
-  const line=$("#idbLine");
-  if(line && navigator.storage && navigator.storage.estimate){
-    navigator.storage.estimate().then(e=>{
-      const used=e.usage||0, quota=e.quota||0;
-      line.textContent = quota
-        ? (LANG?`using ${fmtBytes(used)} of about ${fmtBytes(quota)}`
-               :`已用 ${fmtBytes(used)},額度約 ${fmtBytes(quota)}`)
-        : (LANG?`using ${fmtBytes(used)}`:`已用 ${fmtBytes(used)}`);
-    }).catch(()=>{ line.textContent=LANG?"size unavailable":"查不到用量"; });
-  }else if(line){
-    line.textContent=LANG?"size unavailable in this browser":"這個瀏覽器查不到用量";
-  }
+  box.innerHTML="";
+  if(!(navigator.storage && navigator.storage.estimate)) return;
+  navigator.storage.estimate().then(e=>{
+    const used=e.usage||0, cap=e.quota||0;
+    if(!cap) return;
+    const free=Math.max(0,cap-used);
+    const pct=Math.min(100, used/cap*100);
+    box.innerHTML=`
+      <div class="meter"><div class="fill" style="width:${pct.toFixed(2)}%"></div></div>
+      <div class="meterline">
+        <span>${LANG?"Used":"已用"} <b>${fmtBytes(used)}</b></span>
+        <span>${LANG?"Free":"剩下"} <b>${fmtBytes(free)}</b></span>
+        <span>${LANG?"Total":"總共"} <b>${fmtBytes(cap)}</b></span>
+      </div>`;
+  }).catch(()=>{});
 }
 function openStored(){
   /* 讀持久化的索引,不是這次載進來的那幾列 —— 重開瀏覽器之後
@@ -3669,7 +3659,6 @@ function renderConfigTabs(){
     ["dv_free_limit","lb.dvfree"],["dv_min_charge","lb.dvmin"],
     ["dv_unit","lb.dvunit"],["dv_unit_rate","lb.dvrate"],
   ].map(([k,lab])=>`<label>${T(lab)}</label>${numIn("chg\u241F"+k,a[k])}`).join("");
-  if($("#fuelNow")) $("#fuelNow").textContent=(CFG.fuelPct||0)+"%";
 
   /* ---- 尺寸規則:預設一列,每個渠道一列,12 個門檻欄 ---- */
   const g=CFG.raw.global_rules||{};
@@ -4796,6 +4785,7 @@ const I18N={
   "hd.rulesforce":["目前生效的規則","Rules in Force"],
   "lb.defdim":["預設材積除數","Default DIM factor"],
   "hd.loadedrates":["已載入的運費表","Loaded base rates"],
+  "btn.imprateb":["批量匯入運費表","Batch import base rates"],
   "btn.viewrates":["檢視已載入的運費","View loaded rates"],
   "hd.bulkdim":["批量設定 DIM 除數","Bulk Set DIM Factor"],
   "hd.dimforce":["生效中的 DIM 除數","DIM Factors in Force"],
@@ -6090,10 +6080,7 @@ applyTheme(THEME); applyBrand(BRAND); fillSelects();
 /* 記住的跨期對照 */
 try{
   const hv=localStorage.getItem(HIST_KEY);
-  if(hv){ HIST=JSON.parse(hv);
-    $("#vHist").textContent=Object.keys(HIST).length.toLocaleString()
-      +(LANG?" tracking numbers (remembered)":" 個追蹤號(已記住)");
-    $("#vHist").className="val ok"; }
+  if(hv) HIST=JSON.parse(hv);
 }catch(e){}
 
 /* 每一步各自獨立。
