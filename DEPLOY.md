@@ -51,7 +51,9 @@
 
 只有三個,都跟帳單無關:開機抓一次天氣(`api.open-meteo.com`,連不到就畫晴天)、按鈕才開的 UPS 帳單中心與燃油費率頁、以及按到 Excel 才載的 SheetJS(版本鎖死並附 SRI)。
 
-**匯出的檔一律是 xlsx** —— 報表、對帳單、模板、自訂附加費清單、登入紀錄,沒有一個是 CSV。桌面版跟著改:`_rate_issues` 也是 xlsx 了。
+**匯出的檔一律是 xlsx** —— 報表、對帳單、模板、自訂附加費清單、登入紀錄,沒有一個是 CSV。
+
+對帳單和桌面版 Generate Profit Report 同一份版面:每個期號一張工作表(表名 MMDDYY),外加 Overview;帳戶層費用與兩邊對不上的追蹤號放在 Account Charges。唯一做不到的是凍結標題列 —— 免費版的 SheetJS 不支援,資料完全一致。桌面版跟著改:`_rate_issues` 也是 xlsx 了。
 
 登入用的 Supabase 用戶端與寫 Excel 的元件都放在網站自己的目錄裡,不跟 CDN 拿 —— 版本不會在你不知情的時候換掉,CDN 掛了也不影響登入。要升版就換掉那個檔,並改 `index.html` 裡引用的檔名。
 

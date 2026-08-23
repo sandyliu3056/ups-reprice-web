@@ -1068,6 +1068,8 @@ const FIXED_COLS = {
      所以空的時候退回去看 P / Q —— 全檔 4,171 列兩邊一致,沒有衝突。 */
   "Shipment Reference Number 1": 21, "Shipment Reference Number 2": 22,
   "Shipment Reference Number 1 Alt": 15, "Shipment Reference Number 2 Alt": 16,
+  /* UPS 自己對這一行的說明。稽核費會寫出件數與更正金額,善意退款會寫原因。 */
+  "Note A": 174, "Note B": 175, "Note C": 176,
   /* 申報金額。桌面版 dv_column 預設 "AW",A=0 換算就是 48。這一欄裝的是
      「申報了多少錢」,不是 UPS 收了多少 —— 兩者差很多:同一行申報
      647.15、收費 5.95。用收費去查級距會落在免收上限以下,結果永遠是 0。 */
@@ -2039,6 +2041,10 @@ function ingest(text){
       dimsC:g(r,"Package Dimensions"), dimsA:g(r,"Detail Keyed Dimensions"),
       ref1:g(r,"Shipment Reference Number 1")||g(r,"Shipment Reference Number 1 Alt"),
       ref2:g(r,"Shipment Reference Number 2")||g(r,"Shipment Reference Number 2 Alt"),
+      note:[g(r,"Note A"),g(r,"Note B"),g(r,"Note C")]
+        .map(x=>String(x||"").trim())
+        .filter((x,i,a)=>x && !/^(nan|none|<na>)$/i.test(x) && a.indexOf(x)===i)
+        .join(" "),
       net:toNum(g(r,"Net Amount"))
     };
   }).filter(r=>r.tracking||r.net);
@@ -5160,42 +5166,132 @@ const HIST_PER=400;
 let HIST_PAGE=0, HIST_Q=null;
 
 /* ---- 匯出 ---- */
+/* 週對帳單。桌面版 _build_profit_report 的同一份版面:
+   每個期號一張工作表(表名 MMDDYY),外加 Overview;
+   帳戶層的費用與對不上的追蹤號放在 Account Charges。
+   賣價來自報表的 Total,成本直接取帳單上該追蹤號所有層的淨額總和。 */
 $("#bCsv").onclick=async ()=>{
   if(!RATED||!RATED.length){ setStatus(L("請先產生報表","Build a report first")); return; }
-  /* 存檔位置一樣在按下去的當下問,和報表同一條路。 */
   SAVE_TO=await pickSave(baseName("_Statement.xlsx"));
   if(SAVE_TO==="cancel"){ SAVE_TO=null; setStatus(L("已取消","Cancelled")); return; }
-  const infoN=new Set(RATED.flatMap(o=>Object.keys(o.accInfo||{})));
-  const accN=[...new Set(RATED.flatMap(o=>
-    Object.keys(o.acc).concat(Object.keys(o.accInfo||{}))))].sort();
-  const head=["Tracking","Channel","ResidentialBasis","Zone","EnteredWeight",
-    "DimWeight","BillableWeight","WeightBasis","AHS_Dim","AHS_Weight","Oversize",
-    "BaseRate",...accN.map(n=>(n+(infoN.has(n)?" Report Only":"")).replace(/ /g,"_")),
-    "Fuel","ContractTotal",
-    "UPS_Net","Diff","Issues"];
-  /* 金額寫成數字,不是文字 —— 這份是拿去和桌面版 join 對帳的,
-     文字欄在 Excel 裡加不起來。沒有值的格子照舊留白,不填 0。 */
+
   const r2=v=>Math.round(v*100)/100;
-  const aoa=[head];
-  for(const o of RATED){
-    aoa.push([o.s.tracking,o.channel,o.resBasis,o.s.zone,o.bw.entered,
-      o.bw.dim===null?"":o.bw.dim,o.bw.billable,o.bw.basis,
-      o.bw.ahsDim?1:0,o.bw.ahsWeight?1:0,o.bw.oversize?1:0,
-      o.base===null?"":r2(o.base),
-      ...accN.map(n=>{
-        const v=o.acc[n]!==undefined?o.acc[n]
-              :(o.accInfo&&o.accInfo[n]!==undefined?o.accInfo[n]:undefined);
-        return v!==undefined?r2(v):"";}),
-      r2(o.fuel), o.total===null?"":r2(o.total),
-      r2(o.s.upsTotal), o.diff===null?"":r2(o.diff),
-      o.issues.join(" | ")]);
+  const r6=v=>Math.round(v*1e6)/1e6;
+  /* 成本、期號、期別日期:一個追蹤號一筆,含 SHP / RTN / ADJ 每一層 —— 更正層也是真的錢。 */
+  const cost={}, invNo={}, invDate={}, noteBy={};
+  let accountTotal=0; const accountRows=[];
+  for(const r of (ROWS||[])){
+    const t=(r.tracking||"").trim();
+    if(t){
+      cost[t]=(cost[t]||0)+r.net;
+      if(invNo[t]===undefined){ invNo[t]=r.invoice||""; invDate[t]=r.invDate||""; }
+      if(!noteBy[t] && r.note) noteBy[t]=r.note;
+    }else{
+      /* 沒有追蹤號 = 帳戶層的費用,沒有對應的收入,整筆算成本。 */
+      accountTotal+=r.net;
+      accountRows.push({tracking:r.lead||"", desc:r.desc||"", code:r.code||"",
+                        note:r.note||"", amount:r2(r.net)});
+    }
   }
-  const ok=await saveSheet(aoa,"Statement",baseName("_Statement.xlsx"),
-    head.indexOf("BaseRate"));
-  setStatus(ok?((LANG?"Statement exported: ":"對帳單已匯出:")
-                +RATED.length.toLocaleString()+(LANG?" lines":" 筆"))
+  const sell={};
+  for(const o of RATED) sell[o.s.tracking]=(o.total==null?0:o.total);
+
+  /* 兩邊對不上的都要講:只在報表裡的是收了錢卻沒有成本,
+     只在帳單裡的是有成本卻沒跟客戶收。 */
+  const repKeys=Object.keys(sell), invKeys=Object.keys(cost);
+  const noCost=repKeys.filter(t=>cost[t]===undefined).sort();
+  const notBilled=invKeys.filter(t=>sell[t]===undefined).sort();
+
+  /* 期號分組,表名用期別日期的 MMDDYY,和既有的分頁習慣一致。 */
+  const byInv={};
+  for(const t of repKeys){
+    const k=String(invNo[t]||"").trim();
+    if(!k||k.toLowerCase()==="nan") continue;      /* 根本不在帳單上,已在 Account Charges */
+    (byInv[k]=byInv[k]||[]).push(t);
+  }
+  const used=new Set();
+  const sheetNameFor=(d,inv)=>{
+    let base="";
+    const m=/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/.exec(String(d||""));
+    if(m) base=String(m[2]).padStart(2,"0")+String(m[3]).padStart(2,"0")+m[1].slice(2);
+    if(!base) base=String(inv).slice(-6)||"Detail";
+    let name=base, n=2;
+    while(used.has(name)){ name=base+"_"+n; n++; }
+    used.add(name); return name;
+  };
+
+  const DET=["Invoice Number","Invoice Date","Tracking","Billed amount","UPS","Profit","Margin"];
+  const OV=["Invoice Number","Invoice Date","UPS","Charge Customer","Profit","Margin"];
+  const sheets=[]; const ovRows=[];
+  for(const inv of Object.keys(byInv).sort()){
+    const ts=byInv[inv];
+    const date=invDate[ts[0]]||"";
+    const rows=ts.map(t=>{
+      const sv=sell[t]||0, cv=cost[t]||0;
+      return [inv,date,t,r2(sv),r2(cv),r2(sv-cv),sv?r6((sv-cv)/sv):0];
+    });
+    sheets.push({name:sheetNameFor(date,inv), aoa:[DET,...rows]});
+    /* 逐列先進位到分再加總 —— Overview 要等於明細那一張加起來,
+       先加後進位會差幾分,對帳單上那是說不清楚的錢。 */
+    const sv=ts.reduce((a,t)=>a+r2(sell[t]||0),0), cv=ts.reduce((a,t)=>a+r2(cost[t]||0),0);
+    ovRows.push([inv,date,r2(cv),r2(sv),r2(sv-cv),sv?r6((sv-cv)/sv):0]);
+  }
+  sheets.push({name:"Overview", aoa:[OV,...ovRows]});
+
+  const other=accountRows.map(a=>[a.tracking,"account charge (no tracking)",
+      a.desc,a.code,a.note,a.amount]);
+  for(const t of noCost)
+    other.push([t,"billed to client, not on invoice","","",noteBy[t]||"",r2(sell[t]||0)]);
+  for(const t of notBilled)
+    other.push([t,"on invoice, not billed to client","","",noteBy[t]||"",r2(cost[t]||0)]);
+  if(other.length)
+    sheets.push({name:"Account Charges",
+      aoa:[["Tracking","Type","Charge Description","Code","UPS Note","Amount"],...other]});
+
+  const ok=await saveStatement(sheets, baseName("_Statement.xlsx"));
+  const tSell=repKeys.reduce((a,t)=>a+r2(sell[t]||0),0);
+  const tCost=invKeys.reduce((a,t)=>a+r2(cost[t]||0),0)+accountTotal;
+  setStatus(ok?((LANG?"Statement exported: ":"對帳單已匯出:")+ovRows.length
+                +(LANG?" invoice sheet(s), profit ":" 期,利潤 ")+money(tSell-tCost))
              :L("已取消存檔","Save cancelled"));
 };
+
+/* 多張工作表的對帳單。Margin 走百分比格式、金額兩位小數、
+   期別日期寫成真的日期,標題列凍結 —— 和桌面版那份一致。 */
+function saveStatement(sheets, fname){
+  return loadXLSX().then(X=>{
+    const wb=X.utils.book_new();
+    for(const sh of sheets){
+      const ws=X.utils.aoa_to_sheet(sh.aoa);
+      const head=sh.aoa[0]||[];
+      const ref=X.utils.decode_range(ws["!ref"]);
+      head.forEach((h,c)=>{
+        let fmt=null;
+        if(h==="Margin") fmt="0.00%";
+        else if(["Billed amount","UPS","Profit","Charge Customer","Amount","Net Amount"].includes(h))
+          fmt="#,##0.00";
+        else if(h==="Invoice Date") fmt="mm/dd/yyyy";
+        else return;
+        for(let r=1;r<=ref.e.r;r++){
+          const cell=ws[X.utils.encode_cell({r:r,c:c})];
+          if(!cell) continue;
+          if(h==="Invoice Date"){
+            const iso=typeof cell.v==="string"?schedDate(cell.v):"";
+            const m=iso&&/^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+            if(m){
+              cell.v=Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000);
+              cell.t="n";
+            }
+          }
+          if(typeof cell.v==="number") cell.z=fmt;
+        }
+      });
+      X.utils.book_append_sheet(wb, ws, sh.name);
+    }
+    return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
+      {type:"application/octet-stream"}), fname);
+  });
+}
 
 function guessService(d0){
   const d=String(d0).toLowerCase();
