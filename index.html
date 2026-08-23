@@ -137,6 +137,15 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .strow .stat b{font-size:18px;font-weight:800;color:var(--run2)}
 /* 瀏覽器空間的量表。數字自己不會說話,配一條條就看得出還剩多少。 */
 .storagebox{border:2px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 14px}
+/* 批量設定門檻:LPS 與 AHS 兩欄並排,每一列是「值 + 是否啟用 + 預設值」 */
+.bkwrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px}
+.bkbox{padding:10px 12px}
+.bkhd{font-weight:800;font-size:13px;margin-bottom:8px;
+  border-bottom:1.5px solid var(--line);padding-bottom:6px}
+.bkrow{display:grid;grid-template-columns:1fr 92px 74px auto;gap:8px;align-items:center;
+  padding:3px 0;font-size:12.5px}
+.bkrow .bkdef{color:var(--muted);font-size:11.5px;white-space:nowrap}
+.bkhead{font-weight:700;color:var(--muted);font-size:11.5px}
 /* 帳單歷史的翻頁列 */
 .pager{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap}
 .pager button[disabled]{opacity:.4;cursor:default}
@@ -226,12 +235,12 @@ td.cells{white-space:normal}
 .empty{color:var(--muted);text-align:center;padding:24px 10px;font-size:13px}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
 .kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:600;color:var(--accent)}
-.note{border-left:4px solid var(--run2);background:#fff8e4;padding:9px 12px;
-  margin:10px 0 0;font-size:12.5px;border-radius:0 5px 5px 0}
-.note.warn{border-left-color:var(--neg);background:#fdeceb}
-/* 登入頁的提示不用色塊:那一頁只有一則訊息,加框反而更吵。 */
-.note.plain{border-left:0;background:none;padding:8px 0 0;border-radius:0;color:var(--neg)}
-.note b{color:var(--run2)} .note.warn b{color:var(--neg)}
+/* 提示一律純文字,不用色塊。整頁到處都是奶油色方塊之後,反而看不出
+   哪一則重要 —— 顏色留給真正要人停下來看的東西(錯誤、跳出的提示)。 */
+.note{margin:10px 0 0;font-size:12.5px;line-height:1.6;color:var(--muted)}
+.note.warn{color:var(--neg)}
+.note.plain{color:var(--neg)}
+.note b{color:var(--ink)} .note.warn b{color:var(--neg)}
 
 /* 附加費:Zone 直欄 + 固定金額網格 */
 .zonecols{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
@@ -564,6 +573,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
       <select id="sizeFilter"></select>
       <button class="act ghost" id="bDefThr" data-i18n="btn.defthr">Default Thresholds</button>
+      <button class="act ghost" id="bBulkChan" data-i18n="btn.bulkchan">Bulk Set Channels</button>
     </div>
     <div class="tablewrap" style="max-height:52vh"><table id="tSize"><thead><tr>
       <th data-i18n="th.chan">Channel</th>
@@ -883,6 +893,46 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     </div>
     <div class="modalft">
       <button class="act ghost" id="rvClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="bkBg" class="modalbg">
+  <div class="modal sketch" id="bkModal" style="width:min(920px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.bulkchan">Bulk Set Channels</span>
+      <button class="mx" id="bkX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p class="hint" style="margin:0 0 10px" data-i18n="hint.bulkchan">Tick one channel and its current thresholds appear below, ready to edit. Tick several to write the same values into all of them. A blank field is left alone; a value equal to the default sends that channel back to following the default.</p>
+      <div class="subhd" data-i18n="hd.selchan">Select Channels</div>
+      <div class="sketch-soft" style="padding:10px 12px;margin-bottom:12px">
+        <div class="row" style="margin-bottom:8px">
+          <button class="act ghost" id="bkAll" data-i18n="btn.selall">Select All</button>
+          <button class="act ghost" id="bkNone" data-i18n="btn.selnone">Deselect All</button>
+        </div>
+        <div id="bkChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
+      </div>
+      <div class="subhd" data-i18n="hd.valwrite">Values to Write</div>
+      <div class="bkwrap">
+        <div class="bkbox sketch-soft">
+          <div class="bkhd"><span class="em">📦</span> <span data-i18n="hd.lpsgrp">Large Package (LPS)</span></div>
+          <div id="bkLps"></div>
+        </div>
+        <div class="bkbox sketch-soft">
+          <div class="bkhd"><span class="em">📐</span> <span data-i18n="hd.ahsgrp">Additional Handling (AHS)</span></div>
+          <div id="bkAhs"></div>
+        </div>
+      </div>
+      <div id="bkNote" class="savenote" style="margin-top:8px"></div>
+    </div>
+    <div class="modalft">
+      <button class="act ghost" id="bkLoad" data-i18n="btn.loadticked">Load Values from Ticked Channel</button>
+      <span>
+        <button class="act ghost" id="bkClear" data-i18n="btn.clearticked">Clear Overrides on Ticked</button>
+        <button class="act" id="bkApply" data-i18n="btn.applyticked">Apply to Ticked Channels</button>
+        <button class="act ghost" id="bkClose" data-i18n="btn.close">Close</button>
+      </span>
     </div>
   </div>
 </div>
@@ -3021,6 +3071,122 @@ $("#rvClose") && ($("#rvClose").onclick=()=>$("#rvBg").classList.remove("on"));
 $("#rvBg") && ($("#rvBg").onclick=e=>{ if(e.target===$("#rvBg")) $("#rvBg").classList.remove("on"); });
 $("#rvPick") && ($("#rvPick").onchange=renderLoadedRates);
 
+/* 批量設定門檻。欄位與版面照桌面版:LPS 與 AHS 分兩欄,每一列是
+   「值 + 是否啟用 + 這一項的預設」。空白的欄位不動;填成跟預設一樣就
+   等於把那條渠道交還給預設。 */
+const BK_LPS=[["oversize_longest_side","use_oversize_longest",["最長邊 (in)","Longest side (in)"]],
+              ["oversize_actual_weight","use_oversize_weight",["實際重量 (lb)","Actual weight (lb)"]],
+              ["oversize_cubic_inches","use_oversize_cubic",["材積 (in³)","Cubic volume (in³)"]],
+              ["oversize_length_girth","use_oversize_lg",["長 + 圍 (in)","Length + girth (in)"]],
+              ["oversize_min_billable_weight",null,["最低計費重 (lb)","Min billable weight (lb)"]]];
+const BK_AHS=[["ahs_weight_threshold","use_ahs_weight",["重量 (lb)","Weight (lb)"]],
+              ["ahs_longest_side","use_ahs_longest",["最長邊 (in)","Longest side (in)"]],
+              ["ahs_second_side","use_ahs_second",["第二長邊 (in)","Second longest side (in)"]],
+              ["ahs_cubic_inches","use_ahs_cubic",["材積 (in³)","Cubic volume (in³)"]],
+              ["ahs_lg_limit","use_ahs_lg",["長 + 圍 (in)","Length + girth (in)"]],
+              ["ahs_min_billable_weight",null,["最低計費重 (lb)","Min billable weight (lb)"]]];
+function bkTicked(){
+  return [...document.querySelectorAll(".bkc:checked")].map(c=>c.value);
+}
+function bkNote(m){ const e=$("#bkNote"); if(e) e.textContent=m||""; }
+function bkFields(box, defs){
+  const g=(CFG&&CFG.raw.global_rules)||{};
+  const keep={};
+  for(const [f,sw] of defs.map(d=>[d[0],d[1]])){
+    const v=$("#bkv_"+f), u=$("#bku_"+f);
+    if(v) keep[f]=v.value; if(u&&sw) keep[sw]=u.value;
+  }
+  const head=`<div class="bkrow bkhead"><span>${LANG?"Rule":"規則"}</span>`
+    +`<span>${LANG?"Value":"數值"}</span><span>${LANG?"Applied":"啟用"}</span><span></span></div>`;
+  $(box).innerHTML=head+defs.map(([f,sw,lab])=>{
+    const dv=String(g[f]==null?"":g[f]);
+    const du=sw?((g[sw]===false)?"NO":"YES"):"";
+    const sel=sw
+      ? `<select id="bku_${sw}"><option value=""></option>
+           <option value="YES"${keep[sw]==="YES"?" selected":""}>YES</option>
+           <option value="NO"${keep[sw]==="NO"?" selected":""}>NO</option></select>`
+      : `<span class="bkdef">—</span>`;
+    return `<div class="bkrow"><span>${lab[LANG]}</span>
+      <input class="cell num" id="bkv_${f}" value="${esc(keep[f]||"")}" placeholder="—">
+      ${sel}
+      <span class="bkdef">${LANG?"default ":"預設 "}${esc(dv)}${sw?" / "+du:""}</span></div>`;
+  }).join("");
+}
+function renderBulkChan(){
+  if(!CFG) return;
+  const zn=CFG.raw.builtin_service_zones||{};
+  const was=new Set(bkTicked());
+  const box=$("#bkChans");
+  if(box) box.innerHTML=Object.keys(zn).map(c=>
+    `<label class="bulkchk"><input type="checkbox" class="bkc" value="${esc(c)}"${
+      was.has(c)?" checked":""}> ${esc(c)}</label>`).join("");
+  bkFields("#bkLps", BK_LPS); bkFields("#bkAhs", BK_AHS);
+}
+function bkAllDefs(){ return BK_LPS.concat(BK_AHS); }
+/* 勾一條就把它現在的值帶進來,方便照著改。勾多條時不帶 —— 帶誰的都不對。 */
+function bulkChanLoad(){
+  const t=bkTicked();
+  if(t.length!==1){ bkNote(LANG?"Tick exactly one channel to load from."
+                              :"請只勾選一條渠道來帶入現值。"); return; }
+  const o=(CFG.raw.channel_rule_overrides||{})[t[0]]||{};
+  for(const [f,sw] of bkAllDefs().map(d=>[d[0],d[1]])){
+    const v=$("#bkv_"+f); if(v) v.value=String(o[f]==null?"":o[f]);
+    if(sw){ const u=$("#bku_"+sw);
+      if(u) u.value=(o[sw]===undefined||o[sw]==="")?"":(ruleBool(o[sw])?"YES":"NO"); }
+  }
+  bkNote((LANG?"Loaded from ":"已帶入 ")+t[0]);
+}
+function bulkChanApply(){
+  const t=bkTicked();
+  if(!t.length){ bkNote(LANG?"Tick at least one channel first.":"請先勾選至少一條渠道。"); return; }
+  const g=CFG.raw.global_rules||{};
+  const c=CFG.raw.channel_rule_overrides||(CFG.raw.channel_rule_overrides={});
+  let n=0;
+  for(const ch of t){
+    const o=c[ch]||(c[ch]={});
+    for(const [f,sw] of bkAllDefs().map(d=>[d[0],d[1]])){
+      const el=$("#bkv_"+f), raw=el?String(el.value).trim():"";
+      if(raw!==""){
+        /* 填成跟預設一樣 = 交還給預設,不要留一個看起來像自訂的相同數字。 */
+        if(toNum(raw)===toNum(g[f])) delete o[f]; else o[f]=raw;
+        n++;
+      }
+      if(sw){ const u=$("#bku_"+sw), uv=u?u.value:"";
+        if(uv!==""){ const want=uv==="YES";
+          if(want===(ruleBool(g[sw])!==false)) delete o[sw]; else o[sw]=uv; n++; } }
+    }
+    if(!Object.keys(o).length) delete c[ch];
+  }
+  if(!n){ bkNote(LANG?"Nothing filled in — no field was changed."
+                     :"沒有填任何值,所以什麼都沒改。"); return; }
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs(); renderBulkChan();
+  if(saveSettings())
+    toast((LANG?"Thresholds written to ":"門檻已寫入 ")+t.length
+      +(LANG?" channel(s), saved":" 條渠道,已儲存"), true);
+  bkNote("");
+}
+function bulkChanClear(){
+  const t=bkTicked();
+  if(!t.length){ bkNote(LANG?"Tick at least one channel first.":"請先勾選至少一條渠道。"); return; }
+  const c=CFG.raw.channel_rule_overrides||{};
+  for(const ch of t) delete c[ch];
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs(); renderBulkChan();
+  if(saveSettings())
+    toast((LANG?"Overrides cleared on ":"已清除覆寫,共 ")+t.length
+      +(LANG?" channel(s), saved":" 條渠道,已儲存"), true);
+  bkNote("");
+}
+function openBulkChan(){ renderBulkChan(); bkNote(""); $("#bkBg").classList.add("on"); }
+$("#bBulkChan") && ($("#bBulkChan").onclick=openBulkChan);
+$("#bkX") && ($("#bkX").onclick=()=>$("#bkBg").classList.remove("on"));
+$("#bkClose") && ($("#bkClose").onclick=()=>$("#bkBg").classList.remove("on"));
+$("#bkBg") && ($("#bkBg").onclick=e=>{ if(e.target===$("#bkBg")) $("#bkBg").classList.remove("on"); });
+$("#bkAll") && ($("#bkAll").onclick=()=>document.querySelectorAll(".bkc").forEach(c=>c.checked=true));
+$("#bkNone") && ($("#bkNone").onclick=()=>document.querySelectorAll(".bkc").forEach(c=>c.checked=false));
+$("#bkLoad") && ($("#bkLoad").onclick=bulkChanLoad);
+$("#bkApply") && ($("#bkApply").onclick=bulkChanApply);
+$("#bkClear") && ($("#bkClear").onclick=bulkChanClear);
+
 function openChanDim(){ renderDimModal(); chanDimNote(""); $("#dimBg").classList.add("on"); }
 function closeChanDim(){ $("#dimBg").classList.remove("on"); }
 $("#bChanDim") && ($("#bChanDim").onclick=openChanDim);
@@ -4871,6 +5037,11 @@ const I18N={
   "lb.defdim":["預設材積除數","Default DIM factor"],
   "hd.loadedrates":["已載入的運費表","Loaded base rates"],
   "btn.viewrates":["檢視已載入的運費","View loaded rates"],
+  "hd.bulkchan":["批量設定渠道門檻","Bulk Set Channels"],
+  "btn.bulkchan":["批量設定渠道","Bulk Set Channels"],
+  "hd.lpsgrp":["大包裹 (LPS)","Large Package (LPS)"],
+  "hd.ahsgrp":["額外處理 (AHS)","Additional Handling (AHS)"],
+  "hint.bulkchan":["勾一條渠道,下面會帶出它現在的門檻可以直接改。勾多條就是把同一組值寫進去。空白的欄位不動;填成跟預設一樣等於把那條渠道交還給預設。","Tick one channel and its current thresholds appear below, ready to edit. Tick several to write the same values into all of them. A blank field is left alone; a value equal to the default sends that channel back to following the default."],
   "hd.bulkdim":["批量設定 DIM 除數","Bulk Set DIM Factor"],
   "hd.dimforce":["生效中的 DIM 除數","DIM Factors in Force"],
   "hint.bulkdim":["勾選渠道、填入除數、套用。留空等於清除該渠道的設定,改回沿用預設。","Tick channels, type a divisor, apply. Blank clears the override and follows the global one."],
