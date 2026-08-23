@@ -440,7 +440,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act ghost" id="bRemoveTicked" data-i18n="btn.removeticked">Remove Ticked</button>
       <button class="act ghost" id="bExportAcc" data-i18n="btn.exportacc">Export Accessorials Template</button>
       <button class="act ghost" id="bImportAcc" data-i18n="btn.importacc">Import Accessorials Template</button>
-      <input type="file" id="fImportAcc" accept=".csv">
+      <input type="file" id="fImportAcc" accept=".csv,.txt,.xlsx,.xls">
     </div>
     <div class="row" style="margin-bottom:10px">
       <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
@@ -575,7 +575,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act ghost" id="bExpRate" data-i18n="btn.exprate">Export base rate template</button>
       <button class="act ghost" id="bImpRate" data-i18n="btn.imprate">Import completed base rates</button>
       <button class="act ghost" id="bScanZone" data-i18n="btn.scanzone">Scan zones from invoice</button>
-      <input type="file" id="fImpRate" accept=".csv">
+      <input type="file" id="fImpRate" accept=".csv,.txt,.xlsx,.xls">
     </div>
     <div id="rateState"></div>
   </div>
@@ -2077,10 +2077,13 @@ $("#bExpRate") && ($("#bExpRate").onclick=()=>{
 });
 $("#bImpRate") && ($("#bImpRate").onclick=()=>$("#fImpRate").click());
 $("#fImpRate") && ($("#fImpRate").onchange=e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const rd=new FileReader();
-  rd.onload=()=>{
-    const rows=parseCSV(rd.result);
+  const inp=e.target, f=inp.files&&inp.files[0];
+  if(!f){ inp.value=""; return; }
+  setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
+  /* 跟帳單走同一個入口:CSV / TXT 直接讀文字,XLSX / XLS 交給 SheetJS
+     轉成 CSV 文字,底下的解析一行都不用改。 */
+  readInvoiceFile(f).then(r=>{
+    const rows=parseCSV(r.text);
     if(rows.length<2){ setStatus(LANG?"That file is empty":"這個檔是空的"); return; }
     const cols=rows[0].map(c=>c.trim());
     const wi=cols.indexOf("Weight");
@@ -2095,10 +2098,11 @@ $("#fImpRate") && ($("#fImpRate").onchange=e=>{
     if(idx>=0) t[idx]=rec; else t.push(rec);
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
     if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
-    setStatus((LANG?"Imported ":"已匯入 ")+body.length+(LANG?" rate rows for ":" 列費率:")+svc);
-  };
-  rd.onloadend=()=>{ e.target.value=""; };
-  rd.readAsText(f,"utf-8");
+    setStatus((LANG?"Imported ":"已匯入 ")+body.length+(LANG?" rate rows for ":" 列費率:")+svc
+      +(r.sheet?(LANG?" · sheet ":" · 工作表 ")+r.sheet:""));
+  }).catch(err=>{
+    setStatus((err&&err.message)||String(err));
+  }).then(()=>{ inp.value=""; });
 });
 $("#bScanZone") && ($("#bScanZone").onclick=()=>{
   if(!ROWS){ setStatus(LANG?"Import an invoice first":"請先匯入帳單"); return; }
@@ -2182,10 +2186,12 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
 });
 $("#bImportAcc") && ($("#bImportAcc").onclick=()=>$("#fImportAcc").click());
 $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const rd=new FileReader();
-  rd.onload=()=>{
-    const rows=parseCSV(rd.result);
+  const inp=e.target, f=inp.files&&inp.files[0];
+  if(!f){ inp.value=""; return; }
+  setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
+  readInvoiceFile(f).then(r=>{
+    const rows=parseCSV(r.text);
+    if(!rows.length||!rows[0]){ setStatus(LANG?"That file is empty":"這個檔是空的"); return; }
     const hdr=rows[0].map(c=>c.trim().toLowerCase());
     const ci={fee:hdr.indexOf("fee type"),ch:hdr.indexOf("shipment type"),
               z:hdr.indexOf("zone"),amt:hdr.indexOf("amount")};
@@ -2205,10 +2211,11 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
       n++;
     }
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
-    setStatus((LANG?"Imported ":"已匯入 ")+n+(LANG?" rate row(s)":" 列費率"));
-  };
-  rd.onloadend=()=>{ e.target.value=""; };
-  rd.readAsText(f,"utf-8");
+    setStatus((LANG?"Imported ":"已匯入 ")+n+(LANG?" rate row(s)":" 列費率")
+      +(r.sheet?(LANG?" · sheet ":" · 工作表 ")+r.sheet:""));
+  }).catch(err=>{
+    setStatus((err&&err.message)||String(err));
+  }).then(()=>{ inp.value=""; });
 });
 $("#bSetFuel") && ($("#bSetFuel").onclick=()=>openFuel());
 
