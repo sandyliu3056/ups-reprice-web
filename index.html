@@ -124,6 +124,18 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .pill.ok{color:var(--run2);border-color:var(--run2)}
 .pill.no{color:var(--neg);border-color:var(--neg)}
 .savenote{font-size:12.5px;color:var(--run2)}
+/* 日曆標題右邊寫現在在挑哪一格 —— 連挑兩個日期時,不講的話
+   使用者不知道自己已經被帶到第二格。 */
+.dpwhich{margin-left:10px;font-size:12.5px;font-weight:700;color:var(--run2)}
+/* 剛剛被填進去的欄位閃一下,不然值換了也看不出來。 */
+@keyframes justset{
+  0%{background:var(--run2);color:#fff}
+  100%{background:transparent;color:inherit}
+}
+.justset{animation:justset 1.1s ease-out}
+@media (prefers-reduced-motion:reduce){
+  .justset{animation:none;outline:3px solid var(--run2);outline-offset:1px}
+}
 /* 存檔提示。原本只有按鈕旁一行小字加底下的狀態列,關掉對話框之後
    兩個都看不到,按了像沒反應。這個從畫面上方落下來,擋不掉。 */
 .toast{position:fixed;z-index:99;left:50%;top:18px;transform:translateX(-50%);
@@ -842,6 +854,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   <div class="modal sketch" id="dpModal" style="width:min(420px,100%)">
     <div class="modalhd">
       <span data-i18n="hd.pickdate">Pick a date</span>
+      <span id="dpWhich" class="dpwhich"></span>
       <button class="mx" id="dpX">✕</button>
     </div>
     <div class="modalbody">
@@ -918,6 +931,11 @@ function declaredValueColIndex(){
 
 /* Zone 在帳單上是補零的三位數("008"),費率表的欄位是 "Zone 8"。
    照桌面版:去掉結尾的 .0,再去掉前導零。 */
+/* "Ground Commercial" -> "Ground"、"2nd Day Air" -> "2nd Day Air"。
+   Zone 對照表對 Ground 是連後綴一起當鍵,其餘只用服務名。 */
+function svcOfChan(c){
+  return String(c||"").replace(/\s+(Commercial|Residential)$/i,"").trim();
+}
 function normZone(v){
   let z=String(v==null?"":v).trim();
   if(z.endsWith(".0")) z=z.slice(0,-2);
@@ -2768,6 +2786,24 @@ $("#fImpRate") && ($("#fImpRate").onchange=e=>{
     if(!svc){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
     const body=rows.slice(1).filter(r=>String(r[wi]).trim()!=="")
       .map(r=>cols.map((c,i)=>c==="Weight"?toNum(r[i]):(c==="Service"||c==="Residential"?r[i]:toNum(r[i]))));
+    /* 這條渠道的 Zone 以檔案為準。模板的 Zone 欄就是這條線實際跑的那組,
+       比程式裡的預設可靠 —— 預設只是個起點,像 2nd Day Air AM 那種沒有
+       範本的線,預設給的是 Ground 那組,幾乎一定不對。
+       設定進去之後在「渠道」分頁照樣可以改。 */
+    const fileZones=cols.filter(c=>/^Zone\s+\S+/.test(c))
+      .map(c=>c.replace(/^Zone\s+/,"").trim()).filter(Boolean);
+    let zoneNote="";
+    if(fileZones.length){
+      const zm=CFG.raw.builtin_service_zones||(CFG.raw.builtin_service_zones={});
+      const key=(zm[svc]!==undefined)?svc:(zm[svcOfChan(svc)]!==undefined?svcOfChan(svc):svc);
+      const now=String(zm[key]||"").split(",").map(z=>z.trim()).filter(Boolean).join(",");
+      const next=fileZones.join(",");
+      if(now!==next){
+        zm[key]=fileZones.join(", ");
+        zoneNote=(LANG?"  · zones set from the file: ":"  · Zone 已依檔案設定:")+next;
+      }
+    }
+
     const t=CFG.raw.base_rate_tables||(CFG.raw.base_rate_tables=[]);
     const idx=t.findIndex(x=>x.service===svc && String(x.residential).toLowerCase()===String(rc==="R"));
     const rec={service:svc,residential:String(rc==="R"),columns:cols,rows:body};
@@ -2776,6 +2812,7 @@ $("#fImpRate") && ($("#fImpRate").onchange=e=>{
     if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
     const chLabel=svc+(res?(LANG?" (Residential)":"(住宅)"):(LANG?" (Commercial)":"(商業)"));
     setStatus((LANG?"Imported ":"已匯入 ")+body.length+(LANG?" rate rows for ":" 列費率:")+chLabel
+      +zoneNote
       +(nm?(LANG?" · sheet ":" · 工作表 ")+nm:"")
       +(src==="_ChannelInfo"&&(svc!==dsvc||res!==dres)
         ?(LANG?"  — channel taken from the file":"  — 渠道以檔案為準"):""));
@@ -3377,6 +3414,19 @@ const DP_WD=[["一","Mo"],["二","Tu"],["三","We"],["四","Th"],
              ["五","Fr"],["六","Sa"],["日","Su"]];
 const DP_MON=["January","February","March","April","May","June","July",
               "August","September","October","November","December"];
+/* 哪一格剛被填好。日曆關掉之後那一格會閃一下,值換了才看得出來。 */
+function flashField(id){
+  const el=$("#"+id);
+  if(!el) return;
+  el.classList.remove("justset");
+  void el.offsetWidth;          /* 重新觸發動畫 */
+  el.classList.add("justset");
+  setTimeout(()=>el.classList.remove("justset"),1300);
+}
+const DP_LABEL={
+  fuelFrom:["開始日期","Start date"],
+  fuelTo:["結束日期","End date"]
+};
 function openPicker(id){
   DP_TARGET=id;
   const cur=($("#"+id)||{}).value||"";
@@ -3389,6 +3439,11 @@ function openPicker(id){
 }
 function closePicker(){ $("#dpBg").classList.remove("on"); DP_TARGET=null; }
 function renderPicker(){
+  const w=$("#dpWhich");
+  if(w){
+    const lab=DP_LABEL[DP_TARGET];
+    w.textContent = lab ? "→ "+lab[LANG] : "";
+  }
   $("#dpTitle").textContent = LANG
     ? DP_MON[DP_M]+" "+DP_Y
     : DP_Y+" 年 "+(DP_M+1)+" 月";
@@ -3410,12 +3465,19 @@ function renderPicker(){
   $("#dpGrid").innerHTML=html;
   $("#dpGrid").querySelectorAll("button[data-d]").forEach(b=>b.onclick=()=>{
     const target=DP_TARGET;
-    if(target) $("#"+target).value=b.dataset.d;
+    if(target){ $("#"+target).value=b.dataset.d; flashField(target); }
+    /* 一段區間要兩個日期。挑完開始直接換到結束 —— 關掉再開會閃一下,
+       看起來像沒反應,所以視窗留著,只換目標並重畫。
+       結束日期已經填過就不打擾,只想改開始日期的人不該被拉走。 */
+    if(target==="fuelFrom" && !(($("#fuelTo")||{}).value||"").trim()){
+      DP_TARGET="fuelTo";
+      const v=($("#fuelTo")||{}).value||b.dataset.d;
+      const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+      if(m){ DP_Y=+m[1]; DP_M=+m[2]-1; }
+      renderPicker();
+      return;
+    }
     closePicker();
-    /* 一段區間要兩個日期,挑完開始就直接接到結束,少按一次日曆鈕。
-       結束日期已經填過就不打擾。 */
-    if(target==="fuelFrom" && !(($("#fuelTo")||{}).value||"").trim())
-      setTimeout(()=>openPicker("fuelTo"),0);
   });
 }
 function dpShift(dy,dm){
