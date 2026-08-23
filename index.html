@@ -124,6 +124,20 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .pill.ok{color:var(--run2);border-color:var(--run2)}
 .pill.no{color:var(--neg);border-color:var(--neg)}
 .savenote{font-size:12.5px;color:var(--run2)}
+/* 存檔提示。原本只有按鈕旁一行小字加底下的狀態列,關掉對話框之後
+   兩個都看不到,按了像沒反應。這個從畫面上方落下來,擋不掉。 */
+.toast{position:fixed;z-index:99;left:50%;top:18px;transform:translateX(-50%);
+  max-width:min(520px,92vw);padding:12px 20px;border:2px solid var(--ink);
+  border-radius:10px;background:var(--panel);color:var(--ink);
+  font-size:14px;font-weight:700;box-shadow:0 8px 22px rgba(0,0,0,.22);
+  display:flex;align-items:center;gap:10px;cursor:pointer}
+.toast.bad{border-color:var(--neg);color:var(--neg)}
+.toast .tk{font-size:17px}
+@media (prefers-reduced-motion:no-preference){
+  .toast{animation:toastin .18s ease-out}
+  @keyframes toastin{from{opacity:0;transform:translate(-50%,-10px)}
+                     to{opacity:1;transform:translate(-50%,0)}}
+}
 .savenote.bad{color:var(--neg)}
 
 .grid3{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center}
@@ -551,7 +565,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 <!-- ==================== Channels ==================== -->
 <section class="page" id="p-chan">
   <div class="lf sketch">
-    <h3 class="display"><span class="em">①</span><span data-i18n="hd.chandata">Channel details</span></h3>
+    <h3 class="display"><span class="em">➕</span><span data-i18n="hd.chandata">Add a new channel</span></h3>
     <div class="grid3" style="grid-template-columns:auto minmax(0,1fr)">
       <label data-i18n="lb.channame">Channel name</label>
       <input id="newChanName" class="cell" style="text-align:left;width:100%">
@@ -876,13 +890,32 @@ const FIXED_COLS = {
   "Charge Category Code": 34, "Charge Category Detail Code": 35,
   "Charge Classification Code": 43, "Charge Description Code": 44,
   "Charge Description": 45, "Net Amount": 52,
-  "Detail Keyed Dimensions": 225
+  "Detail Keyed Dimensions": 225,
+  /* 申報金額。桌面版 dv_column 預設 "AW",A=0 換算就是 48。這一欄裝的是
+     「申報了多少錢」,不是 UPS 收了多少 —— 兩者差很多:同一行申報
+     647.15、收費 5.95。用收費去查級距會落在免收上限以下,結果永遠是 0。 */
+  "Declared Value": 48
 };
 /* 有標題列時照名字對,沒有就用上面的位置。 */
 const BY_NAME = ["Transaction Date","Zone","Entered Weight","Billed Weight",
                  "Billed Weight Type","Package Dimensions",
                  "Detail Keyed Dimensions","Charge Category Code",
                  "Charge Category Detail Code","Incentive Amount"];
+/* "A" -> 0,"AW" -> 48。照桌面版 column_letter_to_index()。 */
+function colLetterToIndex(letter){
+  const t=String(letter==null?"":letter).trim().toUpperCase();
+  if(!t||!/^[A-Z]+$/.test(t)) return null;
+  let i=0;
+  for(const ch of t) i=i*26+(ch.charCodeAt(0)-64);
+  return i-1;
+}
+/* 申報金額在哪一欄。設定裡沒填或填壞就用 48。 */
+function declaredValueColIndex(){
+  const a=(CFG&&CFG.raw&&CFG.raw.accessorial_charges)||{};
+  const i=colLetterToIndex(a.dv_column);
+  return i===null?48:i;
+}
+
 /* Zone 在帳單上是補零的三位數("008"),費率表的欄位是 "Zone 8"。
    照桌面版:去掉結尾的 .0,再去掉前導零。 */
 function normZone(v){
@@ -1424,7 +1457,9 @@ function scanCharges(lines, dynMap){
       if(cm.com) comCode=true;
       if(cm.marker){
         if(cm.marker==="declared_value")
-          declared=Math.max(declared, toNum(l.declaredValue||l.net));
+          /* 只認申報金額欄。退回 net 的話會拿 UPS 的收費去查級距,
+             那個數字幾乎一定落在免收上限以下,申報價值就永遠算 0。 */
+          declared=Math.max(declared, toNum(l.declaredValue));
         if(cm.marker==="commercial_adj") commercialAdj=true;
         continue;                     /* 標記行,不是可計價的附加費 */
       }
@@ -1693,6 +1728,9 @@ function ingest(text){
     const i=idx[name];
     return (i===undefined||i>=r.length)?"":String(r[i]).trim();
   };
+  /* 申報金額那一欄可以在設定裡換位置,所以不放進固定對照表就好,
+     這裡每次讀帳單時解析一次。有標題列時仍以標題為準。 */
+  if(idx["Declared Value"]===undefined || !hasHdr) idx["Declared Value"]=declaredValueColIndex();
   const rows=body.map(r=>{
     const cls=g(r,"Charge Classification Code").toUpperCase();
     const cat=g(r,"Charge Category Code").toUpperCase();
@@ -1708,6 +1746,7 @@ function ingest(text){
       zone:normZone(g(r,"Zone")),
       entered:toNum(g(r,"Entered Weight")),
       billed:toNum(g(r,"Billed Weight")),
+      declaredValue:toNum(g(r,"Declared Value")),
       bwt:g(r,"Billed Weight Type"),
       dimsC:g(r,"Package Dimensions"), dimsA:g(r,"Detail Keyed Dimensions"),
       net:toNum(g(r,"Net Amount"))
@@ -3105,7 +3144,11 @@ function renderConfigTabs(){
   const allChans=[...new Set([...shipmentTypeOptions(),...withRates])].sort();
   const sel=$("#accFilter");
   if(sel){
-    const cur=sel.value||[...withRates].sort()[0]||allChans[0]||"";
+    /* 第一次開的預設值。照字母排會停在 "2nd Day Air AM Residential",
+       那條幾乎沒人先看;Ground Commercial 才是每次都要先確認的那一條。 */
+    const prefer=["Ground Commercial","Ground Residential"]
+      .find(c=>allChans.indexOf(c)>=0);
+    const cur=sel.value||prefer||[...withRates].sort()[0]||allChans[0]||"";
     sel.innerHTML=allChans.map(c=>
       `<option value="${esc(c)}"${c===cur?" selected":""}>${esc(c)}</option>`).join("");
   }
@@ -3857,6 +3900,22 @@ const SAVE_TXT={
   loadednotail:["。無痕視窗或儲存空間已滿都會擋掉。",
                 ". Private windows and full storage both block this."],
 };
+/* 成功的提示會自己消失,失敗的不會 —— 錯誤訊息在看到之前就不見了
+   等於沒說。點一下也可以關掉。 */
+let TOAST_T=null;
+function toast(msg, ok){
+  const old=document.getElementById("toastBox");
+  if(old) old.remove();
+  if(TOAST_T){ clearTimeout(TOAST_T); TOAST_T=null; }
+  const el=document.createElement("div");
+  el.id="toastBox";
+  el.className="toast"+(ok?"":" bad");
+  el.innerHTML='<span class="tk">'+(ok?"✓":"!")+'</span><span></span>';
+  el.lastChild.textContent=msg;
+  el.onclick=()=>el.remove();
+  document.body.appendChild(el);
+  if(ok) TOAST_T=setTimeout(()=>{ el.remove(); TOAST_T=null; },2600);
+}
 function saveNoteKey(ok,key,extra){
   SAVE_MSG={ok:ok,key:key,extra:extra||""};
   paintSaveNote();
@@ -3878,6 +3937,7 @@ function saveSettings(){
   if(!CFG){
     saveNoteKey(false,"nothing");
     setStatus(LANG?"Nothing to save":"沒有可儲存的設定");
+    toast(LANG?"There is nothing to save yet.":"目前沒有可儲存的設定。", false);
     return false;
   }
   const txt=JSON.stringify(CFG.raw,null,2);
@@ -3891,12 +3951,14 @@ function saveSettings(){
     const why=(e&&e.name)||"Error";
     saveNoteKey(false,"failed",why);
     setStatus(LANG?"Save failed":"儲存失敗");
+    toast((LANG?"Could not save: ":"存不進去:")+why, false);
     return false;
   }
   DIRTY=false;
   logAdd("save settings","");
   saveNoteKey(true,"saved");
   setStatus(LANG?"Settings saved":"設定已儲存");
+  toast(LANG?"Settings saved in this browser.":"設定已存進這個瀏覽器。", true);
   return true;
 }
 
@@ -4272,7 +4334,7 @@ function applyTheme(name){
    這裡同一套做法:標了 data-i18n 的節點依語言換字。
    ===================================================================== */
 const I18N={
-  "hd.chandata":["① 渠道資料","Channel details"],
+  "hd.chandata":["➕ 新增渠道","Add a new channel"],
   "hd.ratestate":["② 費率表狀態","Rate table state"],
   "hd.allchan":["③ 全部渠道","All channels"],
   "lb.channame":["渠道名稱","Channel name"],
