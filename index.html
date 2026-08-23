@@ -590,34 +590,6 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     </div>
   </div>
 
-  <div class="lf sketch">
-    <h3 class="display"><span class="em">📏</span><span data-i18n="hd.bulk">Bulk Set Channels</span></h3>
-    <p class="hint" data-i18n="hint.bulk"></p>
-    <div class="bulkwrap">
-      <div class="bulkbox sketch-soft">
-        <div class="bulkhd" data-i18n="hd.selchan">Select Channels</div>
-        <div id="bulkChans"></div>
-        <div class="row" style="margin-top:8px">
-          <button class="act ghost" id="bSelAll" data-i18n="btn.selall">Select All</button>
-          <button class="act ghost" id="bSelNone" data-i18n="btn.selnone">Deselect All</button>
-        </div>
-      </div>
-      <div class="bulkbox sketch-soft">
-        <div class="bulkhd" data-i18n="hd.valwrite">Values to Write</div>
-        <div id="bulkVals"></div>
-      </div>
-    </div>
-    <div class="row" style="margin-top:12px">
-      <button class="act" id="bApplyTicked" data-i18n="btn.applyticked">Apply to Ticked Channels</button>
-      <button class="act ghost" id="bLoadTicked" data-i18n="btn.loadticked">Load Values from Ticked Channel</button>
-      <button class="act ghost" id="bClearTicked" data-i18n="btn.clearticked">Clear Overrides on Ticked</button>
-      <span id="bulkNote" style="color:var(--run2);font-size:12.5px"></span>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
-      <span class="savenote"></span>
-    </div>
-  </div>
 </section>
 
 <!-- ==================== Channels ==================== -->
@@ -2488,12 +2460,9 @@ function applyConfig(text,name,remember){
   }
   $("#pathCfg") && ($("#pathCfg").value=name);
   CFG_LABEL=name;
-  if(zoneFixed.length){
-    DIRTY=true;
-    toast((LANG
-      ? "Cleared the Ground zones that were sitting on lanes that cannot run them: "
-      : "已清除套錯的 Ground Zone,受影響的線:")+zoneFixed.join(", "), false);
-  }
+  /* 修好就好,不用每次開檔都跳一個視窗擋在畫面上 —— 渠道分頁的 Zone 欄
+     本來就會把未設定的標成紅字,要看的人看得到。 */
+  if(zoneFixed.length) DIRTY=true;
   if(remember!==false){
     try{ localStorage.setItem(CFG_KEY,text); localStorage.setItem(CFG_NAME,name); }
     catch(e){
@@ -2913,8 +2882,6 @@ $("#sizeFilter") && ($("#sizeFilter").onchange=()=>renderConfigTabs());
 $("#bDefThr") && ($("#bDefThr").onclick=()=>{
   if($("#sizeFilter")) $("#sizeFilter").value="__all";
   renderConfigTabs(); setStatus(LANG?"Showing default thresholds":"顯示預設門檻"); });
-$("#bBulkChan") && ($("#bBulkChan").onclick=()=>{
-  const el=$("#bulkChans"); if(el) el.closest(".lf").scrollIntoView({behavior:"smooth"}); });
 $("#bSaveDim") && ($("#bSaveDim").onclick=()=>{
   CFG.raw.global_rules.default_dim_factor=String($("#defDim").value).trim();
   CFG=readConfig(CFG.raw); DIRTY=true; saveSettings(); renderConfigTabs(); });
@@ -3015,11 +2982,6 @@ $("#bChanDimTicked") && ($("#bChanDimTicked").onclick=()=>
   setChanDim(dimTicked(), $("#chanDimVal").value));
 $("#bChanDimClear") && ($("#bChanDimClear").onclick=()=>
   setChanDim(dimTicked(), ""));
-$("#bSelAll")  && ($("#bSelAll").onclick =()=>{document.querySelectorAll(".bulkc").forEach(c=>c.checked=true);});
-$("#bSelNone") && ($("#bSelNone").onclick=()=>{document.querySelectorAll(".bulkc").forEach(c=>c.checked=false);});
-$("#bApplyTicked") && ($("#bApplyTicked").onclick=bulkApply);
-$("#bLoadTicked")  && ($("#bLoadTicked").onclick =bulkLoad);
-$("#bClearTicked") && ($("#bClearTicked").onclick=bulkClear);
 /* 附加費:篩選、勾選移除、範本匯出匯入 */
 $("#demandTabs") && ($("#demandTabs").onclick=e=>{
   const b=e.target.closest("button[data-d]"); if(!b) return;
@@ -3445,13 +3407,28 @@ function renderStorageMeter(){
     </div>
     <ul class="meterbits">${rows||`<li><span>—</span><b>0 B</b></li>`}</ul>
     <p class="meterwhy">${LANG
-      ? `Filed invoices take about <b>${fmtBytes(u.perInvoice)}</b> each, so there is room for roughly `
-        +`<b>${room===null?"—":room.toLocaleString()}</b> more. Only the index is kept — invoice numbers, `
-        +`dates, counts and the residential/commercial lookup. The detail lines are not stored; `
-        +`re-import a file to browse them again.`
-      : `每一期歸檔大約占 <b>${fmtBytes(u.perInvoice)}</b>,以現在的用量還放得下約 `
-        +`<b>${room===null?"—":room.toLocaleString()}</b> 期。存的只有索引:期號、日期、筆數,`
-        +`以及追蹤號的住宅／商業對照。明細列不存,要看舊期明細就重新匯入那個檔案。`}</p>`;
+      ? `This bar is the small settings area only: invoice numbers, dates, counts and the `
+        +`residential/commercial lookup. About <b>${fmtBytes(u.perInvoice)}</b> per invoice, so `
+        +`room for roughly <b>${room===null?"—":room.toLocaleString()}</b> more.<br>`
+        +`The invoice detail lines are kept separately and are not limited by this bar — `
+        +`<b id="idbLine">checking…</b>`
+      : `這條只算小容量的設定區:期號、日期、筆數,以及追蹤號的住宅／商業對照。`
+        +`每一期約 <b>${fmtBytes(u.perInvoice)}</b>,以現在的用量還放得下約 `
+        +`<b>${room===null?"—":room.toLocaleString()}</b> 期。<br>`
+        +`帳單的明細列存在另一個地方,不受這條的限制 —— <b id="idbLine">查詢中…</b>`}</p>`;
+  /* 明細那一份問瀏覽器要用量,拿不到就講拿不到,不要編一個數字。 */
+  const line=$("#idbLine");
+  if(line && navigator.storage && navigator.storage.estimate){
+    navigator.storage.estimate().then(e=>{
+      const used=e.usage||0, quota=e.quota||0;
+      line.textContent = quota
+        ? (LANG?`using ${fmtBytes(used)} of about ${fmtBytes(quota)}`
+               :`已用 ${fmtBytes(used)},額度約 ${fmtBytes(quota)}`)
+        : (LANG?`using ${fmtBytes(used)}`:`已用 ${fmtBytes(used)}`);
+    }).catch(()=>{ line.textContent=LANG?"size unavailable":"查不到用量"; });
+  }else if(line){
+    line.textContent=LANG?"size unavailable in this browser":"這個瀏覽器查不到用量";
+  }
 }
 function openStored(){
   /* 讀持久化的索引,不是這次載進來的那幾列 —— 重開瀏覽器之後
@@ -3785,7 +3762,6 @@ function renderConfigTabs(){
   document.querySelectorAll("#app select.chansel").forEach(el=>{
     el.onchange=()=>moveRateRow(el.dataset.key, el.value);
   });
-  renderBulk();
 }
 
 /* 把一列費率搬到另一個 Shipment Type 底下 */
@@ -4289,81 +4265,6 @@ const BULK_LAB={dim_factor:["DIM 除數","DIM factor"],
   oversize_length_girth:["LPS 長+圍","LPS L+G"],
   oversize_min_billable_weight:["LPS 最低計費重","LPS min billable"]};
 
-function renderBulk(){
-  const box=$("#bulkChans"); if(!box||!CFG) return;
-  const zn=CFG.raw.builtin_service_zones||{};
-  /* 重畫會把勾選清掉,而套用之後就是要重畫表格 —— 先記下來再還原。 */
-  const wasTicked=new Set(tickedChannels());
-  box.innerHTML=Object.keys(zn).map(s=>
-    `<label class="bulkchk"><input type="checkbox" class="bulkc" value="${esc(s)}"${
-      wasTicked.has(s)?" checked":""}> ${esc(s)}</label>`
-  ).join("");
-  const kept={};
-  for(const k of BULK_KEYS){ const el=$("#bv_"+k); if(el) kept[k]=el.value; }
-  const field=k=>`<div class="bulkval"><label>${BULK_LAB[k][LANG]}</label>
-     <input class="cell num" id="bv_${k}" value="${esc(kept[k]||"")}"
-      placeholder="—"></div>`;
-  const grp=(title,keys)=>`<div class="bulkgrp">
-      <div class="bulkgt">${title}</div>${keys.map(field).join("")}</div>`;
-  $("#bulkVals").innerHTML=
-    `<div class="bulkval bulkwide">${field("dim_factor").replace(/^<div class="bulkval">|<\/div>$/g,"")}</div>`
-    +`<div class="bulkcols">`
-    +grp(LANG?"AHS — Additional Handling Surcharge":"AHS — 額外處理費",
-        ["ahs_weight_threshold","ahs_longest_side","ahs_second_side",
-         "ahs_cubic_inches","ahs_lg_limit","ahs_min_billable_weight"])
-    +grp(LANG?"LPS — Large Package Surcharge":"LPS — 大型包裹附加費",
-        ["oversize_longest_side","oversize_actual_weight","oversize_cubic_inches",
-         "oversize_length_girth","oversize_min_billable_weight"])
-    +`</div>`;
-}
-function tickedChannels(){
-  return [...document.querySelectorAll(".bulkc:checked")].map(c=>c.value);
-}
-function bulkApply(){
-  const chans=tickedChannels();
-  if(!chans.length){ $("#bulkNote").textContent=LANG?"Tick a channel first":"請先勾選渠道"; return; }
-  const c=CFG.raw.channel_rule_overrides||(CFG.raw.channel_rule_overrides={});
-  let n=0;
-  for(const svc of chans){
-    const o=c[svc]||(c[svc]={});
-    for(const k of BULK_KEYS){
-      const v=($("#bv_"+k)||{}).value;
-      if(v===undefined||String(v).trim()==="") continue;   /* 留空的欄位不動 */
-      o[k]=String(v).trim(); n++;
-      if(k==="dim_factor")
-        (CFG.raw.channel_dim_factors||(CFG.raw.channel_dim_factors={}))[svc]=String(v).trim();
-    }
-  }
-  CFG=readConfig(CFG.raw); DIRTY=true; saveNoteKey(true,"changed");
-  $("#bulkNote").textContent=LANG
-    ? `Wrote ${n} value(s) to ${chans.length} channel(s). Save to keep it.`
-    : `寫入 ${n} 個值到 ${chans.length} 個渠道,記得儲存。`;
-  renderConfigTabs();
-  if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
-}
-function bulkLoad(){
-  const chans=tickedChannels();
-  if(chans.length!==1){
-    $("#bulkNote").textContent=LANG?"Tick exactly one channel to load from"
-                                   :"載入現值請只勾一個渠道"; return; }
-  const o=(CFG.raw.channel_rule_overrides||{})[chans[0]]||{};
-  for(const k of BULK_KEYS){ const el=$("#bv_"+k); if(el) el.value=o[k]??""; }
-  $("#bulkNote").textContent=LANG?`Loaded from ${chans[0]}`:`已載入 ${chans[0]} 的現值`;
-}
-function bulkClear(){
-  const chans=tickedChannels();
-  if(!chans.length){ $("#bulkNote").textContent=LANG?"Tick a channel first":"請先勾選渠道"; return; }
-  const c=CFG.raw.channel_rule_overrides||{};
-  for(const svc of chans){ delete c[svc];
-    if(CFG.raw.channel_dim_factors) delete CFG.raw.channel_dim_factors[svc]; }
-  CFG=readConfig(CFG.raw); DIRTY=true; saveNoteKey(true,"changed");
-  $("#bulkNote").textContent=LANG
-    ? `Cleared ${chans.length} channel(s). They follow the default now.`
-    : `已清除 ${chans.length} 個渠道的覆寫,改為跟著預設。`;
-  renderConfigTabs();
-}
-
-/* 改一格就寫回設定物件,並且把重讀過的值同步給計價引擎 */
 function editCell(key,val){
   const p=key.split("\u241F");
   if(p[0]==="rule"){
@@ -4963,7 +4864,6 @@ const I18N={
     "Changes are kept in this browser only. To apply them for colleagues, download the accounts file and send it out. Passwords are stored in plain text — anyone who can open this file or this browser can read every password. This separates roles, it does not protect anything."],
   "hint.activity":["只涵蓋這台瀏覽器。同事的紀錄在他們自己的電腦上,請他們匯出後你再匯入合併。",
     "This browser only. A colleague's activity stays on their machine — have them export it, then import it here to merge."],
-  "hd.bulk":["批量設定渠道","Bulk Set Channels"],
   "hd.selchan":["選擇渠道","Select Channels"],
   "hd.valwrite":["要寫入的值","Values to Write"],
   "btn.selall":["全選","Select All"],
