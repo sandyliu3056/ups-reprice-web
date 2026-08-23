@@ -494,7 +494,9 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   <div class="lf sketch" id="rateBox" style="display:none">
     <h3 class="display"><span class="em">🧮</span><span data-i18n="hd.rate">Repricing</span></h3>
     <div class="tiles" id="tiles2" style="margin-bottom:12px"></div>
-    <div class="tablewrap"><table id="tRate"><thead></thead><tbody></tbody></table></div>
+    <!-- 逐筆明細不顯示。要看細節就用匯出的報表,那份有完整 44 欄;
+         畫面上留分析數字就好。表格留著不畫,renderRate() 不必改。 -->
+    <div class="tablewrap" style="display:none"><table id="tRate"><thead></thead><tbody></tbody></table></div>
     <div id="rateNote"></div>
   </div>
 
@@ -750,6 +752,9 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 
 
 </div>
+  <!-- 場景放進捲動區的最後面。原本它在 main 外面、固定佔住視窗底部,
+       所以內容捲到底時最後幾列會被它蓋掉。 -->
+  <div class="sceneBox" id="sceneBox"><canvas id="scene"></canvas></div>
 </main>
 
 <div id="modalBg" class="modalbg">
@@ -875,7 +880,6 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   </div>
 </div>
 
-<div class="sceneBox" id="sceneBox"><canvas id="scene"></canvas></div>
 <div id="rvBg" class="modalbg">
   <div class="modal sketch" id="rvModal" style="width:min(880px,100%)">
     <div class="modalhd">
@@ -2562,11 +2566,12 @@ function applyConfig(text,name,remember){
       saveNoteKey(false,"loadedno",(e&&e.name)||"Error");
     }
   }
-  $("#cfgNote").innerHTML = CFG.tableRowCount===0 ? ""
-    : `<div class="note">${LANG?"Rate tables":"費率表"} <b>${CFG.tables.length}</b> ·
-        <b>${CFG.tableRowCount.toLocaleString()}</b> ${LANG?"rows":"列"} ·
-        DIM <b>${defaultDimDivisor(CFG)}</b> ·
-        ${LANG?"Fuel":"燃油"} <b>${CFG.fuelPct||0}%</b></div>`;
+  /* 這一行拿掉了。DIM 只能印一個數字,但除數是按渠道走的(帳號預設 139、
+     Ground 實際用 300),燃油也是按渠道與期間排程,印全域那個百分比同樣不準。
+     一個永遠只說對一半的摘要,比不說更容易讓人算錯帳。
+     要看實際生效的值:DIM 在「批量設定 DIM 除數」的生效一覽,
+     費率表在「檢視已載入的運費」。 */
+  $("#cfgNote").innerHTML="";
   renderConfigTabs();
   ready();
   return true;
@@ -3755,13 +3760,9 @@ function renderReady(okCfg, okInv){
   if(!box) return;
   /* 只留標籤和狀態。檔名、大小、格式、工作表在上面的 UPS Billing File
      欄位裡,費率列數在下面的 cfgNote 裡,這裡再寫一次是重複。 */
-  const pill=ok=>`<span class="pill ${ok?"ok":"no"}">`
-    +(ok?(LANG?"Ready":"就緒"):(LANG?"Not loaded":"尚未載入"))+`</span>`;
-  box.innerHTML=
-    `<div class="rdy"><span class="k">`+(LANG?"Rate settings":"費率設定")+`</span>`
-    +pill(okCfg)+`</div>`
-    +`<div class="rdy"><span class="k">`+(LANG?"UPS Invoice":"UPS 帳單")+`</span>`
-    +pill(okInv)+`</div>`;
+  /* 兩個就緒徽章拿掉。檔名在上面的 UPS Billing File 欄位裡,費率載了沒
+     在渠道分頁看得到,這裡是第三次講同一件事。 */
+  box.innerHTML="";
 }
 
 /* ---- 設定檔相關分頁 ---- */
@@ -4313,6 +4314,84 @@ function dynDelete(){
   setStatus((LANG?"Deleted ":"已刪除 ")+gone.length);
 }
 const DYN_COLS=["AS Code","AR","Surcharge Name","Type","Fuel Eligible","Enabled"];
+/* =====================================================================
+   重計價報表
+   ---------------------------------------------------------------------
+   欄位與順序照桌面版匯出的活頁簿,工作表名稱也一樣叫 Shipment Detail,
+   兩份可以直接並排比對。欄名多數就是設定檔裡的費用鍵,只有 AHS 三項與
+   大包裹用 UPS 的長名稱,所以只列出那四個對照,其餘同名。
+   RTN 層的運費放「Undeliverable Return」而不是 Base Rate —— 桌面版是
+   這樣分的,金額一樣,欄位不同。
+   ===================================================================== */
+const REPORT_COLS=["Date","Tracking","Shipment Reference Number 1",
+ "Shipment Reference Number 2","Zone","Shipment Type","Entered Weight",
+ "Billable Weight","Length","Width","Height","Base Rate","Residential Surcharge",
+ "DAS Commercial","DAS Residential","DAS Extended Commercial",
+ "DAS Extended Residential","Remote Area Commercial","Remote Area Residential",
+ "Remote Area - AK","Remote Area - HI","Additional Handling Surcharge - Weight",
+ "Additional Handling Surcharge - Dimension","Additional Handling Surcharge - Packaging",
+ "Large Package Surcharge","Over Maximum Size Surcharge","Undeliverable Return",
+ "Address Correction","Declared Value","Return To Sender","2nd Mile Road Base Rate",
+ "Signature","Adult Signature","Package Protection","Direct Delivery Only","Reroute",
+ "Reschedule Delivery","Returns Electronic Label","Returns Print Label",
+ "Future Day Pickup - Alternate Address - Web Request","Returns 3 UPS Pickup Attempts",
+ "Residential Pickup surcharge","Fuel Surcharge","Total"];
+const REPORT_COL_OF={
+  "AHS Weight":"Additional Handling Surcharge - Weight",
+  "AHS Dimension":"Additional Handling Surcharge - Dimension",
+  "AHS Packaging":"Additional Handling Surcharge - Packaging",
+  "Large Package":"Large Package Surcharge"
+};
+function reportRows(){
+  const known=new Set(REPORT_COLS);
+  return (RATED||[]).map(r=>{
+    const s=r.s, o={};
+    for(const c of REPORT_COLS) o[c]="";
+    o["Date"]=s.shipDate||"";
+    o["Tracking"]=s.tracking||"";
+    o["Zone"]=s.zone||"";
+    o["Shipment Type"]=r.channel||"";
+    o["Entered Weight"]=s.entered||0;
+    o["Billable Weight"]=r.bw.billable||0;
+    if(s.dims){ o["Length"]=s.dims.l; o["Width"]=s.dims.w; o["Height"]=s.dims.h; }
+    /* 退貨那一層的運費不記在 Base Rate。 */
+    const freightCol = s.layer==="RTN" ? "Undeliverable Return" : "Base Rate";
+    o[freightCol]=r.base==null?"":r.base;
+    for(const [k,v] of Object.entries(r.acc||{})){
+      const col=REPORT_COL_OF[k]||k;
+      if(known.has(col)) o[col]=(toNum(o[col])||0)+v;
+    }
+    o["Fuel Surcharge"]=r.fuel||0;
+    o["Total"]=r.total==null?"":r.total;
+    /* 第二段運送另外一列,不要把兩段的錢疊在同一格。 */
+    return o;
+  });
+}
+function exportReport(){
+  if(!RATED||!RATED.length){
+    setStatus(LANG?"Build a report first":"請先產生報表"); return;
+  }
+  const rows=reportRows();
+  const name="Invoice_"+String((ROWS&&ROWS[0]&&ROWS[0].invoice)||"report")
+    .replace(/[^A-Za-z0-9]+/g,"_")+"_Repriced.xlsx";
+  loadXLSX().then(X=>{
+    const aoa=[REPORT_COLS, ...rows.map(r=>REPORT_COLS.map(c=>r[c]))];
+    const wb=X.utils.book_new();
+    X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(aoa), "Shipment Detail");
+    dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
+      {type:"application/octet-stream"}), name);
+    toast((LANG?"Report exported · ":"報表已匯出 · ")+rows.length
+      +(LANG?" rows":" 列"), true);
+  }).catch(()=>{
+    const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
+    const csv=[REPORT_COLS.join(","),
+      ...rows.map(r=>REPORT_COLS.map(c=>q(r[c])).join(","))].join("\n");
+    dlBlob(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}), name.replace(/\.xlsx$/,".csv"));
+    toast(LANG?"Excel writer unavailable — exported CSV instead"
+              :"Excel 元件載不到,已改匯出 CSV", false);
+  });
+}
+
 function dynExport(){
   const rows=(DYN_ROWS.length?DYN_ROWS:[
     {as:"ARK",ar:"ACC",name:"Remote Area - AK",type:"REPRICE",fuel:false,on:true},
@@ -4608,6 +4687,8 @@ $("#bRun").onclick=()=>{
     $("#sumBox").style.display=""; $("#rateBox").style.display="";
     ready();
     logAdd("reprice report", ROWS.length+" rows / "+SHIPS.length+" tracking");
+    /* 產生完就直接把活頁簿倒出來 —— 桌面版按下去就是給你一份檔案。 */
+    exportReport();
     setStatus(L("完成:","Done: ")+ROWS.length.toLocaleString()
       +L(" 列 / "," lines / ")+SHIPS.length.toLocaleString()
       +L(" 個追蹤號"," tracking numbers")
