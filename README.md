@@ -53,6 +53,33 @@ Excel 交給 SheetJS 轉成 CSV 文字後再解析,所以兩種格式走的是�
 
 設定檔(`ups_billing_tool_config.json`)只吃 JSON,那不是表格。
 
+### 跟桌面版共用模板
+
+網頁版與 `UPS_Reprice_Tool.py` 讀寫同一組活頁簿,兩邊的檔案可以互丟:
+
+| 模板 | 工作表 | 欄位 |
+|---|---|---|
+| 基本運費 | `Base Rates` | `Service` / `Weight` / `Zone 2` … |
+| | `_ChannelInfo`(隱藏) | `Service` / `Channel Type` / `Built By` |
+| 附加費 | `AHS_LPS` | `Fee Type` / `Shipment Type` / `Zone 2` … |
+| | `FLAT_CHARGES` | `Fee Type` / [`Shipment Type`] / `Amount` |
+
+幾件會影響結果的事:
+
+- **渠道以檔案為準,不是畫面上選的那條。** 基本運費匯入會先讀 `_ChannelInfo`,
+  和畫面選的不一樣時以檔案為準,狀態列會註明。選錯渠道不會再把費率悄悄寫到
+  別條線上。沒有 `_ChannelInfo` 時才依序看表身的 `Service` / `Residential` 欄,
+  最後才用畫面上選的。
+- **Fee Type 兩邊用詞不同,靠對照表換算。** 檔案裡是 UPS 的長名稱
+  (`Additional Handling Surcharge - Weight`),設定檔裡是短鍵(`AHS Weight`)。
+  對照表照抄桌面版的 `FEE_TYPE_DISPLAY_NAMES`,舊模板用過的名字也收著。
+- **整列 Zone 全空白的那一列會跳過。** 那是還沒填的空模板,不是費率 0。
+  匯進去會把現有費率蓋成一張全 0 的表。
+- **`FLAT_CHARGES` 沒有 `Shipment Type` 欄時**(桌面版的全渠道模板就是這樣),
+  一列費用寫進每一條走標準 Zone(2–8 / 44–46)的渠道,跟桌面版一致。
+- **匯出是 xlsx**,桌面版可直接匯入。SheetJS 載不到時退回 CSV,欄位一樣但只有
+  網頁版讀得了。
+
 ### 費率從哪來
 
 **程式裡不含任何費率。** 內建的只有結構:15 種服務、Zone 清單、UPS 公告門檻、52 個代碼。金額全部是空的。

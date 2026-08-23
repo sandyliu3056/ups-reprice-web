@@ -168,6 +168,8 @@ td.cells{white-space:normal}
 .note{border-left:4px solid var(--run2);background:#fff8e4;padding:9px 12px;
   margin:10px 0 0;font-size:12.5px;border-radius:0 5px 5px 0}
 .note.warn{border-left-color:var(--neg);background:#fdeceb}
+/* 登入頁的提示不用色塊:那一頁只有一則訊息,加框反而更吵。 */
+.note.plain{border-left:0;background:none;padding:8px 0 0;border-radius:0;color:var(--neg)}
 .note b{color:var(--run2)} .note.warn b{color:var(--neg)}
 
 /* 附加費:Zone 直欄 + 固定金額網格 */
@@ -1487,8 +1489,8 @@ function logAdd(what,detail){
 
 async function login(email,pw){
   if(!AUTH) return {err:LANG
-    ?"auth-config.js not loaded"
-    :"未載入 auth-config.js"};
+    ?"Sign-in settings are missing, so this page cannot sign you in."
+    :"缺少登入設定,這一頁目前沒辦法登入。"};
   const id=String(email).trim().toLowerCase();
   if(!id||!pw) return {err:LANG
     ?"Email and password are required."
@@ -1593,14 +1595,16 @@ function applyRole(){
   if(ME && ADMIN_ONLY.includes(currentTab()) && !admin) showTab("files");
 }
 
-/* 只講缺哪個檔案。原本說「尚未完成設定」會被誤會成登入壞了。
+/* 一句話講完:這一頁登不了,原因是設定沒帶到。檔名對開這一頁的人沒有
+   意義,要查的人看 README 或 console 就好。
    獨立成函式是因為切語言時要重畫 —— 它不是 data-i18n,applyLang()
    不會自動處理。 */
 function paintGateNote(){
   const note=$("#gateNote");
   if(!note) return;
-  note.innerHTML=`<div class="note warn">`
-    +(LANG?"auth-config.js not loaded":"未載入 auth-config.js")+`</div>`;
+  note.innerHTML=`<div class="note plain">`
+    +(LANG?"Sign-in settings are missing, so this page cannot sign you in."
+          :"缺少登入設定,這一頁目前沒辦法登入。")+`</div>`;
 }
 async function initAuth(){
   try{
@@ -1783,6 +1787,106 @@ function loadXLSX(){
     document.head.appendChild(sc);
   }).catch(e=>{ XLSX_LOAD=null; throw e; });
   return XLSX_LOAD;
+}
+/* =====================================================================
+   與桌面版共用模板
+   ---------------------------------------------------------------------
+   桌面版 UPS_Reprice_Tool.py 匯出的活頁簿長這樣:
+
+     基本運費   工作表 Base Rates      Service | Weight | Zone 2 | …
+                工作表 _ChannelInfo    Service | Channel Type | Built By
+     附加費     工作表 AHS_LPS         Fee Type | Shipment Type | Zone 2 | …
+                工作表 FLAT_CHARGES    Fee Type | [Shipment Type] | Amount
+
+   Fee Type 在檔案裡是 UPS 的顯示名稱,在設定檔裡是短鍵,兩邊靠下面這張
+   表對應 —— 直接照抄桌面版的 FEE_TYPE_DISPLAY_NAMES,不能各寫一份。
+   ===================================================================== */
+const FEE_DISPLAY={
+  "AHS Weight":"Additional Handling Surcharge - Weight",
+  "AHS Dimension":"Additional Handling Surcharge - Dimension",
+  "AHS Packaging":"Additional Handling Surcharge - Packaging",
+  "Large Package":"Large Package Surcharge",
+  "DAS Commercial":"Delivery Area Surcharge - Commercial",
+  "DAS Residential":"Delivery Area Surcharge - Residential",
+  "DAS Extended Commercial":"Delivery Area Surcharge - Extended - Commercial",
+  "DAS Extended Residential":"Delivery Area Surcharge - Extended - Residential",
+  "Remote Area Commercial":"Remote Area Surcharge - Commercial",
+  "Remote Area Residential":"Remote Area Surcharge - Residential",
+  "Remote Area - AK":"Remote Area Surcharge - Alaska",
+  "Remote Area - HI":"Remote Area Surcharge - Hawaii",
+  "Return To Sender":"Return To Sender - Web Request",
+  "Reroute":"Reroute - Web Request",
+  "Reschedule Delivery":"Reschedule Delivery - Web Request",
+  "Signature":"Delivery Confirmation Signature",
+  "Adult Signature":"Adult Signature Required",
+  "Over Maximum Size Surcharge":"Over Maximum Surcharge"
+};
+/* 反查表。舊模板用過的名字也收進來,不然舊檔會匯進一個沒人計價的鍵,
+   金額不是算錯而是整個不見。 */
+const FEE_KEY_BY_DISPLAY=(function(){
+  const m={};
+  for(const k in FEE_DISPLAY) m[FEE_DISPLAY[k]]=k;
+  m["Intercept Service Web"]="Return To Sender";
+  return m;
+})();
+const ACC_ZONE_FEES=["AHS Weight","AHS Dimension","AHS Packaging","Large Package"];
+const ACC_FLAT_FEES=["DAS Commercial","DAS Residential","DAS Extended Commercial",
+  "DAS Extended Residential","Remote Area Commercial","Remote Area Residential",
+  "Remote Area - AK","Remote Area - HI","Residential Surcharge","Return To Sender",
+  "Reroute","Reschedule Delivery","Returns Electronic Label","Returns Print Label",
+  "Signature","Adult Signature","Package Protection","Address Correction",
+  "Direct Delivery Only","Over Maximum Size Surcharge"];
+function feeDisplay(k){ const n=String(k||"").trim(); return FEE_DISPLAY[n]||n; }
+function feeKey(d){ const n=String(d||"").trim(); return FEE_KEY_BY_DISPLAY[n]||n; }
+
+/* 整本活頁簿:每個工作表各自轉成列陣列。readInvoiceFile() 只回第一個
+   有資料的表,而共用模板要同時看 _ChannelInfo / AHS_LPS / FLAT_CHARGES,
+   所以另開一個入口。CSV / TXT 當成一張無名工作表,上層邏輯不必分兩套。 */
+function readWorkbookRows(file){
+  const kind=fileKind(file.name);
+  if(!isExcelKind(kind)){
+    return new Promise((res,rej)=>{
+      const rd=new FileReader();
+      rd.onload=()=>{ const rows=parseCSV(String(rd.result));
+        res({kind:kind,order:[""],sheets:{"":rows}}); };
+      rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+      rd.readAsText(file,"utf-8");
+    });
+  }
+  return loadXLSX().then(X=>new Promise((res,rej)=>{
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const wb=X.read(new Uint8Array(rd.result),
+                        {type:"array",cellDates:true,cellNF:false,cellText:false});
+        const order=wb&&wb.SheetNames?wb.SheetNames.slice():[];
+        if(!order.length) throw new Error(LANG?"that workbook has no sheets"
+                                              :"這個活頁簿裡沒有工作表");
+        const sheets={};
+        for(const nm of order) sheets[nm]=parseCSV(sheetToCsv(X,wb.Sheets[nm]));
+        res({kind:kind,order:order,sheets:sheets});
+      }catch(e){ rej(e); }
+    };
+    rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+    rd.readAsArrayBuffer(file);
+  }));
+}
+function sheetHeader(rows){ return (rows&&rows[0]?rows[0]:[]).map(c=>String(c==null?"":c).trim()); }
+/* "Zone 44" -> {i, zone:"44"}。桌面版是把 "Zone" 去掉再 trim,這裡一樣。 */
+function zoneCols(hdr){
+  const out=[];
+  hdr.forEach((h,i)=>{ const m=/^zone\s*(.+)$/i.exec(String(h).trim());
+    if(m) out.push({i:i,zone:m[1].trim()}); });
+  return out;
+}
+function blankCell(v){ return v==null||String(v).trim()===""; }
+/* 標準 Zone 那組渠道。FLAT_CHARGES 沒有 Shipment Type 時,桌面版是寫進
+   每一條走標準 Zone 的渠道,這裡照做。 */
+function standardZoneChannels(){
+  const zn=CFG.raw.builtin_service_zones||{};
+  const std=["2","3","4","5","6","7","8","44","45","46"].join(",");
+  const norm=v=>String(v||"").split(",").map(z=>z.trim()).filter(Boolean).join(",");
+  return Object.keys(zn).filter(c=>norm(zn[c])===std);
 }
 function fileKind(name){
   const m=String(name||"").toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -2059,37 +2163,95 @@ $("#bDelChan") && ($("#bDelChan").onclick=()=>{
 $("#bExpRate") && ($("#bExpRate").onclick=()=>{
   const pick=($("#rateChan")||{}).value||"";
   const [svc,rc]=pick.split("|");
+  if(!svc){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
   const res=rc==="R";
   const zn=(CFG.raw.builtin_service_zones||{})[svc]||"";
   const zones=String(zn).split(",").map(z=>z.trim()).filter(Boolean);
-  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
-  const head=["Service","Weight",...zones.map(z=>"Zone "+z),"Residential"];
-  const lines=[head.join(",")];
-  /* 1-150 lb 的空白列,填好再匯回來 */
-  for(let wt=1;wt<=150;wt++)
-    lines.push([q(svc),wt,...zones.map(()=>""),res?"YES":"NO"].join(","));
-  const b=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(b);
-  a.download="base_rates_"+svc.replace(/ /g,"_")+(res?"_Res":"_Com")+".csv";
-  a.click(); URL.revokeObjectURL(a.href);
-  setStatus((LANG?"Template exported for ":"已匯出模板:")+svc);
+  /* 已載入的費率帶出來。空白模板倒出去,填的人一存檔就把現有費率換成空的。 */
+  const cur=(CFG.raw.base_rate_tables||[]).find(x=>
+    String(x.service).trim()===svc && String(x.residential).toLowerCase()===String(res));
+  const ci=cur?sheetHeader(cur.columns||[]):[];
+  const cw=ci.indexOf("Weight");
+  const byW={};
+  if(cur&&cw>=0) for(const r of (cur.rows||[])) byW[String(toNum(r[cw]))]=r;
+
+  const head=["Service","Weight",...zones.map(z=>"Zone "+z)];
+  const body=[];
+  for(let wt=1;wt<=150;wt++){
+    const src=byW[String(wt)];
+    body.push([svc,wt,...zones.map(z=>{
+      if(!src) return "";
+      const k=ci.indexOf("Zone "+z), k2=k<0?ci.indexOf(String(z)):k;
+      return k2<0||src[k2]==null||src[k2]===""?"":toNum(src[k2]);
+    })]);
+  }
+  const fname="UPS_BaseRate_"+svc.replace(/[^A-Za-z0-9]+/g,"_")
+    +"_"+(res?"Residential":"Commercial")+".xlsx";
+  loadXLSX().then(X=>{
+    const wb=X.utils.book_new();
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet([head,...body]),"Base Rates");
+    /* 桌面版靠這張表認渠道,不能省。它自己也是寫成隱藏表。 */
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet([
+      ["Service","Channel Type","Built By"],
+      [svc,res?"Residential":"Commercial","web"]]),"_ChannelInfo");
+    if(wb.Workbook&&wb.Workbook.Sheets){} else wb.Workbook={Sheets:[]};
+    wb.Workbook.Sheets=(wb.SheetNames||[]).map(n=>({name:n,Hidden:n==="_ChannelInfo"?1:0}));
+    const buf=X.write(wb,{bookType:"xlsx",type:"array"});
+    dlBlob(new Blob([buf],{type:"application/octet-stream"}),fname);
+    setStatus((LANG?"Template exported for ":"已匯出模板:")+svc
+      +(LANG?" — opens in the desktop tool too":" — 桌面版可直接匯入"));
+  }).catch(()=>{
+    /* SheetJS 載不到就退回 CSV。欄位一樣,但桌面版只吃 xlsx,這份只有網頁版能用。 */
+    const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
+    const lines=[[...head,"Residential"].map(q).join(","),
+      ...body.map(r=>[...r,res?"YES":"NO"].map(q).join(","))];
+    dlBlob(new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"}),
+           fname.replace(/\.xlsx$/,".csv"));
+    setStatus(LANG?"Excel writer unavailable — exported CSV (web only)"
+                  :"Excel 元件載不到,已改匯出 CSV(桌面版讀不了)");
+  });
 });
 $("#bImpRate") && ($("#bImpRate").onclick=()=>$("#fImpRate").click());
 $("#fImpRate") && ($("#fImpRate").onchange=e=>{
   const inp=e.target, f=inp.files&&inp.files[0];
   if(!f){ inp.value=""; return; }
   setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
-  /* 跟帳單走同一個入口:CSV / TXT 直接讀文字,XLSX / XLS 交給 SheetJS
-     轉成 CSV 文字,底下的解析一行都不用改。 */
-  readInvoiceFile(f).then(r=>{
-    const rows=parseCSV(r.text);
+  /* 桌面版的模板把渠道寫在隱藏的 _ChannelInfo 裡,不是靠畫面上選了誰。
+     照它走,選錯渠道就不會把費率悄悄寫到別條線上。 */
+  readWorkbookRows(f).then(bk=>{
+    const dd=($("#rateChan")||{}).value||"";
+    const dsvc=dd.split("|")[0]||"", dres=dd.split("|")[1]==="R";
+    let svc="", res=null, src="";
+
+    const info=bk.sheets["_ChannelInfo"];
+    if(info&&info.length>1){
+      const ih=sheetHeader(info), si=ih.indexOf("Service"), ci=ih.indexOf("Channel Type");
+      if(si>=0) svc=String(info[1][si]||"").trim();
+      if(ci>=0) res=/resid/i.test(String(info[1][ci]||""));
+      if(svc) src="_ChannelInfo";
+    }
+    /* 費率在第一個不是 _ChannelInfo 而且有資料的表。桌面版叫 Base Rates,
+       但別的名字也吃,免得改個表名就匯不進來。 */
+    const nm=bk.order.find(n=>n!=="_ChannelInfo"&&(bk.sheets[n]||[]).length>1)
+            ||bk.order[0]||"";
+    const rows=bk.sheets[nm]||[];
     if(rows.length<2){ setStatus(LANG?"That file is empty":"這個檔是空的"); return; }
-    const cols=rows[0].map(c=>c.trim());
+    const cols=sheetHeader(rows);
     const wi=cols.indexOf("Weight");
     if(wi<0){ setStatus(LANG?"That file has no Weight column":"這個檔沒有 Weight 欄"); return; }
-    const pick=($("#rateChan")||{}).value||"";
-    const [svc,rc]=pick.split("|");
+
+    /* 沒有 _ChannelInfo 就看表身:Service 欄 + Residential 欄(本站匯出的
+       CSV 模板就是這個形狀)。兩個都沒有才退回畫面上選的渠道。 */
+    if(!svc){
+      const si=cols.indexOf("Service"), ri=cols.indexOf("Residential");
+      if(si>=0) svc=String((rows[1]||[])[si]||"").trim();
+      if(ri>=0) res=/^(y|yes|true|r|residential)$/i.test(String((rows[1]||[])[ri]||"").trim());
+      if(svc) src="sheet";
+    }
+    if(!svc){ svc=dsvc; res=dres; src="picker"; }
+    if(res===null||res===undefined) res=/residential/i.test(svc)?true:dres;
+    const rc=res?"R":"C";
+    if(!svc){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
     const body=rows.slice(1).filter(r=>String(r[wi]).trim()!=="")
       .map(r=>cols.map((c,i)=>c==="Weight"?toNum(r[i]):(c==="Service"||c==="Residential"?r[i]:toNum(r[i]))));
     const t=CFG.raw.base_rate_tables||(CFG.raw.base_rate_tables=[]);
@@ -2098,8 +2260,11 @@ $("#fImpRate") && ($("#fImpRate").onchange=e=>{
     if(idx>=0) t[idx]=rec; else t.push(rec);
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
     if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
-    setStatus((LANG?"Imported ":"已匯入 ")+body.length+(LANG?" rate rows for ":" 列費率:")+svc
-      +(r.sheet?(LANG?" · sheet ":" · 工作表 ")+r.sheet:""));
+    const chLabel=svc+(res?(LANG?" (Residential)":"(住宅)"):(LANG?" (Commercial)":"(商業)"));
+    setStatus((LANG?"Imported ":"已匯入 ")+body.length+(LANG?" rate rows for ":" 列費率:")+chLabel
+      +(nm?(LANG?" · sheet ":" · 工作表 ")+nm:"")
+      +(src==="_ChannelInfo"&&(svc!==dsvc||res!==dres)
+        ?(LANG?"  — channel taken from the file":"  — 渠道以檔案為準"):""));
   }).catch(err=>{
     setStatus((err&&err.message)||String(err));
   }).then(()=>{ inp.value=""; });
@@ -2148,71 +2313,152 @@ $("#dynAs")    && ($("#dynAs").addEventListener("keyup",dynCheckCode));
 $("#dynAs")    && ($("#dynAs").addEventListener("blur",dynCheckCode));
 $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
   /* 只倒目前選的渠道,Zone 用它自己的那組 ——
-     整張表倒出來的話,填的人得先在幾百列裡找自己要的那幾列。 */
+     整張表倒出來的話,填的人得先在幾百列裡找自己要的那幾列。
+     工作表名稱與欄位跟桌面版的 per-channel 模板一致,兩邊互通。 */
   const ch=($("#accFilter")||{}).value||"";
   if(!ch){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
   const t=CFG.raw.accessorial_rate_table||{};
   const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
   const znMap=CFG.raw.builtin_service_zones||{};
-  const zones=String(znMap[svcOf(ch)] ?? znMap[ch] ?? "")
+  const zones=String(znMap[ch] ?? znMap[svcOf(ch)] ?? "")
     .split(",").map(z=>z.trim()).filter(Boolean);
 
+  /* 這個設定檔裡出現過的費用,依實際形狀分成分區 / 單一金額兩組。
+     內建清單擺在前面,順序才跟桌面版的模板對得起來。 */
   const shape=new Map();
-  for(const [k,v] of Object.entries(t)){
-    const fee=k.split("|||")[0], banded=v&&typeof v==="object";
+  for(const f of ACC_ZONE_FEES) shape.set(f,true);
+  for(const f of ACC_FLAT_FEES) shape.set(f,false);
+  for(const k of Object.keys(t)){
+    const fee=k.split("|||")[0], banded=t[k]&&typeof t[k]==="object";
     if(!shape.has(fee)||banded) shape.set(fee,banded);
   }
-  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
-  const lines=["Fee Type,Shipment Type,Zone,Amount"];
-  for(const [fee,banded] of [...shape.entries()].sort()){
+  const zoneFees=[...shape.entries()].filter(x=>x[1]).map(x=>x[0]);
+  const flatFees=[...shape.entries()].filter(x=>!x[1]).map(x=>x[0]);
+
+  const ahsHead=["Fee Type","Shipment Type",...zones.map(z=>"Zone "+z)];
+  const ahsRows=zoneFees.map(fee=>{
     const v=t[fee+"|||"+ch];
-    if(banded){
-      const zs = (v&&typeof v==="object")
-        ? [...new Set([...Object.keys(v),...zones])].sort((a,b)=>(+a||999)-(+b||999))
-        : zones;
-      for(const z of zs)
-        lines.push([q(fee),q(ch),z, (v&&typeof v==="object"&&v[z]!=null)?toNum(v[z]):""].join(","));
-    }else{
-      lines.push([q(fee),q(ch),"", (v!=null&&typeof v!=="object")?toNum(v):""].join(","));
+    return [feeDisplay(fee),ch,...zones.map(z=>
+      (v&&typeof v==="object"&&v[z]!=null&&v[z]!=="")?toNum(v[z]):"")];
+  });
+  const flatRows=flatFees.map(fee=>{
+    const v=t[fee+"|||"+ch];
+    return [feeDisplay(fee),ch,(v!=null&&typeof v!=="object")?toNum(v):0];
+  });
+  const fname="UPS_Accessorials_"+ch.replace(/[^A-Za-z0-9]+/g,"_")+".xlsx";
+  loadXLSX().then(X=>{
+    const wb=X.utils.book_new();
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet([ahsHead,...ahsRows]),"AHS_LPS");
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(
+      [["Fee Type","Shipment Type","Amount"],...flatRows]),"FLAT_CHARGES");
+    const buf=X.write(wb,{bookType:"xlsx",type:"array"});
+    dlBlob(new Blob([buf],{type:"application/octet-stream"}),fname);
+    setStatus((LANG?"Template exported for ":"已匯出模板:")+ch
+      +"  ("+(ahsRows.length+flatRows.length)+(LANG?" rows":" 列")+")"
+      +(LANG?" — opens in the desktop tool too":" — 桌面版可直接匯入"));
+  }).catch(()=>{
+    const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
+    const lines=["Fee Type,Shipment Type,Zone,Amount"];
+    for(const fee of zoneFees){
+      const v=t[fee+"|||"+ch];
+      for(const z of zones)
+        lines.push([q(feeDisplay(fee)),q(ch),z,
+          (v&&typeof v==="object"&&v[z]!=null)?toNum(v[z]):""].join(","));
     }
-  }
-  const b=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(b);
-  a.download="accessorials_"+ch.replace(/[^A-Za-z0-9]+/g,"_")+".csv";
-  a.click(); URL.revokeObjectURL(a.href);
-  setStatus((LANG?"Template exported for ":"已匯出模板:")+ch
-    +"  ("+(lines.length-1)+(LANG?" rows":" 列")+")");
+    for(const fee of flatFees){
+      const v=t[fee+"|||"+ch];
+      lines.push([q(feeDisplay(fee)),q(ch),"",(v!=null&&typeof v!=="object")?toNum(v):""].join(","));
+    }
+    dlBlob(new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"}),
+           fname.replace(/\.xlsx$/,".csv"));
+    setStatus(LANG?"Excel writer unavailable — exported CSV (web only)"
+                  :"Excel 元件載不到,已改匯出 CSV(桌面版讀不了)");
+  });
 });
 $("#bImportAcc") && ($("#bImportAcc").onclick=()=>$("#fImportAcc").click());
 $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
   const inp=e.target, f=inp.files&&inp.files[0];
   if(!f){ inp.value=""; return; }
   setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
-  readInvoiceFile(f).then(r=>{
-    const rows=parseCSV(r.text);
-    if(!rows.length||!rows[0]){ setStatus(LANG?"That file is empty":"這個檔是空的"); return; }
-    const hdr=rows[0].map(c=>c.trim().toLowerCase());
-    const ci={fee:hdr.indexOf("fee type"),ch:hdr.indexOf("shipment type"),
-              z:hdr.indexOf("zone"),amt:hdr.indexOf("amount")};
-    if(ci.fee<0||ci.ch<0||ci.amt<0){
-      setStatus(LANG?"That file has no Fee Type / Shipment Type / Amount columns"
-                    :"這個檔沒有 Fee Type / Shipment Type / Amount 欄"); return; }
-    let n=0;
-    for(const r of rows.slice(1)){
-      const fee=(r[ci.fee]||"").trim(), ch=(r[ci.ch]||"").trim();
-      if(!fee||!ch) continue;
-      const key=fee+"|||"+ch, z=(ci.z>=0?(r[ci.z]||"").trim():"");
-      if(z){
-        if(typeof CFG.raw.accessorial_rate_table[key]!=="object")
-          CFG.raw.accessorial_rate_table[key]={};
-        CFG.raw.accessorial_rate_table[key][z]=toNum(r[ci.amt]);
-      }else CFG.raw.accessorial_rate_table[key]=toNum(r[ci.amt]);
-      n++;
+  readWorkbookRows(f).then(bk=>{
+    const t=CFG.raw.accessorial_rate_table||(CFG.raw.accessorial_rate_table={});
+    let n=0, shapes=[];
+
+    /* --- 寬表:Fee Type | Shipment Type | Zone … ------------------------
+       桌面版叫 AHS_LPS,但它自己也吃「任何帶 Fee Type + Shipment Type 的
+       工作表」,這裡照同一條規則,per-channel 模板才不用另外處理。 */
+    for(const nm of bk.order){
+      if(nm==="FLAT_CHARGES"||nm==="_ChannelInfo") continue;
+      const rows=bk.sheets[nm]||[]; if(rows.length<2) continue;
+      const hdr=sheetHeader(rows);
+      const fi=hdr.indexOf("Fee Type"), ci=hdr.indexOf("Shipment Type");
+      const zc=zoneCols(hdr);
+      if(fi<0||ci<0||!zc.length) continue;
+      let m=0;
+      for(const r of rows.slice(1)){
+        const fee=feeKey(r[fi]), ch=String(r[ci]||"").trim();
+        if(!fee||!ch) continue;
+        /* 整列 Zone 都空白 = 還沒填的空模板,不是費率 0。匯進去會把原本
+           好的費率蓋成一張全 0 的表。 */
+        if(zc.every(z=>blankCell(r[z.i]))) continue;
+        const key=fee+"|||"+ch, box={};
+        for(const z of zc){ if(blankCell(r[z.i])) continue; box[z.zone]=toNum(r[z.i]); }
+        t[key]=box; m++;
+      }
+      if(m){ n+=m; shapes.push(nm+"("+m+")"); }
     }
+
+    /* --- 平表:Fee Type | [Shipment Type] | Amount --------------------- */
+    const flat=bk.sheets["FLAT_CHARGES"];
+    if(flat&&flat.length>1){
+      const hdr=sheetHeader(flat);
+      const fi=hdr.indexOf("Fee Type"), ci=hdr.indexOf("Shipment Type"), ai=hdr.indexOf("Amount");
+      if(fi>=0&&ai>=0){
+        /* 沒有 Shipment Type 欄就是「一列一個費用,寫進每一條標準 Zone 的
+           渠道」—— 桌面版全渠道模板就是這個形狀。 */
+        const targets=ci>=0?null:standardZoneChannels();
+        let m=0;
+        for(const r of flat.slice(1)){
+          const fee=feeKey(r[fi]); if(!fee) continue;
+          if(blankCell(r[ai])) continue;
+          const amt=toNum(r[ai]);
+          if(ci>=0){
+            const ch=String(r[ci]||"").trim(); if(!ch) continue;
+            t[fee+"|||"+ch]=amt; m++;
+          }else{
+            for(const ch of targets){ t[fee+"|||"+ch]=amt; m++; }
+          }
+        }
+        if(m){ n+=m; shapes.push("FLAT_CHARGES("+m+")"); }
+      }
+    }
+
+    /* --- 長表:Fee Type | Shipment Type | Zone | Amount ----------------
+       本站自己匯出的形狀。上面兩種都沒中才走這裡。 */
+    if(!n){
+      const rows=bk.sheets[bk.order.find(x=>(bk.sheets[x]||[]).length>1)||bk.order[0]]||[];
+      if(rows.length<2){ setStatus(LANG?"That file is empty":"這個檔是空的"); return; }
+      const hdr=rows[0].map(c=>String(c||"").trim().toLowerCase());
+      const ci={fee:hdr.indexOf("fee type"),ch:hdr.indexOf("shipment type"),
+                z:hdr.indexOf("zone"),amt:hdr.indexOf("amount")};
+      if(ci.fee<0||ci.ch<0||ci.amt<0){
+        setStatus(LANG?"That file has no Fee Type / Shipment Type / Amount columns, and no AHS_LPS or FLAT_CHARGES sheet"
+                      :"這個檔沒有 Fee Type / Shipment Type / Amount 欄,也沒有 AHS_LPS 或 FLAT_CHARGES 工作表"); return; }
+      for(const r of rows.slice(1)){
+        const fee=feeKey(r[ci.fee]), ch=(r[ci.ch]||"").trim();
+        if(!fee||!ch) continue;
+        const key=fee+"|||"+ch, z=(ci.z>=0?(r[ci.z]||"").trim():"");
+        if(z){
+          if(typeof t[key]!=="object"||t[key]===null) t[key]={};
+          t[key][z]=toNum(r[ci.amt]);
+        }else t[key]=toNum(r[ci.amt]);
+        n++;
+      }
+    }
+
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
     setStatus((LANG?"Imported ":"已匯入 ")+n+(LANG?" rate row(s)":" 列費率")
-      +(r.sheet?(LANG?" · sheet ":" · 工作表 ")+r.sheet:""));
+      +(shapes.length?"  ["+shapes.join(" ")+"]":""));
   }).catch(err=>{
     setStatus((err&&err.message)||String(err));
   }).then(()=>{ inp.value=""; });
@@ -4867,7 +5113,7 @@ step("auth",()=>{
     button.disabled=true;
     try{
       const r=await login($("#inUser").value,$("#inPw").value);
-      if(r.err){ $("#gateNote").innerHTML=`<div class="note warn">${r.err}</div>`; return; }
+      if(r.err){ $("#gateNote").innerHTML=`<div class="note plain">${esc(r.err)}</div>`; return; }
       $("#gateNote").innerHTML=""; $("#inPw").value=""; setMe(r);
       await recordLogin();
       logAdd("sign in","");
