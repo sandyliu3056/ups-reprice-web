@@ -1063,6 +1063,11 @@ const FIXED_COLS = {
   "Charge Classification Code": 43, "Charge Description Code": 44,
   "Charge Description": 45, "Net Amount": 52,
   "Detail Keyed Dimensions": 225,
+  /* 參考號在 V / W 兩欄。帳單匯出時多半沒有標題列,只靠名字對不到。
+     ADJ 與 RTN 那些列的 V / W 是空的,同一組值另外寫在 P / Q,
+     所以空的時候退回去看 P / Q —— 全檔 4,171 列兩邊一致,沒有衝突。 */
+  "Shipment Reference Number 1": 21, "Shipment Reference Number 2": 22,
+  "Shipment Reference Number 1 Alt": 15, "Shipment Reference Number 2 Alt": 16,
   /* 申報金額。桌面版 dv_column 預設 "AW",A=0 換算就是 48。這一欄裝的是
      「申報了多少錢」,不是 UPS 收了多少 —— 兩者差很多:同一行申報
      647.15、收費 5.95。用收費去查級距會落在免收上限以下,結果永遠是 0。 */
@@ -2032,8 +2037,8 @@ function ingest(text){
       declaredValue:toNum(g(r,"Declared Value")),
       bwt:g(r,"Billed Weight Type"),
       dimsC:g(r,"Package Dimensions"), dimsA:g(r,"Detail Keyed Dimensions"),
-      ref1:g(r,"Shipment Reference Number 1"),
-      ref2:g(r,"Shipment Reference Number 2"),
+      ref1:g(r,"Shipment Reference Number 1")||g(r,"Shipment Reference Number 1 Alt"),
+      ref2:g(r,"Shipment Reference Number 2")||g(r,"Shipment Reference Number 2 Alt"),
       net:toNum(g(r,"Net Amount"))
     };
   }).filter(r=>r.tracking||r.net);
@@ -4459,7 +4464,10 @@ function reportRows(){
   const known=new Set(REPORT_COLS);
   return (RATED||[]).map(r=>{
     const s=r.s, o={};
-    for(const c of REPORT_COLS) o[c]="";
+    /* 數字欄沒有值就是 0,不是留白 —— 桌面版整份活頁簿沒有一格是空的。
+       日期、追蹤號、Zone、Shipment Type 這些是文字,留白照舊。 */
+    const TEXTCOL=new Set(["Date","Tracking","Zone","Shipment Type"]);
+    for(const c of REPORT_COLS) o[c]=TEXTCOL.has(c)?"":0;
     o["Date"]=s.shipDate||"";
     o["Tracking"]=s.tracking||"";
     /* 沒有參考號就填 0,不是留白 —— 跟桌面版同一個樣子。 */
@@ -4470,26 +4478,30 @@ function reportRows(){
     o["Entered Weight"]=s.entered||0;
     o["Billable Weight"]=r.bw.billable||0;
     if(s.dims){ o["Length"]=s.dims.l; o["Width"]=s.dims.w; o["Height"]=s.dims.h; }
+    /* 附加費要疊加,先確定底是數字 */
     /* 退貨那一層的運費不記在 Base Rate。 */
     const freightCol = s.layer==="RTN" ? "Undeliverable Return" : "Base Rate";
-    o[freightCol]=r.base==null?"":r.base;
+    o[freightCol]=r.base==null?0:r.base;
     for(const [k,v] of Object.entries(r.acc||{})){
       const col=REPORT_COL_OF[k]||k;
       if(known.has(col)) o[col]=(toNum(o[col])||0)+v;
     }
     o["Fuel Surcharge"]=r.fuel||0;
-    o["Total"]=r.total==null?"":r.total;
+    o["Total"]=r.total==null?0:r.total;
     /* 第二段運送另外一列,不要把兩段的錢疊在同一格。 */
     return o;
   });
+}
+function reportName(rows){
+  return "Invoice_"+String((rows&&rows[0]&&rows[0].invoice)||"report")
+    .replace(/[^A-Za-z0-9]+/g,"_")+"_Repriced.xlsx";
 }
 function exportReport(){
   if(!RATED||!RATED.length){
     setStatus(LANG?"Build a report first":"請先產生報表"); return;
   }
   const rows=reportRows();
-  const name="Invoice_"+String((ROWS&&ROWS[0]&&ROWS[0].invoice)||"report")
-    .replace(/[^A-Za-z0-9]+/g,"_")+"_Repriced.xlsx";
+  const name=reportName(ROWS);
   loadXLSX().then(X=>{
     const aoa=[REPORT_COLS, ...rows.map(r=>REPORT_COLS.map(c=>r[c]))];
     const ws=X.utils.aoa_to_sheet(aoa);
@@ -4522,13 +4534,16 @@ function exportReport(){
     const wb=X.utils.book_new();
     X.utils.book_append_sheet(wb, ws, "Shipment Detail");
     dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
-      {type:"application/octet-stream"}), name);
-    toast((LANG?"Report exported · ":"報表已匯出 · ")+rows.length
-      +(LANG?" rows":" 列"), true);
+      {type:"application/octet-stream"}), name).then(ok=>{
+      toast(ok?((LANG?"Report exported · ":"報表已匯出 · ")+rows.length
+                +(LANG?" rows":" 列"))
+             :(LANG?"Save cancelled":"已取消存檔"), ok);
+    });
   }).catch(()=>{
     const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
     const csv=[REPORT_COLS.join(","),
       ...rows.map(r=>REPORT_COLS.map(c=>q(r[c])).join(","))].join("\n");
+    SAVE_TO=null;          /* 位置是照 .xlsx 挑的,退回 CSV 就重問 */
     dlBlob(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}), name.replace(/\.xlsx$/,".csv"));
     toast(LANG?"Excel writer unavailable — exported CSV instead"
               :"Excel 元件載不到,已改匯出 CSV", false);
@@ -4555,11 +4570,33 @@ function dynExport(){
     setStatus(L("Excel 元件載不到,已改匯出 CSV","Excel reader unavailable — exported CSV instead"));
   });
 }
-function dlBlob(blob,name){
+/* 這一輪要存去哪。瀏覽器只在「使用者剛按下按鈕」那幾秒內准許跳另存視窗,
+   而報表要先算完才有東西可以寫,所以在按下去的當下就先問好位置,
+   算完再寫進去。Firefox / Safari 沒有這個 API,照舊直接下載。 */
+let SAVE_TO=null;
+async function pickSave(name){
+  if(!window.showSaveFilePicker) return null;
+  const ext=(String(name).match(/\.[^.]+$/)||[".xlsx"])[0];
+  const mime=ext===".csv"?"text/csv":"application/octet-stream";
+  try{
+    return await window.showSaveFilePicker({suggestedName:name,
+      types:[{description:ext.slice(1).toUpperCase(), accept:{[mime]:[ext]}}]});
+  }catch(e){ return (e&&e.name==="AbortError")?"cancel":null; }
+}
+/* 回傳有沒有真的存下來 —— 使用者按取消時不要偷偷下載一份。 */
+async function dlBlob(blob,name){
+  let h=SAVE_TO; SAVE_TO=null;
+  if(!h) h=await pickSave(name);
+  if(h==="cancel") return false;
+  if(h){
+    try{ const w=await h.createWritable(); await w.write(blob); await w.close(); return true; }
+    catch(e){ /* 寫不進去就退回下載,不要讓人白算一次 */ }
+  }
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download=name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  return true;
 }
 function dynImport(file){
   readInvoiceFile(file).then(r=>{
@@ -4814,10 +4851,13 @@ function saveSettings(){
 }
 
 /* ---- 產生報表 ---- */
-$("#bRun").onclick=()=>{
+$("#bRun").onclick=async ()=>{
   setStatus(L("讀取中…","Reading…"));
   try{
     const ing=ingest(INV);
+    /* 趁按鈕的授權還在,先問要存哪裡。取消就整個不跑,不要算完才發現沒地方放。 */
+    SAVE_TO=await pickSave(reportName(ing.rows));
+    if(SAVE_TO==="cancel"){ SAVE_TO=null; setStatus(L("已取消","Cancelled")); return; }
     /* 先歸檔再計價。桌面版把這一步放在最前面,理由是:計價失敗的那一期
        如果沒進歷史,下個月的跨期更正就沒有東西可以對照。 */
     const filed=fileInvoices(ing.rows,"run");
