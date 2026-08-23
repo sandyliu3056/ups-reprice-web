@@ -11,6 +11,7 @@
 | `.gitignore` | 要 |
 | `.githooks/pre-commit` | 要 |
 | `supabase-js-2.112.3.js` | 要。登入用的 Supabase 用戶端 |
+| `xlsx-0.18.5.full.min.js` | 要。寫 Excel 檔的元件 |
 | `.nojekyll` | 要,如果部署在 GitHub Pages |
 
 **不在包裡、也不該進 repo 的:**`ups_billing_tool_config.json`(你的合約費率)、`ups_history.sqlite3`、任何帳單 CSV 或 xlsx。費率是每次開工具時自己載進去的,不是打包進去的。
@@ -50,7 +51,9 @@
 
 只有三個,都跟帳單無關:開機抓一次天氣(`api.open-meteo.com`,連不到就畫晴天)、按鈕才開的 UPS 帳單中心與燃油費率頁、以及按到 Excel 才載的 SheetJS(版本鎖死並附 SRI)。
 
-登入用的 Supabase 用戶端就放在網站自己的目錄裡,不跟 CDN 拿 —— 版本不會在你不知情的時候換掉,CDN 掛了也不影響登入。要升版就換掉那個檔,並改 `index.html` 裡引用的檔名。
+**匯出的檔一律是 xlsx** —— 報表、對帳單、模板、自訂附加費清單、登入紀錄,沒有一個是 CSV。桌面版跟著改:`_rate_issues` 也是 xlsx 了。
+
+登入用的 Supabase 用戶端與寫 Excel 的元件都放在網站自己的目錄裡,不跟 CDN 拿 —— 版本不會在你不知情的時候換掉,CDN 掛了也不影響登入。要升版就換掉那個檔,並改 `index.html` 裡引用的檔名。
 
 **六個檔全部平放在同一層,不要放進子資料夾。** GitHub Pages 會跳過 `vendor/`、`_` 開頭之類的路徑不發布,檔案在 repo 裡看得到、網址上卻是 404。`.nojekyll` 是同一件事的保險。
 

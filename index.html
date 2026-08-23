@@ -2516,16 +2516,11 @@ function exportLoginHistory(){
     setStatus(LANG?"No login history to export":"沒有可匯出的登入紀錄");
     return;
   }
-  const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
-  const lines=[["Logged In At","Email","Browser / Device","User Agent"],
-    ...LOGIN_ROWS.map(r=>[r.logged_in_at,r.email,loginDevice(r.user_agent),r.user_agent])]
-    .map(row=>row.map(q).join(","));
-  const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download="ups-reprice-login-history.csv";
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  const aoa=[["Logged In At","Email","Browser / Device","User Agent"],
+    ...LOGIN_ROWS.map(r=>[r.logged_in_at,r.email,loginDevice(r.user_agent),r.user_agent])];
+  saveSheet(aoa,"Login History","ups-reprice-login-history.xlsx",-1)
+    .then(ok=>setStatus(ok?L("登入紀錄已匯出","Login history exported")
+                          :L("已取消存檔","Save cancelled")));
 }
 let HIST_RESTORED=false;
 /* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
@@ -2746,7 +2741,9 @@ function pick(inputSel,onText){
    載不到不影響 CSV / TXT:那條路根本不會呼叫這裡。
    ===================================================================== */
 /* 版本鎖死。不要換成 latest —— 那等於把帳單交給一個隨時會變的檔案。 */
-const XLSX_SRC="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+/* 和 index.html 平放,不跟 CDN 拿 —— 匯出一律 xlsx,寫檔的元件就不能
+   有「載不到」這種狀態。SRI 照留:檔案被換掉的話寧可不執行。 */
+const XLSX_SRC="xlsx-0.18.5.full.min.js";
 const XLSX_SRI="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw";
 let XLSX_LOAD=null;
 function loadXLSX(){
@@ -3403,14 +3400,10 @@ $("#bExpRate") && ($("#bExpRate").onclick=()=>{
     setStatus((LANG?"Template exported for ":"已匯出模板:")+svc
       +(LANG?" — opens in the desktop tool too":" — 桌面版可直接匯入"));
   }).catch(()=>{
-    /* SheetJS 載不到就退回 CSV。欄位一樣,但桌面版只吃 xlsx,這份只有網頁版能用。 */
-    const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
-    const lines=[[...head,"Residential"].map(q).join(","),
-      ...body.map(r=>[...r,res?"YES":"NO"].map(q).join(","))];
-    dlBlob(new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"}),
-           fname.replace(/\.xlsx$/,".csv"));
-    setStatus(LANG?"Excel writer unavailable — exported CSV (web only)"
-                  :"Excel 元件載不到,已改匯出 CSV(桌面版讀不了)");
+    /* 匯出一律 xlsx。寫檔元件就在站內,載不到代表它沒被部署上去 ——
+       這時給不出 xlsx,就說清楚,不要偷偷換成另一種格式的檔。 */
+    setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
+                "Export failed: xlsx-0.18.5.full.min.js did not load. Check it sits next to index.html"));
   });
 });
 $("#bImpRate") && ($("#bImpRate").onclick=()=>$("#fImpRate").click());
@@ -3623,10 +3616,10 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
       const v=t[fee+"|||"+ch];
       lines.push([q(feeDisplay(fee)),q(ch),"",(v!=null&&typeof v!=="object")?toNum(v):""].join(","));
     }
-    dlBlob(new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"}),
-           fname.replace(/\.xlsx$/,".csv"));
-    setStatus(LANG?"Excel writer unavailable — exported CSV (web only)"
-                  :"Excel 元件載不到,已改匯出 CSV(桌面版讀不了)");
+    /* 匯出一律 xlsx。寫檔元件就在站內,載不到代表它沒被部署上去 ——
+       這時給不出 xlsx,就說清楚,不要偷偷換成另一種格式的檔。 */
+    setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
+                "Export failed: xlsx-0.18.5.full.min.js did not load. Check it sits next to index.html"));
   });
 });
 $("#bImportAcc") && ($("#bImportAcc").onclick=()=>$("#fImportAcc").click());
@@ -4551,13 +4544,11 @@ function exportReport(){
              :(LANG?"Save cancelled":"已取消存檔"), ok);
     });
   }).catch(()=>{
-    const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
-    const csv=[REPORT_COLS.join(","),
-      ...rows.map(r=>REPORT_COLS.map(c=>q(r[c])).join(","))].join("\n");
-    SAVE_TO=null;          /* 位置是照 .xlsx 挑的,退回 CSV 就重問 */
-    dlBlob(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}), name.replace(/\.xlsx$/,".csv"));
-    toast(LANG?"Excel writer unavailable — exported CSV instead"
-              :"Excel 元件載不到,已改匯出 CSV", false);
+    SAVE_TO=null;
+    /* 匯出一律 xlsx。寫檔元件就在站內,載不到代表它沒被部署上去 ——
+       這時給不出 xlsx,就說清楚,不要偷偷換成另一種格式的檔。 */
+    setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
+                "Export failed: xlsx-0.18.5.full.min.js did not load. Check it sits next to index.html"));
   });
 }
 
@@ -4574,13 +4565,34 @@ function dynExport(){
     dlBlob(new Blob([buf],{type:"application/octet-stream"}),"custom_surcharges.xlsx");
     setStatus(L("自訂附加費清單已匯出","Custom surcharge list exported"));
   }).catch(()=>{
-    /* 載不到 SheetJS 就退回 CSV,欄位一模一樣,不要讓人卡在這裡。 */
-    const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
-    const csv=[DYN_COLS.join(","),...rows.map(r=>r.map(q).join(","))].join("\n");
-    dlBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),"custom_surcharges.csv");
-    setStatus(L("Excel 元件載不到,已改匯出 CSV","Excel reader unavailable — exported CSV instead"));
+    /* 匯出一律 xlsx。寫檔元件就在站內,載不到代表它沒被部署上去 ——
+       這時給不出 xlsx,就說清楚,不要偷偷換成另一種格式的檔。 */
+    setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
+                "Export failed: xlsx-0.18.5.full.min.js did not load. Check it sits next to index.html"));
   });
 }
+/* 匯出一律 xlsx。moneyFrom 是第一個金額欄的欄號,從它往右的數字
+   四捨五入到分並套 $#,##0.00;傳 -1 就整張都不套。 */
+function saveSheet(aoa, sheetName, fname, moneyFrom){
+  return loadXLSX().then(X=>{
+    const ws=X.utils.aoa_to_sheet(aoa);
+    if(moneyFrom>=0){
+      const ref=X.utils.decode_range(ws["!ref"]);
+      for(let r=1;r<=ref.e.r;r++)
+        for(let c=moneyFrom;c<=ref.e.c;c++){
+          const cell=ws[X.utils.encode_cell({r:r,c:c})];
+          if(cell && typeof cell.v==="number"){
+            cell.v=Math.round(cell.v*100)/100; cell.z="$#,##0.00";
+          }
+        }
+    }
+    const wb=X.utils.book_new();
+    X.utils.book_append_sheet(wb, ws, sheetName);
+    return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
+      {type:"application/octet-stream"}), fname);
+  });
+}
+
 /* 這一輪要存去哪。瀏覽器只在「使用者剛按下按鈕」那幾秒內准許跳另存視窗,
    而報表要先算完才有東西可以寫,所以在按下去的當下就先問好位置,
    算完再寫進去。Firefox / Safari 沒有這個 API,照舊直接下載。 */
@@ -5151,33 +5163,35 @@ let HIST_PAGE=0, HIST_Q=null;
 $("#bCsv").onclick=async ()=>{
   if(!RATED||!RATED.length){ setStatus(L("請先產生報表","Build a report first")); return; }
   /* 存檔位置一樣在按下去的當下問,和報表同一條路。 */
-  SAVE_TO=await pickSave(baseName("_Statement.csv"));
+  SAVE_TO=await pickSave(baseName("_Statement.xlsx"));
   if(SAVE_TO==="cancel"){ SAVE_TO=null; setStatus(L("已取消","Cancelled")); return; }
   const infoN=new Set(RATED.flatMap(o=>Object.keys(o.accInfo||{})));
   const accN=[...new Set(RATED.flatMap(o=>
     Object.keys(o.acc).concat(Object.keys(o.accInfo||{}))))].sort();
-  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
   const head=["Tracking","Channel","ResidentialBasis","Zone","EnteredWeight",
     "DimWeight","BillableWeight","WeightBasis","AHS_Dim","AHS_Weight","Oversize",
     "BaseRate",...accN.map(n=>(n+(infoN.has(n)?" Report Only":"")).replace(/ /g,"_")),
     "Fuel","ContractTotal",
     "UPS_Net","Diff","Issues"];
-  const lines=[head.join(",")];
+  /* 金額寫成數字,不是文字 —— 這份是拿去和桌面版 join 對帳的,
+     文字欄在 Excel 裡加不起來。沒有值的格子照舊留白,不填 0。 */
+  const r2=v=>Math.round(v*100)/100;
+  const aoa=[head];
   for(const o of RATED){
-    lines.push([o.s.tracking,q(o.channel),q(o.resBasis),o.s.zone,o.bw.entered,
-      o.bw.dim===null?"":o.bw.dim,o.bw.billable,q(o.bw.basis),
+    aoa.push([o.s.tracking,o.channel,o.resBasis,o.s.zone,o.bw.entered,
+      o.bw.dim===null?"":o.bw.dim,o.bw.billable,o.bw.basis,
       o.bw.ahsDim?1:0,o.bw.ahsWeight?1:0,o.bw.oversize?1:0,
-      o.base===null?"":o.base.toFixed(2),
+      o.base===null?"":r2(o.base),
       ...accN.map(n=>{
         const v=o.acc[n]!==undefined?o.acc[n]
               :(o.accInfo&&o.accInfo[n]!==undefined?o.accInfo[n]:undefined);
-        return v!==undefined?v.toFixed(2):"";}),
-      o.fuel.toFixed(2), o.total===null?"":o.total.toFixed(2),
-      o.s.upsTotal.toFixed(2), o.diff===null?"":o.diff.toFixed(2),
-      q(o.issues.join(" | "))].join(","));
+        return v!==undefined?r2(v):"";}),
+      r2(o.fuel), o.total===null?"":r2(o.total),
+      r2(o.s.upsTotal), o.diff===null?"":r2(o.diff),
+      o.issues.join(" | ")]);
   }
-  const ok=await dlBlob(new Blob(["\uFEFF"+lines.join("\n")],
-    {type:"text/csv;charset=utf-8"}), baseName("_Statement.csv"));
+  const ok=await saveSheet(aoa,"Statement",baseName("_Statement.xlsx"),
+    head.indexOf("BaseRate"));
   setStatus(ok?((LANG?"Statement exported: ":"對帳單已匯出:")
                 +RATED.length.toLocaleString()+(LANG?" lines":" 筆"))
              :L("已取消存檔","Save cancelled"));
