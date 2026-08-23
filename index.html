@@ -2608,7 +2608,9 @@ function adminCall(payload){
     if(!tok) throw new Error(L("請重新登入","Please sign in again"));
     return fetch(AUTH_CONFIG.url.replace(/\/$/,"")+"/functions/v1/admin-users",{
       method:"POST",
-      headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},
+      headers:{"Authorization":"Bearer "+tok,
+               "apikey":AUTH_CONFIG.anonKey,
+               "Content-Type":"application/json"},
       body:JSON.stringify(payload)
     });
   }).then(r=>r.json().then(j=>{
@@ -2618,8 +2620,11 @@ function adminCall(payload){
     /* fetch 自己失敗(不是回了錯誤碼)幾乎都是函式還沒部署上去。
        「Failed to fetch」四個字對著畫面是猜不出來的。 */
     if(e && /failed to fetch|networkerror|load failed/i.test(e.message||""))
-      throw new Error(L("連不到 admin-users 函式,請先部署:supabase functions deploy admin-users",
-        "Cannot reach the admin-users function. Deploy it first: supabase functions deploy admin-users"));
+      /* 瀏覽器對 404 和 CORS 被擋一律只說 fetch 失敗,分不出來,
+         所以三種原因都要講。到底是哪一種,開 DevTools 的 Network 看那一筆。 */
+      throw new Error(L(
+        "連不到 admin-users 函式。三種可能:①還沒部署 ②名稱不是 admin-users ③函式設定裡的「Enforce JWT verification」要關掉(函式自己會驗身分)",
+        "Cannot reach admin-users. Either: (1) not deployed, (2) name is not exactly admin-users, or (3) turn OFF \"Enforce JWT verification\" in the function's settings — the function verifies callers itself"));
     throw e;
   });
 }

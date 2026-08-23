@@ -1,0 +1,7 @@
+# 客戶資料一律不進 git
+ups_billing_tool_config.json
+ups_history.sqlite3
+*.csv
+*.xlsx
+Invoice_*
+*_Repriced.*
