@@ -135,6 +135,7 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   border-radius:9px;background:var(--panel)}
 .strow .stat i{display:block;font-style:normal;font-size:12px;color:var(--muted)}
 .strow .stat b{font-size:18px;font-weight:800;color:var(--run2)}
+#tDimForce td:nth-child(2),#tDimForce th:nth-child(2){text-align:right}
 #tStored td:nth-child(3),#tStored td:nth-child(4),
 #tStored th:nth-child(3),#tStored th:nth-child(4){text-align:right}
 .dpsteps{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:13px}
@@ -532,15 +533,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <input class="cell num" id="defDim" style="width:80px">
       <button class="act" id="bSaveDim" data-i18n="btn.save">Save</button>
       <span class="savenote"></span>
-    </div>
-    <div class="row sketch-soft" style="padding:10px 12px;margin-top:10px">
-      <label class="inlab" style="margin-left:0" data-i18n="lb.chandim">Channel DIM factor</label>
-      <input class="cell num" id="chanDimVal" style="width:80px">
-      <button class="act" id="bChanDimTicked" data-i18n="btn.applyticked">Apply to ticked</button>
-      <button class="act ghost" id="bChanDimAll" data-i18n="btn.applyall">Apply to all</button>
-      <button class="act ghost" id="bChanDimClear" data-i18n="btn.clearticked">Clear on ticked</button>
-      <span id="chanDimNote" class="savenote"></span>
-    </div>
+      <button class="act ghost" id="bChanDim" data-i18n="btn.chandim">Set Channel DIM</button>
   </div>
 
   <div class="lf sketch">
@@ -879,6 +872,41 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 </div>
 
 <div class="sceneBox" id="sceneBox"><canvas id="scene"></canvas></div>
+<div id="dimBg" class="modalbg">
+  <div class="modal sketch" id="dimModal" style="width:min(820px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.bulkdim">Bulk Set DIM Factor</span>
+      <button class="mx" id="dimX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p class="hint" style="margin:0 0 10px" data-i18n="hint.bulkdim">Tick channels, type a divisor, apply. Blank clears the override and follows the global one.</p>
+      <div class="row" style="margin-bottom:12px">
+        <label class="inlab" style="margin-left:0" data-i18n="lb.chandim">DIM Factor</label>
+        <input class="cell num" id="chanDimVal" style="width:110px">
+        <span id="chanDimNote" class="savenote"></span>
+      </div>
+      <div class="subhd" data-i18n="hd.selchan">Select Channels</div>
+      <div class="sketch-soft" style="padding:10px 12px;margin-bottom:12px">
+        <div class="row" style="margin-bottom:8px">
+          <button class="act ghost" id="bDimAll" data-i18n="btn.selall">Select All</button>
+          <button class="act ghost" id="bDimNone" data-i18n="btn.selnone">Deselect All</button>
+          <button class="act" id="bChanDimTicked" data-i18n="btn.applyticked">Apply to Ticked Channels</button>
+          <button class="act ghost" id="bChanDimClear" data-i18n="btn.clearticked">Clear Overrides on Ticked</button>
+        </div>
+        <div id="dimChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
+      </div>
+      <div class="subhd" data-i18n="hd.dimforce">DIM Factors in Force</div>
+      <div class="tablewrap" style="max-height:210px"><table id="tDimForce"><thead><tr>
+        <th data-i18n="th.chan">Channel</th>
+        <th data-i18n="th.dimf">DIM Factor</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="modalft">
+      <button class="act ghost" id="dimClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="stBg" class="modalbg">
   <div class="modal sketch" id="stModal" style="width:min(760px,100%)">
     <div class="modalhd">
@@ -2706,26 +2734,60 @@ function chanDimNote(msg){ const el=$("#chanDimNote"); if(el) el.textContent=msg
 function setChanDim(targets, raw){
   if(!CFG) return;
   if(!targets.length){
-    chanDimNote(LANG?"Tick a channel below first, or use Apply to all."
-                    :"請先在下面勾選渠道,或用「套用到全部」。");
+    chanDimNote(LANG?"Tick at least one channel first."
+                    :"請先勾選至少一條渠道。");
     return;
   }
   const m=CFG.raw.channel_dim_factors||(CFG.raw.channel_dim_factors={});
   const v=String(raw==null?"":raw).trim();
   for(const c of targets){ if(v==="") delete m[c]; else m[c]=v; }
   CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+  /* 視窗還開著,下面那張「生效中」的表要跟著更新,不然看不出剛才做了什麼。 */
+  renderDimModal();
   const what = v===""
     ? (LANG?"DIM factor cleared on ":"已清除 DIM 除數,共 ")
     : (LANG?"DIM factor set to "+v+" on ":"DIM 除數已設為 "+v+",共 ");
   toast(what+targets.length+(LANG?" channel(s)":" 條渠道"), true);
   chanDimNote("");
 }
+/* 勾選、輸入、套用、看結果全部在同一個視窗裡。原本勾選在頁面下方的批量區、
+   按鈕在上面的面板,得先捲下去勾再捲上來按。 */
+function dimTicked(){
+  return [...document.querySelectorAll(".dimc:checked")].map(c=>c.value);
+}
+function renderDimModal(){
+  if(!CFG) return;
+  const zn=CFG.raw.builtin_service_zones||{};
+  const m=CFG.raw.channel_dim_factors||{};
+  const was=new Set(dimTicked());
+  const box=$("#dimChans");
+  if(box) box.innerHTML=Object.keys(zn).map(c=>
+    `<label class="bulkchk"><input type="checkbox" class="dimc" value="${esc(c)}"${
+      was.has(c)?" checked":""}> ${esc(c)}</label>`).join("");
+  const def=defaultDimDivisor(CFG);
+  const body=$("#tDimForce")&&$("#tDimForce").tBodies[0];
+  if(body) body.innerHTML=Object.keys(zn).map(c=>{
+    const own=String(m[c]==null?"":m[c]).trim();
+    return `<tr><td>${esc(c)}</td><td>${own
+      ? esc(own)
+      : esc(String(def))+`<span style="color:var(--muted)"> (${
+          LANG?"default":"預設"})</span>`}</td></tr>`;
+  }).join("")||`<tr><td colspan="2" class="empty">—</td></tr>`;
+}
+function openChanDim(){ renderDimModal(); chanDimNote(""); $("#dimBg").classList.add("on"); }
+function closeChanDim(){ $("#dimBg").classList.remove("on"); }
+$("#bChanDim") && ($("#bChanDim").onclick=openChanDim);
+$("#dimX") && ($("#dimX").onclick=closeChanDim);
+$("#dimClose") && ($("#dimClose").onclick=closeChanDim);
+$("#dimBg") && ($("#dimBg").onclick=e=>{ if(e.target===$("#dimBg")) closeChanDim(); });
+$("#bDimAll") && ($("#bDimAll").onclick=()=>
+  document.querySelectorAll(".dimc").forEach(c=>c.checked=true));
+$("#bDimNone") && ($("#bDimNone").onclick=()=>
+  document.querySelectorAll(".dimc").forEach(c=>c.checked=false));
 $("#bChanDimTicked") && ($("#bChanDimTicked").onclick=()=>
-  setChanDim(tickedChannels(), $("#chanDimVal").value));
-$("#bChanDimAll") && ($("#bChanDimAll").onclick=()=>
-  setChanDim(Object.keys((CFG&&CFG.raw.builtin_service_zones)||{}), $("#chanDimVal").value));
+  setChanDim(dimTicked(), $("#chanDimVal").value));
 $("#bChanDimClear") && ($("#bChanDimClear").onclick=()=>
-  setChanDim(tickedChannels(), ""));
+  setChanDim(dimTicked(), ""));
 $("#bSelAll")  && ($("#bSelAll").onclick =()=>{document.querySelectorAll(".bulkc").forEach(c=>c.checked=true);});
 $("#bSelNone") && ($("#bSelNone").onclick=()=>{document.querySelectorAll(".bulkc").forEach(c=>c.checked=false);});
 $("#bApplyTicked") && ($("#bApplyTicked").onclick=bulkApply);
@@ -4540,9 +4602,11 @@ const I18N={
   "hd.dimf":["材積除數","DIM Factor"],
   "hd.rulesforce":["目前生效的規則","Rules in Force"],
   "lb.defdim":["預設材積除數","Default DIM factor"],
+  "hd.bulkdim":["批量設定 DIM 除數","Bulk Set DIM Factor"],
+  "hd.dimforce":["生效中的 DIM 除數","DIM Factors in Force"],
+  "hint.bulkdim":["勾選渠道、填入除數、套用。留空等於清除該渠道的設定,改回沿用預設。","Tick channels, type a divisor, apply. Blank clears the override and follows the global one."],
   "lb.chandim":["渠道除數","Channel DIM factor"],
   "btn.applyticked":["套用到勾選","Apply to ticked"],
-  "btn.applyall":["套用到全部","Apply to all"],
   "btn.clearticked":["清除勾選的","Clear on ticked"],
   "hd.stored":["已匯入的帳單","Stored invoices"],
   "th.rows":["帳單筆數","Rows"],
