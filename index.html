@@ -564,7 +564,6 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
       <select id="sizeFilter"></select>
       <button class="act ghost" id="bDefThr" data-i18n="btn.defthr">Default Thresholds</button>
-      <button class="act ghost" id="bBulkChan" data-i18n="btn.bulkchan">Bulk Set Channels</button>
     </div>
     <div class="tablewrap" style="max-height:52vh"><table id="tSize"><thead><tr>
       <th data-i18n="th.chan">Channel</th>
@@ -1402,6 +1401,10 @@ function billableWeight(cfg, entered, dims, channel, scales){
     out.dim=Math.ceil(dims.l*dims.w*dims.h/dv.factor);
     if(out.dim>out.billable){ out.billable=out.dim; out.basis=L("DIM 重量","DIM weight"); }
   }
+  /* 計費重無條件進位。桌面版是 ceil(max(實重, 材積重)) —— ceil 包在整個
+     max 外面,所以 31.5 lb 的件算 32,不是 31.5。少了這一步會低估,
+     而且低估的是最常見的那種件。 */
+  out.billable=Math.ceil(out.billable);
   if(dims){
     /* 桌面版把 L+G 四捨五入到小數兩位再比,而且剛好等於門檻不算超過
        (isclose, abs_tol=0.01)。131 對 130 會觸發,130.004 對 130 不會。 */
@@ -1430,6 +1433,14 @@ function billableWeight(cfg, entered, dims, channel, scales){
        · UPS 自己開過 AHS - Dimension 代碼的:不受 type 限制。UPS 判過之後
          就算事後用 SCC 沖掉附加費,被拉高的計費重也不會退回去;我們照
          自己合約的下限算,否則同一顆箱子收得比成本低。 */
+  /* UPS 自己把計費重拉高、事後用 SCC 沖掉附加費卻沒退運費時,那個被拉高的
+     重量還在向我們收 —— 照更正後的尺寸重算等於賣得比成本低。桌面版是拿
+     UPS 自己的運費有沒有動來判斷,不是拿 90 去比對設定值,所以 UPS 套多少
+     就守多少,再抬到我們自己合約的下限。 */
+  if(S.upsFloor>0 && out.billable<S.upsFloor){
+    out.billable=S.upsFloor;
+    out.basis=L("UPS 留下的計費重","Weight UPS kept charging");
+  }
   const bwtHere=(S.bwt===undefined?0:S.bwt);
   const ahsMinApplies=(bwtHere!==8&&bwtHere!==9);
   out.ahsFloorBy = (out.ahsDim&&ahsMinApplies) ? "threshold"
@@ -1437,6 +1448,14 @@ function billableWeight(cfg, entered, dims, channel, scales){
   if(out.ahsFloorBy && R.ahs_min_billable_weight>0 && out.billable<R.ahs_min_billable_weight){
     out.billable=R.ahs_min_billable_weight;
     out.basis=L("AHS-Dimension 最低計費重","AHS-Dimension minimum billable");
+  }
+  /* 下限抬到自己合約的那一個:UPS 開過大包裹就用 LPS 的下限,
+     開過 AHS-Dimension 就用 AHS 的 —— 兩個是不同的數字,混用會把
+     大包裹的單子錯誤地拉到 AHS 的下限。 */
+  if(S.upsFloor>0 && S.upsLps && R.oversize_min_billable_weight>0
+     && out.billable<R.oversize_min_billable_weight){
+    out.billable=R.oversize_min_billable_weight;
+    out.basis=L("超大件最低計費重","Large package minimum billable");
   }
   if(out.oversize && R.oversize_min_billable_weight>0 && out.billable<R.oversize_min_billable_weight){
     out.billable=R.oversize_min_billable_weight;
@@ -1694,8 +1713,28 @@ function priceShipment(cfg, s){
      那是 UPS 明講「我判了 AHS - Dimension」的直接證據。 */
   const dimCodes=ahsDimCodes(cfg);
   const upsAhsFloor=s.lines.some(l=>dimCodes[String(l.code||"").toUpperCase()]);
+
+  /* UPS 是不是把計費重拉高了、而且事後沒退運費。
+     照桌面版 _looks_like_min + _ups_kept_the_weight:
+       · UPS 的計費重高於「實重與材積重能解釋的範圍」
+       · 這一單帶著會設下限的代碼(大包裹 / AHS-Dimension),或 BWT = 3
+       · ADJ 層的運費淨額是 0 —— 附加費沖掉了,運費沒動
+     判斷靠 UPS 自己的運費有沒有動,不是拿 90 去比對設定值,
+     所以 UPS 套多少就守多少。 */
+  const codesHere=new Set(s.allLines.map(l=>String(l.code||"").toUpperCase()));
+  const lpsFam=["LPS","LPR","LCC","LCR","LCT","LWC","LWR"].some(c=>codesHere.has(c));
+  const minOwning=lpsFam||[...codesHere].some(c=>dimCodes[c]);
+  const adjFrtNet=s.allLines.filter(l=>l.layer==="ADJ"&&isFreightLine(l))
+    .reduce((a,l)=>a+l.net,0);
+  const hasAdjHere=s.allLines.some(l=>l.layer==="ADJ");
+  const dvHere=dimFactorFor(cfg,channel).factor;
+  const dimW=(s.dims&&dvHere>0)?Math.ceil(s.dims.l*s.dims.w*s.dims.h/dvHere):0;
+  const looksLikeMin=(minOwning||s.bwt===3) && s.billedUPS>Math.max(ahsScale,dimW)+0.01;
+  const upsFloor=(looksLikeMin && hasAdjHere && Math.abs(adjFrtNet)<0.005) ? s.billedUPS : 0;
+
   const bw=billableWeight(cfg, s.entered, s.dims, channel,
-    {ahsScale:ahsScale, lpsScale:lpsScale, bwt:s.bwt, upsAhsFloor:upsAhsFloor});
+    {ahsScale:ahsScale, lpsScale:lpsScale, bwt:s.bwt, upsAhsFloor:upsAhsFloor,
+     upsFloor:upsFloor, upsLps:lpsFam});
   /* 退到公告的 139 會改變這條線上每一件的計費重量,不能悄悄發生。
      渠道自己有值、或「預設 DIM factor」有填,都不會走到這裡。 */
   if(bw.dimSrc==="tariff" && s.dims)
@@ -4844,7 +4883,6 @@ const I18N={
   "th.trkcount":["追蹤號","Trackings"],
   "btn.chandim":["設定渠道除數","Set Channel DIM"],
   "btn.defthr":["預設門檻","Default Thresholds"],
-  "btn.bulkchan":["批量設定渠道","Bulk Set Channels"],
   "c.longest":["最長邊","Longest"], "c.weight":["實重","Weight"],
   "c.cubic":["材積","Cubic"], "c.second":["第二長邊","2nd Side"],
   "c.minwt":["最低計費重","Min Wt"],
