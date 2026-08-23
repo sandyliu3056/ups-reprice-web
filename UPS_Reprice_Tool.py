@@ -1,132 +1,1758 @@
 # =====================================================================
-# UPS Reprice Tool -- BUILD 2026-07-29-fix57
-# (若右上角/標題看不到，可用此註解確認你跑的是最新版)
+# UPS Reprice Tool -- BUILD 2026-08-18-v170
+# UPS Reprice Platform
 #
-# 本版累積修正:
-#   1. AHS-Weight 用真實過磅實重(非帳單膨脹值); pure ADJ+type9 抑制
-#   2. AHS 優先序改 UPS 官方順序 (Weight>Dimension>Packaging)
-#   3. AHS 類型: 有真實尺寸用門檻, 無尺寸靠發票code; Packaging只靠code
-#   4. AHS 退費跟隨發票符號 (負值)
-#   5. DAS pure-ADJ 改判用費率差額(帶符號)
-#   6. pure ADJ 無AHS code 不無中生有 (含 C-A 分支)
-#   7. LPS: 排除 1x1x1 佔位假尺寸, pure ADJ 大尺寸正確觸發
-#   8. base rate: pure ADJ + HR佔位 + ent&bil都有值 -> 差額
-#   9. base差額修正: 用原始billed/entered(避開min-billable污染);
-#      hi腿用AG尺寸+floor, lo腿用HR原始尺寸+無floor (修type9差額塌陷)
-#  10. LPS weight門檻用真實過磅實重(非dim灌高帳單重); 修123>110誤觸發LPS
-#  11. pure_ca gate 加入LPS code(LPR), 修帶LPR的pure ADJ漏算LPS
-#  12. 合併時: ADJ若無尺寸/重量(純附加費調整,如Reschedule Delivery),
-#      不可用其0值覆蓋SHP的base rate/AHS/LPS; zone亦退回用SHP的有效zone
-#  13. 修正12的偵測方式: 改用「ADJ有無FRT運費行」判定(不可看Length/
-#      Weight欄, 那些會被SHP fallback填滿而誤判為有重算)
-#  14. AHS類型優先序重整: 發票「正值」AH code 最優先(UPS實際過磅的
-#      結果勝過我方門檻, 如申報1磅但UPS重秤後收AHW); 只有「負值退費」
-#      或完全無code時才用門檻重算修正後包裹
-#  15. LPS重量門檻: A包裹(HR)也套用真實過磅重規則; type-9 pure ADJ
-#      無可信實重 -> 重量路徑不觸發, 由尺寸決定。修「尺寸差1吋造成
-#      LPS升級」被A誤觸發而C-A淨額歸零的問題
-#  16. AHS-Weight 不需尺寸即可判定(只看實重): 修 Residential->Commercial
-#      改判(reclass)的ADJ無dims無code時, AHS-Weight被算成0而抹掉SHP
-#      原本合法的重量附加費
-#  17. AHS code 改歸類為 Dimension(原誤歸Weight): AHS = "Addl. Handling
-#      second long. Side" 第二長邊>30吋, 是尺寸條件而非重量。已加入
-#      registry 並修正 fallback 分類
-#  28. normalize_service 猜測不再偽裝成判斷結果。描述比對不到任何服務
-#      時, 它回傳 self.base_rate_service.get() -- 也就是 Import Files
-#      分頁「Currently Editing」下拉的當前值。所以 Ground Hundredweight
-#      會被顯示成 Ground Residential (或你當下選的任何服務), 看起來像
-#      系統判斷, 其實只是撿了一個不相關的 UI 狀態。
-#        a. 新增 service_is_recognised(), 比對不到時設 service_was_guessed
-#        b. 可計價的行 -> Notes 標明「服務未識別, 沿用下拉預設 X, 請確認」
-#        c. UNSUPPORTED 的行 -> Shipment Type 直接顯示發票原始描述,
-#           不再顯示假的服務別
-#      實測 586Y51: 123 / 16,926 條 FRT 會被標記。
-#  27. 最低計費重量誤判為 artifact 的修正。原本只要「帳單重 == 設定的
-#      oversize_min(90) 或 ahs_min(40)」且大於實重, 就一律當成 artifact
-#      降回實重。但 UPS 本來就會照這些最低值實收 -- 實測 586Y51 有 188
-#      條 FRT ($4,938.24) 命中, 其中 174 條 Billed Weight Type = 3
-#      (UPS 自己標示「來自附加費最低重量」), 且全部帶 LPS/AHS 族代碼。
-#      這些包裹在檔案中沒有尺寸, large_package_trigger 無法重新推導,
-#      最低重量就此遺失 -> 例如 10 lb 實重的包裹 UPS 按 90 lb 收費,
-#      工具卻按 10 lb 重算, 產生大額假超收。
-#      改判依據 (任一成立即視為真實):
-#        a. Billed Weight Type == 3
-#        b. 帳單重 == oversize_min 且該筆帶 LPS 族代碼
-#        c. 帳單重 == ahs_min     且該筆帶 AHS 族代碼
-#      並以 minimum_billable_floor 帶到 billable_weight, 避免下游再遺失。
-#  26. Ground/Air Hundredweight (CWT) 標記為不支援, 不再靜默錯算。
-#      normalize_service 沒有 hundredweight 比對規則, 會落到最後的
-#      return self.base_rate_service.get() -- 服務別由 Import Files 分頁
-#      下拉的「當前選擇」決定, 等於用不相關的 UI 狀態決定計價基礎。
-#      HWT 是整票貨總重按每百磅計價, 不是逐件包裹計價, 照 parcel 費率
-#      重算會產生假的超收。改為沿用 18 的 UNSUPPORTED 標記路徑。
-#      (實測 586Y51: 1 個 lead / 11 件 / $116.55)
-#  25. AR 分類擴充: 過去只有 AR=="ACC" 會被計價與做未知代碼偵測, 所以
-#      進口報關 (BRK) 與關稅 (GOV) 完全靜默 -- 不計價也不通報。改為
-#      BILLABLE_AR_CODES = ACC/BRK/GOV (MSC 為帳戶層, 不計算), 自訂附加費與未知偵測皆適用;
-#      FRT/FSC 刻意不提供 (基本運費與燃油由引擎自行計算, 註冊會重複計
-#      算), INF 恆為 $0 不處理。Custom Surcharges 視窗加上「各欄位會出
-#      現在系統哪裡」說明。
-#      另: account_rows (無追蹤號的帳戶層費用) 同樣是收集後從未讀取,
-#      現在輸出到 "Account Charges" 分頁 (實測 586Y51: 9 列 $7,589.88)。
-#  24. TRACKING_COL 由 13 (Lead Shipment Number) 改為 20 (Tracking Number,
-#      Excel U 欄)。多件貨 (MPS) 每個包裹共用同一個 lead, 舊分組會把
-#      重量/尺寸/費率各不相同的實體包裹合併成一列重算, 其餘直接從報表
-#      消失 (實測 586Y51: 7 個 lead 掛 25 個包裹, 18 件被吃掉)。col13
-#      也不保證是追蹤號 -- 取件調整放取件記錄號、進口報關放報關批號,
-#      會讓 ADJ 變成對不到 SHP 的孤兒層。切換前已確認 col13 有值而
-#      col20 空的列數為 0。
-#  23. Type 改名並真正生效 (原本三個選項行為完全相同, 只存不用):
-#        REPRICE      - 用費率表重算, 計入 CAL Total
-#        COPY INVOICE - 照抄帳單金額, 計入 CAL Total
-#        REPORT ONLY  - 照抄帳單金額, 只顯示, 不計入 Total/燃油
-#      舊值 TEMPLATE/RAW/AUDIT_ONLY 透過 DYNAMIC_TYPE_ALIASES 自動轉換,
-#      舊 config 與舊匯出檔照常可用。另移除費率區的 ★ 標記與
-#      Custom Surcharges 的 Load Setup 按鈕 (存檔即生效, 不需手動載入)。
-#  22. 未知代碼現在會主動告知: unknown_rows 過去只被收集、從未被讀取,
-#      報表也只寫 Shipment Detail 一張, 所以帳單有無法計價的代碼時
-#      完全不會有任何提示, CAL Total 被低估卻看不出來。現在
-#      (a) 報表多一張 "Unknown Codes" 明細分頁
-#      (b) 跑完跳警告, 依金額絕對值排序列出 代碼/筆數/金額
-#      (c) 狀態列顯示未知代碼數
-#      (d) Code Lookup 掃描把未知代碼排到最上面並標 ⚠
-#  21. Add Custom Surcharge 視窗: AR 由自由輸入改為下拉 (ACC/FRT/FSC/
-#      INF), 只有 ACC 會重新計價; 新增 AS Code 空白、ACC 無名稱、
-#      代碼重複三項擋下 (原本打錯 AR 會靜默存檔然後永遠不計價)。
-#      (Type 的處理見 23)
-#  20. Custom Surcharges UI 根本沒被掛上去: tab_dynamic_surcharge 有建
-#      Frame 但 notebook.add() 沒加、_build_dynamic_surcharge_tab() 從未
-#      被呼叫, 所以畫面上沒有任何入口可新增自訂 ACC。改為獨立視窗
-#      (同燃油排程做法), 由 Pricing Rules 的「➕ Custom Surcharges...」
-#      開啟; save/load 加上視窗已關閉的防護。
-#  19. 自訂 ACC 真正計價: dynamic_surcharge_seen_codes 過去只被收集、
-#      從未被讀取, 所以 Custom Surcharges 分頁新增的代碼一律算 $0。
-#      現在依 shipment_type/zone 查費率寫入 row_result, 並自動加入
-#      輸出欄位/CAL Total/報表版面; Fuel Eligible=NO 者計入 Total 但
-#      不計入燃油基數。Rules 分頁費率由唯讀 Label 改為可輸入 Entry
-#      並新增 Save Rates。
-#  18. 不支援的服務/zone(如 Standard to Canada, zone 53)不再硬套
-#      Ground Commercial + zone 8 算出錯誤數字: 改為清空所有計算欄位
-#      並在 Notes 標記 *** UNSUPPORTED SERVICE/ZONE - NOT RATED ***
-# =====================================================================
+# Reads a raw UPS billing file, re-rates every parcel on the contract rates,
+# and puts "what UPS charged" beside "what the contract says" so the two can
+# be compared line by line.
+#
+# Tabs
+#   Import Files       pick the invoice, produce the report
+#   Surcharge Setup    fuel, and the surcharge rates for every channel
+#   Size Rules         AHS and Large Package thresholds, per channel
+#   Channels           every channel: zones, base rates, whether it is on
+#   Demand Surcharge   demand periods and their two rate groups (not yet
+#                      wired into pricing -- it is a register for now)
+#   Invoice History    every invoice ever imported, kept so a correction can
+#                      be read against the shipment it corrects
+#   Code Lookup        UPS charge codes and what each one means
+#
+# A report run leaves <report>_rate_issues.xlsx beside the workbook: anything
+# that could not be priced, and why. An empty file means everything rated.
+#
+# Two files live next to this one:
+#   ups_billing_tool_config.json   settings, rates, channels
+#   ups_history.sqlite3            the invoice history
+#
+# The per-version change log moved to UPS_Reprice_Tool_CHANGELOG.txt. Nine
+# hundred lines of it in here helped nobody -- it just meant scrolling.
+
+#
+# 這個檔案的走法
+#
+#   FONTS AND SCALING                           81
+#   HAND-DRAWN DRAWING ENGINE                  430
+#   HAND-DRAWN WIDGETS                         729
+#   WHERE THE FILES LIVE                      1476
+#   INVOICE HISTORY                           1519
+#   FUEL SURCHARGE SCHEDULE                   2223
+#   DEMAND SURCHARGE                          2304
+#   AR -- CHARGE CLASSIFICATION CODES         2547
+#   CUSTOM SERVICES (CHANNELS)                2751
+#   CHINESE INTERFACE TEXT                    2924
+#   IMPORT FILES: THE WAREHOUSE SCENE         3286
+#   THE APPLICATION                           4483
+#   START HERE                               20870
+#
+
 import json
+import time
+import datetime as _dt
+import sqlite3
 import webbrowser
 import os
+import shutil
+import sys
 import re
+import unicodedata
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import font as tkfont
 import customtkinter as ctk
 import pandas as pd
+import numpy as np          # ships with pandas; no new dependency
 import math
 import threading
 from contextlib import contextmanager
 import traceback
 import gc
 
+# Overall interface size. Every font in this file is given in POINTS, so Tk's
+# scaling factor shrinks the whole UI in one place -- ttk widgets included,
+# which customtkinter's own set_widget_scaling does not touch. Window sizes and
+# the Treeview row height are pixels, so they are scaled explicitly below.
+# Shown in the window title. Every "I changed it and nothing happened" in this
+# tool's history has turned out to be an older file still running, and the
+# build number lived only in a comment nobody can see while using it.
+# Shown in the title bar, so it is just the version. The date and the
+# "bilingual" tag were build-note material, not something to read every day.
+APP_VERSION = "v170"
+APP_BUILD = "2026-08-18-" + APP_VERSION
+
+# =====================================================================
+# FONTS AND SCALING
+# =====================================================================
+# Three roles, decided once at startup and read everywhere else:
+#
+#   UI_FONT        body text and ordinary labels
+#   UI_FONT_DATA   rates, amounts, tracking numbers -- legibility first
+#   UI_FONT_TITLE  tabs, headings, buttons, scene text -- short strings
+#
+# A machine without the handwriting faces keeps a readable fallback
+# rather than dropping to something unreadable, so the tool looks
+# plainer on that machine but never breaks.
+
+
+UI_SCALE = 1.0
+
+# Everything on screen a couple of points larger. The sizes below were picked
+# one at a time as each panel was written, and 8pt Chinese on a high-DPI
+# monitor is genuinely hard to read for a tool somebody stares at all week.
+UI_FONT = "Microsoft JhengHei UI"
+FONT_BOOST = 0
+
+
+def scaled(px):
+    """Pixel measurement adjusted by UI_SCALE."""
+    return max(1, int(round(px * UI_SCALE)))
+
+
+def ui_font(size=9, weight=None):
+    """One place that decides text size, so it can be changed in one place."""
+    size = max(1, int(round((size + FONT_BOOST) * UI_SCALE)))
+    return (UI_FONT, size, weight) if weight else (UI_FONT, size)
+
+
+UI_FONT_BASE = UI_FONT
+
+# 報表是要寄給客戶的,檔名裡不該有暱稱。
+APP_NAME = "Scoobi"
+# 挑到第一個就用,挑不到就留原本的正黑體,並且印出來講清楚挑到誰。
+ROUND_FONT_CANDIDATES = (
+    # 中文:圓體與設計感的黑體。思源系列與 jf 系列都是免費可下載的。
+    "jf open 粉圓 1.1", "jf open 粉圓", "GenSenRounded TW", "源泉圓體",
+    "GenJyuuGothic", "Zen Maru Gothic", "Yuanti TC", "圓體-繁",
+    "Noto Sans TC", "思源黑體", "Source Han Sans TC",
+    # 拉丁
+    "Quicksand", "Poppins", "Nunito", "Varela Round",
+)
+UI_FONT_ROUND = None
+# 手寫/設計字。只用在短的、裝飾性的地方(分頁、區塊標題、按鈕、場景文字),
+# 一般說明文字走圓體、數字走最清楚的那一隻 -- 整頁都手寫會讀不動,
+# 這是三層分工不是一套字。
+#
+# 不列入的兩類:
+#   標楷體、DFKai-SB、楷體 -- 楷書是公文的臉,不是這個場景的臉。
+#   Caveat、Segoe Script、Bradley Hand -- 連筆草寫,9pt 的分頁標籤讀不出來。
+#   Comic Sans -- 每台都有,但它會把整個介面拉去另一個年代。
+#
+# 中文和拉丁要分開找:Ink Free 這些沒有中文字,中文會掉回系統預設,
+# 變成一半設計字一半正黑。下面 HAND_CJK 標出哪幾隻有中文。
+HAND_FONT_CANDIDATES = (
+    # 中文手寫/設計:字形獨立、筆畫清楚
+    "芫荽", "Iansui", "jf open 手寫體", "華康少女文字W5",
+    "GenSenRounded TW", "源泉圓體", "Zen Maru Gothic",
+    # 拉丁:不連筆的手寫印刷體
+    "Ink Free", "Patrick Hand", "Architects Daughter", "Kalam",
+    "Chalkboard SE", "Segoe Print",
+)
+HAND_CJK = {"芫荽", "Iansui", "jf open 手寫體", "華康少女文字W5",
+            "GenSenRounded TW", "源泉圓體", "Zen Maru Gothic"}
+UI_FONT_HAND = None
+UI_FONT_HAND = None
+# 數字用的字。手寫字型的 0/6/8 和 1/7 在 9pt 很容易看錯,費率和金額
+# 不能賭這個 -- 表格與輸入框一律留給看得清楚的那一隻。
+UI_FONT_DATA = UI_FONT
+UI_FONT_TITLE = UI_FONT
+
+
+def _pick_font(root, candidates):
+    try:
+        from tkinter import font as tkfont
+        have = {f.strip() for f in tkfont.families(root)}
+        for nm in candidates:
+            if nm in have:
+                return nm
+    except Exception as e:
+        print("Font lookup failed:", e)
+    return None
+
+
+def resolve_round_font(root):
+    """裝了哪一個圓體、哪一個手寫體就用哪一個。挑不到就講出來。"""
+    global UI_FONT_ROUND, UI_FONT_HAND
+    UI_FONT_ROUND = _pick_font(root, ROUND_FONT_CANDIDATES)
+    UI_FONT_HAND = _pick_font(root, HAND_FONT_CANDIDATES)
+    print("Doodle round font:", UI_FONT_ROUND or "none installed")
+    print("Doodle hand font:", UI_FONT_HAND or "none installed")
+    if not (UI_FONT_ROUND or UI_FONT_HAND):
+        print("  -> 兩種都沒裝,手繪主題只會有圓角沒有手寫字。"
+              "裝一隻手寫字型(例如標楷體以外的手寫體)就會自動生效。")
+    return UI_FONT_ROUND
+
+
+def set_ui_font(name, data_name=None, title_name=None):
+    """三個角色的字體。
+    UI_FONT      內文與一般標籤(手繪風是圓體)
+    UI_FONT_DATA 費率、金額、單號 -- 看得清楚優先
+    UI_FONT_TITLE分頁、區塊標題、按鈕、場景文字 -- 手寫,只用在短字串
+    不給就一路跟著主字體,非手繪主題三個是同一隻。"""
+    global UI_FONT, UI_FONT_DATA, UI_FONT_TITLE
+    UI_FONT = name
+    UI_FONT_DATA = data_name or name
+    UI_FONT_TITLE = title_name or name
+
+
+
+def title_font(size=9, weight=None):
+    """手寫的那一層:分頁、標題、按鈕、場景上的字。"""
+    size = max(1, int(round((size + FONT_BOOST) * UI_SCALE)))
+    return (UI_FONT_TITLE, size, weight) if weight else (UI_FONT_TITLE, size)
+
+
+ctk.set_appearance_mode("light")
+
+
+# =====================================================================
+# 品牌:同一支工具的兩張臉。Tally 是既有的手繪素描那一套(SketchWarehouse、
+# sk_* 筆觸、手繪外框);Scoobi 是圓角積木倉庫那一套(WarehousePanel)。
+# 主題選單選的是這個,顏色選單照舊 -- 兩者互不影響,四種組合都成立。
+BRANDS = ("Tally", "Scoobi")
+UI_BRAND = "Scoobi"
+
+
+def brand_is(name):
+    return UI_BRAND == name
+
+
+SKETCH_UI = True
+
+# Tried in order; the first one the machine actually has wins. A brush /
+# handwriting face that also carries Chinese has to come first, or the
+# Chinese falls back to a square system font and only the English looks
+# hand-drawn. The last entry is the old font, so a machine with none of
+# these still gets a readable interface.
+# Set this to a family name to settle it outright -- no probing, no order.
+# Empty means work down the list below and take the first one installed.
+SKETCH_FONT_OVERRIDE = ""
+
+# The interface font. Ordered best-first, and the first four are the only
+# ones that carry Traditional Chinese -- a Latin-only handwriting face leaves
+# every Chinese label falling back to a square system font, which reads as a
+# mistake rather than a style.
+#
+# 霞鶩文楷 / 清松 are not shipped with Windows. If neither is installed the
+# list lands on 標楷體, which every Windows machine has, so the tool looks
+# right on a fresh install and improves by itself if one of the others is
+# added later.
+SKETCH_FONT_CANDIDATES = (
+    "Iansui",               # 芫荽 -- OFL, pen handwriting, the one to install
+    "芫荽",
+    "LXGW WenKai TC",       # 霞鶩文楷 TC -- OFL, the readable fallback
+    "霞鶩文楷 TC",
+    "Segoe Print",          # Latin only from here down
+    "Ink Free",
+    "Comic Sans MS",
+    "Microsoft JhengHei UI",
+)
+# No 標楷體 and no 王漢宗中楷體 on purpose. Both are kai -- brush calligraphy --
+# which reads as a different kind of hand from the drafting letters on the
+# title, and 標楷體's strokes are too thin for a rate table anyway. With them
+# gone, a machine without Iansui or 文楷 lands on 正黑體: plain, but honest
+# about it rather than pretending.
+
+# 清松手寫體 is the closest of all of these to a drafting hand, and it is
+# deliberately not in the list: its licence covers personal use only, and this
+# tool is used for client work.
+
+# Point sizes are not comparable across families: 標楷體 draws visibly smaller
+# than JhengHei at the same size, and its strokes are thin, so a table of rates
+# at 9pt stops being readable. Each family says how much to add.
+SKETCH_FONT_BOOST = {
+    "Iansui": 1,
+    "芫荽": 1,
+    "Segoe Print": 0,
+    "Ink Free": 1,
+}
+
+# ---- the display tier ----------------------------------------------------
+# Two fonts, not one. A hollow / outline face gives every character the look
+# of the drawn title, Chinese included, but it is unreadable in a table of
+# rates -- the counters close up at 10pt. So it is used on the chrome (tab
+# strip, buttons, panel titles) and the readable face stays on anything that
+# has to be read: labels, rate tables, entry boxes.
+#
+# None of these ship with Windows. If none is installed the display tier
+# quietly uses the same font as the body and nothing looks broken.
+SKETCH_DISPLAY_OVERRIDE = ""
+
+SKETCH_DISPLAY_CANDIDATES = (
+    # Built from the same stroke table the canvas draws with, so the tab
+    # strip and the drawn title are the same letters. Ships beside this file
+    # as RepriceSketch.ttf and has to be installed like any other font.
+    "Reprice Sketch",
+    "王漢宗標楷體空心",
+    "HanWangKaiBold-Gb5",
+    "王漢宗綜藝體雙空陰",
+    "王漢宗粗圓體雙空",
+    "王漢宗波卡體空陰",
+    "Sketch Block",
+    "Segoe Print",
+)
+
+DISPLAY_FONT = ""          # resolved at startup; "" means use UI_FONT
+# Outline faces are wider than solid ones and the tab strip has a fixed width,
+# so this stays at 0 unless the chosen face genuinely needs it -- at +1 the tab
+# labels were being cut off mid-word.
+DISPLAY_BOOST = 0
+
+
+def display_font(size=10, weight=None):
+    """Chrome font. Falls back to the interface font when none is installed."""
+    if not DISPLAY_FONT:
+        return ui_font(size, weight)
+    size = max(1, int(round((size + FONT_BOOST + DISPLAY_BOOST) * UI_SCALE)))
+    return (DISPLAY_FONT, size, weight) if weight else (DISPLAY_FONT, size)
+
+
+def pick_display_font():
+    """First installed outline face, or nothing."""
+    global DISPLAY_FONT
+    DISPLAY_FONT = ""
+    if not SKETCH_UI:
+        return ""
+    try:
+        have = set(tkfont.families())
+    except Exception:
+        return ""
+    if SKETCH_DISPLAY_OVERRIDE:
+        if SKETCH_DISPLAY_OVERRIDE in have:
+            DISPLAY_FONT = SKETCH_DISPLAY_OVERRIDE
+            return DISPLAY_FONT
+        print("Display font %r is not installed." % SKETCH_DISPLAY_OVERRIDE)
+    for name in SKETCH_DISPLAY_CANDIDATES:
+        if name in have:
+            DISPLAY_FONT = name
+            return name
+    return ""
+
+
+# Anything that is a grid of numbers -- the rate tables, the entry boxes --
+# gets this much on top again. Those are the surfaces that get read all day,
+# and a handwriting face needs the room more than a heading does.
+SKETCH_TABLE_BONUS = 1
+
+# Resolved at startup by pick_sketch_font; the shed sign uses it too.
+SIGN_FONT = "Segoe Print"
+
+
+# Every font Tk keeps by name. Anything the tool does not style explicitly --
+# menus, message boxes, the list that drops out of a combobox, tooltips --
+# is drawn in one of these, which is why setting UI_FONT alone left half the
+# interface in the system face.
+TK_NAMED_FONTS = ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont",
+                  "TkCaptionFont", "TkSmallCaptionFont", "TkIconFont",
+                  "TkTooltipFont")
+
+# The tracking explanation is a Text widget whose columns only line up because
+# the font is monospaced, and nothing hand-drawn on Windows is monospaced.
+# True puts it in the handwriting face anyway and the columns go crooked.
+SKETCH_MONO = False
+MONO_FONT = "Consolas"
+
+
+def pick_sketch_font(default):
+    """First installed family from the candidate list. Needs a live root."""
+    if not SKETCH_UI:
+        return default, 0
+    try:
+        have = set(tkfont.families())
+    except Exception:
+        return default, 0
+    global SIGN_FONT
+    if SKETCH_FONT_OVERRIDE:
+        if SKETCH_FONT_OVERRIDE not in have:
+            # Loudly: a misspelt family silently falls back to the system face,
+            # and then nothing on screen explains why the font did not change.
+            print("Sketch font %r is not installed; falling back."
+                  % SKETCH_FONT_OVERRIDE)
+        else:
+            SIGN_FONT = SKETCH_FONT_OVERRIDE
+            return SKETCH_FONT_OVERRIDE, SKETCH_FONT_BOOST.get(
+                SKETCH_FONT_OVERRIDE, 0)
+    for name in SKETCH_FONT_CANDIDATES:
+        if name in have:
+            SIGN_FONT = name
+            return name, SKETCH_FONT_BOOST.get(name, 0)
+    SIGN_FONT = default
+    return default, 0
+
+
+def mono_font(size=10, weight=None):
+    """One place that decides the fixed-width face."""
+    family = UI_FONT if SKETCH_MONO else MONO_FONT
+    size = max(1, int(round((size + FONT_BOOST) * UI_SCALE)))
+    return (family, size, weight) if weight else (family, size)
+
+
+def apply_sketch_font(root, family, size=10):
+    """Point every font Tk owns at one family.
+
+    Named fonts change live, so widgets already built follow. The option
+    database does NOT -- it is only read when a widget is created -- so this
+    has to run before anything is built.
+    """
+    if not SKETCH_UI:
+        return
+    for name in TK_NAMED_FONTS:
+        try:
+            tkfont.nametofont(name, root=root).configure(family=family)
+        except Exception:
+            pass
+    if SKETCH_MONO:
+        try:
+            tkfont.nametofont("TkFixedFont", root=root).configure(family=family)
+        except Exception:
+            pass
+    spec = (family, size)
+    # Classic tk widgets and the pieces ttk builds out of them. The combobox
+    # popdown is a plain Listbox in its own toplevel and reads none of the
+    # ttk styling, which is why its list stayed in the system font.
+    for pattern in ("*Font", "*Menu.font", "*Listbox.font", "*Entry.font",
+                    "*Text.font", "*Label.font", "*Button.font",
+                    "*TCombobox*Listbox.font", "*Message.font",
+                    "*Dialog.msg.font", "*Spinbox.font"):
+        try:
+            root.option_add(pattern, spec)
+        except Exception:
+            pass
+    # customtkinter builds its own default font object at widget creation.
+    try:
+        ctk.ThemeManager.theme["CTkFont"]["family"] = family
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------
+# Wobble. Deterministic on purpose: a redraw has to land on the same
+# crooked line as last time, or every Configure event makes the whole
+# window shimmer.
+# ---------------------------------------------------------
+# =====================================================================
+# HAND-DRAWN DRAWING ENGINE
+# =====================================================================
+# Canvas primitives that wobble: sk_line, sk_rect, sk_oval, sk_blob,
+# sk_text. Every stroke is deterministic -- the wobble comes from a
+# hash of the coordinates, not from random(), so a redraw of the same
+# shape lands in the same place instead of shivering.
+
+
+def _noise(a, b=0):
+    """-1.0 .. 1.0 from two integers. Same inputs, same answer, always."""
+    n = (int(a) * 374761393 + int(b) * 668265263) & 0xFFFFFFFF
+    n = ((n ^ (n >> 13)) * 1274126177) & 0xFFFFFFFF
+    return ((n ^ (n >> 16)) & 0xFFFF) / 32767.5 - 1.0
+
+
+def _hexkey(text):
+    n = 0
+    for ch in str(text):
+        n = (n * 131 + ord(ch)) & 0xFFFFFFFF
+    return n
+
+
+def _rgb(color):
+    color = str(color).strip()
+    if color.startswith("#") and len(color) == 7:
+        return int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+    return 0, 0, 0
+
+
+def blend(c1, c2, t):
+    """c1 mixed toward c2 by t (0..1). Canvas items have no alpha, so a
+    'lighter second pass' has to be a lighter colour."""
+    r1, g1, b1 = _rgb(c1)
+    r2, g2, b2 = _rgb(c2)
+    return "#%02x%02x%02x" % (
+        int(r1 + (r2 - r1) * t),
+        int(g1 + (g2 - g1) * t),
+        int(b1 + (b2 - b1) * t),
+    )
+
+
+def wobble_points(x1, y1, x2, y2, key, spread=1.5, overshoot=2.0, segments=None):
+    """A straight line broken into a few crooked segments, running a little
+    past both ends the way a pen does when the hand does not stop in time."""
+    dx, dy = x2 - x1, y2 - y1
+    length = max(1.0, (dx * dx + dy * dy) ** 0.5)
+    ux, uy = dx / length, dy / length
+    if segments is None:
+        segments = max(2, min(5, int(length // 55) + 2))
+
+    k = _hexkey(key)
+    o1 = overshoot * (0.5 + 0.5 * abs(_noise(k, 91)))
+    o2 = overshoot * (0.5 + 0.5 * abs(_noise(k, 92)))
+    sx, sy = x1 - ux * o1, y1 - uy * o1
+    ex, ey = x2 + ux * o2, y2 + uy * o2
+
+    pts = []
+    for i in range(segments + 1):
+        t = i / segments
+        px = sx + (ex - sx) * t
+        py = sy + (ey - sy) * t
+        # Push sideways, not along the line: a line that wanders lengthwise
+        # just looks like bad spacing.
+        push = _noise(k, i) * spread
+        if i in (0, segments):
+            push *= 0.4
+        pts.append(px - uy * push)
+        pts.append(py + ux * push)
+    return pts
+
+
+def sk_line(cv, x1, y1, x2, y2, key, color, width=2.0, spread=1.5,
+            overshoot=2.0, second=None, tags=()):
+    """One crooked stroke, optionally with a lighter second pass over it."""
+    items = [cv.create_line(*wobble_points(x1, y1, x2, y2, key, spread, overshoot),
+                            fill=color, width=width, capstyle="round",
+                            joinstyle="round", smooth=True, tags=tags)]
+    if second:
+        items.append(cv.create_line(
+            *wobble_points(x1, y1, x2, y2, str(key) + "~", spread * 1.4,
+                           overshoot * 0.6),
+            fill=second, width=max(1.0, width * 0.8), capstyle="round",
+            joinstyle="round", smooth=True, tags=tags))
+    return items
+
+
+def sk_rect(cv, x1, y1, x2, y2, key, color, width=2.0, spread=1.5,
+            second=None, gap=None, tags=()):
+    """Four crooked strokes. `gap` is (start, end) along the top edge left
+    unpainted, so a title can sit in the line the way a LabelFrame's does."""
+    items = []
+    if gap:
+        g1, g2 = gap
+        if g1 > x1 + 4:
+            items += sk_line(cv, x1, y1, g1, y1, str(key) + "t1", color, width,
+                             spread, 2.0, second, tags)
+        if g2 < x2 - 4:
+            items += sk_line(cv, g2, y1, x2, y1, str(key) + "t2", color, width,
+                             spread, 2.0, second, tags)
+    else:
+        items += sk_line(cv, x1, y1, x2, y1, str(key) + "t", color, width,
+                         spread, 2.5, second, tags)
+    items += sk_line(cv, x2, y1, x2, y2, str(key) + "r", color, width, spread,
+                     2.5, second, tags)
+    items += sk_line(cv, x2, y2, x1, y2, str(key) + "b", color, width, spread,
+                     2.5, second, tags)
+    items += sk_line(cv, x1, y2, x1, y1, str(key) + "l", color, width, spread,
+                     2.5, second, tags)
+    return items
+
+
+def _ellipse_points(cx, cy, rx, ry, key, spread=1.4, steps=22):
+    import math
+    k = _hexkey(key)
+    pts = []
+    for i in range(steps):
+        a = 2 * math.pi * i / steps
+        w = 1.0 + _noise(k, i) * spread / max(rx, ry)
+        pts.append(cx + math.cos(a) * rx * w)
+        pts.append(cy + math.sin(a) * ry * w)
+    return pts
+
+
+def sk_oval(cv, cx, cy, rx, ry, key, outline, fill="", width=2.0, spread=1.4,
+            tags=()):
+    pts = _ellipse_points(cx, cy, rx, ry, key, spread)
+    return cv.create_polygon(*pts, fill=fill, outline=outline, width=width,
+                             smooth=True, joinstyle="round", tags=tags)
+
+
+def sk_blob(cv, points, key, outline, fill="", width=2.0, spread=1.2,
+            smooth=False, tags=()):
+    """A closed shape with every corner nudged off true. smooth stays OFF by
+    default: Tk's smoothing pulls a four-corner shape into an oval, which is
+    what turned the first roof and sign into blobs."""
+    k = _hexkey(key)
+    out = []
+    for i in range(0, len(points), 2):
+        out.append(points[i] + _noise(k, i) * spread)
+        out.append(points[i + 1] + _noise(k, i + 1) * spread)
+    return cv.create_polygon(*out, fill=fill, outline=outline, width=width,
+                             smooth=smooth, joinstyle="round", tags=tags)
+
+
+# ---------------------------------------------------------
+# Drawn capitals.
+#
+# Not a font file: each letter is a set of strokes in a 10 x 14 box, drawn
+# the same crooked way as everything else here. Above a certain size each
+# stroke is drawn hollow -- two edges that run past the corner, over a faint
+# line where the pencil went first. Below it there is no room for two edges,
+# so it drops to a single stroke and stays legible.
+#
+# Capitals and digits only, which is why this is for signs and titles and
+# not for anything the tool has to say in Chinese.
+# ---------------------------------------------------------
+SKETCH_GLYPHS = {
+    "A": [[(0,14),(5,0),(10,14)], [(2,9),(8,9)]],
+    "B": [[(0,14),(0,0),(7,0),(9,3),(7,7),(0,7)], [(7,7),(10,10),(7,14),(0,14)]],
+    "C": [[(10,3),(7,0),(3,0),(0,4),(0,10),(3,14),(7,14),(10,11)]],
+    "D": [[(0,14),(0,0),(6,0),(10,5),(10,9),(6,14),(0,14)]],
+    "E": [[(9,0),(0,0),(0,14),(9,14)], [(0,7),(7,7)]],
+    "F": [[(9,0),(0,0),(0,14)], [(0,7),(7,7)]],
+    "G": [[(10,3),(7,0),(3,0),(0,4),(0,10),(3,14),(7,14),(10,11),(10,8),(6,8)]],
+    "H": [[(0,0),(0,14)], [(10,0),(10,14)], [(0,7),(10,7)]],
+    "I": [[(1,0),(9,0)], [(5,0),(5,14)], [(1,14),(9,14)]],
+    "J": [[(8,0),(8,11),(5,14),(2,14),(0,11)]],
+    "K": [[(0,0),(0,14)], [(9,0),(1,8)], [(3,6),(10,14)]],
+    "L": [[(0,0),(0,14),(9,14)]],
+    "M": [[(0,14),(0,0),(5,8),(10,0),(10,14)]],
+    "N": [[(0,14),(0,0),(10,14),(10,0)]],
+    "O": [[(3,0),(7,0),(10,4),(10,10),(7,14),(3,14),(0,10),(0,4),(3,0)]],
+    "P": [[(0,14),(0,0),(7,0),(10,4),(7,8),(0,8)]],
+    "Q": [[(3,0),(7,0),(10,4),(10,10),(7,14),(3,14),(0,10),(0,4),(3,0)], [(6,10),(11,15)]],
+    "R": [[(0,14),(0,0),(7,0),(10,4),(7,8),(0,8)], [(5,8),(10,14)]],
+    "S": [[(10,3),(7,0),(3,0),(0,3),(0,5),(3,7),(7,7),(10,9),(10,11),(7,14),(3,14),(0,11)]],
+    "T": [[(0,0),(10,0)], [(5,0),(5,14)]],
+    "U": [[(0,0),(0,10),(3,14),(7,14),(10,10),(10,0)]],
+    "V": [[(0,0),(5,14),(10,0)]],
+    "W": [[(0,0),(2,14),(5,5),(8,14),(10,0)]],
+    "X": [[(0,0),(10,14)], [(10,0),(0,14)]],
+    "Y": [[(0,0),(5,7)], [(10,0),(5,7),(5,14)]],
+    "Z": [[(0,0),(10,0),(0,14),(10,14)]],
+    "0": [[(3,0),(7,0),(10,4),(10,10),(7,14),(3,14),(0,10),(0,4),(3,0)], [(2,12),(8,2)]],
+    "1": [[(1,3),(5,0),(5,14)], [(2,14),(8,14)]],
+    "2": [[(0,3),(3,0),(7,0),(10,3),(10,5),(0,14),(10,14)]],
+    "3": [[(0,2),(3,0),(8,0),(10,3),(7,7),(3,7)], [(7,7),(10,10),(8,14),(3,14),(0,12)]],
+    "4": [[(8,14),(8,0),(0,10),(10,10)]],
+    "5": [[(10,0),(1,0),(0,6),(6,6),(10,9),(10,11),(7,14),(2,14),(0,12)]],
+    "6": [[(9,1),(4,0),(0,6),(0,11),(3,14),(7,14),(10,11),(7,7),(2,7),(0,9)]],
+    "7": [[(0,0),(10,0),(4,14)]],
+    "8": [[(3,0),(7,0),(10,3),(7,7),(3,7),(0,3),(3,0)], [(3,7),(0,11),(3,14),(7,14),(10,11),(7,7)]],
+    "9": [[(1,13),(6,14),(10,8),(10,3),(7,0),(3,0),(0,3),(3,7),(8,7),(10,5)]],
+    "-": [[(1,7),(9,7)]],
+    ".": [[(4,13),(6,13),(6,14),(4,14),(4,13)]],
+    " ": [],
+}
+
+GLYPH_W = 10.0
+GLYPH_H = 14.0
+HOLLOW_MIN_CAP = 17.0     # below this, one stroke instead of two edges
+
+
+def _sk_seg(x1, y1, x2, y2, key, over, jit):
+    import math
+    dx, dy = x2 - x1, y2 - y1
+    L = max(1e-6, math.hypot(dx, dy))
+    ux, uy = dx / L, dy / L
+    k = _hexkey(key)
+    o1 = over * (0.35 + abs(_noise(k, 1)))
+    o2 = over * (0.35 + abs(_noise(k, 2)))
+    ax = x1 - ux * o1 - uy * _noise(k, 3) * jit
+    ay = y1 - uy * o1 + ux * _noise(k, 3) * jit
+    bx = x2 + ux * o2 - uy * _noise(k, 4) * jit
+    by = y2 + uy * o2 + ux * _noise(k, 4) * jit
+    mx = (ax + bx) / 2 - uy * _noise(k, 5) * jit * 1.6
+    my = (ay + by) / 2 + ux * _noise(k, 5) * jit * 1.6
+    return (ax, ay, mx, my, bx, by)
+
+
+def _sk_stroke(cv, x1, y1, x2, y2, key, over, jit, color, width, tags):
+    pts = _sk_seg(x1, y1, x2, y2, key, over, jit)
+    return cv.create_line(*pts, fill=color, width=width, capstyle="round",
+                          smooth=True, tags=tags)
+
+
+def sk_text(cv, x, y, text, cap, ink, ghost=None, width=None, tags=(),
+            spacing=0.36):
+    """Draw text in the sketch capitals. x, y is the top left of the caps.
+
+    Returns the x the next character would start at, so a caption can be put
+    after it without measuring anything twice.
+    """
+    import math
+    text = str(text).upper()
+    sc = float(cap) / GLYPH_H
+    hollow = cap >= HOLLOW_MIN_CAP
+    hw = sc * 0.85
+    w = width if width else max(1.2, sc * 0.55)
+    gap = GLYPH_W * spacing * sc
+    if ghost is None:
+        try:
+            ghost = blend(ink, cv.cget("bg"), 0.62)
+        except Exception:
+            ghost = ink
+
+    for ci, ch in enumerate(text):
+        polys = SKETCH_GLYPHS.get(ch, SKETCH_GLYPHS[" "])
+        for pi, poly in enumerate(polys):
+            for si in range(len(poly) - 1):
+                ax, ay = poly[si]
+                bx, by = poly[si + 1]
+                x1, y1 = x + ax * sc, y + ay * sc
+                x2, y2 = x + bx * sc, y + by * sc
+                key = "g" + str(ci) + "." + str(pi) + "." + str(si) + ch
+                if not hollow:
+                    _sk_stroke(cv, x1, y1, x2, y2, key, sc * 0.5, sc * 0.09,
+                               ink, w, tags)
+                    _sk_stroke(cv, x1, y1, x2, y2, key + "~", sc * 0.3,
+                               sc * 0.14, ghost, max(1.0, w * 0.7), tags)
+                    continue
+                dx, dy = x2 - x1, y2 - y1
+                L = max(1e-6, math.hypot(dx, dy))
+                ux, uy = dx / L, dy / L
+                nx, ny = -uy, ux
+                # the line the pencil laid down before committing
+                _sk_stroke(cv, x1, y1, x2, y2, key + "g", sc * 1.5, sc * 0.10,
+                           ghost, max(1.0, w * 0.8), tags)
+                for side in (1, -1):
+                    ex1, ey1 = x1 + nx * hw * side, y1 + ny * hw * side
+                    ex2, ey2 = x2 + nx * hw * side, y2 + ny * hw * side
+                    _sk_stroke(cv, ex1, ey1, ex2, ey2, key + str(side),
+                               sc * 0.95, sc * 0.075, ink, w, tags)
+                # cap only the true ends of a run, or every join grows a rung
+                for at, sgn in ((0, -1), (len(poly) - 2, 1)):
+                    if si != at:
+                        continue
+                    ex, ey = (x1, y1) if sgn < 0 else (x2, y2)
+                    cx = ex + ux * sgn * hw * 0.15
+                    cy = ey + uy * sgn * hw * 0.15
+                    _sk_stroke(cv, cx + nx * hw, cy + ny * hw,
+                               cx - nx * hw, cy - ny * hw,
+                               key + "c" + str(sgn), sc * 0.35, sc * 0.07,
+                               ink, max(1.0, w * 0.9), tags)
+        x += (GLYPH_W * sc + gap) if ch != " " else (GLYPH_W * 0.6 * sc + gap)
+    return x
+
+
+def sk_text_width(text, cap, spacing=0.36):
+    """What sk_text will occupy, without drawing it."""
+    sc = float(cap) / GLYPH_H
+    gap = GLYPH_W * spacing * sc
+    total = 0.0
+    for ch in str(text).upper():
+        total += (GLYPH_W * sc + gap) if ch != " " else (GLYPH_W * 0.6 * sc + gap)
+    return max(0.0, total - gap)
+
+
+# =====================================================================
+# HAND-DRAWN WIDGETS
+# =====================================================================
+# ttk widgets cannot be given a wobbly border, so these draw their own
+# onto a Canvas and behave like the widget they replace.
+
+
+class SketchTitle(tk.Canvas):
+    """The top strip: the product name in drawn capitals, the credit after it
+    in the interface font."""
+
+    def __init__(self, master, palette, title, caption="", cap=17, **kw):
+        self.pal = dict(palette or {})
+        self.title_text = title
+        self.caption = caption
+        self.cap = cap
+        super().__init__(master, height=int(cap * 2.4), highlightthickness=0,
+                         bd=0, bg=self.pal.get("BG", "#f4ecdc"), **kw)
+        self._size = (0, 0)
+        self.bind("<Configure>", self._draw)
+
+    def set_palette(self, palette):
+        self.pal = dict(palette or {})
+        try:
+            self.configure(bg=self.pal.get("BG", "#f4ecdc"))
+        except Exception:
+            return
+        self._size = (0, 0)
+        self._draw(None)
+
+    def _draw(self, event=None):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 40 or h < 10:
+            return
+        if (w, h) == self._size and event is not None:
+            return
+        self._size = (w, h)
+        self.delete("all")
+        ink = self.pal.get("TITLE", "#351c15")
+        bg = self.pal.get("BG", "#f4ecdc")
+        top = max(2, (h - self.cap) // 2 - 1)
+        ghost = blend(ink, bg, 0.60)
+        end = sk_text(self, 6, top, self.title_text, self.cap, ink, ghost)
+        # The credit is drawn as well, not set in a font, so it is the same
+        # letters as the name rather than a near miss. Smaller, so it drops to
+        # single strokes -- and left out entirely when the strip is too narrow
+        # to hold both, which is what happens with the window pulled in beside
+        # a spreadsheet.
+        if self.caption:
+            small = max(9.0, self.cap * 0.60)
+            if end + 14 + sk_text_width(self.caption, small) < w - 8:
+                sk_text(self, end + 14, top + (self.cap - small) * 0.8,
+                        self.caption, small, blend(ink, bg, 0.25),
+                        blend(ink, bg, 0.55))
+
+
+# ---------------------------------------------------------
+# LabelFrame with a hand-drawn border.
+#
+# The border is a Canvas placed inside the frame and lowered under the
+# other children, so children still pack and grid exactly as before. The
+# title is a real Label handed to ttk as `labelwidget`, which keeps it
+# above the canvas AND keeps it in the widget tree where the language
+# switch walks looking for text to translate.
+# ---------------------------------------------------------
+class SketchLabelFrame(ttk.LabelFrame):
+
+    _palette = {"BG": "#f4ecdc", "LINE": "#caa356", "TITLE": "#351c15"}
+    # 手繪塗層的總開關。ttk.LabelFrame 是在 import 當下被換掉的,那時候
+    # 還不知道使用者要哪個品牌 -- 所以類別一律換,改由這個旗標決定畫不畫。
+    # 關掉時把塗層清空並露出 ttk 原本的外框,不必重建任何 widget。
+    sketch_on = True
+
+    @classmethod
+    def set_sketch(cls, on):
+        cls.sketch_on = bool(on)
+        for f in list(_SKETCH_FRAMES):
+            try:
+                f._sk_size = (0, 0)
+                f._sk_canvas.delete("sk")
+                if on:
+                    # 關掉時是 place_forget 把畫布移出版面的,開回來就必須
+                    # 重新 place -- 只重畫不 place,畫布還在版面外,外框
+                    # 看起來像沒有回來。
+                    f._sk_canvas.place(x=0, y=0, relwidth=1.0, relheight=1.0)
+                    tk.Misc.lower(f._sk_canvas)
+                    f._sk_draw()
+                else:
+                    f._sk_canvas.place_forget()
+            except Exception:
+                pass
+
+    @classmethod
+    def set_palette(cls, bg, line, title):
+        cls._palette = {"BG": bg, "LINE": line, "TITLE": title}
+
+    def __init__(self, master=None, text="", **kw):
+        # No padding option here on purpose. ttk measures place() from the
+        # PADDED area, so padding shrank the border canvas and moved it, and
+        # correcting that with place_configure inside a Configure handler set
+        # up a geometry loop -- panels drew over each other and whole tables
+        # failed to appear. Clearance comes from keeping the border tight to
+        # the edge instead, below.
+        super().__init__(master, style="Sketch.TLabelframe", **kw)
+        pal = SketchLabelFrame._palette
+        self._sk_canvas = tk.Canvas(self, highlightthickness=0, bd=0,
+                                    takefocus=0, bg=pal["BG"])
+        self._sk_canvas.place(x=0, y=0, relwidth=1.0, relheight=1.0)
+        # Canvas.lower() is the *item* one. This is the window-stacking lower,
+        # which is what puts the border underneath the frame's own children.
+        tk.Misc.lower(self._sk_canvas)
+        # With the coating off (Scoobi), _sk_draw returns before it reaches
+        # the line that sets this canvas's background -- so it kept whatever
+        # palette was in force when it was built and never followed a theme
+        # change. A cream panel on a slate page. Off means off: take it out
+        # of the layout and let the styled ttk frame show through.
+        if not SketchLabelFrame.sketch_on:
+            self._sk_canvas.place_forget()
+        self._sk_title = ttk.Label(self, text=text,
+                                   style="Sketch.TLabelframe.Label")
+        try:
+            self.configure(labelwidget=self._sk_title)
+        except Exception:
+            self.configure(text=text)
+            self._sk_title = None
+        self._sk_size = (0, 0)
+        self._sk_canvas.bind("<Configure>", self._sk_draw)
+        _SKETCH_FRAMES.append(self)
+
+    def _sk_draw(self, event=None):
+        if not SketchLabelFrame.sketch_on:
+            return
+        cv = self._sk_canvas
+        w = cv.winfo_width()
+        h = cv.winfo_height()
+        if w < 12 or h < 12:
+            return
+        if (w, h) == self._sk_size and event is not None:
+            return
+        self._sk_size = (w, h)
+        cv.delete("sk")
+        pal = SketchLabelFrame._palette
+        cv.configure(bg=pal["BG"])
+        line = pal["LINE"]
+        light = blend(line, pal["BG"], 0.55)
+
+        # The canvas starts BELOW the title -- ttk hands a Labelframe child
+        # the content area, not the whole widget -- so the top edge is just a
+        # small margin here. Adding the title height, as this did, pushed the
+        # line 17px down into the first row of controls, where the widgets
+        # covered the middle of it and left a stub showing at each end.
+        top = 2
+        key = "frame%d" % id(self)
+        # How much room there is depends entirely on what is packed inside:
+        # measured across this tool it runs from 10px on the file panel down
+        # to 1px at the bottom of a zone rate grid. A fixed inset therefore
+        # draws over the content on the tight ones, which is what put a line
+        # through the Browse button and through the rate boxes. So measure it,
+        # then spend what is actually there.
+        left = right = bottom = 10
+        for child in self.winfo_children():
+            if child is cv or child is self._sk_title:
+                continue
+            try:
+                if not child.winfo_ismapped():
+                    continue
+                cx, cy = child.winfo_x(), child.winfo_y()
+                cw, ch = child.winfo_width(), child.winfo_height()
+            except Exception:
+                continue
+            left = min(left, cx)
+            right = min(right, w - (cx + cw))
+            bottom = min(bottom, h - (cy + ch))
+
+        def place(margin):
+            return max(1, min(4, margin - 2))
+
+        lx, rx, by_ = place(left), place(right), place(bottom)
+        room = min(lx, rx, by_)
+        # Three levels. A panel with room gets the full construction look; a
+        # tight one gets one thin line; the overshoot comes down with the room
+        # so a corner cannot poke into the panel packed next to it.
+        double = room >= 3
+        underlay = room >= 2
+        over = 6.0 if room >= 3 else (3.0 if room == 2 else 1.5)
+        weight = 2.0 if room >= 2 else 1.4
+
+        x1, y1, x2, y2 = lx, top, w - 1 - rx, h - 1 - by_
+        if x2 - x1 < 24 or y2 - y1 < 16:
+            return
+        for (ax, ay, bx, byy, tag) in ((x1, y1, x2, y1, "t"),
+                                       (x2, y1, x2, y2, "r"),
+                                       (x2, y2, x1, y2, "b"),
+                                       (x1, y2, x1, y1, "l")):
+            if underlay:
+                sk_line(cv, ax, ay, bx, byy, key + tag + "g", light, 1.4, 2.0,
+                        over * 1.4, None, "sk")
+            sk_line(cv, ax, ay, bx, byy, key + tag, line, weight, 1.4, over,
+                    None, "sk")
+            if not double:
+                continue
+            # the second edge, always pushed toward the middle of the panel
+            if ay == byy:
+                dy = 2 if ay == y1 else -2
+                sk_line(cv, ax + 6, ay + dy, bx - 6, byy + dy, key + tag + "i",
+                        light, 1.3, 1.5, over * 0.4, None, "sk")
+            else:
+                dx = 2 if ax == x1 else -2
+                sk_line(cv, ax + dx, ay + 6, bx + dx, byy - 6, key + tag + "i",
+                        light, 1.3, 1.5, over * 0.4, None, "sk")
+
+    def sk_repaint(self):
+        self._sk_size = (0, 0)
+        # Outside the sketch guard on purpose: the background has to follow
+        # the palette whether or not the drawn border is switched on.
+        try:
+            self._sk_canvas.configure(bg=SketchLabelFrame._palette["BG"])
+        except Exception:
+            pass
+        self._sk_draw(None)
+
+
+_SKETCH_FRAMES = []
+
+
+def repaint_sketch_frames():
+    """Called after a theme change: the palette moved, the ink has to follow."""
+    dead = []
+    for frame in _SKETCH_FRAMES:
+        try:
+            if not frame.winfo_exists():
+                dead.append(frame)
+                continue
+            frame.sk_repaint()
+        except Exception:
+            dead.append(frame)
+    for frame in dead:
+        try:
+            _SKETCH_FRAMES.remove(frame)
+        except ValueError:
+            pass
+
+
+# =========================================================
+# THE WAREHOUSE STRIP
+#
+# A shed, a dock, and things crossing in front of it. Every item is
+# created once and moved by coords() afterwards -- rebuilding the
+# drawing each frame is what makes a Tk animation stutter.
+# =========================================================
+class SketchWarehouse(tk.Canvas):
+
+    HEIGHT = 132
+    # What the shed says. Capitals and digits only -- it goes through the
+    # drawn letters, not a font.
+    SIGN_TEXT = "TALLY"
+
+    def __init__(self, master, palette=None, height=None, **kw):
+        self.pal = dict(palette or {})
+        height = height or self.HEIGHT
+        super().__init__(master, height=height, highlightthickness=0, bd=0,
+                         bg=self.pal.get("BG", "#f4ecdc"), **kw)
+        self.h = height
+        self.w = 0
+        self._running = False
+        self._busy = False
+        self._speed = 1.0
+        self._t = 0.0
+        self._actors = []
+        self._after_id = None
+        self.bind("<Configure>", self._on_resize)
+        self.bind("<Destroy>", lambda e: self.stop())
+
+    # -- colours -------------------------------------------------
+    def _c(self, key, fallback):
+        return self.pal.get(key, fallback)
+
+    @property
+    def ink(self):
+        return self._c("TEXT", "#3a3129")
+
+    @property
+    def bg(self):
+        return self._c("BG", "#f4ecdc")
+
+    # -- lifecycle -----------------------------------------------
+    def set_palette(self, palette):
+        self.pal = dict(palette or {})
+        try:
+            self.configure(bg=self.bg)
+        except Exception:
+            return
+        self._build()
+
+    def set_busy(self, busy):
+        """True while a report is running: everything moves like it means it."""
+        self._busy = bool(busy)
+        self._speed = 3.2 if self._busy else 1.0
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._tick()
+
+    def stop(self):
+        self._running = False
+        if self._after_id is not None:
+            try:
+                self.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
+
+    def _on_resize(self, event):
+        if event.width == self.w:
+            return
+        self.w = event.width
+        self._build()
+
+    # -- the still parts -----------------------------------------
+    def _build(self):
+        self.delete("all")
+        self._actors = []
+        w, h = self.w, self.h
+        if w < 80:
+            return
+        ink = self.ink
+        bg = self.bg
+        line = self._c("LINE", "#caa356")
+        accent = self._c("TAB_BG", "#ffb500")
+        pale = blend(ink, bg, 0.55)
+        wall = blend(bg, line, 0.30)
+        door = blend(bg, ink, 0.16)
+        ground = h - 16
+
+        # Sky. 太陽、遠山、幾片停著的雲、幾隻鳥。
+        # 這些全部畫一次就不再動 -- 會飄的雲是 _Cloud,那是另一回事。
+        far = blend(ink, bg, 0.72)
+        sk_oval(self, w - 30, 24, 14, 14, "sun", blend(accent, ink, 0.20),
+                blend(accent, bg, 0.45), 2.2)
+        # 太陽的光芒:短短幾撇,不要畫成整圈,那會變成兒童畫
+        for i, (dx, dy) in enumerate(((-22, -12), (-20, 4), (0, -22))):
+            sk_line(self, w - 30 + dx, 24 + dy, w - 30 + dx * 1.35,
+                    24 + dy * 1.35, "ray%d" % i,
+                    blend(accent, bg, 0.30), 1.8, 0.8, 1.2)
+
+        # 遠山:有量體的丘陵,不是一條折線 -- 折線在這個尺寸只會被當成
+        # 畫歪的地平線。壓在最底層,棚子和貨櫃都蓋在它前面。
+        # 底邊落在地平線上。離地畫會變成三坨浮在半空的東西(像雲),
+        # 而且要夠扁 -- 圓的丘陵在這個高度一樣會被看成雲。
+        base = ground
+        for i, (hx, hw, hh) in enumerate(((w * 0.34, 240, 26),
+                                          (w * 0.58, 300, 34),
+                                          (w * 0.82, 200, 20))):
+            sk_blob(self, [hx - hw / 2, base, hx - hw * 0.26, base - hh,
+                           hx + hw * 0.12, base - hh * 0.82,
+                           hx + hw / 2, base],
+                    "hill%d" % i, far, blend(bg, ink, 0.06), 1.5, 1.6, True)
+
+        # 停著的雲:三片,大小和高度都不一樣,才不像複製貼上
+        for i, (cx, cy, cs) in enumerate(((w * 0.24, 22, 1.0),
+                                          (w * 0.52, 15, 0.7),
+                                          (w * 0.78, 30, 0.85))):
+            sk_blob(self, [cx - 26 * cs, cy + 5 * cs, cx - 16 * cs,
+                           cy - 6 * cs, cx, cy - 9 * cs, cx + 14 * cs,
+                           cy - 4 * cs, cx + 24 * cs, cy + 5 * cs],
+                    "cloudb%d" % i, blend(ink, bg, 0.62),
+                    blend(bg, "#ffffff", 0.55), 1.6, 1.1, True)
+
+        for i, bx in enumerate((w - 92, w - 66, w * 0.42, w * 0.47)):
+            by = 22 + (i % 2) * 6 + (0 if i < 2 else 10)
+            sk_line(self, bx, by, bx + 9, by - 6, "bird%da" % i,
+                    pale, 1.6, 1.0, 1.0)
+            sk_line(self, bx + 9, by - 6, bx + 18, by + 1,
+                    "bird%db" % i, pale, 1.6, 1.0, 1.0)
+
+        # The shed. Left third, so the dock has a wall behind it and the rest
+        # of the strip stays clear for whatever is crossing.
+        bx1 = 10
+        bx2 = max(180, int(w * 0.36))
+        by1 = 40
+        mid = (bx1 + bx2) / 2.0
+
+        self.create_rectangle(bx1 + 2, by1 + 4, bx2 - 2, ground - 2,
+                              fill=wall, outline="")
+        sk_rect(self, bx1, by1 + 2, bx2, ground, "shed", ink, 2.4, 1.7,
+                blend(ink, bg, 0.55))
+        sk_blob(self, [bx1 - 8, by1 + 6, mid, by1 - 14, bx2 + 8, by1 + 6,
+                       bx2 + 8, by1 + 13, mid, by1 - 6, bx1 - 8, by1 + 13],
+                "roof", ink, blend(ink, bg, 0.35), 2.2, 1.5)
+
+        # Sign board.
+        sx1, sx2 = bx1 + (bx2 - bx1) * 0.16, bx2 - (bx2 - bx1) * 0.16
+        sy1, sy2 = by1 + 18, by1 + 38
+        sk_blob(self, [sx1, sy1, sx2, sy1, sx2, sy2, sx1, sy2], "sign",
+                ink, blend(ink, bg, 0.20), 2.2, 1.4)
+        # Deliberately under the hollow threshold: at sign size two edges per
+        # stroke close up into a smudge, so it drops to single strokes.
+        # Sized off the board rather than fixed, so a shorter or longer name
+        # fills it the same way instead of rattling around or running off.
+        sign_text = self.SIGN_TEXT
+        cap_tall = max(7.0, (sy2 - sy1) * 0.52)
+        unit = sk_text_width(sign_text, 1.0) or 1.0
+        cap_wide = ((sx2 - sx1) * 0.80) / unit
+        sign_cap = max(7.0, min(cap_tall, cap_wide))
+        sign_w = sk_text_width(sign_text, sign_cap)
+        sk_text(self, (sx1 + sx2) / 2.0 - sign_w / 2.0,
+                (sy1 + sy2) / 2.0 - sign_cap / 2.0, sign_text, sign_cap,
+                accent, blend(accent, ink, 0.40))
+
+        # Two dock doors with roller slats.
+        dw = (bx2 - bx1) * 0.24
+        dy1 = sy2 + 8
+        for i in range(2):
+            dx1 = bx1 + (bx2 - bx1) * (0.14 + i * 0.44)
+            dx2 = dx1 + dw
+            self.create_rectangle(dx1 + 2, dy1 + 2, dx2 - 2, ground - 3,
+                                  fill=door, outline="")
+            for j in range(4):
+                yy = dy1 + 7 + j * (ground - dy1 - 12) / 3.0
+                sk_line(self, dx1 + 3, yy, dx2 - 3, yy, "slat%d%d" % (i, j),
+                        blend(ink, bg, 0.45), 1.2, 0.8, 1.0)
+            sk_rect(self, dx1, dy1, dx2, ground - 1, "dock%d" % i, ink, 2.0,
+                    1.3, blend(ink, bg, 0.55))
+
+        # 貨櫃。堆在棚子右邊那片空地上:兩個疊起來、旁邊再放一個,
+        # 疊法錯開一點才像真的堆場,對齊排整齊反而假。
+        # 有多少空間就擺多少 -- 視窗窄的時候整組省略,擠在動線上比單調更糟。
+        cx0 = bx2 + 26
+        cw, chh = 104, 34
+        if w - cx0 > cw + 90:
+            cols = [("A", cx0, 2), ("B", cx0 + cw + 14, 1)]
+            tints = (blend(accent, ink, 0.35), blend(line, ink, 0.30),
+                     blend(ink, bg, 0.30))
+            for ci, (tag, x0, stack) in enumerate(cols):
+                for lvl in range(stack):
+                    y2 = ground - 2 - lvl * (chh + 3)
+                    y1 = y2 - chh
+                    off = 5 if (lvl and ci == 0) else 0   # 上層錯開
+                    x1, x2 = x0 + off, x0 + off + cw
+                    if x2 > w - 16:
+                        continue
+                    body = tints[(ci + lvl) % len(tints)]
+                    self.create_rectangle(x1 + 2, y1 + 2, x2 - 2, y2 - 2,
+                                          fill=blend(body, bg, 0.55),
+                                          outline="")
+                    # 浪板:直的細線,貨櫃就是靠這個認出來的
+                    for k in range(1, 12):
+                        rx = x1 + (x2 - x1) * k / 12.0
+                        sk_line(self, rx, y1 + 4, rx, y2 - 4,
+                                "corr%d%d%d" % (ci, lvl, k),
+                                blend(body, bg, 0.35), 1.0, 0.6, 0.8)
+                    # 右端那扇門與門閂
+                    sk_line(self, x2 - 22, y1 + 3, x2 - 22, y2 - 3,
+                            "cdoor%d%d" % (ci, lvl), blend(body, ink, 0.30),
+                            1.4, 0.8, 1.0)
+                    for k in (0.35, 0.65):
+                        sk_line(self, x2 - 17, y1 + chh * k, x2 - 5,
+                                y1 + chh * k, "clatch%d%d%d" % (ci, lvl, k),
+                                blend(body, ink, 0.30), 1.2, 0.7, 0.8)
+                    sk_rect(self, x1, y1, x2, y2, "ctr%d%d" % (ci, lvl),
+                            ink, 2.0, 1.3, blend(ink, bg, 0.55))
+
+        # Ground: one long crooked line gone over twice.
+        sk_line(self, 4, ground, w - 4, ground, "ground", ink, 2.4, 1.8, 3.0,
+                blend(ink, bg, 0.45))
+
+
+        # Traffic. Every actor owns its items and is moved, never rebuilt.
+        self._actors = [
+            _Cloud(self, ground, speed=6, phase=0.10, y=20),
+            _Cloud(self, ground, speed=4, phase=0.62, y=34),
+            _Forklift(self, ground, speed=34, phase=0.02),
+            _Worker(self, ground, speed=22, phase=0.38),
+            _Dog(self, ground, speed=29, phase=0.63),
+            _Cat(self, ground, speed=26, phase=0.84),
+        ]
+        for actor in self._actors:
+            actor.build()
+        self._layout(0.0)
+
+    # -- the moving parts ----------------------------------------
+    def _layout(self, dt):
+        for actor in self._actors:
+            actor.step(dt, self._speed, self.w)
+
+    def _tick(self):
+        if not self._running:
+            return
+        try:
+            if self.winfo_exists():
+                self._layout(0.06)
+        except Exception:
+            self._running = False
+            return
+        self._after_id = self.after(60, self._tick)
+
+
+class _Actor:
+    """Position runs 0..1 across the strip and wraps. Items are made once."""
+
+    width = 40
+
+    def __init__(self, cv, ground, speed=20, phase=0.0, y=None):
+        self.cv = cv
+        self.ground = ground if y is None else y
+        self.speed = speed
+        self.pos = phase
+        self.walk = 0.0
+        self.items = {}
+
+    def _mk_line(self, key, color, width=2.0):
+        self.items[key] = self.cv.create_line(0, 0, 1, 1, fill=color,
+                                              width=width, capstyle="round",
+                                              joinstyle="round", smooth=True)
+
+    def _mk_poly(self, key, outline, fill, width=2.0, smooth=False):
+        self.items[key] = self.cv.create_polygon(0, 0, 1, 0, 1, 1,
+                                                 fill=fill, outline=outline,
+                                                 width=width, smooth=smooth,
+                                                 joinstyle="round")
+
+    def _mk_dot(self, key, color):
+        self.items[key] = self.cv.create_oval(0, 0, 1, 1, fill=color,
+                                              outline="")
+
+    def _set_dot(self, key, cx, cy, r):
+        try:
+            self.cv.coords(self.items[key], cx - r, cy - r, cx + r, cy + r)
+        except Exception:
+            pass
+
+    def _set(self, key, pts):
+        try:
+            self.cv.coords(self.items[key], *pts)
+        except Exception:
+            pass
+
+    def build(self):
+        raise NotImplementedError
+
+    def place(self, x):
+        raise NotImplementedError
+
+    def step(self, dt, speed_mult, canvas_w):
+        span = canvas_w + self.width * 2
+        self.pos += (self.speed * speed_mult * dt) / max(1.0, span)
+        if self.pos > 1.0:
+            self.pos -= 1.0
+        self.walk += dt * speed_mult * 5.0
+        self.place(-self.width + self.pos * span)
+
+
+def _wob(key, i, spread=1.1):
+    return _noise(_hexkey(key), i) * spread
+
+
+class _Cloud(_Actor):
+    width = 52
+
+    def __init__(self, cv, ground, speed, phase, y=20):
+        super().__init__(cv, ground, speed, phase, y=y)
+
+    def build(self):
+        c = blend(self.cv.ink, self.cv.bg, 0.62)
+        self._mk_poly("body", c, self.cv.bg, 1.8, smooth=True)
+
+    def place(self, x):
+        y = self.ground
+        pts = []
+        base = [(0, 9), (9, 1), (23, -3), (37, 2), (48, 9), (34, 14), (16, 14)]
+        for i, (dx, dy) in enumerate(base):
+            pts.append(x + dx + _wob("cloud%d" % id(self), i))
+            pts.append(y + dy + _wob("cloud%d" % id(self), i + 40))
+        self._set("body", pts)
+
+
+class _Worker(_Actor):
+    """Walking, pushing a hand truck with a parcel on it."""
+    width = 58
+
+    def build(self):
+        cv = self.cv
+        ink = cv.ink
+        self._mk_line("leg1", ink, 3.0)
+        self._mk_line("leg2", ink, 3.0)
+        self._mk_poly("body", ink, blend(cv._c("ACCENT", "#351c15"), cv.bg, 0.58), 2.4)
+        self._mk_poly("vest", ink, blend(cv._c("TAB_BG", "#ffb500"), cv.bg, 0.18), 2.0)
+        self._mk_line("arm", ink, 2.8)
+        self._mk_poly("head", ink, blend("#f0c49c", cv.bg, 0.08), 2.4, smooth=True)
+        self._mk_poly("hat", ink, blend(cv._c("TAB_BG", "#ffb500"), cv.bg, 0.10), 2.2)
+        self._mk_dot("eye1", ink)
+        self._mk_dot("eye2", ink)
+        self._mk_line("mouth", ink, 1.8)
+        self._mk_poly("box", ink, blend("#c9954f", cv.bg, 0.22), 2.4)
+        self._mk_line("truck", ink, 2.6)
+        self._mk_poly("wheel", ink, cv.bg, 2.2, smooth=True)
+
+    def place(self, x):
+        import math
+        g = self.ground
+        k = "worker%d" % id(self)
+        swing = math.sin(self.walk) * 8.0
+        bob = abs(math.sin(self.walk)) * 1.6
+
+        hy = g - 52 + bob          # centre of the head
+        sy = g - 40 + bob          # shoulders
+        wy = g - 20 + bob          # waist
+        self._set("leg1", [x + 11, wy, x + 11 + swing, g])
+        self._set("leg2", [x + 19, wy, x + 19 - swing, g])
+        self._set("body", [x + 6, sy, x + 24, sy - 1, x + 25, wy + 1, x + 5, wy])
+        self._set("vest", [x + 9, sy + 2, x + 21, sy + 1, x + 22, wy - 2,
+                           x + 8, wy - 1])
+        self._set("arm", [x + 24, sy + 5, x + 33, sy + 12])
+        self._set("head", _ellipse_points(x + 15, hy, 9, 9, k + "h", 1.0, 16))
+        self._set("hat", [x + 5, hy - 5, x + 10, hy - 13, x + 21, hy - 13,
+                          x + 26, hy - 5])
+        self._set_dot("eye1", x + 12, hy - 1, 1.7)
+        self._set_dot("eye2", x + 19, hy - 1, 1.7)
+        self._set("mouth", [x + 13, hy + 4, x + 16, hy + 6, x + 19, hy + 4])
+        self._set("truck", [x + 34, sy + 10, x + 41, g - 5])
+        self._set("wheel", _ellipse_points(x + 40, g - 6, 6, 6, k + "w", 0.9, 14))
+        self._set("box", [x + 31, sy + 8 + _wob(k, 1), x + 53, sy + 7,
+                          x + 54, g - 10, x + 32, g - 9])
+
+
+class _Forklift(_Actor):
+    width = 70
+
+    def build(self):
+        cv = self.cv
+        ink = cv.ink
+        self._mk_line("mast", ink, 3.0)
+        self._mk_line("fork", ink, 2.8)
+        self._mk_poly("pallet", ink, blend("#c9954f", cv.bg, 0.22), 2.4)
+        self._mk_poly("body", ink, blend(cv._c("TAB_BG", "#ffb500"), cv.bg, 0.18), 2.6)
+        self._mk_poly("cab", ink, cv.bg, 2.2)
+        self._mk_poly("driver", ink, blend("#f0c49c", cv.bg, 0.08), 2.2, smooth=True)
+        self._mk_poly("w1", ink, blend(ink, cv.bg, 0.55), 2.4, smooth=True)
+        self._mk_poly("w2", ink, blend(ink, cv.bg, 0.55), 2.4, smooth=True)
+
+    def place(self, x):
+        import math
+        g = self.ground
+        k = "fork%d" % id(self)
+        # The mast lifts and settles rather than running at one height, which
+        # is the whole reason a forklift reads as a forklift.
+        lift = 8.0 + math.sin(self.walk * 0.45) * 7.0
+        self._set("mast", [x + 52, g - 7, x + 52, g - 50])
+        self._set("fork", [x + 52, g - lift, x + 67, g - lift])
+        self._set("pallet", [x + 51, g - lift - 19, x + 68, g - lift - 20,
+                             x + 69, g - lift - 2, x + 52, g - lift - 1])
+        self._set("body", [x + 8, g - 24, x + 46, g - 26, x + 49, g - 8,
+                           x + 6, g - 7])
+        self._set("cab", [x + 17, g - 26, x + 40, g - 27, x + 37, g - 48,
+                          x + 20, g - 47])
+        self._set("driver", _ellipse_points(x + 28, g - 38, 8, 8, k + "d", 1.0, 16))
+        self._set("w1", _ellipse_points(x + 17, g - 7, 8, 8, k + "1", 1.0, 16))
+        self._set("w2", _ellipse_points(x + 41, g - 7, 8, 8, k + "2", 1.0, 16))
+
+
+class _Dog(_Actor):
+    width = 48
+
+    def build(self):
+        cv = self.cv
+        ink = cv.ink
+        coat = blend("#c47a3c", cv.bg, 0.12)
+        self._mk_line("leg1", ink, 2.6)
+        self._mk_line("leg2", ink, 2.6)
+        self._mk_line("tail", ink, 2.6)
+        self._mk_poly("body", ink, coat, 2.4, smooth=True)
+        self._mk_line("leg3", ink, 2.6)
+        self._mk_line("leg4", ink, 2.6)
+        self._mk_poly("head", ink, coat, 2.4, smooth=True)
+        self._mk_poly("ear", ink, blend(coat, ink, 0.40), 2.0)
+        self._mk_poly("muzzle", ink, blend("#f5efe3", cv.bg, 0.10), 2.0, smooth=True)
+        self._mk_dot("eye", ink)
+        self._mk_dot("nose", ink)
+
+    def place(self, x):
+        import math
+        g = self.ground
+        k = "dog%d" % id(self)
+        # Laid out nose-to-tail left to right and then mirrored: the traffic
+        # crosses the strip rightwards, and a dog drawn the other way round
+        # is walking backwards.
+        def m(a):
+            return x + self.width - a
+        sw = math.sin(self.walk * 1.3) * 5.0
+        by = g - 22
+        self._set("leg1", [m(13), by + 8, m(13) - sw, g])
+        self._set("leg3", [m(30), by + 9, m(30) - sw, g])
+        self._set("leg2", [m(20), by + 9, m(20) + sw, g])
+        self._set("leg4", [m(37), by + 8, m(37) + sw, g])
+        self._set("tail", [m(41), by - 2, m(48), by - 13 + sw * 0.7])
+        self._set("body", _ellipse_points(m(26), by + 2, 17, 10, k + "b", 1.1, 18))
+        self._set("head", _ellipse_points(m(9), by - 7, 10, 9, k + "h", 1.1, 16))
+        self._set("muzzle", _ellipse_points(m(4), by - 3, 6, 5, k + "m", 0.9, 12))
+        self._set("ear", [m(2), by - 13, m(8), by - 19, m(10), by - 8])
+        self._set_dot("eye", m(10), by - 10, 1.8)
+        self._set_dot("nose", m(1), by - 4, 2.2)
+
+
+class _Cat(_Actor):
+    width = 42
+
+    def build(self):
+        cv = self.cv
+        ink = cv.ink
+        coat = blend("#efe4d2", cv.bg, 0.08)
+        self._mk_line("leg1", ink, 2.4)
+        self._mk_line("leg2", ink, 2.4)
+        self._mk_line("tail", ink, 2.4)
+        self._mk_poly("body", ink, coat, 2.2, smooth=True)
+        self._mk_line("leg3", ink, 2.4)
+        self._mk_line("leg4", ink, 2.4)
+        self._mk_poly("head", ink, coat, 2.2, smooth=True)
+        self._mk_poly("ear1", ink, coat, 1.8)
+        self._mk_poly("ear2", ink, coat, 1.8)
+        self._mk_dot("eye1", ink)
+        self._mk_dot("eye2", ink)
+        self._mk_dot("nose", blend("#e08a6c", cv.bg, 0.05))
+
+    def place(self, x):
+        import math
+        g = self.ground
+        k = "cat%d" % id(self)
+
+        def m(a):
+            return x + self.width - a
+        sw = math.sin(self.walk * 1.5) * 4.2
+        by = g - 18
+        self._set("leg1", [m(11), by + 6, m(11) - sw, g])
+        self._set("leg3", [m(25), by + 7, m(25) - sw, g])
+        self._set("leg2", [m(17), by + 7, m(17) + sw, g])
+        self._set("leg4", [m(31), by + 6, m(31) + sw, g])
+        self._set("tail", [m(35), by - 1, m(42), by - 14 + sw * 0.6])
+        self._set("body", _ellipse_points(m(22), by + 1, 14, 8, k + "b", 1.0, 18))
+        self._set("head", _ellipse_points(m(8), by - 6, 8, 8, k + "h", 1.0, 16))
+        self._set("ear1", [m(2), by - 10, m(1), by - 18, m(9), by - 12])
+        self._set("ear2", [m(11), by - 12, m(16), by - 19, m(15), by - 9])
+        self._set_dot("eye1", m(5), by - 8, 1.6)
+        self._set_dot("eye2", m(11), by - 8, 1.6)
+        self._set_dot("nose", m(4), by - 3, 1.6)
+
+
+# Every ttk.LabelFrame in this file becomes the hand-drawn one. Done here,
+# once, instead of at 28 call sites -- and SKETCH_UI = False puts the square
+# ttk frame back without touching anything else.
+if SKETCH_UI:
+    ttk.LabelFrame = SketchLabelFrame
+
+
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("dark-blue")
 
 DEFAULT_CONFIG_PATH = "ups_billing_tool_config.json"
+
+
+# =====================================================================
+# TIME ZONE
+# =====================================================================
+# The invoices are American and the desk is not, so "now" is ambiguous
+# whenever a cut-off, a pickup or a billing date is being read. The choice
+# is a display setting only -- nothing in the pricing engine reads it.
+#
+# zoneinfo needs the IANA database, which Windows does not ship. The
+# tzdata package supplies it (the build script installs it, the spec
+# collects it into the exe). If it is missing anyway, the fixed offset
+# beside each zone keeps the clock running -- it just will not follow
+# daylight saving, so the label says so.
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfo
+except ImportError:
+    _ZoneInfo = None
+
+# label, IANA key, fallback offset in hours
+TZ_CHOICES = [
+    ("Taipei",   "Asia/Taipei",         8),
+    ("US East",  "America/New_York",   -5),
+    ("US Cent",  "America/Chicago",    -6),
+    ("US Mtn",   "America/Denver",     -7),
+    ("US West",  "America/Los_Angeles", -8),
+    ("UTC",      "UTC",                 0),
+]
+TZ_LABELS = [c[0] for c in TZ_CHOICES]
+UI_TZ = "Taipei"
+_TZ_FALLBACK_WARNED = set()
+
+
+def tz_now(label=None):
+    """Current time in the chosen zone, and whether DST is being tracked.
+
+    Returns (datetime, exact). exact is False when the fixed offset had to
+    be used, which is the caller's cue to mark the clock as approximate
+    rather than quietly showing the wrong hour half the year.
+    """
+    label = label or UI_TZ
+    for name, key, offset in TZ_CHOICES:
+        if name != label:
+            continue
+        if _ZoneInfo is not None:
+            try:
+                return _dt.datetime.now(_ZoneInfo(key)), True
+            except Exception as e:
+                if key not in _TZ_FALLBACK_WARNED:
+                    _TZ_FALLBACK_WARNED.add(key)
+                    print(f"Time zone {key} unavailable ({e}); "
+                          f"using a fixed {offset:+d}h offset.")
+        return (_dt.datetime.now(_dt.timezone.utc)
+                + _dt.timedelta(hours=offset)), False
+    return _dt.datetime.now(), True
+
+
+_WEEKDAY_ZH = "一二三四五六日"
+
+
+def date_text(now=None, zh=False):
+    """The date in the chosen zone, beside the clock.
+
+    Same reason as the clock itself: the invoices are American and the desk
+    is not, so on a Taipei morning it is still yesterday in Los Angeles, and
+    a cut-off read off the wrong day is a day's shipments.
+    """
+    if now is None:
+        now, _exact = tz_now()
+    if zh:
+        return "%d/%d (%s)" % (now.month, now.day,
+                               _WEEKDAY_ZH[now.weekday()])
+    return "%s %d %s" % (now.strftime("%b"), now.day, now.strftime("%a"))
+
+
+
+class ClockFace(tk.Canvas):
+    """A round wall clock as a widget of its own.
+
+    Every coordinate goes through scaled(). Drawn in raw pixels the dial
+    came out soft on a scaled display: the fonts grew with the interface
+    and the canvas did not, so the whole thing was stretched by the system
+    instead of drawn at the size it is shown at.
+
+    Redrawn once a minute, and again when the palette changes. Thirty-odd
+    canvas items, so redrawing the lot is cheaper than tracking each hand.
+    """
+
+    def __init__(self, parent, owner, size=104):
+        self.owner = owner
+        self.size = scaled(size)
+        super().__init__(parent, width=self.size,
+                         height=self.size + scaled(20),
+                         highlightthickness=0, bd=0)
+        self._stamp = None
+        self._alive = True
+        self._draw(force=True)
+        self.after(1000, self._tick)
+
+    def _pal(self, key, fallback):
+        return (getattr(self.owner, "MILKTEA", {}) or {}).get(key, fallback)
+
+    def _tick(self):
+        if not self._alive:
+            return
+        try:
+            if not self.winfo_exists():
+                self._alive = False
+                return
+            self._draw()
+            self.after(1000, self._tick)
+        except tk.TclError:
+            self._alive = False
+
+    def repaint(self):
+        """After a theme change: the palette moved under us."""
+        self._draw(force=True)
+
+    def _draw(self, force=False):
+        try:
+            now, exact = tz_now()
+        except Exception:
+            return
+        stamp = (now.hour, now.minute, now.day, UI_TZ,
+                 self._pal("BG", ""), self._pal("ACCENT", ""))
+        if not force and stamp == self._stamp:
+            return
+        self._stamp = stamp
+
+        # PANEL and TITLE, not STRIPE and ACCENT. In Brown Gold, STRIPE
+        # (#f7f1e4) and BG (#f4ecdc) are three units apart, so the dial had
+        # no face at all -- it was a rim floating on the page. PANEL is
+        # lighter than BG in every palette, and TITLE is the readable ink
+        # against it in all five, including the dark one.
+        bg = self._pal("BG", "#f4ecdc")
+        rim = self._pal("TITLE", "#351c15")
+        face = self._pal("PANEL", "#fffdf7")
+        self.configure(bg=bg)
+        self.delete("all")
+
+        s = self.size
+        r = s / 2.0 - scaled(5)
+        cx = cy = s / 2.0
+        # Full-strength ink on the rim and the quarter marks. Blended down
+        # they read as grey smudges rather than a dial.
+        self.create_oval(cx - r, cy - r, cx + r, cy + r,
+                         fill=face, outline=rim, width=max(2, scaled(3)))
+        for i in range(12):
+            a = math.radians(i * 30)
+            quarter = i % 3 == 0
+            inner = r * (0.62 if quarter else 0.78)
+            self.create_line(cx + math.sin(a) * inner,
+                             cy - math.cos(a) * inner,
+                             cx + math.sin(a) * r * 0.86,
+                             cy - math.cos(a) * r * 0.86,
+                             fill=rim,
+                             width=max(1, scaled(3 if quarter else 1)))
+        hour_a = math.radians((now.hour % 12) * 30 + now.minute * 0.5)
+        min_a = math.radians(now.minute * 6)
+        self.create_line(cx, cy,
+                         cx + math.sin(hour_a) * r * 0.46,
+                         cy - math.cos(hour_a) * r * 0.46,
+                         fill=rim, width=max(3, scaled(4)), capstyle="round")
+        self.create_line(cx, cy,
+                         cx + math.sin(min_a) * r * 0.74,
+                         cy - math.cos(min_a) * r * 0.74,
+                         fill=rim, width=max(2, scaled(2.5)),
+                         capstyle="round")
+        d = scaled(3.5)
+        self.create_oval(cx - d, cy - d, cx + d, cy + d, fill=rim, outline="")
+        self.create_text(cx, s + scaled(2), anchor="n", fill=rim,
+                         font=ui_font(9, "bold"),
+                         text="%s%s" % (UI_TZ, "" if exact else "  ~"))
+
+
+class DateCard(tk.Canvas):
+    """A tear-off calendar page: month band, the day, the weekday.
+
+    Beside the clock because they answer the same question. The clock says
+    what time it is over there; on a Taipei morning it is still yesterday in
+    Los Angeles, and the day is the half of that answer that decides which
+    pickup a parcel makes.
+    """
+
+    def __init__(self, parent, owner, width=88, height=104):
+        self.owner = owner
+        self.w = scaled(width)
+        self.h = scaled(height)
+        super().__init__(parent, width=self.w, height=self.h + scaled(20),
+                         highlightthickness=0, bd=0)
+        self._stamp = None
+        self._alive = True
+        self._draw(force=True)
+        self.after(5000, self._tick)
+
+    def _pal(self, key, fallback):
+        return (getattr(self.owner, "MILKTEA", {}) or {}).get(key, fallback)
+
+    def _tick(self):
+        if not self._alive:
+            return
+        try:
+            if not self.winfo_exists():
+                self._alive = False
+                return
+            self._draw()
+            self.after(5000, self._tick)
+        except tk.TclError:
+            self._alive = False
+
+    def repaint(self):
+        self._draw(force=True)
+
+    def _draw(self, force=False):
+        try:
+            now, _exact = tz_now()
+        except Exception:
+            return
+        zh = getattr(self.owner, "_ui_language_code", "en") == "zh"
+        stamp = (now.month, now.day, UI_TZ, zh,
+                 self._pal("BG", ""), self._pal("ACCENT", ""))
+        if not force and stamp == self._stamp:
+            return
+        self._stamp = stamp
+
+        bg = self._pal("BG", "#f4ecdc")
+        rim = self._pal("TITLE", "#351c15")
+        face = self._pal("PANEL", "#fffdf7")
+        band = self._pal("TAB_BG", "#ffb500")
+        self.configure(bg=bg)
+        self.delete("all")
+
+        w, h = self.w, self.h
+        pad = scaled(3)
+        band_h = h * 0.30
+        self.create_rectangle(pad, pad, w - pad, h - pad,
+                              fill=face, outline=rim,
+                              width=max(2, scaled(3)))
+        self.create_rectangle(pad, pad, w - pad, pad + band_h,
+                              fill=band, outline=rim,
+                              width=max(2, scaled(3)))
+        # Two rings at the top, so it reads as a calendar and not a card.
+        for k in (0.32, 0.68):
+            rx = pad + (w - 2 * pad) * k
+            self.create_line(rx, pad - scaled(2), rx, pad + scaled(7),
+                             fill=rim, width=max(2, scaled(2)))
+
+        month = "%d月" % now.month if zh else now.strftime("%b").upper()
+        self.create_text(w / 2.0, pad + band_h / 2.0, text=month,
+                         fill=rim, font=ui_font(10, "bold"))
+        self.create_text(w / 2.0, pad + band_h + (h - band_h) * 0.34,
+                         text=str(now.day), fill=rim,
+                         font=(UI_FONT_DATA, scaled(30), "bold"))
+        weekday = ("週" + _WEEKDAY_ZH[now.weekday()]) if zh \
+            else now.strftime("%a").upper()
+        self.create_text(w / 2.0, h - pad - scaled(13), text=weekday,
+                         fill=rim, font=ui_font(9, "bold"))
+        self.create_text(w / 2.0, h + scaled(2), anchor="n", fill=rim,
+                         font=ui_font(9, "bold"), text=UI_TZ)
+
+
+# =====================================================================
+# WHERE THE FILES LIVE
+# =====================================================================
+# Config and history sit beside the program, never in the current
+# working directory -- and never inside the folder PyInstaller unpacks
+# into, which is deleted on exit.
 
 
 def _app_dir():
@@ -137,14 +1763,489 @@ def _app_dir():
     different "Start in", or running from a terminal elsewhere all give
     different answers. Settings were then written to one place and read
     from another, which looks exactly like "nothing is being saved"."""
+    # Packaged as an .exe, __file__ points inside the temporary folder
+    # PyInstaller unpacks into and deletes on exit -- so the settings would be
+    # written there and be gone by the next launch. The exe's own folder is
+    # the one the user can see.
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
     try:
         return os.path.dirname(os.path.abspath(__file__))
-    except NameError:                      # frozen / interactive
+    except NameError:                      # interactive
         return os.getcwd()
 
 
 def default_config_path():
     return os.path.join(_app_dir(), DEFAULT_CONFIG_PATH)
+
+
+DEFAULT_HISTORY_PATH = "ups_history.sqlite3"
+
+
+# === 暫時診斷用：填入要追蹤的單號，留空就不印。查完請清空或刪除。 ===
+DEBUG_TRACKING = set()          # 要追某一單時填單號，例如 {"1Z..."}
+
+
+def default_history_path():
+    return os.path.join(_app_dir(), DEFAULT_HISTORY_PATH)
+
+
+# =====================================================================
+# INVOICE HISTORY
+# =====================================================================
+# Every invoice this tool has read, one row per billing line, in a SQLite
+# file beside the config. It exists for one reason: a correction that lands
+# this month usually corrects a shipment billed last month, and the current
+# file cannot say what that shipment was rated at. With the history, it can.
+class InvoiceHistory:
+    """Every invoice row this tool has ever seen, kept in one SQLite file.
+
+    An ADJ that corrects a shipment billed in an earlier period carries only
+    half the story: the corrected figures. What the parcel was originally
+    rated at -- its zone above all -- was on the previous invoice, which the
+    current run cannot see. Everything the engine does to work around that is
+    a guess, and a guess is what produced a zone change with no price
+    difference.
+
+    So: one row per invoice line, keyed by the invoice it came from and its
+    position in that file. Re-importing an invoice replaces its rows rather
+    than duplicating them, which makes importing the same file twice safe.
+
+    Deliberately not a rate store. Rates are settings and live in config.json;
+    this holds only what UPS billed.
+    """
+
+    COLUMNS = [
+        ("invoice_number", 5), ("invoice_date", 4), ("ship_date", 11),
+        ("tracking", 20), ("entered_weight", 26), ("billed_weight", 28),
+        ("billed_weight_type", 31), ("dims_c", 32), ("zone", 33),
+        ("layer", 34), ("detail", 35), ("ak", 36), ("ar", 43),
+        ("as_code", 44), ("description", 45), ("incentive", 51),
+        ("net_amount", 52), ("dims_a", 225),
+    ]
+
+    # Every column above put back where UPS had it, so a stored invoice can be
+    # handed to the repricing engine as the raw file it came from. The engine
+    # reads by position and by position only; a dict of names would need a
+    # second reader kept in step with the first.
+    #
+    # Declared Value is not here because its column is configurable
+    # (declared_value_col_index), so it is filed under its own name and put
+    # back at whatever index is configured at the time.
+    RAW_INDEX = {
+        "invoice_date": 4, "invoice_number": 5, "ship_date": 11,
+        "tracking": 20, "entered_weight": 26, "billed_weight": 28,
+        "billed_weight_type": 31, "dims_c": 32, "zone": 33,
+        "layer": 34, "detail": 35, "ak": 36, "ar": 43, "as_code": 44,
+        "description": 45, "incentive": 51, "net_amount": 52,
+        "dims_a": 225,
+    }
+
+    # Widest index above, plus one. A frame narrower than this is not a raw
+    # invoice as far as the engine is concerned.
+    RAW_WIDTH = 226
+
+    def __init__(self, path=None):
+        self.path = path or default_history_path()
+        self._ensure()
+
+    def _connect(self):
+        return sqlite3.connect(self.path)
+
+    def _ensure(self):
+        with self._connect() as db:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS invoice_rows (
+                    invoice_number     TEXT NOT NULL,
+                    row_index          INTEGER NOT NULL,
+                    invoice_date       TEXT,
+                    ship_date          TEXT,
+                    tracking           TEXT,
+                    service            TEXT,
+                    zone               TEXT,
+                    layer              TEXT,
+                    detail             TEXT,
+                    ar                 TEXT,
+                    as_code            TEXT,
+                    description        TEXT,
+                    entered_weight     TEXT,
+                    billed_weight      TEXT,
+                    billed_weight_type TEXT,
+                    dims_c             TEXT,
+                    dims_a             TEXT,
+                    incentive          TEXT,
+                    net_amount         REAL,
+                    source_file        TEXT,
+                    imported_at        TEXT,
+                    ak                 TEXT,
+                    declared_value     TEXT,
+                    source_path        TEXT,
+                    PRIMARY KEY (invoice_number, row_index)
+                )""")
+            # History files written before repricing-from-history existed do
+            # not have the last three columns. Added rather than rebuilt: the
+            # rows already filed are the whole point of the table.
+            _have = {r[1] for r in db.execute("PRAGMA table_info(invoice_rows)")}
+            for _late in ("ak", "declared_value", "source_path"):
+                if _late not in _have:
+                    db.execute("ALTER TABLE invoice_rows ADD COLUMN "
+                               f"{_late} TEXT")
+            # What a repricing run produced, at two levels. Only totals: the
+            # detail lives in the report workbook, and copying it here would
+            # be a second version of the answer to keep in step. ran_at is
+            # stored so a figure computed under old rates is visibly old.
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS reprice_runs (
+                    invoice_number TEXT PRIMARY KEY,
+                    ran_at         TEXT,
+                    trackings      INTEGER,
+                    cal_total      REAL,
+                    ups_total      REAL,
+                    report_file    TEXT
+                )""")
+            # Per tracking, because the invoice-level figure cannot answer
+            # "what did this parcel earn over its life": a correction landing
+            # three weeks later shows as a loss that week while the parcel
+            # itself was profitable.
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS reprice_lines (
+                    invoice_number TEXT,
+                    tracking       TEXT,
+                    cal_total      REAL,
+                    ran_at         TEXT,
+                    PRIMARY KEY (invoice_number, tracking)
+                )""")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_line_tracking "
+                       "ON reprice_lines (tracking)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_tracking "
+                       "ON invoice_rows (tracking)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_tracking_layer "
+                       "ON invoice_rows (tracking, layer)")
+
+    # ---------- writing ----------
+    @staticmethod
+    def normalize_date(value):
+        """UPS writes 2026/8/1 in one column and 2026-07-25 in another, and
+        both land in the same table. One shape: YYYY-MM-DD."""
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%Y%m%d",
+                    "%Y-%m-%d %H:%M:%S"):
+            try:
+                from datetime import datetime as _dt
+                return _dt.strptime(text, fmt).date().isoformat()
+            except ValueError:
+                continue
+        return text
+
+    def store_frame(self, frame, source_file="", service_of=None,
+                    declared_value_col=None):
+        """Write one invoice's rows. Returns (invoice numbers, rows written).
+
+        `frame` is the raw billing file exactly as read -- positional, because
+        that is how UPS ships it and how the engine reads it.
+        """
+        from datetime import datetime as _dt
+
+        def cell(row, idx):
+            try:
+                if len(row) > idx:
+                    value = row.iloc[idx]
+                else:
+                    return ""
+            except (IndexError, KeyError, AttributeError):
+                return ""
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                return ""
+            return str(value).strip()
+
+        stamped = _dt.now().isoformat(timespec="seconds")
+        records = []
+        invoices = set()
+
+        for position, (_index, row) in enumerate(frame.iterrows()):
+            data = {name: cell(row, idx) for name, idx in self.COLUMNS}
+            invoice = data.get("invoice_number", "")
+            if not invoice:
+                continue
+            invoices.add(invoice)
+            try:
+                net = float(data.get("net_amount") or 0)
+            except (TypeError, ValueError):
+                net = 0.0
+            service = ""
+            if service_of is not None:
+                try:
+                    service = str(service_of(row) or "").strip()
+                except Exception:
+                    service = ""
+            declared = ""
+            if declared_value_col is not None:
+                declared = cell(row, int(declared_value_col))
+            records.append((
+                invoice, position, self.normalize_date(data.get("invoice_date")),
+                self.normalize_date(data.get("ship_date")),
+                data.get("tracking"), service,
+                data.get("zone"), data.get("layer"), data.get("detail"),
+                data.get("ar"), data.get("as_code"), data.get("description"),
+                data.get("entered_weight"), data.get("billed_weight"),
+                data.get("billed_weight_type"), data.get("dims_c"),
+                data.get("dims_a"), data.get("incentive"), net,
+                os.path.basename(str(source_file)), stamped,
+                data.get("ak"), declared, str(source_file or "")))
+
+        if not records:
+            return [], 0
+
+        with self._connect() as db:
+            # Replace, do not append: importing the same invoice twice is a
+            # thing people do, and it must not double every amount in it.
+            for invoice in invoices:
+                db.execute("DELETE FROM invoice_rows WHERE invoice_number = ?",
+                           (invoice,))
+            db.executemany(
+                "INSERT INTO invoice_rows ("
+                "invoice_number, row_index, invoice_date, ship_date, "
+                "tracking, service, zone, layer, detail, ar, as_code, "
+                "description, entered_weight, billed_weight, "
+                "billed_weight_type, dims_c, dims_a, incentive, net_amount, "
+                "source_file, imported_at, ak, declared_value, source_path"
+                ") VALUES (" + ",".join("?" * 24) + ")", records)
+
+        return sorted(invoices), len(records)
+
+    # ---------- reading ----------
+    def rows_for_tracking(self, tracking):
+        tracking = str(tracking or "").strip()
+        if not tracking:
+            return []
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            cur = db.execute(
+                "SELECT * FROM invoice_rows WHERE tracking = ? "
+                "ORDER BY invoice_date, invoice_number, row_index",
+                (tracking,))
+            return [dict(r) for r in cur.fetchall()]
+
+    def original_shipment_rows(self, tracking, exclude_invoice=None):
+        """The SHP / RTN rows for this tracking -- what it was FIRST billed as.
+
+        This is the answer an ADJ cannot supply about itself: the service and
+        the zone the parcel was originally rated on.
+        """
+        tracking = str(tracking or "").strip()
+        if not tracking:
+            return []
+        query = ("SELECT * FROM invoice_rows WHERE tracking = ? "
+                 "AND layer IN ('SHP','RTN')")
+        params = [tracking]
+        if exclude_invoice:
+            query += " AND invoice_number <> ?"
+            params.append(str(exclude_invoice))
+        query += " ORDER BY invoice_date, row_index"
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            return [dict(r) for r in db.execute(query, params).fetchall()]
+
+    def original_zone(self, tracking, exclude_invoice=None):
+        """The zone this tracking was originally rated on, or None."""
+        for row in self.original_shipment_rows(tracking, exclude_invoice):
+            zone = str(row.get("zone") or "").strip().lstrip("0")
+            if zone:
+                return zone
+        return None
+
+    def summary(self):
+        with self._connect() as db:
+            invoices = db.execute(
+                "SELECT COUNT(DISTINCT invoice_number) FROM invoice_rows"
+            ).fetchone()[0]
+            rows = db.execute("SELECT COUNT(*) FROM invoice_rows").fetchone()[0]
+            trackings = db.execute(
+                "SELECT COUNT(DISTINCT tracking) FROM invoice_rows "
+                "WHERE tracking <> ''").fetchone()[0]
+            span = db.execute(
+                "SELECT MIN(invoice_date), MAX(invoice_date) FROM invoice_rows"
+            ).fetchone()
+        return {"invoices": invoices, "rows": rows, "trackings": trackings,
+                "from": span[0] or "", "to": span[1] or ""}
+
+    def invoice_list(self):
+        """One row per stored invoice, with its tracking count.
+
+        Counted in SQL rather than by reading every row back: the history runs
+        to six figures of rows and the window has to open quickly.
+        """
+        with self._connect() as db:
+            cur = db.execute(
+                "SELECT invoice_number, MIN(invoice_date), COUNT(*), "
+                "COUNT(DISTINCT CASE WHEN tracking <> '' THEN tracking END), "
+                "MAX(source_file), MAX(imported_at) FROM invoice_rows "
+                "GROUP BY invoice_number ORDER BY MIN(invoice_date)")
+            return cur.fetchall()
+
+    def forget_invoice(self, invoice_number):
+        with self._connect() as db:
+            cur = db.execute("DELETE FROM invoice_rows WHERE invoice_number = ?",
+                             (str(invoice_number),))
+            db.execute("DELETE FROM reprice_runs WHERE invoice_number = ?",
+                       (str(invoice_number),))
+            db.execute("DELETE FROM reprice_lines WHERE invoice_number = ?",
+                       (str(invoice_number),))
+            return cur.rowcount
+
+    def record_run(self, invoice_number, trackings, cal_total, ups_total,
+                   report_file=""):
+        """Remember what a run made of one invoice. Replaces the last result."""
+        from datetime import datetime as _dt
+        with self._connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO reprice_runs VALUES (?,?,?,?,?,?)",
+                (str(invoice_number), _dt.now().isoformat(timespec="seconds"),
+                 int(trackings), float(cal_total), float(ups_total),
+                 os.path.basename(str(report_file or ""))))
+
+    def record_lines(self, invoice_number, pairs):
+        """Store (tracking, repriced total) for one invoice. Replaces."""
+        from datetime import datetime as _dt
+        stamp = _dt.now().isoformat(timespec="seconds")
+        with self._connect() as db:
+            db.execute("DELETE FROM reprice_lines WHERE invoice_number = ?",
+                       (str(invoice_number),))
+            db.executemany(
+                "INSERT OR REPLACE INTO reprice_lines VALUES (?,?,?,?)",
+                [(str(invoice_number), str(t), float(v), stamp)
+                 for t, v in pairs if str(t).strip()])
+
+    def rows_for_code(self, ar, as_code):
+        """How many stored rows carry this AR + AS, and what UPS calls them.
+
+        Typing a code that matches nothing saves happily and then never
+        prices, with nothing said. This is the check that catches it.
+        """
+        with self._connect() as db:
+            cur = db.execute(
+                "SELECT COUNT(*), "
+                "       COUNT(DISTINCT invoice_number), "
+                "       MAX(description), "
+                "       ROUND(SUM(net_amount), 2) "
+                "FROM invoice_rows "
+                "WHERE UPPER(TRIM(ar)) = ? AND UPPER(TRIM(as_code)) = ?",
+                (str(ar).strip().upper(), str(as_code).strip().upper()))
+            rows, invoices, description, total = cur.fetchone()
+        return {"rows": rows or 0, "invoices": invoices or 0,
+                "description": description or "", "total": total or 0.0}
+
+    def rows_for_invoice(self, invoice_number):
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            return [dict(r) for r in db.execute(
+                "SELECT * FROM invoice_rows WHERE invoice_number = ? "
+                "ORDER BY row_index", (str(invoice_number),)).fetchall()]
+
+    def source_path_for(self, invoice_number):
+        """Where this invoice was read from, if that was recorded."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT MAX(source_path) FROM invoice_rows "
+                "WHERE invoice_number = ?", (str(invoice_number),)).fetchone()
+        return (row[0] or "") if row else ""
+
+    def source_file_for(self, invoice_number):
+        """The file name this invoice was read from. Recorded from the start,
+        unlike the full path, so it is all an older history can offer."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT MAX(source_file) FROM invoice_rows "
+                "WHERE invoice_number = ?", (str(invoice_number),)).fetchone()
+        return (row[0] or "") if row else ""
+
+    def frame_for_invoice(self, invoice_number, declared_value_col=48):
+        """The stored invoice, rebuilt as the raw positional frame.
+
+        Returns (frame, blocked). `blocked` is the set of TRACKINGS that
+        cannot be honestly repriced from what was filed: a parcel with a
+        Declared Value row stored before this tool kept the DV column would
+        come out priced at zero for that charge, which is an invented number
+        rather than a missing one.
+
+        Per tracking, not per invoice, because that is the grain everything
+        downstream works at -- one parcel's missing column is no reason to
+        refuse the other four hundred on the same invoice.
+
+        Reference columns 15/16 and the payor are not rebuilt: nothing in the
+        rating path reads them, they only decorate the report's info rows.
+        """
+        rows = self.rows_for_invoice(invoice_number)
+        if not rows:
+            return None, set()
+
+        width = max(self.RAW_WIDTH, int(declared_value_col) + 1)
+        blocked = set()
+        table = []
+        for row in rows:
+            blank = [""] * width
+            for name, idx in self.RAW_INDEX.items():
+                value = row.get(name)
+                blank[idx] = "" if value is None else str(value)
+            if str(row.get("as_code") or "").strip().upper() == "EVS":
+                declared = str(row.get("declared_value") or "").strip()
+                if declared:
+                    blank[int(declared_value_col)] = declared
+                else:
+                    blocked.add(str(row.get("tracking") or "").strip())
+            table.append(blank)
+
+        blocked.discard("")
+        return pd.DataFrame(table), blocked
+
+    def lifetime_for(self, tracking):
+        """Every invoice this tracking appears on: what UPS billed, and what a
+        run made of it. cal_total is None where that invoice was never
+        repriced -- which is the honest answer, not a zero."""
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            cur = db.execute("""
+                SELECT i.invoice_number            AS invoice_number,
+                       MIN(i.invoice_date)         AS invoice_date,
+                       ROUND(SUM(i.net_amount), 2) AS ups_total,
+                       l.cal_total                 AS cal_total
+                FROM invoice_rows i
+                LEFT JOIN reprice_lines l
+                       ON l.invoice_number = i.invoice_number
+                      AND l.tracking = i.tracking
+                WHERE i.tracking = ?
+                GROUP BY i.invoice_number
+                ORDER BY MIN(i.invoice_date)""", (str(tracking),))
+            return [dict(r) for r in cur.fetchall()]
+
+    def overview(self):
+        """One row per stored invoice: what UPS billed, and what a run made
+        of it. Invoices never repriced come back with the run fields empty."""
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            cur = db.execute("""
+                SELECT i.invoice_number                AS invoice_number,
+                       MIN(i.invoice_date)             AS invoice_date,
+                       COUNT(*)                        AS rows_n,
+                       COUNT(DISTINCT CASE WHEN i.tracking <> ''
+                                           THEN i.tracking END) AS trackings,
+                       ROUND(SUM(i.net_amount), 2)     AS ups_billed,
+                       MAX(i.source_file)              AS source_file,
+                       MAX(i.imported_at)              AS imported_at,
+                       r.ran_at                        AS ran_at,
+                       r.cal_total                     AS cal_total,
+                       r.ups_total                     AS run_ups_total,
+                       r.report_file                   AS report_file
+                FROM invoice_rows i
+                LEFT JOIN reprice_runs r
+                       ON r.invoice_number = i.invoice_number
+                GROUP BY i.invoice_number
+                ORDER BY MIN(i.invoice_date)""")
+            return [dict(r) for r in cur.fetchall()]
+
+
 _config_lock = threading.Lock()
 
 # =====================================================================
@@ -170,7 +2271,10 @@ UPS_ACC_CODE_REFERENCE = {
     "ERL": "Returns Electronic Label",
     "EVS": "Declared Value",
     "FTP": "Third Party Billing Service",
-    "ISW": "Intercept Service Web",
+    # UPS bills this as "Return To Sender - Web Request" on the invoice.
+    # "Intercept Service Web" was the internal wording and did not match what
+    # the client sees, so the audit output named a charge nobody could find.
+    "ISW": "Return To Sender - Web Request",
     "LCR": "Large Package Surcharge",
     "LDC": "Delivery Area Surcharge - Extended - Commercial",
     "LDR": "Delivery Area Surcharge - Extended - Residential",
@@ -213,6 +2317,8 @@ ACC_FUEL_ELIGIBLE = {
     "Additional Handling Surcharge - Packaging": True,
     "Large Package Surcharge": True,
     "Over Maximum Surcharge": True,
+    "Return To Sender - Web Request": True,
+    # Old wording kept so a config written before the rename still resolves.
     "Intercept Service Web": True,
     "Reroute - Web Request": True,
     "Future Day Pickup - Alternate Address - Web Request": True,
@@ -248,6 +2354,144 @@ DEFAULT_DYNAMIC_SURCHARGE_MAPPING = {
 # they are never reported as unknown codes, but they get NO rate row and are not
 # repriced -- they are UPS billing catch-up fees, not a service surcharge.
 ACC_CODES_NOT_REPRICED = {"NPF", "SCF"}
+
+# Report column -> ACC template row name, for the handful of columns where the
+# two differ. Anything not listed here uses its own name; custom surcharges
+# already do, since the surcharge name IS the table row name.
+# Only used to ask "is this rate zone-based?" -- never for pricing.
+# Plain-language note for charges the breakdown lists but does not narrate.
+# The column headings are the tool's own vocabulary; nobody reading one parcel
+# should have to already know it.
+CHARGE_PLAIN_NOTES = {
+    "2nd Mile Road Base Rate": ("退回寄件人那一段的運費",
+                                "freight for the leg back to the sender"),
+    "Return To Sender": ("要求退回的手續費",
+                         "the fee for asking UPS to send it back"),
+    "Residential Surcharge": ("送到住宅地址加收",
+                              "charged for delivering to a home address"),
+    "Address Correction Fee": ("UPS 幫忙更正地址的費用",
+                               "UPS's fee for correcting the address"),
+    "Undeliverable Return": ("送不到、退回的運費",
+                             "freight for a parcel that could not be delivered"),
+    "Signature": ("需要簽收", "someone had to sign for it"),
+    "Adult Signature": ("需要成人簽收", "an adult had to sign for it"),
+    "Declared Value": ("申報價值保險費", "insurance on the declared value"),
+    "Package Protection": ("包裹保障費", "parcel protection cover"),
+    "Large Package Surcharge": ("超過大型包裹門檻加收",
+                                "over the Large Package limit"),
+}
+
+ACC_COLUMN_FEE_TYPE = {
+    "Residential": "Residential Surcharge",
+    "Additional Handling Surcharge - Weight": "AHS Weight",
+    "Additional Handling Surcharge - Dimension": "AHS Dimension",
+    "Additional Handling Surcharge - Packaging": "AHS Packaging",
+    "Large Package Surcharge": "Large Package",
+}
+
+# ACC template row name -> the UPS charge code(s) that land on it. Mirrors the
+# dispatch chain in run_repricing, and exists so a rate issue can be reported
+# as "ART Returns 3 UPS Pickup Attempts" instead of the row name alone -- the
+# code is what you search for in the invoice. Custom surcharges are NOT listed
+# here; they are resolved from the live registries in acc_codes_for_fee_type.
+# Used for labelling only, never for pricing.
+# What a fee row is CALLED on screen and in the templates: UPS's own wording,
+# taken from the ACC Codes table. The short names stay as the keys everything
+# is stored and looked up under (accessorial_rate_table, FEE_TYPE_ACC_CODES,
+# the report columns), so renaming here costs nothing -- the import maps the
+# long name back to the key on the way in.
+#
+# A fee that is not listed reads the same both ways.
+# Rows that are a percentage, not an amount. They are shown apart from the
+# flat charges, with a % after the box instead of a $ in front of it -- a
+# markup typed into a row of dollar amounts reads as $0.00.
+#
+# Empty since Declared Value stopped being a markup on whatever UPS charged
+# and became a charge worked out from the declared value in column AW. The
+# set and the rendering it drives are kept: the next percentage fee should
+# not have to rebuild them.
+PERCENT_FEE_TYPES = set()
+
+
+FEE_TYPE_DISPLAY_NAMES = {
+    "AHS Weight": "Additional Handling Surcharge - Weight",
+    "AHS Dimension": "Additional Handling Surcharge - Dimension",
+    "AHS Packaging": "Additional Handling Surcharge - Packaging",
+    "Large Package": "Large Package Surcharge",
+    "DAS Commercial": "Delivery Area Surcharge - Commercial",
+    "DAS Residential": "Delivery Area Surcharge - Residential",
+    "DAS Extended Commercial": "Delivery Area Surcharge - Extended - Commercial",
+    "DAS Extended Residential": "Delivery Area Surcharge - Extended - Residential",
+    "Remote Area Commercial": "Remote Area Surcharge - Commercial",
+    "Remote Area Residential": "Remote Area Surcharge - Residential",
+    # AKR, HIC and HIR all read "Remote Area Surcharge ..." in the code
+    # table, and HIC/HIR share their wording with CAC/CAR, so these two rows
+    # say which state instead. Alaska and Hawaii are charged at their own
+    # rates, and two boxes both called "Remote Area Surcharge" would be a
+    # coin toss as to which one you are typing into.
+    "Remote Area - AK": "Remote Area Surcharge - Alaska",
+    "Remote Area - HI": "Remote Area Surcharge - Hawaii",
+    "Return To Sender": "Return To Sender - Web Request",
+    "Reroute": "Reroute - Web Request",
+    "Reschedule Delivery": "Reschedule Delivery - Web Request",
+    "Signature": "Delivery Confirmation Signature",
+    "Adult Signature": "Adult Signature Required",
+    "Over Maximum Size Surcharge": "Over Maximum Surcharge",
+}
+
+# Long name -> key. Built once so an imported sheet can carry either wording.
+FEE_TYPE_KEYS_BY_DISPLAY = {v: k for k, v in FEE_TYPE_DISPLAY_NAMES.items()}
+
+# Wording a fee row used to be printed under. A rate sheet is a file on a
+# colleague's disk, not something that updates with the program, so renaming a
+# Fee Type without this would leave the old sheets importing under a key
+# nothing prices against -- the rate would not be wrong, it would be absent,
+# and the charge would silently reprice at zero. Aliases are added only where
+# the key is not already taken, so a current name always wins.
+FEE_TYPE_LEGACY_DISPLAY_NAMES = {
+    "Intercept Service Web": "Return To Sender",
+}
+for _legacy_name, _fee_key in FEE_TYPE_LEGACY_DISPLAY_NAMES.items():
+    FEE_TYPE_KEYS_BY_DISPLAY.setdefault(_legacy_name, _fee_key)
+
+
+FEE_TYPE_ACC_CODES = {
+    "Residential Surcharge": ("RES",),
+    "Residential Surcharge (Skip if Residential Service)": ("RES",),
+    "DAS Commercial": ("RDC",),
+    "DAS Residential": ("RDR",),
+    "DAS Extended Commercial": ("LDC",),
+    "DAS Extended Residential": ("LDR",),
+    "Remote Area Commercial": ("CAC",),
+    "Remote Area Residential": ("CAR",),
+    "Remote Area - AK": ("AKR",),
+    # Hawaii is priced from its own row, so the issue list names HIC / HIR
+    # against that row rather than the 48-state one.
+    "Remote Area - HI": ("HIC", "HIR"),
+    "AHS Weight": ("AHW",),
+    # AHB / AHD 拿掉：兩個 UPS 帳號、37 期帳單裡一次都沒出現，沒有依據。
+    # AHV 加入：帳單原文是 "Additional Handling - Cubic Volume"，屬尺寸類。
+    # 四個代碼剛好對上四個尺寸觸發條件——
+    # AHL 最長邊、AHS 第二長邊、AHV 材積、AHG 長加圍。
+    "AHS Dimension": ("AHG", "AHL", "AHS", "AHV"),
+    "AHS Packaging": ("AHC", "AHP"),
+    "Large Package": ("LCR", "LCT", "LPR", "LPS"),
+    "Signature": ("CSG", "DCS", "SIG"),
+    "Adult Signature": ("ADS", "ASG"),
+    "Package Protection": ("SHD",),
+    "Declared Value": ("EVS",),
+    "Return To Sender": ("ISW",),
+    "Reroute": ("IRW",),
+    "Reschedule Delivery": ("IFW",),
+    "Returns Electronic Label": ("ERL",),
+    "Returns Print Label": ("ALP",),
+    # ADC arrives as a Type Detail code on an ADJ/FRT row, not as a charge
+    # code, but it is still what identifies the line on the invoice.
+    "Address Correction": ("ADC",),
+    # OVR / OML are dispatched in their own branch; the map only ever fed the
+    # wording of a diagnostic, and leaving them out made this row nameless.
+    "Over Maximum Size Surcharge": ("OVR", "OML"),
+}
 
 
 # =====================================================================
@@ -293,7 +2537,7 @@ def normalize_fuel_schedule(raw_schedule):
         end = parse_schedule_date(entry.get("end"))
 
         try:
-            percent = float(str(entry.get("percent", "")).replace("%", "").strip())
+            percent = float(normalize_number_text(entry.get("percent", "")))
         except (ValueError, TypeError):
             percent = None
 
@@ -328,6 +2572,227 @@ def normalize_fuel_schedule(raw_schedule):
             )
 
     return schedule, problems
+
+
+
+# =====================================================================
+# DEMAND SURCHARGE
+# =====================================================================
+# A Demand Surcharge is an EXTRA per-package charge inside a demand period.
+# It never replaces the normal AHS / LPS / OVR / Residential / base / fuel
+# charge -- it is added on top of whatever was already worked out.
+#
+# Two independent categories, and one package can collect both:
+#   A. special handling   AHS / LPS / OVR. Residential or commercial, and
+#                         only one of the three per package.
+#   B. service level      Ground Saver / Ground Residential / Next Day Air /
+#                         All Other Air.
+#
+# The two categories do not share their dates -- in the 2025-26 schedule the
+# special-handling periods start 9/28 while the service-level periods start
+# 10/26 -- so they are two separate lists of dated rows. A row carries its own
+# dates AND its own amounts, so nothing has to be matched up by period name.
+DEMAND_SERVICE_GROUPS = [
+    "GROUND_SAVER", "GROUND_RESIDENTIAL", "NEXT_DAY_AIR", "OTHER_AIR",
+]
+
+DEMAND_SPECIAL_FLAGS = ["GROUP", "AHS", "LPS", "OVR"]
+
+# What each field is called on the screen. The keys are the names UPS uses
+# internally and the config is stored under; showing them raw put
+# "GROUND_SAVER" in a column heading.
+DEMAND_FIELD_LABELS = {
+    "GROUP": "Applies To",
+    "GROUND_SAVER": "UPS Ground Saver",
+    "GROUND_RESIDENTIAL": "UPS Ground Residential",
+    "NEXT_DAY_AIR": "UPS Next Day Air",
+    "OTHER_AIR": "All Other UPS Air",
+    "AHS": "Additional Handling",
+    "LPS": "Large Package",
+    "OVR": "Over Maximum Limits",
+}
+
+
+def demand_field_label(field):
+    return DEMAND_FIELD_LABELS.get(field, field)
+
+
+def normalize_demand_rows(raw_rows, amount_fields):
+    """Clean, validate and sort dated demand rate rows.
+
+    Each row is one date range plus one amount per field. Same contract as
+    normalize_fuel_schedule: an unreadable row is dropped and reported, and
+    overlaps are warned about rather than silently resolved -- two rows
+    covering one ship date means two different amounts could claim the same
+    package.
+    """
+    rows = []
+    problems = []
+
+    for index, entry in enumerate(raw_rows or [], start=1):
+        start = parse_schedule_date(entry.get("start"))
+        end = parse_schedule_date(entry.get("end"))
+
+        if start is None or end is None:
+            problems.append(f"Row {index}: unreadable date "
+                            f"({entry.get('start')} ~ {entry.get('end')})")
+            continue
+        if end < start:
+            problems.append(f"Row {index}: end date {end} is before start {start}")
+            continue
+
+        row = {"start": start.isoformat(), "end": end.isoformat()}
+        broken = False
+
+        for field in amount_fields:
+            raw = str(entry.get(field, "")).replace("$", "").strip()
+            # GROUP names a service group; it is not money.
+            if field == "GROUP":
+                row[field] = raw.upper()
+                continue
+            try:
+                row[field] = float(raw or 0)
+            except (TypeError, ValueError):
+                problems.append(f"Row {index}: unreadable {field} ({raw})")
+                broken = True
+                break
+
+        if not broken:
+            rows.append(row)
+
+    rows.sort(key=lambda item: (str(item.get("GROUP", "")), item["start"]))
+
+    # Overlap only matters inside one group: a blank row covering all services
+    # and a Ground-only row for the same dates are not in conflict, the
+    # narrower one simply wins.
+    for earlier, later in zip(rows, rows[1:]):
+        if str(earlier.get("GROUP", "")) != str(later.get("GROUP", "")):
+            continue
+        if later["start"] <= earlier["end"]:
+            problems.append(
+                f"Overlap: {earlier['start']}~{earlier['end']} and "
+                f"{later['start']}~{later['end']}")
+
+    return rows, problems
+
+
+def find_demand_row(rows, ship_date_value):
+    """The row covering this ship date, or None.
+
+    Ship date, never the invoice date -- a package shipped before the period
+    does not become demand-eligible because the invoice arrived later.
+    """
+    ship_date = parse_schedule_date(ship_date_value)
+    if ship_date is None:
+        return None
+    stamp = ship_date.isoformat()
+    for row in rows or []:
+        if row["start"] <= stamp <= row["end"]:
+            return row
+    return None
+
+
+def demand_service_group(service, residential_flag, overrides=None,
+                         known_groups=None):
+    """Demand service group for one shipment, or None if the service takes no
+    service-level demand surcharge.
+
+    An explicit per-channel mapping wins, so a custom channel name that means
+    nothing to the built-in table can still be classified.
+    """
+    name = str(service or "").strip()
+    key = name.lower()
+
+    # An empty override is kept, not skipped: it is the user saying "this one
+    # takes no service-level demand surcharge", which is not the same as
+    # "no opinion, use the built-in table".
+    mapping = {str(k).strip().lower(): str(v).strip().upper()
+               for k, v in (overrides or {}).items()}
+
+    # Against the groups actually in use, which may be more than UPS's four.
+    # Checking the built-in list threw away any group the settings added.
+    valid = [str(g).strip().upper() for g in (known_groups
+                                              or DEMAND_SERVICE_GROUPS)]
+
+    if key in mapping:
+        chosen = mapping[key]
+        return chosen if chosen in valid else None
+
+    # No guessing from the name. A channel is in a group because you put it
+    # there; anything unmapped simply takes no service-level surcharge.
+    return None
+
+
+def calc_demand_surcharge(config, ship_date_value, service, residential_flag,
+                          ahs_flag=False, lps_flag=False, ovr_flag=False):
+    """One package's demand surcharge. Pure function, no UI, no invoice."""
+    result = {"service_group": "", "demand_ahs": 0.0, "demand_lps": 0.0,
+              "demand_ovr": 0.0, "demand_service": 0.0, "total": 0.0,
+              "reason": ""}
+
+    config = config or {}
+    reasons = []
+
+    # -- A. special handling: one per package, OVR > LPS > AHS -------------
+    # AHS is not charged on top of LPS in the normal package logic, and the
+    # demand version follows the same rule.
+    # A group-specific row wins over a blank one. UPS's own schedule charges
+    # Additional Handling, Large Package and Over Maximum the same whatever
+    # the service, so a blank GROUP -- meaning "all services" -- stays the
+    # normal case. The override exists because the international Peak/Demand
+    # is published separately, and a contract can differ from the card.
+    _group_now = demand_service_group(
+        service, residential_flag, config.get("service_groups", {}),
+        known_groups=(config.get("service_group_names")
+                      or DEMAND_SERVICE_GROUPS))
+
+    # Tab 1 uses the same category mapping as tab 2. They are different
+    # surcharges, but they are asked about the same channels, and keeping two
+    # lists of categories in step by hand is not a thing anyone should do.
+    _pkg_group = ""
+    for _name, _grp in (config.get("service_groups", {}) or {}).items():
+        if str(_name).strip().lower() == str(service).strip().lower():
+            _pkg_group = str(_grp).strip().upper()
+            break
+
+    _special = config.get("special_rows", []) or []
+    row = find_demand_row(
+        [r for r in _special
+         if str(r.get("GROUP", "")).strip().upper() == _pkg_group
+         and str(r.get("GROUP", "")).strip()],
+        ship_date_value)
+    if row is None:
+        row = find_demand_row(
+            [r for r in _special if not str(r.get("GROUP", "")).strip()],
+            ship_date_value)
+    if row:
+        span = f"{row['start']}~{row['end']}"
+        if ovr_flag:
+            result["demand_ovr"] = float(row.get("OVR", 0) or 0)
+            reasons.append(f"OVR demand {result['demand_ovr']} ({span})")
+        elif lps_flag:
+            result["demand_lps"] = float(row.get("LPS", 0) or 0)
+            reasons.append(f"LPS demand {result['demand_lps']} ({span})")
+        elif ahs_flag:
+            result["demand_ahs"] = float(row.get("AHS", 0) or 0)
+            reasons.append(f"AHS demand {result['demand_ahs']} ({span})")
+
+    # -- B. service level --------------------------------------------------
+    row = find_demand_row(config.get("service_rows", []), ship_date_value)
+    if row:
+        group = _group_now
+        if group:
+            result["service_group"] = group
+            result["demand_service"] = float(row.get(group, 0) or 0)
+            reasons.append(f"{group} demand {result['demand_service']} "
+                           f"({row['start']}~{row['end']})")
+
+    result["total"] = round(
+        result["demand_ahs"] + result["demand_lps"]
+        + result["demand_ovr"] + result["demand_service"], 2)
+    result["reason"] = "; ".join(reasons)
+
+    return result
 
 
 def fuel_percent_for_date(schedule, ship_date_value, default_percent):
@@ -366,23 +2831,25 @@ def fuel_percent_for_date(schedule, ship_date_value, default_percent):
 # adjustment. UPS sometimes staples a tracking number onto it, which used to
 # dump a -$4,460 adjustment onto one parcel. It is not repriced; it is
 # reported on the Account Charges sheet instead.
-BILLABLE_AR_CODES = ("ACC", "BRK", "GOV")
-
-# The engine computes these itself -- base rate and fuel. Registering them as
-# a custom surcharge would double-count, so they are not offered.
-ENGINE_AR_CODES = ("FRT", "FSC")
-
-# Informational mirror rows. Always $0 net, nothing to price or report.
-INFO_AR_CODES = ("INF",)
+# UPS's own list is FRT GOV BRK ACC FSC TAX EXM MSC INF (and blank). FRT and
+# FSC the engine computes, INF is a zero-value mirror row and MSC is an
+# account-level adjustment, which leaves these as the ones a custom surcharge
+# can legitimately be registered against. TAX and EXM were simply missing:
+# neither shows up on a US domestic Ground account, so nothing complained
+# until an international invoice arrived.
+BILLABLE_AR_CODES = ("ACC", "BRK", "GOV", "TAX", "EXM")
 
 AR_CODE_DESCRIPTIONS = {
     "ACC": "Accessorial surcharge",
     "BRK": "Brokerage fee (import entry)",
     "GOV": "Government duty / customs tax",
+    "TAX": "Tax charged on the shipment",
+    "EXM": "Exempt / non-taxable charge",
     "MSC": "Miscellaneous billing adjustment",
+    "FRT": "Transportation charge (computed by this tool)",
+    "FSC": "Fuel surcharge (computed by this tool)",
+    "INF": "Informational mirror row, always $0",
 }
-
-AR_DROPDOWN_CHOICES = [f"{c} - {AR_CODE_DESCRIPTIONS[c]}" for c in BILLABLE_AR_CODES]
 
 
 def normalize_ar_code(value):
@@ -391,18 +2858,15 @@ def normalize_ar_code(value):
     return raw.split(" - ")[0].strip()
 
 
-# =====================================================================
-# CUSTOM SURCHARGE "TYPE" -- what the tool does with the charge
-# =====================================================================
-# The old values (TEMPLATE / RAW / AUDIT_ONLY) were stored and exported but
-# never read by any calculation, so all three behaved identically. They are
-# renamed to say what they actually do, and now they actually do it. Old
-# configs and old exported templates keep working via DYNAMIC_TYPE_ALIASES.
-DYNAMIC_TYPE_CHOICES = [
-    "REPRICE - use my rate table",
-    "COPY INVOICE - use the billed amount",
-    "REPORT ONLY - show it, exclude from Total",
-]
+# What shape the rate table row takes. This is the thing you know when you
+# add a surcharge; "how should it be priced" is not.
+ACC_SHAPE_CHOICES = ["FLAT", "BY ZONE"]
+
+ACC_SHAPE_DESCRIPTIONS = {
+    "FLAT": "Single rate, all zones",
+    "BY ZONE": "One rate per zone",
+}
+
 
 DYNAMIC_TYPE_ALIASES = {
     "TEMPLATE": "REPRICE",
@@ -424,45 +2888,283 @@ def normalize_dynamic_type(value):
     return raw
 
 
-def dynamic_type_choice_label(value):
-    """Stored value -> the full combobox label."""
-    mode = normalize_dynamic_type(value)
-    for choice in DYNAMIC_TYPE_CHOICES:
-        if choice.split(" - ")[0].strip() == mode:
-            return choice
-    return DYNAMIC_TYPE_CHOICES[0]
+
+# Zone columns a base rate template ships with. A registered channel that
+# declares its own zones uses those instead (see base_rate_template_zones).
+BASE_RATE_TEMPLATE_ZONES = [2, 3, 4, 5, 6, 7, 8, 44, 45, 46]
 
 
-def _unknown_summary_text(unknown_rows, limit=12):
-    """Aggregate unknown charge rows into a short code / count / $ summary."""
-    agg = {}
-    for r in unknown_rows:
-        code = str(r.get("AS Charge Code", "")).strip() or "(blank)"
-        desc = str(r.get("AT Description", "")).strip()
-        entry = agg.setdefault(code, {"n": 0, "amt": 0.0, "desc": desc})
-        entry["n"] += 1
-        try:
-            entry["amt"] += float(r.get("BA Net Amount", 0) or 0)
-        except (TypeError, ValueError):
-            pass
-        if not entry["desc"] and desc:
-            entry["desc"] = desc
+# The two groups of surcharge rows. Named once so the ACC template and the
+# per-channel surcharge template cannot drift apart.
+ACC_ZONE_FEE_TYPES = [
+    "AHS Weight",
+    "AHS Dimension",
+    "AHS Packaging",
+    "Large Package",
+]
 
-    ordered = sorted(agg.items(), key=lambda kv: abs(kv[1]["amt"]), reverse=True)
+ACC_FLAT_FEE_TYPES = [
+    "DAS Commercial",
+    "DAS Residential",
+    "DAS Extended Commercial",
+    "DAS Extended Residential",
+    "Remote Area Commercial",
+    "Remote Area Residential",
+    "Remote Area - AK",
+    "Remote Area - HI",
+    "Residential Surcharge",
+    "Return To Sender",
+    "Reroute",
+    "Reschedule Delivery",
+    "Returns Electronic Label",
+    "Returns Print Label",
+    "Signature",
+    "Adult Signature",
+    "Package Protection",
+    "Address Correction",
+    "Direct Delivery Only",
+    "Over Maximum Size Surcharge",
+]
 
+
+# Full-width digits and the Chinese full stop, as typed with an IME still in
+# Chinese mode: "22。5" and "２２．５" are what a percent field receives when
+# the keyboard was never switched back, and float() refuses both.
+_FULLWIDTH_NUMBER_MAP = str.maketrans({
+    "０": "0", "１": "1", "２": "2", "３": "3", "４": "4",
+    "５": "5", "６": "6", "７": "7", "８": "8", "９": "9",
+    "．": ".", "。": ".", "，": "", ",": "", "％": "", "%": "",
+    "－": "-", "　": "",
+})
+
+
+
+def normalize_number_text(text):
+    """What the user typed, in a form float() accepts."""
+    return str(text or "").translate(_FULLWIDTH_NUMBER_MAP).strip()
+
+
+def sort_zone_keys(zones):
+    """Zone labels in reading order: numbers ascending, then anything else."""
+    return sorted({str(z).strip() for z in (zones or []) if str(z).strip()},
+                  key=lambda v: (not v.isdigit(),
+                                 int(v) if v.isdigit() else 0, v))
+
+# The channels shipped with the tool. Was an inline literal inside the Import
+# Files tab builder, which meant a registered channel could not be added to the
+# dropdown without rebuilding the widget.
+# Invoice description -> service, longest match first. The repricing engine
+# builds the same list with the custom channels in front; this copy exists so
+# the zone scanner can read an invoice without starting a repricing run.
+# UPS daily rates divide by 139. A channel with nothing of its own uses this
+# rather than losing dimensional weight altogether.
+DEFAULT_DIM_FACTOR = 139.0
+
+BUILT_IN_SERVICE_PATTERNS = [
+    ("surepost", "SurePost"),
+    ("ground residential", "Ground Residential"),
+    ("ground commercial", "Ground Commercial"),
+    ("standard to canada", "Standard"),
+    ("3 day", "3 Day Select"),
+    ("2nd day air am", "2nd Day Air AM"),
+    ("2nd day air", "2nd Day Air"),
+    ("next day air early", "Next Day Air Early"),
+    ("next day air saver", "Next Day Air Saver"),
+    ("next day air", "Next Day Air"),
+    ("worldwide express plus", "Worldwide Express Plus"),
+    ("worldwide express", "Worldwide Express"),
+    ("worldwide saver", "Worldwide Saver"),
+    ("worldwide expedited", "Worldwide Expedited"),
+    ("worldwide economy", "Worldwide Economy"),
+    ("standard", "Standard"),
+]
+
+BUILT_IN_SERVICE_CHOICES = [
+    "Ground Commercial", "Ground Residential", "SurePost", "3 Day Select",
+    "2nd Day Air", "2nd Day Air AM", "Next Day Air Saver", "Next Day Air",
+    "Next Day Air Early", "Standard", "Worldwide Expedited", "Worldwide Saver",
+    "Worldwide Express", "Worldwide Express Plus", "Worldwide Economy",
+]
+
+
+# Zones each built-in service is rated on, read off the contract rate
+# workbook. UPS numbers every service in its own band -- Ground on 2-8 /
+# 44-46, Next Day Air on 102-108 / 124-126, 3 Day Select on 302-308 -- so a
+# service left on the domestic default is looked up on zone numbers its own
+# rate table does not contain, and prices at nothing.
+#
+# A service that is not listed here declares no zones and keeps the standard
+# set; a zone list already saved in config.json wins over this one, so a lane
+# corrected by hand or scanned from an invoice is not overwritten on load.
+DEFAULT_BUILTIN_SERVICE_ZONES = {
+    "Ground Commercial": [2, 3, 4, 5, 6, 7, 8, 44, 45, 46],
+    "Ground Residential": [2, 3, 4, 5, 6, 7, 8, 44, 45, 46],
+    "3 Day Select": [302, 303, 304, 305, 306, 307, 308],
+    "2nd Day Air": [202, 203, 204, 205, 206, 207, 208, 224, 225, 226],
+    "Next Day Air Saver": [132, 133, 134, 135, 136, 137, 138],
+    "Next Day Air": [102, 103, 104, 105, 106, 107, 108, 124, 125, 126],
+}
+
+
+def default_builtin_zone_text():
+    """The zone defaults in the ", "-separated form config.json stores."""
+    return {svc: ", ".join(str(z) for z in zones)
+            for svc, zones in DEFAULT_BUILTIN_SERVICE_ZONES.items()}
+
+
+# The built-in services the contract workbook says nothing about. They start
+# with no zones at all rather than the domestic 2-8 / 44-46: SurePost and the
+# Worldwide lanes are not rated on Ground's zone numbers, so handing them that
+# set is eleven boxes that can never be charged and a rate card that looks
+# filled in when it is not. Scan an invoice or type the zones on the Channels
+# tab and they stop being empty.
+BUILTIN_SERVICES_WITHOUT_ZONES = [n for n in BUILT_IN_SERVICE_CHOICES
+                                  if n not in DEFAULT_BUILTIN_SERVICE_ZONES]
+
+
+# =====================================================================
+# CUSTOM SERVICES (CHANNELS)
+# =====================================================================
+# Adding a channel used to mean editing four separate places in the source:
+# the _SERVICE_PATTERNS list, the Import Files dropdown, _supported_zones and
+# _intl_markers. Miss any one of them and the channel either never matches the
+# invoice description, or matches and then gets zeroed by the unsupported-lane
+# guard. This registry is the single place to declare one, exactly like
+# Custom Surcharges does for ACC codes.
+#   name     - the service name. MUST equal the Service column in the base
+#              rate workbook, because that string is the rate_tables key.
+#   patterns - invoice description fragments (lower-cased, substring match).
+#              Semicolon separated. Checked BEFORE the built-in list, so a
+#              custom entry can also override a built-in classification.
+#   zones    - extra zone numbers this channel is allowed to use, on top of
+#              the built-in domestic set. Comma separated. Leave blank for a
+#              normal domestic channel.
+def normalize_service_pattern_list(value):
+    """'Standard To Canada; canada std' -> ['standard to canada', 'canada std']"""
+    if isinstance(value, (list, tuple, set)):
+        raw = list(value)
+    else:
+        raw = re.split(r"[;\n|]+", str(value or ""))
+    out = []
+    for item in raw:
+        p = str(item).strip().lower()
+        p = re.sub(r"\s+", " ", p)
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
+def normalize_service_zone_list(value):
+    """'53, 054 ,  ' -> ['53', '54'].  Keeps them as strings, matching the
+    engine's normalize_zone output."""
+    if isinstance(value, (list, tuple, set)):
+        raw = list(value)
+    else:
+        raw = re.split(r"[,;\s]+", str(value or ""))
+    out = []
+    for item in raw:
+        z = str(item).strip()
+        if z.endswith(".0"):
+            z = z[:-2]
+        if z.isdigit():
+            z = z.lstrip("0") or "0"
+        if z and z not in out:
+            out.append(z)
+    return out
+
+
+
+def residential_flag_from_service_name(name, default=False):
+    """Is this service name itself telling us Residential or Commercial?
+
+    The rate table key is (service name, residential bool). When the two
+    disagree the name is the stronger evidence: nobody writes "Ground
+    Residential" in the Service column and means commercial rates.
+    Returns `default` only when the name says neither.
+    """
+    low = str(name or "").strip().lower()
+    has_res = "residential" in low
+    has_com = "commercial" in low
+    if has_res and not has_com:
+        return True
+    if has_com and not has_res:
+        return False
+    return bool(default)
+
+
+def service_name_states_channel_type(name):
+    """True when the name commits to Residential or Commercial on its own."""
+    low = str(name or "").strip().lower()
+    return ("residential" in low) != ("commercial" in low)
+
+
+def sibling_service_name(name):
+    """'Ground Commercial' <-> 'Ground Residential'. None if not applicable."""
+    text = str(name or "").strip()
+    if not service_name_states_channel_type(text):
+        return None
+    if re.search(r"residential", text, flags=re.IGNORECASE):
+        return re.sub(r"residential", "Commercial", text, flags=re.IGNORECASE)
+    return re.sub(r"commercial", "Residential", text, flags=re.IGNORECASE)
+
+
+def neutral_service_name(name):
+    """'Ground Residential' -> 'Ground'. Unchanged if there is no suffix."""
+    text = re.sub(r"\s*[-(]?\s*(residential|commercial)\s*[)]?\s*$", "",
+                  str(name or "").strip(), flags=re.IGNORECASE)
+    return text.strip() or str(name or "").strip()
+
+
+def _rate_diagnostics_by_reason(diagnostics):
+    """-> [(reason, [tracking, ...])], most affected first.
+
+    Grouping by reason alone was not actionable: it said 346 lookups failed
+    without naming a single shipment, so there was nothing to go and check.
+    """
+    groups = {}
+    for line in diagnostics or []:
+        text = str(line)
+        match = re.match(r"\s*\[([^\]]*)\]\s*", text)
+        tracking = match.group(1).strip() if match else ""
+        reason = re.sub(r"^\s*\[[^\]]*\]\s*", "", text).strip()
+        # Weight-not-found names one weight per message; the service and zone
+        # are the part worth grouping on.
+        reason = re.sub(r",?\s*weight=\d+\s*$", "", reason).strip()
+        bucket = groups.setdefault(reason, [])
+        if tracking and tracking not in bucket:
+            bucket.append(tracking)
+    return sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
+
+
+def _rate_diagnostics_summary(diagnostics, limit=6, examples=3):
+    """Readable block for the dialog: count, reason, and example trackings."""
+    ranked = _rate_diagnostics_by_reason(diagnostics)
+    if not ranked:
+        return "", []
     lines = []
-    for code, info in ordered[:limit]:
-        desc = info["desc"][:38]
-        lines.append(f"  {code:<6} {info['n']:>6} rows   "
-                     f"${info['amt']:>12,.2f}   {desc}")
+    for reason, trackings in ranked[:limit]:
+        lines.append(f"{len(trackings)} shipment(s):  {reason}")
+        if trackings:
+            shown = ", ".join(trackings[:examples])
+            more = (f", +{len(trackings) - examples} more"
+                    if len(trackings) > examples else "")
+            lines.append(f"      {shown}{more}")
+    if len(ranked) > limit:
+        lines.append(f"... and {len(ranked) - limit} more kind(s)")
+    return "\n".join(lines), ranked
 
-    if len(ordered) > limit:
-        lines.append(f"  ... and {len(ordered) - limit} more code(s)")
 
-    total = sum(v["amt"] for v in agg.values())
-    lines.append(f"\n  {len(agg)} unknown code(s), "
-                 f"{len(unknown_rows)} row(s), ${total:,.2f} unpriced")
-    return "\n".join(lines)
+def _missing_rate_table_services(diagnostics):
+    """Service/channel-type pairs that had no rate table at all -- the
+    catastrophic class, as opposed to a single weight being absent."""
+    found = {}
+    for line in diagnostics or []:
+        match = re.search(r"No rate table for service:\s*(.+?)\s*$", str(line))
+        if match:
+            label = match.group(1).strip()
+            found[label] = found.get(label, 0) + 1
+    return found
+
 
 
 @contextmanager
@@ -493,13 +3195,1636 @@ UPS_FUEL_SURCHARGE_URL = (
 )
 
 
+# =====================================================================
+# CHINESE INTERFACE TEXT
+# =====================================================================
+# English text -> Chinese, keyed by the exact string on the widget.
+# Adding a label to the interface means adding its key here, or it
+# stays English after the language switch.
+
+
+UI_ZH = {
+    "UPS Reprice Platform": "UPS 運費核算平台",
+    "📦 UPS Reprice Platform  ·  Developed by Sandy Liu": "📦 UPS 運費核算平台  ·  Developed by Sandy Liu",
+    "📁 Import Files": "📁 匯入檔案",
+    "⚙ Pricing Rules": "⚙ 計價規則",
+    "Language": "語言",
+    "L+G Limit": "長度加周長門檻",
+    "Second Longest Side": "第二長邊門檻",
+    "Enable Second Longest Side": "啟用第二長邊門檻",
+    "Longest Side (inches)": "最長邊門檻（英吋）",
+    "Weight Threshold": "重量門檻",
+    "Enable Weight": "啟用重量門檻",
+    "Unknown codes only": "只顯示未知代碼",
+    "In this invoice only": "只顯示這張帳單有的",
+    "All codes": "全部代碼",
+    "Show": "顯示",
+    "Clear": "清除",
+    "Search": "搜尋",
+    "Select": "選取",
+    "Fee Type": "費率項目",
+    "Shipment Type": "出貨類型",
+    "Channel Fuel %": "渠道燃油 %",
+    "UPS Billing Text": "帳單上的服務名稱",
+    "Remove All for This Channel": "移除這條渠道的全部費率",
+    "✕ Remove Ticked": "✕ 移除勾選",
+    "② Rate Table Status": "② 費率表狀態",
+    "③ All Channels": "③ 全部渠道",
+    "④ Surcharge Rates for This Channel": "④ 這條渠道的附加費費率",
+    "e.g. 15": "例如 15",
+    "Currently Editing: Ground Commercial": "目前編輯：Ground Commercial",
+    "Freight rates by billable weight (rows) and zone ": "以計費重量（列）與 Zone（欄）對應的運費 ",
+    "Reference of what each charge code means. ": "各收費代碼的意義對照。",
+    "AS Code must match the invoice exactly. Surcharge Name ": "AS Code 必須與帳單完全一致。Surcharge Name ",
+    "Set which UPS charge codes should be treated as AHS or Large Package charges.": "設定哪些 UPS 收費代碼要視為 AHS 或 Large Package。",
+    "Map UPS charge codes to the correct surcharge type used in the report.\nThis allows the system to automatically identify invoice charges and assign them to the correct surcharge category for repricing and audit reporting.": "將 UPS 收費代碼對應到報表使用的附加費類別。\n設定之後，系統就能自動辨識帳單上的收費並歸入正確的附加費類別，用於重新計價與稽核報表。",
+    "💲 Surcharge Setup": "💲 附加費設定",
+    "📏 Size Rules": "📏 尺寸規則",
+    "🚚 Channels": "🚚 渠道",
+    "🔎 Code Lookup": "🔎 代碼查詢",
+    "Billing file": "UPS 帳單檔案",
+    "Browse": "瀏覽",
+    "Currently Editing:": "目前編輯：",
+    "🚛 Base Rates": "🚛 基本運費",
+    "Export Base Rate": "匯出基本運費模板",
+    "Import Base Rate": "匯入基本運費",
+    "Save Settings": "儲存設定",
+    "💾 Save Settings": "💾 儲存設定",
+    "Load Settings": "載入設定",
+    "🚚 Generate Reprice Report": "🚚 產生運費重算報表",
+    "📊 Generate Profit Report": "📊 產生利潤報表",
+    "System Ready": "系統已就緒",
+    "⛽ Fuel": "⛽ 燃油",
+    "DIM Factor": "材積除數",
+    "📏 Large Package (LPS)": "📏 大型包裹 (LPS)",
+    "Enable Longest Side": "啟用最長邊門檻",
+    "Enable Actual Weight": "啟用實際重量門檻",
+    "Enable Cubic Inches": "啟用材積門檻",
+    "Enable Length + Girth": "啟用長度加周長門檻",
+    "Oversize Min Billable Weight": "大型包裹最低計費重量",
+    "📦 Additional Handling (AHS)": "📦 額外處理費 (AHS)",
+    "AHS Weight Threshold": "AHS 重量門檻",
+    "AHS-Dimension Longest Side (inches)": "AHS 最長邊門檻（英吋）",
+    "AHS-Dimension Second Longest Side": "AHS 第二長邊門檻",
+    "AHS Cubic Inches": "AHS 材積門檻",
+    "AHS L+G Limit": "AHS 長度加周長門檻",
+    "AHS Min Billable Weight": "AHS 最低計費重量",
+    "Fuel Surcharge": "燃油附加費",
+    "⛽ Set Schedule...": "⛽ 設定燃油日期區間…",
+    "Amount": "金額",
+    "Pick the billing file and press a button below. Rates, fuel and rules are set on the other tabs.": "選帳單檔案，按下面的按鈕產生報表。費率、燃油、規則在其他分頁設定。",
+    "Each channel has its own divisor. A channel with none uses 139.": "每條渠道各自有除數。沒有設定的渠道用 139。",
+    "Tick channels, type a divisor, apply. Blank clears it and that channel falls back to 139.": "先勾渠道，填一個除數，按套用。留空 = 清掉，該渠道回到預設 139。",
+    "UPS air contracts commonly use 139.": "UPS 空運合約常見 139。",
+    "Every channel is here: base rates, surcharges, fuel and zones, default services and your own.": "所有渠道都在這裡：預設服務與自訂渠道的基本運費、附加費、燃油、Zone。",
+    "DIM factor is set on Size Rules, where several channels can be done at once.": "材積除數在「尺寸規則」分頁設定，可以一次設好幾條渠道。",
+    "Tick the channels, enter a date range and a fuel %, press Add Range. One channel or twenty, same steps.": "勾選要設定的渠道，填日期區間與燃油 %，按新增區間。一條或二十條都是同一個流程。",
+    "Used when a channel has neither a range nor a percent of its own.": "渠道沒有自己的區間也沒有自己的 % 時，用這個。",
+    "Used when the ship date falls outside every range. Blank follows the global percent.": "日期落在所有區間之外時用這個 %。留空 = 沿用預設。",
+    "Double-click a row to change its dates and percent.": "雙擊任一列可以改它的日期與 %。",
+    "Every rate this channel has. A fee not listed here costs 0 for this channel, and the issue list says so.": "這條渠道的全部費率。沒有列在這裡的項目，這條渠道就是不收（算 0），issue 清單會列出來。",
+    "These are one channel's thresholds; the shared set on the tab is what every other channel uses. Tick channels, type the thresholds, apply. A blank field is left alone, and a value equal to the shared one sends that channel back to using it.": "這裡設的是「個別渠道」的門檻，分頁上那組是所有渠道的預設值。勾渠道，填要寫進去的門檻，按套用。留空的欄位不動；填的值和預設一樣時，該渠道會回去跟著預設走。",
+    "Copy one shipment type whole surcharge schedule onto other channels, then edit the few that differ.": "把一組已經填好的附加費費率，整組複製到其他渠道。來源可以是預設費率——複製過去之後，再改那條渠道不一樣的幾筆。",
+    "One row is one date range and its amounts. A ship date in no row is not charged. Double-click a row to edit it.": "一列 = 一段日期加上該段的金額。出貨日沒落在任何一列 = 不加收。雙擊該列修改。",
+    "Which group each service or channel counts as. The default ones need no attention; only channels you added do. Double-click a row to edit it.": "預設渠道已經對好，不用動。只有你自己新增的渠道需要指定，未指定的會排在最上面、標成紅色。雙擊該列修改。",
+    "Worldwide sits at (none): this page is the US domestic demand surcharge. International Express has its own schedule, by origin and destination and charged per pound.": "Worldwide 那幾條是 (none)：這一頁是美國國內的 demand，國際 Express 的 Peak/Demand 是另一份公告，按起訖國、以每磅計。",
+    "📋 Copy from Another Channel": "📋 從其他渠道複製",
+    "All shipment types": "全部出貨類型",
+    "Rates with no channel yet": "還沒歸到渠道的費率",
+    "Copy Surcharge Rates to Channels": "複製附加費費率到其他渠道",
+    "Copy From": "複製來源",
+    "Apply To": "套用於",
+    "Overwrite existing rows": "覆蓋已有的費率",
+    "⛽ Set Fuel Schedule": "⛽ 設定燃油日期區間",
+    "⚡ Demand Surcharge": "⚡ Demand 附加費",
+    "Demand Surcharge": "Demand 附加費",
+    "Apply to repricing": "套用到重算",
+    "Demand - AHS": "Demand - AHS",
+    "Demand - Large Package": "Demand - 大型包裹",
+    "Demand - Over Maximum": "Demand - 超尺寸",
+    "Demand - Service": "Demand - 服務別",
+    "Save Demand Setup": "儲存 Demand 設定",
+    "① Package Surcharges": "① 包裹類附加費",
+    "② Service Level Rates": "② 服務別費率",
+    "Applies To": "適用類別",
+    "Categories defined here become the rate columns under Service Level Rates. None are pre-defined.": "此處定義的類別，即為「服務別費率」的費率欄位。系統不預設任何類別。",
+    "Renaming preserves existing rates and channel assignments. Deleting removes the column from every period.": "重新命名會保留已設定的費率與渠道指定。刪除將移除所有期間中的該欄位。",
+    "Category": "類別",
+    "Channel Count": "渠道數",
+    "Periods Priced": "已填金額期間",
+    "Package Rows": "包裹類專屬列數",
+    "Assign each service or channel to a category. Unassigned channels are not subject to the service level surcharge.": "指定每個服務／渠道所屬類別。未指定類別者不計收服務別附加費。",
+    "Select a category above, select the rows, then apply. Double-click a row to edit it individually.": "先於上方選擇類別，再選取列，按下按鈕套用。單列可雙擊直接修改。",
+    "Assign": "指定",
+    "Unassign": "取消指定",
+    "Select All": "全選／全不選",
+    "Add Category": "新增類別",
+    "Rename Category": "重新命名",
+    "Delete Category": "刪除類別",
+    "③ Service Categories": "③ 服務類別",
+    "④ Channel Mapping": "④ 渠道對應",
+    "+ Add Period": "+ 新增期間",
+    "Default or Custom": "預設或自訂",
+    "Group Source": "群組來源",
+    "Export Rate Template": "匯出費率模板",
+    "Import Rates": "匯入費率",
+    "Service / Channel": "服務 / 渠道",
+    "Demand Service Group": "Demand 服務群組",
+    "Service Group": "服務群組",
+    "Clear Selected": "清除選取的設定",
+    "Start Date": "開始日期",
+    "End Date": "結束日期",
+    "+ Add": "+ 新增",
+    "Fuel Setup": "燃油設定",
+    "⛽ Set Fuel": "⛽ 設定燃油",
+    "⛽ Set Fuel Percentage": "⛽ 設定燃油百分比",
+    "Fallback Fuel %": "預設燃油 %",
+    "Default Fuel %": "預設燃油 %",
+    "💾 Save": "💾 儲存",
+    "Delete Ticked": "刪除勾選",
+    "Fallback %": "預設 %",
+    "Default %": "預設 %",
+    "Set for Ticked Channels": "設到勾選的渠道",
+    "Fuel Schedule in Effect": "目前生效的燃油區間",
+    "➕ Add Range": "➕ 新增區間",
+    "Channel": "渠道",
+    "🔍 Scan Zones from Invoice": "🔍 從帳單掃描 Zone",
+    "Theme": "主題",
+    "Colour": "配色",
+    "New Fuel Range": "新增燃油區間",
+    "Select Channels": "選擇渠道",
+    "Select All": "全部勾選",
+    "Deselect All": "全部取消勾選",
+    "Apply to Ticked Channels": "套用到勾選的渠道",
+    "Load Values from Ticked Channel": "載入勾選渠道的現值",
+    "Close": "關閉",
+    "⛽ Fuel Schedule": "⛽ 燃油日期區間",
+    "AHS / Large Package Thresholds": "AHS / 大型包裹判定門檻",
+    "Rules in Force": "目前生效的規則",
+    "Default = used by every channel without its own. Bulk = write values into the channels you tick.": "預設 = 沒有單獨設定的渠道都用這組；批量 = 把值寫進你勾選的那幾條渠道。",
+    "Rule": "規則",
+    "Value": "數值",
+    "Applied": "是否啟用",
+    "LPS Longest Side": "LPS 最長邊",
+    "LPS Actual Weight": "LPS 實際重量",
+    "LPS Cubic Inches": "LPS 材積立方吋",
+    "LPS Length + Girth": "LPS 長度加周長",
+    "LPS Min Billable Weight": "LPS 最低計費重量",
+    "AHS Longest Side": "AHS 最長邊",
+    "AHS Second Longest Side": "AHS 第二長邊",
+    "One charge per package: OVR first, then LPS, then AHS. Residential and commercial alike.": "一件只收一個：OVR 優先，其次 LPS，最後 AHS。住宅商業都收。",
+    "A per-package charge by service category. It is a separate charge from the package surcharges and is added to them. The effective dates usually differ, which is why they are two tables.": "依服務類別的每件加收。與「包裹類附加費」是兩筆不同的費用，會相加。兩者的起訖日期通常不同，因此分成兩張表。",
+    "LPS Longest (in)": "LPS 最長邊 (in)",
+    "LPS Weight (lb)": "LPS 實重 (lb)",
+    "LPS Cubic (in³)": "LPS 材積 (in³)",
+    "LPS L+G (in)": "LPS 長+周 (in)",
+    "LPS Min Wt (lb)": "LPS 最低計費重 (lb)",
+    "AHS Weight (lb)": "AHS 重量 (lb)",
+    "AHS Longest (in)": "AHS 最長邊 (in)",
+    "AHS 2nd Side (in)": "AHS 第二長邊 (in)",
+    "AHS Cubic (in³)": "AHS 材積 (in³)",
+    "AHS L+G (in)": "AHS 長+周 (in)",
+    "AHS Min Wt (lb)": "AHS 最低計費重 (lb)",
+    # 門檻編輯視窗的欄位名稱（面板標題已經分好 LPS / AHS）
+    "Longest side (in)": "最長邊 (in)",
+    "Actual weight (lb)": "實際重量 (lb)",
+    "Cubic volume (in³)": "材積 (in³)",
+    "Length + girth (in)": "長 + 圍長 (in)",
+    "Min billable weight (lb)": "最低計費重 (lb)",
+    "Weight (lb)": "重量 (lb)",
+    "Second longest side (in)": "第二長邊 (in)",
+    "* = set by this channel   |   no star = following the default   |   "
+    "off = threshold kept but not applied   |   "
+    "double-click a row to edit that channel":
+    "* = 這個渠道自己設定的值　|　沒有星號 = 沿用預設　|　"
+    "停用 = 門檻仍保留，但不列入判定　|　雙擊任一列可編輯該渠道",
+    "Default Thresholds": "預設門檻",
+    "All channels": "所有渠道",
+    "⚙ Default Thresholds": "⚙ 預設門檻",
+    "Used by every channel that has not been given its own.": "所有沒有自己設定的渠道都用這一組。",
+    "Shipping channel": "物流渠道",
+    "💾 Save Rules": "💾 儲存規則",
+    "Clear (use default)": "清空（沿用預設）",
+    "📏 Bulk Set Channels": "📏 批量設定渠道",
+    "Clear Overrides on Ticked": "清除勾選渠道的覆寫",
+    "Bulk Set DIM Factor": "批量設定材積除數",
+    "⚙ Set Channel DIM": "⚙ 設定渠道除數",
+    "DIM Factors in Force": "目前生效的除數",
+    "Default": "預設",
+    "Default (channels without their own)": "預設（沒有單獨設定的渠道）",
+    "Bulk Set Channels": "批量設定渠道",
+    "Values to Write": "要寫入的值",
+    "Clock": "時鐘",
+    "Default DIM Factor": "預設材積除數",
+    "Flat amounts": "固定金額",
+    # Surcharge names are NOT translated: they are UPS's own wording for a
+    # charge code, and the Chinese UI shows them exactly as the invoice and
+    # the Code Lookup tab do.
+    "Percentages": "百分比",
+    "📚 Invoice History": "📚 帳單歷史",
+    "Import Past Invoices": "匯入歷史帳單",
+    "Stored Invoices": "已存帳單",
+    "Remove Selected": "刪除選取的帳單",
+    "Refresh": "重新整理",
+    "Find": "搜尋",
+    "Clear": "清除",
+    "Batch Import Base Rates": "批量匯入基本運費表",
+    "Find a Tracking": "查詢單號",
+    "Rating Breakdown": "計費計算明細",
+    "UPS Billing Center": "UPS 帳單中心",
+    "Tracking": "單號",
+    "Search": "查詢",
+    "Invoice Number": "帳單號碼",
+    "Invoice Date": "帳單日期",
+    "Transaction Date": "交易日期",
+    "Charge Category Code": "收費類別代碼",
+    "Charge Category Detail Code": "收費類別明細代碼",
+    "Charge Description Code": "收費說明代碼",
+    "Charge Description": "收費說明",
+    "Entered Weight": "輸入重量",
+    "Billed Weight": "計費重量",
+    "Package Dimensions": "包裹尺寸",
+    "Detail Keyed Dimensions": "原始鍵入尺寸",
+    "Net Amount": "淨額",
+    "Longest Side": "最長邊",
+    "Actual Weight": "實際重量",
+    "Cubic Inches": "材積立方吋",
+    "Length + Girth": "長度加周長",
+    "🌐 UPS Fuel Rates": "🌐 UPS 燃油費率",
+    "🌐 Look Up UPS Fuel Percentage": "🌐 查詢 UPS 燃油費率百分比",
+    "💵 Surcharge Rates": "💵 附加費費率",
+    "➕ Custom Surcharges...": "➕ 自訂附加費…",
+    "💾 Save Rates": "💾 儲存費率",
+    "Export Surcharge Rates": "匯出附加費費率",
+    "Import Surcharge Rates": "匯入附加費費率",
+    "Export Ground Accessorials Template": "匯出 Ground 附加費模板",
+    "Export Other Channels Accessorials Template": "匯出其他渠道附加費模板",
+    "Import Accessorials Template": "匯入附加費模板",
+    "Zone": "Zone",
+    "Rate": "費率",
+    "📊  Base Rate Table": "📊 基本運費表",
+    "📤 Export Template": "📤 匯出模板",
+    "🔍 Filter weight:": "🔍 篩選重量：",
+    "No base rates loaded.": "尚未載入基本運費。",
+    "Charge Code Setup": "附加費代碼設定",
+    "+ Add Code": "＋ 新增代碼",
+    "Delete Selected": "刪除所選",
+    "Save Setup": "儲存設定",
+    "Load Setup": "載入設定",
+    "Export List": "匯出清單",
+    "Import List": "匯入清單",
+    "Add Charge Code": "新增附加費代碼",
+    "UPS Charge Code": "UPS 附加費代碼",
+    "Maps To": "對應至",
+    "R/C Class": "住宅／商業類別",
+    "Description (optional)": "說明（選填）",
+    "Save Code": "儲存代碼",
+    "Custom Surcharges": "自訂附加費",
+    "+ Add Surcharge": "＋ 新增附加費",
+    "Pick a date": "選擇日期",
+    "Fuel Surcharge by Ship Date": "燃油附加費 — 依出貨日期區間",
+    "From": "開始日期",
+    "To": "結束日期",
+    "Fuel %": "燃油％",
+    "Add Weekly Ranges": "新增每週區間",
+    "Clear All": "全部清除",
+    "Save Schedule": "儲存區間",
+    "Edit Fuel %": "編輯燃油％",
+    "OK": "確定",
+    "Cancel": "取消",
+    "Charge Code Mapping": "附加費代碼對應",
+    "+ Add Mapping": "＋ 新增對應",
+    "Save Mapping": "儲存對應",
+    "Load Mapping": "載入對應",
+    "Add Charge Code Mapping": "新增附加費代碼對應",
+    "UPS AS Code": "UPS AS 代碼",
+    "Description / Notes (optional)": "說明／備註（選填）",
+    "Save Link": "儲存連結",
+    "🔎 UPS Charge Code Lookup": "🔎 UPS 附加費代碼查詢",
+    "Scan Loaded Invoice": "掃描已載入帳單",
+    "Show Full Reference": "顯示完整代碼表",
+    "Add Custom Surcharge": "新增自訂附加費",
+    "AR": "AR",
+    "Type": "處理方式",
+    "Rate Shape": "費率型態",
+    "FLAT": "單一金額",
+    "BY ZONE": "依 Zone 分",
+    "Single rate, all zones": "不分 Zone，單一費率",
+    "One rate per zone": "每個 Zone 各一個費率",
+    "Fuel Eligible": "計入燃油",
+    "Enabled": "啟用",
+    "Save": "儲存",
+    "Channels": "渠道",
+    "Create channels, define matching text from the UPS original billing file, and verify that a rate table is loaded.": "建立渠道、設定 UPS 原始帳單辨識文字，並確認基本運費是否已匯入。",
+    "① Channel Details": "① 渠道資料",
+    "Channel Name": "渠道名稱",
+    "Create a channel, set the zones it runs on, and load its base transportation table.": "新增渠道、設定該渠道的 Zone，並載入基本運費表。",
+    "Use the service name shown in the UPS original billing file and in the rate table.": "請填寫 UPS 原始帳單與基本運費表中使用的服務名稱。",
+    "Leave blank for the standard 2–8 and 44–46. Enter zones to use exactly those instead, e.g. 108. Separate with commas.": "留空則使用標準 Zone 2–8、44–46；填了就只用填的這些，例如 108，多個用逗號分隔。",
+    "Must exactly match the Service name in the rate table.": "需與基本運費表的 Service 欄名稱完全一致。",
+    "UPS Billing Matching Text": "UPS 原始帳單服務名稱",
+    "Enter text exactly as it appears in the UPS original billing file; separate multiple phrases with semicolons.": "輸入 UPS 原始帳單上出現的服務名稱或描述；多組請用分號 ; 分隔。",
+    "Additional Zones": "額外 Zone",
+    "Leave blank to match the channel name. Add other wordings UPS uses for this lane, separated by semicolons.": "UPS 原始帳單的服務名稱欄裡，這條渠道會出現的文字，用來認出哪些包裹屬於它。留空＝直接拿渠道名稱去比對。有多種寫法就用分號分隔，例如：ground saver; surepost",
+    "Zones": "Zone",
+    "Enter only zones outside 2–8 and 44–46, such as 53; separate multiple zones with commas.": "只填一般 Zone 2–8、44–46 以外的 Zone，例如 53；多個用逗號分隔。",
+    "Residential channel": "住宅渠道（Residential）",
+    "Enable this channel": "啟用此渠道",
+    "Add Channel": "新增渠道",
+    "Edit Selected Channel": "修改所選渠道",
+    "Save Changes": "儲存修改",
+    "Delete Selected Channel": "刪除所選渠道",
+    "Test": "測試",
+    "③ Rate Table Status": "③ 基本運費狀態",
+    "Export Base Rate Template": "匯出基本運費表模板",
+    "👁 View Loaded Rates": "👁 檢視已載入運費",
+    "Loaded Base Rates": "已載入的基本運費",
+    "Select Channel for Rate Table": "選擇費率表渠道",
+    "Channel Type": "渠道類型",
+    "Import Completed Base Rate": "匯入已完成的基本運費表",
+    "④ Existing Channels": "④ 已建立渠道",
+    "Export Channel Settings": "匯出渠道設定",
+    "Import Channel Settings": "匯入渠道設定",
+    "Residential": "住宅",
+    "Commercial": "商業",
+    "Rate Status": "基本運費狀態",
+
+}
+
+# First key wins. Several Chinese labels are shared by two English ones
+# ("Zone" and "Zones" are both 「Zone」), and a plain reverse dict kept the
+# LAST of them -- which is how the history tab's "Zone" heading came back as
+# "Zones" after a language switch.
+UI_EN = {}
+for _en, _zh in UI_ZH.items():
+    UI_EN.setdefault(_zh, _en)
+# =====================================================================
+# IMPORT FILES: THE WAREHOUSE SCENE
+# =====================================================================
+# The animated panel on the Import Files tab. The repricing engine
+# touches four methods only -- start_run, pulse, finish, complain --
+# so the scene can be rewritten without the engine noticing.
+
+
+class WarehousePanel:
+    """Import Files 分頁下方那塊倉庫畫面。一塊 Canvas 兩種狀態:
+
+    idle -- 沒在跑報表。兩個工人在帶邊、堆高機停在月台,慢速閒晃。
+    run  -- 跑報表。輸送帶本身就是進度條(金色填到百分比),箱子往右推,
+            右側報表堆隨進度長高,場景上方壓行數與百分比。
+
+    引擎在主執行緒跑,所以執行中的重繪不是靠 after 計時器(那時候排不進來),
+    而是引擎每處理一列呼叫一次 pulse();pulse 自己節流,約 0.09 秒才真的
+    畫一幀並 update_idletasks 沖上螢幕。這塊是裝飾,它自己的任何錯誤都
+    不准弄死正在跑的報表 -- 第一次出錯印一行,之後閉嘴。
+
+    顏色每次重繪都從 owner.MILKTEA 取,所以換主題只要叫 repaint()。
+    箱子/膚色這類「材質」色是固定的,跟訓練工具同一個做法:主題管的是
+    牆面、金屬、字,不是紙箱的顏色。
+    """
+
+    W, H = 640, 205
+    FLR = 158                       # 地板線(邏輯座標,實際乘 UI_SCALE)
+
+    KRAFT, KRAFT2, KRAFT_DK = "#c79a66", "#d8b183", "#8a5f3c"
+    BELT, BELT_DK = "#7c5236", "#5a3a26"
+    SKIN = ("#e8b98f", "#8a5a3c")
+    VEST, MINT, PANTS = "#e58a2e", "#7fc6a8", "#2f3a42"
+
+    def __init__(self, parent, owner):
+        self.owner = owner
+        self.k = scaled(1000) / 1000.0
+        # 沒有邊框、沒有自己的底色:場景要看起來是頁面的一部分,不是頁面上
+        # 擺了一個畫框。highlightthickness 留著就是那一圈框。
+        self.cv = tk.Canvas(parent, height=scaled(self.H),
+                            highlightthickness=0, bd=0)
+        # 寬度跟著視窗走,所以場上每個東西都是相對左右邊界擺的,不是寫死
+        # 在 640 那張畫布的座標上。
+        self.cv.bind("<Configure>", self._on_resize, add="+")
+        self.FLR = self.H - 46
+        self.state = "idle"
+        self.chip = ""          # 閒置時場上不放字,只有跑完蓋章才有
+        self.frame = 0
+        self.count = 0
+        self.total = 1
+        self.sub = ""
+        self.t0 = 0.0
+        self._last_draw = 0.0
+        self._last_count = 0
+        self._warned = False
+        self._alive = True
+        self._doodle = False
+        self.belt_boxes = [0.05, 0.30, 0.55, 0.80]
+        # 場上會自己動的東西。原本每個都是純函數畫出來的,位置由 frame
+        # 算 -- 那樣沒辦法「記得自己正在做什麼」,所以點了也不會有反應。
+        # 每個角色改成有自己的 x、面向、和手上這件事還要做幾幀。
+        #   act: None 走動 / "eat" 吃飯 / "pee" / "poop"
+        #   wait: 這件事還剩幾幀
+        #   next: 幾幀之後自己找下一件事做
+        self.actors = {
+            "a":   dict(x=300, d=1, act=None, wait=0, next=40, tgt=None),
+            "b":   dict(x=240, d=1, act=None, wait=0, next=90, tgt=None),
+            "cat": dict(x=140, d=1, act=None, wait=0, next=120, tgt=None,
+                        then=None),
+            "dog": dict(x=400, d=-1, act=None, wait=0, next=200, tgt=None,
+                        then=None),
+        }
+        self.mess = []            # 地上的:{x, kind, age}
+        self._bounds = (60, 520)  # 可走動的左右界,實際由 _draw 更新
+        self._bowl = (150, 190)   # 兩個碗的位置,同樣由 _draw 更新
+        self._hover = None
+        self._hinted = False
+        self.cv.bind("<Button-1>", self._on_click, add="+")
+        self.cv.bind("<Motion>", self._on_motion, add="+")
+        self.cv.bind("<Leave>", self._on_leave, add="+")
+        self.cv.bind("<Destroy>", self._on_destroy, add="+")
+        self.repaint()
+        self.cv.after(80, self._tick)
+
+    # ---- 外部介面:引擎只碰這四個 --------------------------------
+    def start_run(self, total, sub=""):
+        try:
+            self.state = "run"
+            self.total = max(1, int(total))
+            self.count = 0
+            self.sub = sub
+            self.t0 = time.monotonic()
+            self._last_draw = 0.0
+            self._last_count = 0
+            self._draw()
+            self.cv.update_idletasks()
+        except Exception as e:
+            self._complain(e)
+
+    def pulse(self):
+        """引擎的迴圈裡每列叫一次。前面的計數判斷要夠便宜,
+        十萬列的檔案這裡會被叫十萬次。"""
+        self.count += 1
+        if self.count - self._last_count < 40:
+            return
+        try:
+            now = time.monotonic()
+            if now - self._last_draw < 0.09:
+                return
+            self._last_draw = now
+            self._last_count = self.count
+            if not self.cv.winfo_viewable():     # 人在別的分頁就不畫
+                return
+            self._draw()
+            self.cv.update_idletasks()
+        except tk.TclError:
+            self._alive = False
+        except Exception as e:
+            self._complain(e)
+
+    def finish(self, ok, chip):
+        try:
+            self.state = "idle"
+            self.chip = chip or ("Report generated" if ok else "Run failed")
+            self._draw()
+        except Exception as e:
+            self._complain(e)
+
+    def repaint(self):
+        try:
+            self._draw()
+        except Exception as e:
+            self._complain(e)
+
+    # ---- 內部 -----------------------------------------------------
+    def _complain(self, e):
+        if not self._warned:
+            self._warned = True
+            print("Warehouse panel error (decor only, run unaffected):", e)
+
+    def _on_destroy(self, _e=None):
+        self._alive = False
+
+    def _on_resize(self, e):
+        """視窗變寬變高,場景跟著變。W/H 是邏輯尺寸(除掉 UI_SCALE),
+        底下所有座標都用它們算:左右貼邊,地板貼底,東西從地板往上長。"""
+        w = max(360, int(e.width / self.k))
+        h = max(150, int(e.height / self.k))
+        if abs(w - self.W) < 2 and abs(h - self.H) < 2:
+            return
+        self.W, self.H = w, h
+        self.FLR = h - 46
+        try:
+            self._draw()
+        except Exception as err:
+            self._complain(err)
+
+    # 只有貓狗可點。人點了沒事做,還會把站在旁邊的貓狗的點擊吃掉。
+    HIT = (("cat", 24), ("dog", 26))
+    # 名字。留空就不顯示名牌 -- 名字還沒定,先不要放一個暫定的在上面。
+    # 要用的時候填 {"cat": "...", "dog": "..."} 就會自動出現。
+    PET_NAMES = {}
+
+    def _hit(self, e):
+        """滑鼠底下是誰。點擊和滑過共用同一套判定,不然會出現
+        「看起來可以點、點下去沒反應」那一格的差距。
+        座標要除掉 UI_SCALE 才對得上場上的邏輯座標。"""
+        lx, ly = e.x / self.k, e.y / self.k
+        if ly < self.FLR - 76 or ly > self.FLR + 8:
+            return None
+        # 取最近的,不是第一個符合的:兩個角色站在一起時,清單前面那個
+        # 會把後面那個的點擊全部攔下來(實測:點狗打到工人)。
+        best, bestd = None, 1e9
+        for key, half in self.HIT:
+            d = abs(lx - self.actors[key]["x"])
+            if d <= half and d < bestd:
+                best, bestd = key, d
+        return best
+
+    def _on_motion(self, e):
+        """滑過角色就換游標、腳下畫一圈虛線 -- 沒有這個沒人知道可以點。"""
+        try:
+            key = self._hit(e)
+            if key != self._hover:
+                self._hover = key
+                self.cv.configure(cursor="hand2" if key else "")
+                if self.state == "idle":
+                    self._draw()
+        except Exception as err:
+            self._complain(err)
+
+    def _on_leave(self, _e=None):
+        if self._hover is not None:
+            self._hover = None
+            try:
+                self.cv.configure(cursor="")
+                self._draw()
+            except Exception:
+                pass
+
+    def _on_click(self, e):
+        """點誰誰就動起來:人開始走一段,貓狗跑去碗邊吃飯 --
+        而且吃完一陣子會想上廁所,所以「餵牠」就是讓牠拉的方法。"""
+        try:
+            key = self._hit(e)
+            if key is None:
+                return
+            self._hinted = True            # 點過一次就不用再提示了
+            # 當場有反應:貓炸毛、狗汪叫。原本是叫牠走去碗邊,
+            # 走過去要好幾秒,點的人只會覺得「點了沒事」。
+            m = self.actors[key]
+            # 反應期間站著不動,但不要站太久 -- 四秒足以讓人以為點壞了。
+            # 狗是兩段:先汪一聲,接著抬腿尿。第二段排在 then 裡,
+            # 第一段做完由狀態機接手。
+            if key == "cat":
+                m.update(act="puff", wait=26, tgt=None, then=None)
+            else:
+                m.update(act="bark", wait=12, tgt=None, then=("pee", 34))
+            self._draw()
+        except Exception as err:
+            self._complain(err)
+
+    def _step_actors(self):
+        """一幀的行為更新。只在閒置時跑 -- 跑報表時主執行緒在算錢,
+        這裡不該再排事情做。"""
+        import random
+        L, R = self._bounds
+        for key, m in self.actors.items():
+            pet = key in ("cat", "dog")
+            if m["wait"] > 0:
+                m["wait"] -= 1
+                # 蹲完才留下東西,不是一蹲下就掉 -- 這樣看得出前後
+                if m["wait"] == 0 and m["act"] in ("pee", "poop"):
+                    self.mess.append(dict(x=m["x"], kind=m["act"], age=0))
+                if m["wait"] == 0:
+                    # 有排下一段就接著做(狗:汪完接著尿),沒有才收工
+                    nxt = m.get("then")
+                    if nxt:
+                        m.update(act=nxt[0], wait=nxt[1], then=None)
+                    else:
+                        m["act"] = None
+                        m["tgt"] = None
+                continue
+
+            if m["tgt"] is not None:              # 正在走去某個定點
+                dx = m["tgt"] - m["x"]
+                if abs(dx) < 3:
+                    m["x"], m["tgt"] = m["tgt"], None
+                    m["wait"] = 60 if m["act"] == "eat" else 26
+                else:
+                    m["d"] = 1 if dx > 0 else -1
+                    m["x"] += m["d"] * (2.2 if pet else 1.9)
+                continue
+
+            m["x"] += m["d"] * (1.5 if pet else 1.7)   # 一般走動
+            if m["x"] < L:
+                m["x"], m["d"] = L, 1
+            elif m["x"] > R:
+                m["x"], m["d"] = R, -1
+
+            m["next"] -= 1
+            if m["next"] <= 0:
+                if pet:
+                    # 吃飯要走到碗邊;尿尿大便就地蹲下
+                    pick = random.choice(("eat", "pee", "poop", None, None))
+                    m["act"] = pick
+                    if pick == "eat":
+                        m["tgt"] = self._bowl[0 if key == "cat" else 1]
+                    elif pick in ("pee", "poop"):
+                        m["wait"] = 30
+                    m["next"] = random.randint(150, 320)
+                else:
+                    m["d"] = -m["d"]
+                    m["next"] = random.randint(60, 200)
+
+        # 誰都不要疊在誰身上。四個角色共用同一條地板線,只靠各自亂走
+        # 一定會走到同一格 -- 疊在一起看起來像只有一隻。
+        keys = list(self.actors)
+        for i in range(len(keys)):
+            for j in range(i + 1, len(keys)):
+                m1, m2 = self.actors[keys[i]], self.actors[keys[j]]
+                gap = 40
+                dx = m2["x"] - m1["x"]
+                if abs(dx) < gap:
+                    push = (gap - abs(dx)) / 2.0
+                    sign = 1 if dx >= 0 else -1
+                    m1["x"] -= sign * push
+                    m2["x"] += sign * push
+                    # 各自往反方向走開,不然下一幀又貼回來
+                    if not m1["tgt"] and not m1["wait"]:
+                        m1["d"] = -sign
+                    if not m2["tgt"] and not m2["wait"]:
+                        m2["d"] = sign
+        L2, R2 = self._bounds
+        for m in self.actors.values():
+            m["x"] = max(L2, min(R2, m["x"]))
+
+        for q in self.mess:                      # 地上的東西會慢慢淡掉
+            q["age"] += 1
+        self.mess = [q for q in self.mess if q["age"] < 700][-14:]
+
+    def _tick(self):
+        """閒置動畫。跑報表時 after 本來就排不進來,不用特別擋。"""
+        if not self._alive:
+            return
+        try:
+            self.frame += 1
+            if self.state == "idle" and self.cv.winfo_viewable():
+                self._step_actors()
+                self._draw()
+            self.cv.after(80, self._tick)
+        except tk.TclError:
+            self._alive = False
+
+    @staticmethod
+    def _mix(hexcol, amt):
+        n = int(hexcol[1:], 16)
+        r, g, b = (n >> 16) & 255, (n >> 8) & 255, n & 255
+        if amt >= 0:
+            r += (255 - r) * amt; g += (255 - g) * amt; b += (255 - b) * amt
+        else:
+            r *= 1 + amt; g *= 1 + amt; b *= 1 + amt
+        return "#%02x%02x%02x" % (int(r), int(g), int(b))
+
+    def _brick(self, x0, y0, x1, y1, col):
+        S, cv = self._S, self.cv
+        if self._doodle:
+            self._sketch_box(x0, y0, x1, y1, col, self.KRAFT_DK, 1.5, 0.8)
+            self._sketch_line(x0 + 1, y0 + 3.5, x1 - 1, y0 + 3.5,
+                              self._mix(col, -0.18), 1.1, 0.5, 3)
+            return
+        cv.create_rectangle(S(x0), S(y0), S(x1), S(y1),
+                            fill=col, outline=self.KRAFT_DK)
+        cv.create_rectangle(S(x0), S(y0), S(x1), S(y0 + 3),
+                            fill=self._mix(col, 0.18), outline="")
+        n = max(1, int((x1 - x0) // 12))
+        step = (x1 - x0) / n
+        for i in range(n):
+            cx = x0 + step * (i + .5)
+            cv.create_oval(S(cx - 2.4), S(y0 - 3.4), S(cx + 2.4), S(y0 + 1),
+                           fill=self._mix(col, 0.10), outline=self.KRAFT_DK)
+
+    SHIRT = "#6f8db0"
+
+    def _worker(self, x, ph, tint, skin, walk=True, wave=False,
+                wave_ph=0.0):
+        if self._doodle:
+            # 第一位:藍襯衫、橘背心、黃安全帽 -- 參考圖那一位。
+            # 第二位:沒有背心,靠髮型分,衣服維持薄荷綠。
+            if tint == self.VEST:
+                self._doodle_person(x, ph, self.SHIRT, skin, hat=self._gold,
+                                    walk=walk and not wave, vest=self.VEST,
+                                    wave=wave, wave_ph=wave_ph)
+            else:
+                self._doodle_person(x, ph, tint, skin, hat=None,
+                                    walk=walk, vest=None)
+            return
+        S, cv, mix = self._S, self.cv, self._mix
+        y = self.FLR
+        sw = math.sin(ph) * 3.2 if walk else 0
+        cv.create_oval(S(x - 13), S(y - 2), S(x + 13), S(y + 4),
+                       fill=mix(self._floor, -0.15), outline="")
+        for dx, s2 in ((-1, -sw), (1, sw)):
+            lx = x + dx * 5.5 + s2 * .5
+            cv.create_rectangle(S(lx - 4.5), S(y - 16), S(lx + 4.5), S(y - 2),
+                                fill=self.PANTS, outline="")
+            cv.create_rectangle(S(lx - 5.2), S(y - 3), S(lx + 5.2), S(y),
+                                fill="#20282e", outline="")
+        cv.create_polygon(S(x - 8.5), S(y - 34), S(x + 8.5), S(y - 34),
+                          S(x + 11.5), S(y - 24), S(x + 11.5), S(y - 15),
+                          S(x - 11.5), S(y - 15), S(x - 11.5), S(y - 24),
+                          fill=tint, outline=mix(tint, -0.28))
+        cv.create_rectangle(S(x - 9.5), S(y - 34), S(x + 9.5), S(y - 31),
+                            fill=mix(tint, 0.15), outline="")
+        for sd in (-1, 1):
+            ax = x + 13 * sd
+            cv.create_line(S(ax), S(y - 32),
+                           S(ax + sd * 1.5 + sd * sw * .4), S(y - 15),
+                           width=max(2, S(5)), fill=mix(tint, 0.07),
+                           capstyle="round")
+        cv.create_rectangle(S(x - 3), S(y - 38), S(x + 3), S(y - 34),
+                            fill=mix(skin, -0.16), outline="")
+        cv.create_rectangle(S(x - 9), S(y - 56), S(x + 9), S(y - 38),
+                            fill=skin, outline=mix(skin, -0.28))
+        cv.create_rectangle(S(x - 10), S(y - 58), S(x + 10), S(y - 52),
+                            fill=self._gold, outline=mix(self._gold, -0.3))
+        cv.create_oval(S(x - 4.6), S(y - 47), S(x - 1.8), S(y - 44.2),
+                       fill="#2b2119", outline="")
+        cv.create_oval(S(x + 1.8), S(y - 47), S(x + 4.6), S(y - 44.2),
+                       fill="#2b2119", outline="")
+
+    def _forklift(self, x, carry):
+        S, cv = self._S, self.cv
+        y = self.FLR
+        cv.create_rectangle(S(x + 26), S(y - 62), S(x + 31), S(y),
+                            fill=self.BELT, outline="")
+        cv.create_rectangle(S(x + 14), S(y - 6), S(x + 40), S(y - 1),
+                            fill=self.BELT_DK, outline="")
+        if carry:
+            fy = y - 34
+            cv.create_rectangle(S(x + 14), S(fy), S(x + 40), S(fy + 5),
+                                fill=self.BELT_DK, outline="")
+            self._brick(x + 12, fy - 24, x + 44, fy, self.KRAFT2)
+        cv.create_rectangle(S(x - 34), S(y - 28), S(x + 14), S(y - 2),
+                            fill=self._gold, outline=self._accent)
+        cv.create_rectangle(S(x - 26), S(y - 44), S(x - 2), S(y - 28),
+                            fill=self._stripe, outline=self._accent)
+        for wx in (-24, 4):
+            cv.create_oval(S(x + wx - 7), S(y - 8), S(x + wx + 7), S(y + 6),
+                           fill="#2b2119", outline="")
+            cv.create_oval(S(x + wx - 2.5), S(y - 3.5),
+                           S(x + wx + 2.5), S(y + 1.5),
+                           fill=self._mix("#2b2119", 0.35), outline="")
+
+    def _draw(self):
+        if not self._alive:
+            return
+        pal = getattr(self.owner, "MILKTEA", None) or {}
+        # 人物與貓狗不再跟著主題名字:三個配色都用 doodle 畫法,
+        # 顏色從 MILKTEA 取,所以換配色場景會跟著換色但畫風不變。
+        self._doodle = True
+        mix = self._mix
+        self._gold = pal.get("TAB_BG", "#ffb500")
+        self._accent = pal.get("ACCENT", "#351c15")
+        self._line = pal.get("LINE", "#caa356")
+        self._stripe = pal.get("STRIPE", "#f7f1e4")
+        bg = pal.get("BG", "#f4ecdc")
+        scene = mix(bg, -0.04)
+        self._floor = mix(self._line, 0.30)
+        title = pal.get("TITLE", self._accent)
+        run2 = pal.get("RUN2", "#8a6104")
+
+        S, cv = self._S, self.cv
+        cv.configure(bg=bg)
+        run = self.state == "run"
+        t = self.frame
+        pct = min(1.0, self.count / float(self.total))
+        W = self.W
+
+        # 場上的定位點,全部相對左右邊界算。中間那一段(輸送帶)吸收多出來
+        # 的寬度,兩側的貨架、月台、報表堆維持原大小貼邊。
+        L, R = 24, W - 24
+        rack_x = L
+        dock_x0, dock_x1 = R - 48, R
+        stack_x0 = R - 148
+        fork_x = R - 96
+        bx0, bx1 = rack_x + 150, stack_x0 - 30
+        by = self.FLR - 40
+
+        # 靜態層:地板、貨架、月台、招牌、窗戶、輸送帶骨架、飯碗。
+        # 這些只有在尺寸或配色變了才需要重畫,每幀重畫是白做工 --
+        # 一幀 225 個圖元裡有一百多個是它們。
+        static_key = (int(W), int(self.H), bg, self._accent, self._gold,
+                      self._line, self._doodle)
+        redo_static = static_key != getattr(self, "_static_key", None)
+        if redo_static:
+            self._static_key = static_key
+            cv.delete("all")
+        else:
+            cv.delete("dy")        # 只清會動的那一層
+
+        if redo_static:
+            cv.create_rectangle(0, S(self.FLR), S(W), S(self.H),
+                                fill=self._floor, outline="")
+        if redo_static:
+            if self._doodle:
+                self._sketch_line(0, self.FLR, W, self.FLR,
+                                  mix(self._accent, 0.35), 1.8, 1.1, 9)
+            else:
+                cv.create_line(0, S(self.FLR), S(W), S(self.FLR),
+                               fill=self._line)
+
+            # 左側貨架
+            rack_top = self.FLR - 106
+            for px in (rack_x, rack_x + 114):
+                cv.create_rectangle(S(px), S(rack_top), S(px + 6), S(self.FLR),
+                                    fill="#c6772e", outline="")
+            for sy in (rack_top + 34, rack_top + 70):
+                cv.create_rectangle(S(rack_x), S(sy), S(rack_x + 120), S(sy + 6),
+                                    fill="#c6772e", outline="")
+            for r, sy in enumerate((rack_top + 8, rack_top + 44)):
+                for i in range(3):
+                    self._brick(rack_x + 10 + i * 36, sy,
+                                rack_x + 40 + i * 36, sy + 24,
+                                self.KRAFT if (i + r) % 2 else self.KRAFT2)
+
+            # 右側月台門
+            if self._doodle:
+                self._sketch_box(dock_x0, self.FLR - 102, dock_x1, self.FLR,
+                                 mix(bg, -0.05),
+                                 mix(self._accent, 0.3), 1.6, 1.0)
+                for gy in range(self.FLR - 82, self.FLR, 26):
+                    self._sketch_line(dock_x0 + 2, gy, dock_x1 - 2, gy,
+                                      self._line, 1.2, 0.6, 3)
+            else:
+                cv.create_rectangle(S(dock_x0), S(self.FLR - 102),
+                                    S(dock_x1), S(self.FLR),
+                                    fill=mix(bg, -0.05), outline=self._line)
+                for gy in range(self.FLR - 82, self.FLR, 26):
+                    cv.create_line(S(dock_x0), S(gy), S(dock_x1), S(gy),
+                                   fill=self._line)
+
+            # 輸送帶=進度條
+            cv.create_rectangle(S(bx0), S(by), S(bx1), S(by + 11),
+                                fill=self.BELT, outline="")
+            cv.create_rectangle(S(bx0), S(by + 11), S(bx1), S(by + 16),
+                                fill=self.BELT_DK, outline="")
+            for lx in (bx0 + 8, (bx0 + bx1) / 2, bx1 - 14):
+                cv.create_rectangle(S(lx), S(by + 16), S(lx + 6), S(self.FLR),
+                                    fill=self.BELT_DK, outline="")
+            # 招牌、窗戶、飯碗也是不動的,一起收進靜態層
+            if self._doodle:
+                sign_x = rack_x + 132
+                wall_y = max(20, self.FLR - 162)
+                self._sign(sign_x, wall_y)
+                wx0 = sign_x + 26 + len(APP_NAME) * 8.5 + 46
+                room = (dock_x0 - 40) - wx0
+                n_win = max(0, min(4, int(room // 78)))
+                for i in range(n_win):
+                    self._window(wx0 + i * 78, wall_y + 6, cloud=(i % 2 == 0))
+                self._bowls()
+            cv.addtag_withtag("st", "all")
+
+        # 進度條的金色填充跟著百分比長,屬於會動的那一層
+        if run:
+            cv.create_rectangle(S(bx0), S(by),
+                                S(bx0 + (bx1 - bx0) * pct), S(by + 11),
+                                fill=self._gold, outline="")
+
+        # 執行中 after 計時器排不進來,frame 不會動;所有「動」都改吃
+        # count(引擎每列加一),不然滾輪和腳步會凍在半空。
+        anim = (self.count * 0.10) if run else t
+        roll = (anim * 1.6 if run else anim * 0.4) % 31
+        for i in range(10):
+            cx = bx0 + 12 + i * (bx1 - bx0 - 24) / 9 + roll
+            if cx < bx1 - 6:
+                cv.create_oval(S(cx - 3), S(by + 2), S(cx + 3), S(by + 8),
+                               fill=self._line, outline="")
+
+        if run:
+            step = 0.012
+            self.belt_boxes = [(p + step) % 1 for p in self.belt_boxes]
+            for i, p in enumerate(self.belt_boxes):
+                cx = bx0 + p * (bx1 - bx0 - 30)
+                self._brick(cx, by - 26, cx + 30, by,
+                            self.KRAFT if i % 2 else self.KRAFT2)
+
+        # 右側報表堆:跟著進度長
+        layers = 1 + int(pct * 4) if run else 1
+        for i in range(layers):
+            self._brick(stack_x0, self.FLR - 24 * (i + 1),
+                        stack_x0 + 70, self.FLR - 24 * i,
+                        self.KRAFT if i % 2 else self.KRAFT2)
+        if run:
+            cv.create_text(S(stack_x0 + 35), S(self.FLR - 24 * layers - 10),
+                           text="Report", fill=mix(self._accent, 0.35),
+                           font=ui_font(8))
+
+        # 人:閒置晃、執行時站定在帶邊踏步。閒置時每隔一陣子舉手打招呼 --
+        # 揮手那一下站定,不然手舉著還在走,看起來像在攔車。
+        # 可走動的範圍與碗的位置,交給 _step_actors 用
+        self._bounds = (rack_x + 30, bx1 - 20)
+        self._bowl = (rack_x + 128, rack_x + 168)
+
+        A, B = self.actors["a"], self.actors["b"]
+        cat, dog = self.actors["cat"], self.actors["dog"]
+
+        # 招牌、窗戶、飯碗已經收進靜態層,這裡只剩地上會淡掉的東西。
+        if self._doodle:
+            self._mess_only()
+
+        # 每隔一陣子揮一次手,揮的時候站定 -- 走著揮手像在攔車。
+        cyc = (anim * 0.08) % 7.0
+        greet = (not run) and cyc < 2.0 and A["wait"] == 0
+        if run:
+            # 跑報表時兩個人站在帶邊,不到處走
+            ax = bx0 + (bx1 - bx0) * .42
+            bx_ = bx0 + (bx1 - bx0) * .18
+        else:
+            ax, bx_ = A["x"], B["x"]
+        self._worker(ax, anim * .35, self.VEST, self.SKIN[0], wave=greet,
+                     wave_ph=anim * 0.75, walk=not greet)
+        self._worker(bx_, anim * .35 + 2, self.MINT, self.SKIN[1],
+                     walk=True)
+
+        # 滑鼠底下那一位:腳下一圈虛線。游標已經變成手指,但游標在截圖和
+        # 餘光裡都看不見,場上要有東西亮起來才知道點得到。
+        if self._hover and not run:
+            hm = self.actors[self._hover]
+            hw = dict(self.HIT)[self._hover]
+            cv.create_oval(S(hm["x"] - hw), S(self.FLR - 7),
+                           S(hm["x"] + hw), S(self.FLR + 5),
+                           outline=mix(self._accent, 0.25), dash=(3, 3),
+                           width=max(1, S(1.6)))
+            # 名牌浮在頭頂。夾在場內,免得牠走到邊上時名字被切掉。
+            nm = self.PET_NAMES.get(self._hover, "")
+            if nm:
+                nx = max(30, min(hm["x"], W - 30))
+                ny = self.FLR - 52
+                half = 5 + len(nm) * 3.6
+                self._blob(nx - half, ny - 9, nx + half, ny + 9,
+                           self._stripe, 1.8, r=4)
+                cv.create_text(S(nx), S(ny), anchor="center",
+                               fill=self._accent, font=title_font(11, "bold"),
+                               text=nm)
+
+        # 貓狗只在手繪風出現:牠們是照參考圖畫的,擺進積木風那一版會
+        # 變成場上唯一有描邊的東西,兩種畫法對打。
+        if self._doodle:
+            # 貓是畫成頭朝左的,往右走要鏡射;狗的 face 參數在畫法裡是
+            # 「頭在 x - 10*face」,所以要傳 -d 才會頭朝著走的方向。
+            self._pet_at(self._doodle_cat, cat["x"], anim, 1.3,
+                         flip=(cat["d"] > 0),
+                         pose=cat["act"] if cat["wait"] else None)
+            self._pet_at(self._doodle_dog, dog["x"], anim, 1.3,
+                         face=-dog["d"],
+                         pose=dog["act"] if dog["wait"] else None,
+                         wet=1 - dog["wait"] / 34.0)
+
+        # 堆高機:idle 停月台,run 在報表堆與月台間載箱
+        if run:
+            shuttle = (math.sin(anim * .04) + 1) / 2
+            self._forklift(fork_x - 30 + shuttle * 40, carry=shuttle < .5)
+        else:
+            self._forklift(fork_x, carry=False)
+
+        if run:
+            cv.create_text(S(24), S(16), anchor="w", fill=title,
+                           font=title_font(12, "bold"),
+                           text="Repricing %s / %s" % (
+                               format(self.count, ","),
+                               format(self.total, ",")))
+            if self.sub:
+                el = int(time.monotonic() - self.t0)
+                cv.create_text(S(24), S(34), anchor="w",
+                               fill=mix(self._accent, 0.4), font=ui_font(9),
+                               text="%s · elapsed %02d:%02d" % (
+                                   self.sub, el // 60, el % 60))
+            cv.create_text(S(W - 24), S(16), anchor="e", fill=run2,
+                           font=title_font(13, "bold"),
+                           text="%d%%" % round(pct * 100))
+        else:
+            if self.chip:
+                cv.create_text(S(24), S(16), anchor="w",
+                               fill=mix(self._accent, 0.45),
+                               font=title_font(10), text=self.chip)
+            # 還沒點過就給一行提示,點過一次就不再出現 -- 常駐的說明文字
+            # 看兩天就變成背景,只有第一次需要。
+            if not self._hinted:
+                try:
+                    tip = self.owner._channel_ui(
+                        "Tap the cat or the dog!",
+                        "點點貓狗!")
+                except Exception:
+                    tip = "Tap the cat or the dog!"
+                # 上下跳:一行灰字擺在角落沒有人會看到。跳動加箭頭之後
+                # 它才會在餘光裡動,而不是變成背景的一部分。
+                bob = math.sin(anim * 0.22) * 3.2
+                # 提示貼在工人頭頂旁邊,不是擺在角落 -- 從角落拉一條線
+                # 過來會變成一條穿過整個畫面的細線,像畫錯的東西。
+                # 夾在場內,免得工人走到邊上時文字被切掉。
+                hx = max(70, min(cat["x"] + 34, W - 190))
+                # 壓在角色頭上一點點就好:再高會撞到牆上的招牌
+                hy = self.FLR - 88 + bob
+                cv.create_text(S(hx), S(hy), anchor="w", fill=self._accent,
+                               font=title_font(13, "bold"), text=tip)
+                # 短箭頭:從文字左下彎到工人頭上。工人會走,箭頭跟著他 --
+                # 指著空地的箭頭比沒有箭頭更糟。
+                self._sketch_arrow(hx - 8, hy + 8,
+                                   cat["x"] + 10, self.FLR - 40 + bob * .6,
+                                   self._accent, 2.6)
+
+        # 這一幀新畫的全部標成 dy,靜態層把標記取消掉 -- 下一幀就只清 dy。
+        # 用「全部標記再扣掉靜態」比逐個 create 帶 tags 便宜,也不必改
+        # 底下那十幾個畫圖的小函式。
+        cv.addtag_withtag("dy", "all")
+        cv.dtag("st", "dy")
+
+    # ---- 手繪風的人 ------------------------------------------------
+    # 積木人是方的、沒有描邊;手繪人是圓的、每一塊都有一圈粗深邊,
+    # 臉佔全身約三分之一,腮紅和點眼是這個畫法的辨識點,拿掉就不像了。
+    INK = "#241d17"
+    BLUSH = "#e8a08c"
+
+    def _blob(self, x0, y0, x1, y1, fill, w=2.2, ink=None, r=None):
+        """圓角塊。Canvas 沒有圓角矩形 -- 用切角的多邊形加 smooth,
+        轉角就會被雲形曲線帶圓。
+
+        只給八個角點的話,曲線會把整條邊也一起帶彎,身體就變成蛋形。
+        每條邊再補兩個中點:雲形曲線通過共線的控制點時是直的,所以邊維持
+        直的,只有角是圓的。"""
+        S = self._S
+        rx = r if r is not None else min((x1 - x0) * 0.22,
+                                         (y1 - y0) * 0.22)
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        pts = [x0 + rx, y0, mx, y0, x1 - rx, y0,
+               x1, y0 + rx, x1, my, x1, y1 - rx,
+               x1 - rx, y1, mx, y1, x0 + rx, y1,
+               x0, y1 - rx, x0, my, x0, y0 + rx]
+        self.cv.create_polygon([S(v) for v in pts], fill=fill,
+                               outline=ink or self.INK,
+                               width=max(1, S(w)), smooth=True)
+
+    def _torso(self, x, y0, y1, fill, w=2.3):
+        """外套的剪影:肩窄腰寬,不是一顆圓球。
+        寬度要接近頭寬 -- 參考圖裡身體和頭幾乎一樣寬,身體畫窄了整個人
+        會變成大頭娃娃,不是這個畫法。"""
+        S, h = self._S, y1 - y0
+        pts = [x - 10.5, y0, x, y0, x + 10.5, y0,
+               x + 12.4, y0 + h * .35, x + 13.6, y1 - 3,
+               x + 12, y1, x, y1, x - 12, y1,
+               x - 13.6, y1 - 3, x - 12.4, y0 + h * .35]
+        self.cv.create_polygon([S(v) for v in pts], fill=fill,
+                               outline=self.INK, width=max(1, S(w)),
+                               smooth=True)
+
+    def _limb(self, x0, y0, x1, y1, fill, w=6.5, ink=None):
+        """手腳:先畫一條粗的深色,再蓋一條細的本色 -- 這樣就有一圈描邊,
+        比畫外框再填色省事,轉折處也不會露出接縫。"""
+        S = self._S
+        self.cv.create_line(S(x0), S(y0), S(x1), S(y1),
+                            fill=ink or self.INK,
+                            width=max(2, S(w + 4)), capstyle="round")
+        self.cv.create_line(S(x0), S(y0), S(x1), S(y1), fill=fill,
+                            width=max(1, S(w)), capstyle="round")
+
+    def _doodle_person(self, x, ph, coat, skin, hat=None, hair="#3a2b20",
+                       walk=True, vest=None, wave=False, wave_ph=0.0):
+        """vest 給顏色就穿背心。參考圖的第一位是「藍襯衫 + 橘背心」,
+        襯衫和背心必須是對比色 -- 同色系疊起來只會看成衣服上一塊補丁。
+
+        比例照參考抓:頭幾乎佔全高四成、身體矮、腿短、鞋往兩側攤開。
+        照真人比例畫(小頭長腿)就會變成別的畫風,這一點比顏色重要。
+        """
+        S, cv = self._S, self.cv
+        y = self.FLR
+        sw = math.sin(ph) * 2.6 if walk else 0
+        ink = self.INK
+
+        cv.create_oval(S(x - 17), S(y - 2), S(x + 17), S(y + 3),
+                       fill=self._mix(self._floor, -0.13), outline="")
+
+        # 腿短、鞋寬且往外攤 -- 鞋是這個畫法裡最容易畫小的一塊
+        for dx, s2 in ((-1, -sw), (1, sw)):
+            lx = x + dx * 5.4 + s2 * .45
+            self._limb(lx, y - 19, lx + s2 * .5, y - 6, "#4a5560", 7.0)
+            cv.create_oval(S(lx - 8 + dx * 1.6), S(y - 6.6),
+                           S(lx + 7 + dx * 1.6), S(y),
+                           fill="#2f2a26", outline=ink, width=max(1, S(2.1)))
+
+        # 手臂先畫,身體蓋在上面 -- 露出來的只有身側那一截
+        for sd in (-1, 1):
+            ax = x + sd * 10
+            if wave and sd > 0:
+                # 揮手:手腕左右擺,不是舉著不動。手掌跟著擺、略略上下,
+                # 擺到兩端時再加兩道短線 -- 靜態的舉手看起來像在攔車。
+                wob = math.sin(wave_ph) * 5.4
+                tipx, tipy = x + 19 + wob, y - 48 - abs(wob) * 0.22
+                self._limb(ax, y - 34, tipx, tipy, coat, 5.8)
+                cv.create_oval(S(tipx - 4), S(tipy - 6), S(tipx + 4),
+                               S(tipy + 2), fill=skin, outline=ink,
+                               width=max(1, S(2.1)))
+                if abs(wob) > 4.2:
+                    d = 1 if wob > 0 else -1
+                    for k in (0, 3.4):
+                        cv.create_line(S(tipx + d * 6), S(tipy - 4 + k),
+                                       S(tipx + d * 9.5), S(tipy - 5 + k),
+                                       fill=ink, width=max(1, S(1.3)))
+                continue
+            tipx = x + sd * 15 + sd * sw * .35
+            self._limb(ax, y - 34, tipx, y - 22, coat, 5.8)
+            cv.create_oval(S(tipx - 4), S(y - 25), S(tipx + 4), S(y - 17),
+                           fill=skin, outline=ink, width=max(1, S(2.1)))
+
+        # 身體:矮而寬
+        self._torso(x, y - 37, y - 19, coat)
+        if vest:
+            # 背心疊在襯衫上,中間留一條開襟,橫過一條反光帶。
+            # 不留開襟的話就只是一塊色斑,看不出是背心。
+            self._blob(x - 11, y - 35.5, x + 11, y - 20, vest, 2.1, r=2.8)
+            cv.create_line(S(x), S(y - 35.5), S(x), S(y - 20),
+                           fill=coat, width=max(1, S(2.4)))
+            cv.create_line(S(x - 10.6), S(y - 28), S(x + 10.6), S(y - 28),
+                           fill="#f6f1e6", width=max(1, S(2.8)))
+
+        # 頭:比身體寬,幾乎佔全高四成
+        hy = y - 51
+        for sd in (-1, 1):
+            cv.create_oval(S(x + sd * 14 - 3.2), S(hy + 1), S(x + sd * 14 + 3.2),
+                           S(hy + 8), fill=skin, outline=ink,
+                           width=max(1, S(1.9)))
+        self._blob(x - 14.5, hy - 14, x + 14.5, hy + 13, skin, 2.6, r=6.5)
+
+        # 頭髮或安全帽
+        if hat:
+            cv.create_arc(S(x - 14), S(hy - 24), S(x + 14), S(hy + 4),
+                          start=0, extent=180, fill=hat, outline=ink,
+                          width=max(1, S(2.4)), style="pieslice")
+            cv.create_oval(S(x - 17.5), S(hy - 13), S(x + 17.5), S(hy - 6),
+                           fill=hat, outline=ink, width=max(1, S(2.4)))
+        else:
+            cv.create_arc(S(x - 14.5), S(hy - 22), S(x + 14.5), S(hy + 6),
+                          start=0, extent=180, fill=hair, outline=ink,
+                          width=max(1, S(2.4)), style="pieslice")
+
+        # 眼、腮紅、頰上三道短線、嘴
+        for sd in (-1, 1):
+            cv.create_oval(S(x + sd * 5.6 - 2.1), S(hy - 3.6),
+                           S(x + sd * 5.6 + 2.1), S(hy + 0.8),
+                           fill=ink, outline="")
+            cv.create_oval(S(x + sd * 10 - 3.4), S(hy + 1.4),
+                           S(x + sd * 10 + 3.4), S(hy + 5.2),
+                           fill=self.BLUSH, outline="")
+            for k in range(3):        # 頰上的短線,拿掉就少了這個畫法的味道
+                ly = hy + 0.4 + k * 2.0
+                cv.create_line(S(x + sd * 12.4), S(ly),
+                               S(x + sd * 8.4), S(ly + 1.1),
+                               fill=ink, width=max(1, S(1.1)))
+        cv.create_arc(S(x - 3.8), S(hy + 2), S(x + 3.8), S(hy + 7.6),
+                      start=200, extent=140, style="arc", outline=ink,
+                      width=max(1, S(1.9)))
+
+    # ---- 貓狗 ------------------------------------------------------
+    # 跟人同一套畫法:粗描邊、圓塊、點眼。兩隻靠輪廓分 --
+    # 貓是尖耳、細尾、坐姿偏高;狗是垂耳、粗尾上翹、身上有色塊。
+    CAT_COAT, CAT_MARK = "#f2ece1", "#cfc7b8"
+    DOG_COAT, DOG_MARK = "#f5efe6", "#b5793f"
+
+    def _pet_at(self, fn, x, t, scale=1.0, flip=False, **kw):
+        """把貓狗畫大一點。牠們的座標全是相對 x 與地板寫死的,要放大就得
+        改幾十個數字 -- 改成畫完之後把「這一次新增的圖元」整組縮放,
+        原點取牠腳下,所以放大不會讓牠浮在半空或陷進地板。
+        線寬不跟著縮放,描邊維持一樣粗,跟人剛好一致。"""
+        cv = self.cv
+        before = set(cv.find_all())
+        fn(x, t, **kw)
+        S = self._S
+        # 負的 x 倍率就是左右鏡射。貓永遠畫成頭在左邊,往右走時整隻翻過來,
+        # 不然就是倒著走(回報:會向後走)。原點取牠腳下,翻完位置不動。
+        sx = -scale if flip else scale
+        if sx == 1.0 and scale == 1.0:
+            return
+        for item in cv.find_all():
+            if item not in before:
+                cv.scale(item, S(x), S(self.FLR), sx, scale)
+
+    def _paw_row(self, x0, gap, y, n, col, wdt=5.6, hgt=7.5):
+        S = self._S
+        for i in range(n):
+            px = x0 + i * gap
+            self.cv.create_oval(S(px - wdt / 2), S(y - hgt), S(px + wdt / 2),
+                                S(y), fill=col, outline=self.INK,
+                                width=max(1, S(1.8)))
+
+    def _doodle_cat(self, x, t, pose=None):
+        S, cv, y = self._S, self.cv, self.FLR
+        sway = math.sin(t * .04) * 2.0
+        sink = 5 if pose in ("pee", "poop") else 0
+        nod = 5 if pose == "eat" else 0
+        cv.create_oval(S(x - 15), S(y - 2), S(x + 16), S(y + 3),
+                       fill=self._mix(self._floor, -0.10), outline="")
+
+        if pose == "puff":
+            self._cat_puff(x, t)
+            return
+
+        # 尾巴:先畫,才會在身體後面
+        cv.create_line(S(x + 11), S(y - 12), S(x + 17), S(y - 16 + sway),
+                       S(x + 19), S(y - 24 + sway),
+                       fill=self.INK, width=max(2, S(5.6)), smooth=True,
+                       capstyle="round")
+        cv.create_line(S(x + 11), S(y - 12), S(x + 17), S(y - 16 + sway),
+                       S(x + 19), S(y - 24 + sway),
+                       fill=self.CAT_COAT, width=max(1, S(3.0)),
+                       smooth=True, capstyle="round")
+        self._paw_row(x - 6, 7.5, y, 3, self.CAT_COAT)
+        self._blob(x - 10, y - 18 + sink, x + 12, y - 4, self.CAT_COAT,
+                   2.1, r=5)
+        for i in range(2):            # 身上的斑紋
+            cv.create_line(S(x - 1 + i * 6), S(y - 16),
+                           S(x - 2 + i * 6), S(y - 10),
+                           fill=self.CAT_MARK, width=max(1, S(2.0)))
+        hy = y - 24 + sink + nod
+        for sd in (-1, 1):            # 尖耳
+            cv.create_polygon(S(x - 9 + (0 if sd < 0 else 12)), S(hy - 5),
+                              S(x - 6 + (0 if sd < 0 else 12)), S(hy - 12),
+                              S(x - 2 + (0 if sd < 0 else 12)), S(hy - 4),
+                              fill=self.CAT_COAT, outline=self.INK,
+                              width=max(1, S(1.9)))
+        self._blob(x - 11, hy - 6, x + 5, hy + 7, self.CAT_COAT, 2.1, r=4.5)
+        for sd in (-1, 1):
+            cv.create_oval(S(x - 3 + sd * 3.6 - 1.4), S(hy - 1),
+                           S(x - 3 + sd * 3.6 + 1.4), S(hy + 1.8),
+                           fill=self.INK, outline="")
+            for k in (-1.2, 0.6):     # 鬍鬚
+                cv.create_line(S(x - 3 + sd * 5), S(hy + 3 + k),
+                               S(x - 3 + sd * 12), S(hy + 2 + k * 1.6),
+                               fill=self.INK, width=max(1, S(1.1)))
+        cv.create_polygon(S(x - 4.4), S(hy + 2.6), S(x - 1.6), S(hy + 2.6),
+                          S(x - 3), S(hy + 4.4), fill="#c98a86", outline="")
+
+    def _cat_puff(self, x, t):
+        """炸毛。認得出來的是剪影,不是毛的數量:背拱成一座橋、頭壓低在前、
+        四腿打直、尾巴直豎。上一版把尾巴畫太粗又太長,整隻變成雞毛撢子;
+        耳朵畫在頭之前又被頭蓋掉,所以看不出是貓。"""
+        S, cv, y = self._S, self.cv, self.FLR
+        shake = math.sin(t * 1.3) * 0.7
+
+        # 直豎的尾巴:比身體細,毛只在兩側短短一截
+        tx = x + 12
+        for w_, col in ((6.2, self.INK), (3.0, self.CAT_COAT)):
+            cv.create_line(S(tx), S(y - 12), S(tx + 3), S(y - 24),
+                           S(tx + 2 + shake), S(y - 35), fill=col,
+                           width=max(1, S(w_)), smooth=True, capstyle="round")
+        for i in range(4):
+            ty = y - 17 - i * 5
+            for sd in (-1, 1):
+                cv.create_line(S(tx + sd * 2.2), S(ty), S(tx + sd * 4.6),
+                               S(ty - 2.2), fill=self.INK,
+                               width=max(1, S(1.6)), capstyle="round")
+
+        # 四條打直的腿
+        for lx in (x - 8, x - 2, x + 5, x + 10):
+            cv.create_line(S(lx), S(y - 12), S(lx), S(y - 2),
+                           fill=self.INK, width=max(2, S(5)), capstyle="round")
+            cv.create_line(S(lx), S(y - 12), S(lx), S(y - 3),
+                           fill=self.CAT_COAT, width=max(1, S(2.6)),
+                           capstyle="round")
+
+        # 背脊的毛:先畫,身體蓋上去只露出尖端 -- 直接畫在身上會像一把梳子
+        for i in range(8):
+            f = i / 7.0
+            px = x - 11 + f * 22
+            py = y - 20 - math.sin(f * math.pi) * 9
+            cv.create_line(S(px), S(py + 4), S(px + (f - .5) * 4),
+                           S(py - 5 + shake), fill=self.INK,
+                           width=max(1, S(2.1)), capstyle="round")
+
+        # 拱起來的背:底邊平、上緣是一座橋
+        cv.create_polygon(
+            S(x - 13), S(y - 8), S(x - 12), S(y - 17), S(x - 6), S(y - 27),
+            S(x + 2), S(y - 29), S(x + 10), S(y - 23), S(x + 13), S(y - 12),
+            S(x + 13), S(y - 6), S(x - 13), S(y - 6),
+            fill=self.CAT_COAT, outline=self.INK, width=max(1, S(2.2)),
+            smooth=True)
+
+        # 頭:壓在前方低處
+        hx, hy = x - 16, y - 15
+        self._blob(hx - 8, hy - 7, hx + 9, hy + 8, self.CAT_COAT, 2.1, r=5)
+        # 耳朵往後貼,畫在頭之後才看得到
+        for dx, dy in ((1, -5), (6, -6)):
+            cv.create_polygon(S(hx + dx), S(hy + dy),
+                              S(hx + dx + 8), S(hy + dy - 3),
+                              S(hx + dx + 3), S(hy + dy + 3),
+                              fill=self.CAT_COAT, outline=self.INK,
+                              width=max(1, S(1.7)))
+        for sd in (-1, 1):                       # 瞪大的眼
+            cv.create_oval(S(hx + 0.5 + sd * 3.4 - 2.2), S(hy - 1.4),
+                           S(hx + 0.5 + sd * 3.4 + 2.2), S(hy + 2.2),
+                           fill=self.INK, outline="")
+        cv.create_polygon(S(hx - 1.4), S(hy + 3), S(hx + 2.4), S(hy + 3),
+                          S(hx + 0.5), S(hy + 4.8), fill="#c98a86", outline="")
+        cv.create_arc(S(hx - 3), S(hy + 3.6), S(hx + 4), S(hy + 9),
+                      start=200, extent=140, style="arc", outline=self.INK,
+                      width=max(1, S(1.6)))
+
+    def _doodle_dog(self, x, t, face=1, pose=None, wet=0.0):
+        S, cv, y = self._S, self.cv, self.FLR
+        wag = math.sin(t * .16) * 3.2
+        # 大便才蹲;尿尿是抬後腿站著,兩個動作不能共用一個姿勢,
+        # 不然地上出現的是尿、動作卻在蹲,看起來像畫錯。
+        sink = 6 if pose == "poop" else 0
+        nod = 6 if pose == "eat" else 0
+        bark = pose == "bark"
+        lift = pose == "pee"
+        if bark:
+            nod = -3                    # 汪的時候頭往上抬
+        cv.create_oval(S(x - 16), S(y - 2), S(x + 17), S(y + 3),
+                       fill=self._mix(self._floor, -0.10), outline="")
+        # 尾巴上翹
+        cv.create_line(S(x + 12 * face), S(y - 14), S(x + 18 * face),
+                       S(y - 20), S(x + 17 * face + wag), S(y - 27),
+                       fill=self.INK, width=max(2, S(6.4)), smooth=True,
+                       capstyle="round")
+        cv.create_line(S(x + 12 * face), S(y - 14), S(x + 18 * face),
+                       S(y - 20), S(x + 17 * face + wag), S(y - 27),
+                       fill=self.DOG_MARK, width=max(1, S(3.6)),
+                       smooth=True, capstyle="round")
+        if lift:
+            # 後腿抬到接近水平,前腿站著。抬的是屁股那一側 --
+            # 頭在 x - 10*face,所以屁股在 +face 側;寫死在右邊的話,
+            # 狗一轉向就變成抬前腳、水從肚子底下出來。
+            self._paw_row(x - 7, 8, y, 2, self.DOG_COAT, 4.6, 6)
+            lx0, ly0 = x + 9 * face, y - 7
+            kx, ky = lx0 + 14 * face, ly0 - 11      # 抬高一點才看得出姿勢
+            cv.create_line(S(lx0), S(ly0), S(kx), S(ky), fill=self.INK,
+                           width=max(2, S(7.5)), capstyle="round")
+            cv.create_line(S(lx0), S(ly0), S(kx - face), S(ky + 0.5),
+                           fill=self.DOG_COAT, width=max(1, S(4.2)),
+                           capstyle="round")
+            # 一道拋出去的弧線,而不是一條細線 -- 細線看起來像掉了根毛。
+            sx, sy = lx0 + 5 * face, ly0 - 3
+            ex = sx + 17 * face
+            for w_, col in ((3.4, "#c79a2e"), (2.0, "#f0cf6a")):
+                cv.create_line(S(sx), S(sy), S(sx + 11 * face), S(sy + 1),
+                               S(ex), S(y - 2), fill=col,
+                               width=max(1, S(w_)), smooth=True,
+                               capstyle="round")
+            for i, (dx_, dy_) in enumerate(((6, 2), (12, 5))):   # 幾滴散開的
+                cv.create_oval(S(sx + dx_ * face - 1.3), S(sy + dy_ - 1.3),
+                               S(sx + dx_ * face + 1.3), S(sy + dy_ + 1.3),
+                               fill="#f0cf6a", outline="")
+            # 地上那灘邊尿邊變大,尿完才由 mess 接手留在地上
+            r = 3 + 9 * max(0.0, min(1.0, wet))
+            cv.create_oval(S(ex - r), S(y - 3.2), S(ex + r), S(y + 1.4),
+                           fill="#d8b24a", outline="")
+        else:
+            self._paw_row(x - 7, 8, y, 3, self.DOG_COAT, 4.6, 6)
+        self._blob(x - 11, y - 19 + sink, x + 13, y - 5, self.DOG_COAT,
+                   2.2, r=5.5)
+        # 身上的色塊
+        self._blob(x + 2, y - 18 + sink, x + 12, y - 7, self.DOG_MARK,
+                   1.6, r=3.5)
+        hy = y - 26 + sink + nod
+        hx = x - 10 * face
+        self._blob(hx - 9.5, hy - 8, hx + 9.5, hy + 9, self.DOG_COAT, 2.2,
+                   r=5.5)
+        # 垂耳與額上的色塊
+        self._blob(hx - 13 * face, hy - 7, hx - 5 * face, hy + 7,
+                   self.DOG_MARK, 2.0, r=3.4)
+        self._blob(hx + 1.5, hy - 8, hx + 9, hy + 1, self.DOG_MARK, 1.6, r=3)
+        for sd in (-1, 1):            # 眼:比鼻子高一截,不要擠在一起
+            cv.create_oval(S(hx + sd * 4 - 1.6), S(hy - 3.6),
+                           S(hx + sd * 4 + 1.6), S(hy - 0.6),
+                           fill=self.INK, outline="")
+        # 口鼻:白底一塊,上面一顆黑鼻頭
+        cv.create_oval(S(hx - 5), S(hy + 1.6), S(hx + 2.4), S(hy + 8),
+                       fill="#f8f4ec", outline=self.INK, width=max(1, S(1.8)))
+        cv.create_oval(S(hx - 2.6), S(hy + 2.2), S(hx + 0.6), S(hy + 4.6),
+                       fill=self.INK, outline="")
+        if bark:
+            # 張嘴:一個深色的口,舌頭在裡面。沒有這個口,只加音效字看起來
+            # 像旁邊剛好有字,不是牠在叫。
+            cv.create_oval(S(hx - 5), S(hy + 4.5), S(hx + 3), S(hy + 12),
+                           fill="#5a2a26", outline=self.INK,
+                           width=max(1, S(1.8)))
+            cv.create_oval(S(hx - 3), S(hy + 8), S(hx + 1.4), S(hy + 11.6),
+                           fill="#c9564f", outline="")
+            # 聲音要在牠面對的那一側。狗會轉向,寫死在左邊的話,牠一轉頭
+            # 「旺!」就壓在自己背上,看起來像旁邊剛好有字。
+            out = -face                     # 頭朝外的方向
+            for r in (9, 13):
+                cv.create_arc(S(hx + out * 8 - r), S(hy - r),
+                              S(hx + out * 8 + r), S(hy + r),
+                              start=140 if out < 0 else -40, extent=80,
+                              style="arc", outline=self.INK,
+                              width=max(1, S(1.6)))
+            try:
+                woof = self.owner._channel_ui("Woof!", "旺!")
+            except Exception:
+                woof = "Woof!"
+            # 壓在頭頂正上方:橫著擺的話,狗一走到人旁邊字就疊在人身上。
+            cv.create_text(S(hx + out * 6), S(hy - 20), anchor="center",
+                           fill=self.INK, font=title_font(11, "bold"),
+                           text=woof)
+        else:
+            # 舌頭:掛在口鼻下緣一點點就好
+            cv.create_oval(S(hx - 2.2), S(hy + 6.4), S(hx + 1.4), S(hy + 10),
+                           fill="#c9564f", outline=self.INK,
+                           width=max(1, S(1.5)))
+
+    def _sign(self, x, top):
+        """牆上的招牌。做成一塊釘在牆上的木牌:雙層邊、四角螺絲、字大一級。
+        原本那塊小吊牌在整片牆裡太小,遠看只是一個白方塊。"""
+        S, cv = self._S, self.cv
+        half = 26 + len(APP_NAME) * 8.5
+        y0, y1 = top, top + 40
+        for sd in (-1, 1):                      # 兩條吊帶
+            hx = x + sd * (half - 14)
+            cv.create_line(S(hx), S(y0 - 14), S(hx), S(y0 + 2),
+                           fill=self.INK, width=max(1, S(2.4)),
+                           capstyle="round")
+        self._blob(x - half, y0, x + half, y1, self._gold, 2.6, r=6)
+        self._blob(x - half + 4, y0 + 4, x + half - 4, y1 - 4,
+                   self._stripe, 1.8, r=4)
+        for sx in (x - half + 9, x + half - 9):       # 四角的螺絲
+            for sy in (y0 + 9, y1 - 9):
+                cv.create_oval(S(sx - 2), S(sy - 2), S(sx + 2), S(sy + 2),
+                               fill=self._accent, outline="")
+        cv.create_text(S(x), S((y0 + y1) / 2), anchor="center",
+                       fill=self._accent, font=title_font(20, "bold"),
+                       text=APP_NAME)
+
+    def _window(self, x, y, w=38, h=30, cloud=False):
+        """牆上的小窗。外面是天空,所以窗格裡不能吃主題色 --
+        天空是天空,不會因為換成奶茶配色就變成米色。"""
+        S, cv = self._S, self.cv
+        cv.create_rectangle(S(x), S(y), S(x + w), S(y + h),
+                            fill="#bcd9e8", outline="")
+        cv.create_rectangle(S(x), S(y), S(x + w), S(y + h * 0.45),
+                            fill="#cfe6f1", outline="")          # 上層亮一點
+        if cloud:
+            for dx, dy, r in ((10, 20, 6), (17, 18, 7.5), (24, 21, 5.5)):
+                cv.create_oval(S(x + dx - r), S(y + dy - r),
+                               S(x + dx + r), S(y + dy + r),
+                               fill="#f4f8fb", outline="")
+        else:
+            cv.create_oval(S(x + w - 13), S(y + 5), S(x + w - 5), S(y + 13),
+                           fill="#f6e4a8", outline="")           # 遠遠的太陽
+        cv.create_line(S(x + w / 2), S(y), S(x + w / 2), S(y + h),
+                       fill=self.INK, width=max(1, S(2)))
+        cv.create_line(S(x), S(y + h / 2), S(x + w), S(y + h / 2),
+                       fill=self.INK, width=max(1, S(2)))
+        cv.create_rectangle(S(x), S(y), S(x + w), S(y + h), outline=self.INK,
+                            width=max(1, S(2.6)))
+        cv.create_rectangle(S(x - 3), S(y + h), S(x + w + 3), S(y + h + 4),
+                            fill=self._stripe, outline=self.INK,
+                            width=max(1, S(1.8)))                # 窗台
+
+    def _bowls(self):
+        """兩個飯碗,和地上還沒清掉的東西。
+        尿是一灘扁扁的、大便是一小堆 -- 兩個一定要長得不一樣,
+        不然只是地上多兩個點,看不出剛剛發生什麼事。"""
+        S, cv, y = self._S, self.cv, self.FLR
+        for bx in self._bowl:
+            cv.create_oval(S(bx - 11), S(y - 9), S(bx + 11), S(y),
+                           fill=self.KRAFT2, outline=self.INK,
+                           width=max(1, S(1.8)))
+            cv.create_oval(S(bx - 7.5), S(y - 7.5), S(bx + 7.5), S(y - 3),
+                           fill=self._mix(self.KRAFT, -0.18), outline="")
+    def _mess_only(self):
+        """地上還沒淡掉的東西。碗是不動的(在靜態層),這裡只畫會變的。"""
+        S, cv, y = self._S, self.cv, self.FLR
+        for q in self.mess:
+            fade = max(0.25, 1 - q["age"] / 700.0)     # 越舊越淡
+            qx = q["x"]
+            if q["kind"] == "pee":
+                cv.create_oval(S(qx - 11), S(y - 4), S(qx + 11), S(y + 2),
+                               fill=self._mix("#d8b24a", 1 - fade),
+                               outline="")
+            else:
+                col = self._mix("#6b4a2c", 1 - fade)
+                for i, (dx, dy, r) in enumerate(((-3.5, 0, 3.2), (3, -.5, 2.8),
+                                                 (0, -3.5, 2.4))):
+                    cv.create_oval(S(qx + dx - r), S(y - 3 + dy - r),
+                                   S(qx + dx + r), S(y - 3 + dy + r),
+                                   fill=col, outline="")
+
+    def _S(self, v):
+        return v * self.k
+
+    # ---- 手繪筆觸 --------------------------------------------------
+    # 直線改成幾段微抖的折線,收筆處稍微出頭 -- 手畫的框線不會剛好停在角上。
+    # 抖動量由座標決定(不是 random),所以同一個東西每一幀抖在同一個地方;
+    # 用 random 的話整塊畫面會像在發抖。
+    @staticmethod
+    def _jit(x, y, amp):
+        return math.sin(x * 12.9898 + y * 78.233) * amp
+
+    def _sketch_line(self, x0, y0, x1, y1, col, w=1.6, amp=0.9, segs=4):
+        S, pts = self._S, []
+        for i in range(segs + 1):
+            f = i / segs
+            x = x0 + (x1 - x0) * f
+            y = y0 + (y1 - y0) * f
+            n = 0 if i in (0, segs) else self._jit(x, y, amp)
+            pts += [S(x + n), S(y - n)]
+        self.cv.create_line(*pts, fill=col, width=max(1, S(w)),
+                            capstyle="round", joinstyle="round")
+
+    def _sketch_arrow(self, x0, y0, x1, y1, col, w=2.2):
+        """手繪箭頭:一條彎過去的線加兩撇箭頭。
+        線用 smooth 帶弧度 -- 直線箭頭看起來像製圖,不像順手畫上去的。"""
+        S, cv = self._S, self.cv
+        mx, my = (x0 + x1) / 2 + (y1 - y0) * 0.18, (y0 + y1) / 2
+        cv.create_line(S(x0), S(y0), S(mx), S(my), S(x1), S(y1),
+                       fill=col, width=max(1, S(w)), smooth=True,
+                       capstyle="round")
+        ang = math.atan2(y1 - my, x1 - mx)
+        for turn in (2.5, -2.5):
+            cv.create_line(S(x1), S(y1),
+                           S(x1 + math.cos(ang + turn) * 8),
+                           S(y1 + math.sin(ang + turn) * 8),
+                           fill=col, width=max(1, S(w)), capstyle="round")
+
+    def _sketch_box(self, x0, y0, x1, y1, fill, col, w=1.6, amp=0.9):
+        S = self._S
+        if fill:
+            self.cv.create_rectangle(S(x0), S(y0), S(x1), S(y1),
+                                     fill=fill, outline="")
+        o = 1.2                      # 收筆出頭,四個角不密合
+        self._sketch_line(x0 - o, y0, x1 + o, y0, col, w, amp)
+        self._sketch_line(x1, y0 - o, x1, y1 + o, col, w, amp)
+        self._sketch_line(x1 + o, y1, x0 - o, y1, col, w, amp)
+        self._sketch_line(x0, y1 + o, x0, y0 - o, col, w, amp)
+
+
+
+# =====================================================================
+# THE APPLICATION
+# =====================================================================
+# Every tab, every settings screen, and the repricing engine itself.
+#
+#   __init__                builds the window and all seven tabs
+#   _build_*_tab            one per tab
+#   load_config/save_config settings to and from the JSON beside the exe
+#   explain_tracking        the per-parcel rating breakdown window
+#   run_repricing           the engine: invoice in, workbook out
+
+
 class UPSRepricingTool:
 
     def __init__(self, root):
         self.root = root
+        # Just the name. APP_BUILD still travels in exported files, so which
+        # version produced a template is still answerable.
         self.root.title("UPS Reprice Platform")
-        self.root.geometry("1220x760")
-        self.root.minsize(1200, 740)
+        # Light chrome, whatever Windows is set to. Left on "system", a
+        # machine in dark mode gets a dark window frame and a dark unpainted
+        # margin around the page -- which is the black band down the right
+        # edge after the window is resized.
+        try:
+            ctk.set_appearance_mode("light")
+        except Exception:
+            pass
+
+        self.ui_language = tk.StringVar(value="English")
+        self._ui_language_code = "en"
+        # Apply before building anything: widgets measure themselves against
+        # the scaling factor in force when they are created.
+        try:
+            _tk_scaling = float(self.root.tk.call("tk", "scaling"))
+            self.root.tk.call("tk", "scaling", _tk_scaling * UI_SCALE)
+        except Exception:
+            pass
+
+        # The whole interface's font, decided once. ui_font() reads these two
+        # names, so a machine without a handwriting face keeps the old one
+        # instead of falling back to something unreadable.
+        global UI_FONT, FONT_BOOST
+        try:
+            _fam, _boost = pick_sketch_font(UI_FONT)
+            UI_FONT, FONT_BOOST = _fam, FONT_BOOST + _boost
+            # No handwriting face was found, so nothing needs the extra room.
+            if _fam == "Microsoft JhengHei UI":
+                global SKETCH_TABLE_BONUS
+                SKETCH_TABLE_BONUS = 0
+            print("Interface font:", UI_FONT)
+            print("Display font:", pick_display_font() or "(same as interface)")
+            apply_sketch_font(self.root, UI_FONT,
+                              max(1, int(round((10 + FONT_BOOST) * UI_SCALE))))
+        except Exception as _e:
+            print("Sketch font skipped:", _e)
+
+        # Height trimmed from 760: the title block was two lines with 12px of
+        # padding above it, and every tab already scrolls, so the space was
+        # spent on chrome rather than on content.
+        # 1220 was wider than half of a 1920 screen, which defeated the
+        # minsize note below: the window opened too wide to sit beside the
+        # invoice, and every session started with a drag to resize it. 980
+        # leaves the tab strip intact and fits alongside a spreadsheet.
+        # 預設大小照實機量出來的:約佔 1920 螢幕的三分之二,場景放得下、
+        # 又不會蓋掉整個桌面。不做最大化 -- 開起來就佔滿整個螢幕太滿了。
+        self.root.geometry(f"{scaled(1200)}x{scaled(780)}")
+        # Small enough to sit beside a spreadsheet. It was 1200x660, which
+        # is wider than half of a 1920 screen, so the window could never be
+        # put next to the invoice it is being checked against.
+        self.root.minsize(scaled(900), scaled(560))
         self.root.configure(fg_color="#f3e9da")
 
         # FILE PATHS
@@ -508,6 +4833,11 @@ class UPSRepricingTool:
 
         # RULES - GLOBAL
         self.dim_factor = tk.StringVar(value="300")
+        # The divisor a channel with none of its own uses. It was the constant
+        # 139 in one place and the old global 300 in another, so the same
+        # parcel could be measured two ways in one run. One field, read by
+        # both.
+        self.default_dim_factor = tk.StringVar(value=f"{DEFAULT_DIM_FACTOR:g}")
         self.fuel_percent = tk.StringVar(value="18.75")
 
         # RULES - OVERSIZE
@@ -523,6 +4853,15 @@ class UPSRepricingTool:
         self.oversize_min_billable_weight = tk.StringVar(value="90")
 
         # RULES - AHS (WITH MANUAL AHS-DIMENSION THRESHOLD)
+        # Each AHS trigger gets its own switch, like the oversize ones. All
+        # default to on, so an existing setup behaves exactly as before until
+        # somebody turns one off.
+        self.use_ahs_weight = tk.BooleanVar(value=True)
+        self.use_ahs_longest = tk.BooleanVar(value=True)
+        self.use_ahs_second = tk.BooleanVar(value=True)
+        self.use_ahs_cubic = tk.BooleanVar(value=True)
+        self.use_ahs_lg = tk.BooleanVar(value=True)
+
         self.ahs_weight_threshold = tk.StringVar(value="50")
         self.ahs_longest_side = tk.StringVar(value="48")
         self.ahs_second_side = tk.StringVar(value="30")
@@ -533,7 +4872,12 @@ class UPSRepricingTool:
         #     max(ceil(entered), ceil(cubic / 300), floor)
         # with floor = 90 for LPS/LPR, 15 for AHS, 1 otherwise. A 40 here
         # inflates the recalculated freight of every small AHS parcel.
-        self.ahs_min_billable_weight = tk.StringVar(value="15")
+        # 40 lb: the AHS minimum billable weight in the current tariff.
+        # Default 40 lb = UPS's published 2026 tariff AHS minimum billable
+        # weight. Only used for a fresh install / lost settings file -- a saved
+        # value (this account is contracted at 15) is loaded as written and is
+        # NOT rewritten to 40 any more.
+        self.ahs_min_billable_weight = tk.StringVar(value="40")
 
         # Fuel concessions. Some clients are sold fuel at a discount off the
         # published percentage, or with a ceiling on it. Blank / 0 = neither.
@@ -560,18 +4904,77 @@ class UPSRepricingTool:
         self.ovr_fee = tk.StringVar(value="0")
         self.signature_fee = tk.StringVar(value="7")
         self.package_protection_fee = tk.StringVar(value="0")
-        self.declared_value_markup = tk.StringVar(value="0")
+        # Declared Value tiers, from the UPS rate card. Set out as four
+        # numbers rather than hard-coded so a rate change is a typed figure
+        # rather than an edit here:
+        #   nothing is charged up to dv_free_limit;
+        #   above it the charge is dv_unit_rate for every dv_unit of declared
+        #   value or part of one, INCLUDING the first, never less than
+        #   dv_min_charge.
+        # 5.10 is exactly 3 x 1.70, so the 100.01-300.00 band is not a special
+        # case -- it is the same formula with the floor doing the work.
+        # Which spreadsheet column carries the declared value. AW is where it
+        # sits on these invoices, but index 48 read five-figure numbers out of
+        # this file, so the letter is settable rather than compiled in.
+        self.dv_column = tk.StringVar(value="AW")
+        self.DV_DEFAULTS = {"dv_column": "AW", "dv_free_limit": "100",
+                            "dv_min_charge": "2.55", "dv_unit": "100",
+                            "dv_unit_rate": "0.85"}
+        self.dv_free_limit = tk.StringVar(value="100")
+        # The account's own rates, like every other figure in this tool --
+        # not UPS's published 5.10 / 1.70.
+        self.dv_min_charge = tk.StringVar(value="2.55")
+        self.dv_unit = tk.StringVar(value="100")
+        self.dv_unit_rate = tk.StringVar(value="0.85")
+        self.dv_example = tk.StringVar(value="")
 
         # Fuel surcharge by ship date. Empty list = use the global Fuel % for
         # everything (original behaviour).
         self.fuel_schedule = []
+        # Per-channel fuel. A lane contracted on its own fuel percentage keeps
+        # its schedule here, keyed by channel name (both the Commercial and the
+        # Residential variant of one lane share it -- fuel is a contract-level
+        # percentage, not a per-variant rate). Empty means "use the global
+        # schedule above", which is what every existing setup does.
+        self.channel_fuel_schedules = {}
+        self.channel_fuel_percents = {}
+        # Demand periods and their two rate categories. See the tab.
+        self.demand_config = self.demand_config_default()
+        # Size-rule overrides for services that have no custom-channel entry.
+        self.channel_rule_overrides = {}
+        # Same idea for the DIM divisor of a built-in service.
+        self.channel_dim_factors = {}
+        self.theme_name = "Brown Gold"
+        # Built-in services that have been switched off. They were the only
+        # rows whose "Enable this channel" tick did nothing: the built-in edit
+        # path saved zones and returned, so the box could be cleared, saved,
+        # and come back ticked.
+        self.builtin_service_disabled = set()
+        # Zones read off an invoice for a built-in service, seeded from the
+        # contract bands so a fresh install rates the air services on their
+        # own zone numbers instead of Ground's.
+        self.builtin_service_zones = default_builtin_zone_text()
+        # Which schedule the fuel editor is currently pointed at: None = global.
+        self._fuel_target = None
 
+        # Opened the first time something asks for it, so a locked or
+        # unwritable folder cannot stop the tool from starting.
+        self._history = None
         self.rate_tables = {}
+        # Filled by run_repricing, read by explain_tracking. Empty means no run
+        # in this session, which the explanation reports as such.
+        self.reprice_explain = {}
         self.last_report_path = ""
         self.last_base_rate_df = pd.DataFrame()
         self.accessorial_rate_table = {}
         self.warning_logs = []
         self.current_acc_template_path = ""
+
+        # CUSTOM SERVICES (CHANNELS). Empty by default: the built-in
+        # _SERVICE_PATTERNS list already covers the standard US domestic
+        # channels, and seeding a channel with no rate table behind it would
+        # only produce rows the guard has to zero out anyway.
+        self.custom_service_registry = {}
 
         # v2.3: DYNAMIC SURCHARGE CODE LINKING
         self.dynamic_surcharge_code_map = {}
@@ -601,77 +5004,322 @@ class UPSRepricingTool:
             "LWR": {"charge_type": "Large Package", "category": "LPS", "rc_class": "Residential", "description": "Large Package Surcharge Resi - Weight"},
         }
         
-        style = ttk.Style()
-        style.theme_use("default")
+        self.ui_style = ttk.Style()
+        self.ui_style.theme_use("default")
 
-        # ---- Dark milk-tea palette ----
-        BG = "#cbb189"        # medium milk-tea background
-        PANEL = "#dbc6a4"      # lighter latte panel / card
-        TAB_BG = "#bfa477"     # tab strip
-        ACCENT = "#a9743f"     # caramel accent (buttons / selected tab)
-        TEXT = "#3b2f23"       # dark espresso text (readable on light bg)
-        LINE = "#a98c63"       # subtle border
-        self.MILKTEA = dict(BG=BG, PANEL=PANEL, TAB_BG=TAB_BG,
-                            ACCENT=ACCENT, TEXT=TEXT, LINE=LINE)
+        # 品牌要在套用配色與建立任何 widget 之前決定。字體是在 widget
+        # 建立當下寫進去的,樣式表也是這時候設的 -- 晚一步就會變成
+        # 「Scoobi 的畫面配 Tally 的字和手繪外框」。
+        try:
+            SketchLabelFrame.sketch_on = brand_is("Tally")
+            self.apply_brand_font()
+        except Exception as _e:
+            print("Brand setup skipped:", _e)
 
-        self.root.configure(fg_color=BG)
+        self.ui_theme = tk.StringVar(value=self.theme_name)
+        self.apply_theme(self.theme_name)
+        style = self.ui_style
+        mt = self.MILKTEA
+        BG, PANEL, TAB_BG = mt["BG"], mt["PANEL"], mt["TAB_BG"]
+        ACCENT, TEXT, LINE = mt["ACCENT"], mt["TEXT"], mt["LINE"]
 
-        style.configure("TFrame", background=BG)
-        style.configure("TLabelframe", background=BG, foreground=TEXT,
-                        bordercolor=LINE, relief="groove")
-        style.configure("TLabelframe.Label", background=BG, foreground="#7a4f24",
-                        font=("Segoe UI", 10, "bold"))
-        style.configure("TLabel", background=BG, foreground=TEXT,
-                        font=("Segoe UI", 10))
-        style.configure("TButton", background=TAB_BG, foreground=TEXT,
-                        font=("Segoe UI", 9, "bold"), padding=[8, 4])
-        style.map("TButton", background=[("active", ACCENT)],
-                  foreground=[("active", "white")])
-        style.configure("TEntry", fieldbackground=PANEL)
-        style.configure("TCombobox", fieldbackground=PANEL, background=PANEL)
+        # Kept: "transparent" means "whatever the parent is painted", and a
+        # CTk widget resolves that when it is drawn, not when the parent's
+        # colour changes. Without a handle on these two the top strip stayed
+        # in the previous palette after a theme change.
+        self.topbar = topbar = ctk.CTkFrame(self.root, fg_color="transparent")
+        topbar.pack(fill="x", padx=14, pady=(4, 0))
+        # The product name in drawn capitals. A canvas, not a label, because
+        # the letters are strokes rather than a font -- so apply_theme has to
+        # repaint it instead of recolouring it, and the language walk skips
+        # it (a canvas has no "text" option), which is right: the name of the
+        # tool is the same in both languages.
+        self.header_label = None
+        self.header_title = None
+        if SKETCH_UI:
+            try:
+                self.header_title = SketchTitle(
+                    topbar, self.MILKTEA, "UPS REPRICE PLATFORM",
+                    caption="· Developed by Sandy Liu", cap=18)
+                self.header_title.pack(side="left", fill="x", expand=True)
+            except Exception as _e:
+                self.header_title = None
+                print("Sketch title skipped:", _e)
+        if self.header_title is None:
+            self.header_label = ctk.CTkLabel(
+                topbar, text="📦 UPS Reprice Platform  ·  Developed by Sandy Liu",
+                font=ui_font(13, "bold"),
+                text_color=self.MILKTEA["TITLE"], justify="center")
+            self.header_label.pack(side="left", expand=True, padx=(130, 0))
+        # All four in one right-hand group, each packed the same way. Labels
+        # were packed left and their comboboxes right, so Tk laid them out as
+        # Language / Theme / <theme> / <language> -- every label next to the
+        # wrong box.
+        # Packed before the pickers and also side="right", so it takes the
+        # far corner and they sit to its left. Big on purpose: it is read
+        # from across the desk while something else has focus, which is the
+        # whole reason it lives on the title bar and not on a tab.
+        self.clock_box = ctk.CTkFrame(topbar, fg_color="transparent")
+        self.clock_box.pack(side="right", padx=(10, 4))
+        self.clock_time = ctk.CTkLabel(
+            self.clock_box, text="--:--",
+            font=(UI_FONT_DATA, scaled(26), "bold"),
+            text_color=self.MILKTEA["TITLE"])
+        self.clock_time.pack(anchor="e")
+        self.clock_zone = ctk.CTkLabel(
+            self.clock_box, text=UI_TZ, font=ui_font(9),
+            text_color=self.MILKTEA.get("RUN2", TEXT))
+        self.clock_zone.pack(anchor="e")
 
-        style.configure("TNotebook", background=BG, borderwidth=0)
-        style.configure("TNotebook.Tab", background=TAB_BG, foreground=TEXT,
-                        padding=[10, 5], font=("Segoe UI", 9, "bold"))
-        style.map("TNotebook.Tab", background=[("selected", ACCENT)],
-                  foreground=[("selected", "white")])
-        style.configure("Treeview", background=PANEL, foreground=TEXT,
-                        rowheight=22, fieldbackground=PANEL, borderwidth=0,
-                        font=("Segoe UI", 10))
-        style.configure("Treeview.Heading", background=ACCENT,
-                        foreground="white", font=("Segoe UI", 9, "bold"))
-        style.map("Treeview", background=[("selected", "#e3c79a")],
-                  foreground=[("selected", TEXT)])
+        self.topbar_controls = controls = ctk.CTkFrame(topbar,
+                                                       fg_color="transparent")
+        controls.pack(side="right")
 
-        header = ctk.CTkLabel(self.root, text="📦 UPS Reprice Platform\nDeveloped by Sandy Liu", font=("Segoe UI", 14, "bold"), text_color="#7a4f24", justify="center")
-        header.pack(pady=(14, 6))
+        self.language_label = ctk.CTkLabel(controls, text="Language",
+                                           font=ui_font(10, "bold"),
+                                           text_color=TEXT)
+        self.language_label.pack(side="left", padx=(0, 5))
+        self.language_combo = ttk.Combobox(controls, textvariable=self.ui_language,
+                                           values=["English", "中文"],
+                                           state="readonly", width=9)
+        self.language_combo.pack(side="left")
+        self.language_combo.bind("<<ComboboxSelected>>", self.change_ui_language)
+
+        # 主題 = 品牌(哪一套畫法),顏色 = 配色。兩個各自獨立,
+        # 四種組合都成立 -- 所以是兩個選單,不是一個。
+        self.brand_caption = ctk.CTkLabel(controls, text="Theme",
+                                          font=ui_font(10, "bold"),
+                                          text_color=TEXT)
+        self.brand_caption.pack(side="left", padx=(14, 5))
+        self.ui_brand = tk.StringVar(value=UI_BRAND)
+        self.brand_combo = ttk.Combobox(controls, textvariable=self.ui_brand,
+                                        values=list(BRANDS),
+                                        state="readonly", width=8)
+        self.brand_combo.pack(side="left", padx=(0, 8))
+        self.brand_combo.bind("<<ComboboxSelected>>", self.change_ui_brand)
+
+        # Not self.theme_label: that name is the method that translates a
+        # theme name, and the widget was quietly shadowing it.
+        self.theme_caption = ctk.CTkLabel(controls, text="Colour",
+                                          font=ui_font(10, "bold"),
+                                          text_color=TEXT)
+        self.theme_caption.pack(side="left", padx=(14, 5))
+        self.theme_combo = ttk.Combobox(controls, textvariable=self.ui_theme,
+                                        state="readonly", width=11)
+        self.theme_combo.pack(side="left", padx=(0, 8))
+        self.theme_combo.bind("<<ComboboxSelected>>", self.change_ui_theme)
+
+        # Beside the palette because both are display settings. It is not on
+        # a settings tab: the reason to look at the clock is that an American
+        # cut-off is being read on a Taiwanese desk, and that happens while
+        # the invoice is open, not while the settings are.
+        self.tz_caption = ctk.CTkLabel(controls, text="Clock",
+                                       font=ui_font(10, "bold"),
+                                       text_color=TEXT)
+        self.tz_caption.pack(side="left", padx=(14, 5))
+        self.ui_tz = tk.StringVar(value=UI_TZ)
+        self.tz_combo = ttk.Combobox(controls, textvariable=self.ui_tz,
+                                     values=TZ_LABELS, state="readonly",
+                                     width=9)
+        self.tz_combo.pack(side="left", padx=(0, 8))
+        self.tz_combo.bind("<<ComboboxSelected>>", self.change_ui_tz)
+        self.refresh_theme_choices()
 
         notebook = ttk.Notebook(self.root)
-        notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        self.main_notebook = notebook
+        self._tab_fit = None
+        notebook.bind("<Configure>", self._fit_tab_strip, add="+")
+        # 10 -> 4 top and bottom: this padding is paid once per tab and
+        # again inside each tab's own container.
+        notebook.pack(fill="both", expand=True, padx=10, pady=(2, 6))
 
         self.tab_files = ttk.Frame(notebook)
         self.tab_rules = ttk.Frame(notebook)
-        self.tab_rates = ttk.Frame(notebook)
-        self.tab_ahs_lps_codes = ttk.Frame(notebook)
         self.tab_dynamic_surcharge = ttk.Frame(notebook)
-        self.tab_surcharge_codes = ttk.Frame(notebook)
-        self.tab_run = ttk.Frame(notebook)
         self.tab_code_lookup = ttk.Frame(notebook)
+        self.tab_history = ttk.Frame(notebook)
+        self.tab_channels = ttk.Frame(notebook)
+        self.tab_size_rules = ttk.Frame(notebook)
+        self.tab_demand = ttk.Frame(notebook)
 
         notebook.add(self.tab_files, text="📁 Import Files")
-        notebook.add(self.tab_rules, text="⚙ Pricing Rules")
+        notebook.add(self.tab_rules, text="💲 Surcharge Setup")
+        notebook.add(self.tab_size_rules, text="📏 Size Rules")
+        notebook.add(self.tab_channels, text="🚚 Channels")
+        notebook.add(self.tab_demand, text="⚡ Demand Surcharge")
+        notebook.add(self.tab_history, text="📚 Invoice History")
         notebook.add(self.tab_code_lookup, text="🔎 Code Lookup")
 
         self._build_files_tab()
         self._build_rules_tab()
+        self._build_size_rules_tab()
+        self._build_channels_tab()
+        self._build_demand_tab()
+        self._build_history_tab()
         self._build_code_lookup_tab()
+
+        # Resizing a CTk window can leave the newly exposed strip unpainted:
+        # the frame under the page is drawn once at its old size. Re-asserting
+        # the background on <Configure> makes that strip the page colour
+        # instead of whatever was behind the window.
+        self.root.bind("<Configure>", self._repaint_window_background, add="+")
+        self.apply_ui_language()
+        self.root.after(500, self._language_refresh_loop)
+        self._clock_loop()
+
+    def change_ui_language(self, event=None):
+        self._ui_language_code = "zh" if self.ui_language.get() == "中文" else "en"
+        self.apply_ui_language()
+        # The labels just changed length, so the size that fitted may not.
+        try:
+            self._tab_fit = None
+            self._fit_tab_strip()
+        except Exception as _e:
+            print("Tab fit skipped:", _e)
+        try:
+            tree = getattr(self, "rules_tree", None)
+            if tree is not None:
+                self._fit_tree_columns(tree, minimum=112)
+        except Exception as _e:
+            print("Column fit skipped:", _e)
+
+    def _translate_text(self, text):
+        if text is None:
+            return text
+        raw = str(text)
+        table = UI_ZH if self._ui_language_code == "zh" else UI_EN
+        if raw in table:
+            return table[raw]
+        # Dynamic labels that include a service or count.
+        if raw.startswith("Currently Editing:") or raw.startswith("目前編輯："):
+            service = raw.split(":", 1)[-1].strip() if ":" in raw else raw.split("：", 1)[-1].strip()
+            return ("目前編輯：" if self._ui_language_code == "zh" else "Currently Editing: ") + service
+        return raw
+
+    def _translate_widget_tree(self, widget):
+        try:
+            title = widget.title()
+            if title:
+                widget.title(self._translate_text(title))
+        except Exception:
+            pass
+        try:
+            current = widget.cget("text")
+            widget.configure(text=self._translate_text(current))
+        except Exception:
+            pass
+        try:
+            if isinstance(widget, ttk.Notebook):
+                for tab_id in widget.tabs():
+                    current = widget.tab(tab_id, "text")
+                    widget.tab(tab_id, text=self._translate_text(current))
+        except Exception:
+            pass
+        try:
+            if isinstance(widget, ttk.Treeview):
+                for col in widget["columns"]:
+                    current = widget.heading(col).get("text", "")
+                    if current:
+                        widget.heading(col, text=self._translate_text(current))
+        except Exception:
+            pass
+        for child in widget.winfo_children():
+            self._translate_widget_tree(child)
+
+    def apply_ui_language(self):
+        self.language_label.configure(text="語言" if self._ui_language_code == "zh" else "Language")
+        for window in [self.root] + list(self.root.winfo_children()):
+            self._translate_widget_tree(window)
+        try:
+            self.refresh_custom_service_language()
+        except Exception:
+            pass
+        try:
+            self.refresh_channel_status_text()
+        except Exception:
+            pass
+        # Tree cells are values, not widget text, so the walker above cannot
+        # translate them. Redraw the one tree that holds words instead of
+        # numbers, and only when the language really changed.
+        if getattr(self, "_demand_map_language", None) != self._ui_language_code:
+            self._demand_map_language = self._ui_language_code
+            # Combobox VALUES are data, not widget text, so the walker above
+            # never reaches them: a picker built while the interface was in
+            # Chinese keeps saying 住宅 after the switch to English. The lists
+            # that carry translated words are rebuilt here instead.
+            for _redraw in ("refresh_demand_map_tree",
+                            "refresh_rules_view_choices",
+                            "refresh_rate_channel_choices",
+                            "refresh_acc_filter_choices",
+                            # The channel list holds words in its cells and a
+                            # count line under its own StringVar -- neither is
+                            # widget text, so both have to be rebuilt.
+                            "load_custom_service_registry",
+                            "refresh_theme_choices"):
+                try:
+                    getattr(self, _redraw)()
+                except Exception:
+                    pass
+
+    def _language_refresh_loop(self):
+        """翻譯後來才開的視窗。
+
+        原本是每 0.5 秒無條件重跑一次 apply_ui_language,那一次要 19ms --
+        整棵 widget 樹都被逐一設定文字。畫面沒變的時候這 19ms 什麼也沒做,
+        但主執行緒被佔住,就是那種每半秒頓一下的卡。
+
+        改成先數一下畫面上有幾個 widget:數量沒變、語言沒變,就跳過。
+        數是純 Python 走訪,比幾百次 widget 設定便宜一個數量級。
+        """
+        try:
+            n = 0
+            stack = [self.root] + list(self.root.winfo_children())
+            while stack:
+                w = stack.pop()
+                n += 1
+                try:
+                    stack.extend(w.winfo_children())
+                except Exception:
+                    pass
+            sig = (n, getattr(self, "_ui_language_code", "en"))
+            if sig != getattr(self, "_lang_sig", None):
+                self._lang_sig = sig
+                self.apply_ui_language()
+        except Exception:
+            pass
+        finally:
+            self.root.after(500, self._language_refresh_loop)
 
     # =========================================================
     # TAB 1: FILES
     # =========================================================
     def _build_files_tab(self):
-        frm = ttk.LabelFrame(self.tab_files, text="📁 Import Files")
-        frm.pack(fill="x", padx=12, pady=12)
+        # One column, top left, same as every other tab. (It was centred for
+        # one version; the rest of the tool starts at the left margin, so the
+        # centred page read as a different program.)
+        page = ttk.Frame(self.tab_files)
+        page.pack(fill="both", expand=True, padx=12, pady=(10, 12))
+
+        # Top-right corner of the page, opposite the controls.
+        try:
+            self.files_clock = ClockFace(page, self)
+            self.files_clock.pack(side="right", anchor="ne", padx=(0, 24),
+                                  pady=(4, 0))
+            self.files_date = DateCard(page, self)
+            self.files_date.pack(side="right", anchor="ne", padx=(0, 14),
+                                 pady=(4, 0))
+        except Exception as _e:
+            self.files_clock = self.files_date = None
+            print("Clock skipped:", _e)
+
+        column = ttk.Frame(page)
+        column.pack(anchor="nw")
+
+        # No page title and no instructions: the tab is already called Import
+        # Files, and the buttons below say what they do.
+
+        frm = ttk.LabelFrame(column, text="📁 Import Files")
+        frm.pack(fill="x")
 
         fields = [
             ("Billing file", self.billing_path, self._pick_billing),
@@ -679,66 +5327,136 @@ class UPSRepricingTool:
 
         for i, (label, var, cmd) in enumerate(fields):
             ttk.Label(frm, text=label).grid(row=i, column=0, sticky="w", padx=8, pady=8)
-            ttk.Entry(frm, textvariable=var, width=88).grid(row=i, column=1, padx=8, pady=8)
+            # 78 characters set the minimum width of the whole first page.
+            # A path longer than the box scrolls within it, so the extra
+            # width bought nothing and cost the narrower window.
+            ttk.Entry(frm, textvariable=var, width=42).grid(
+                row=i, column=1, padx=8, pady=8)
             ttk.Button(frm, text="Browse", command=cmd).grid(row=i, column=2, padx=8, pady=8)
 
+        # The service dropdown that used to sit here looked like part of the
+        # import flow but was never that: it is the service assumed when an
+        # invoice line identifies none. It moved to Surcharge Setup, with the
+        # other account-wide defaults. The variable stays here because the
+        # engine reads it.
         self.base_rate_service = tk.StringVar(value="Ground Commercial")
-        row1 = ttk.Frame(frm)
-        row1.grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=6)
+        self.service_combo = None
+        self.current_service_label = None
 
-        service_combo = ttk.Combobox(row1, textvariable=self.base_rate_service, values=[
-            "Ground Commercial", "Ground Residential", "SurePost", "3 Day Select", "2nd Day Air", "2nd Day Air AM",
-            "Next Day Air Saver", "Next Day Air", "Next Day Air Early", "Standard", "Worldwide Expedited",
-            "Worldwide Saver", "Worldwide Express", "Worldwide Express Plus", "Worldwide Economy"
-        # 24, not 18: "Worldwide Express Plus" is 22 characters and was being
-        # clipped in the closed box.
-        ], state="readonly", width=24)
-        service_combo.pack(side="left", padx=6)
+        # ---- Generate ----
+        gen_frame = ttk.Frame(column)
+        gen_frame.pack(fill="x", pady=(14, 0))
 
-        self.current_service_label = ttk.Label(row1, text="Currently Editing: Ground Commercial", font=("Segoe UI", 9, "bold"))
-        self.current_service_label.pack(side="left", padx=10)
-        service_combo.bind("<<ComboboxSelected>>", self.on_service_changed)
+        # Side by side: they are two ways of running the same invoice, not a
+        # first step and a second one.
+        # 46x290 at 13pt was wider than the label needed and taller than the
+        # rest of the tab, so the two of them read as the page rather than a
+        # control on it. Trimmed to sit closer to the text they carry; the
+        # radius comes down with the height or the corners look inflated.
+        mt = self.MILKTEA
+        self.run_report_button = ctk.CTkButton(
+            gen_frame, text="🚚 Generate Reprice Report",
+            fg_color=mt["RUN"], hover_color=mt["RUN_HOVER"],
+            bg_color=mt["BG"],
+            corner_radius=10, height=38, width=265,
+            font=display_font(12, "bold"),
+            command=self.run_repricing)
+        self.run_report_button.pack(side="left")
 
-        rate_frame = ttk.LabelFrame(frm, text="🚛 Base Rates")
-        rate_frame.grid(row=3, column=0, columnspan=3, sticky="w", padx=8, pady=10)
-
-        ttk.Button(rate_frame, text="Export Base Rate", width=18, command=self.export_base_rate_template).grid(row=0, column=0, padx=4, pady=4)
-        ttk.Button(rate_frame, text="Import Base Rate", width=18, command=self.import_base_rate_template).grid(row=0, column=1, padx=4, pady=4)
-
-        bottom_row = ttk.Frame(frm)
-        bottom_row.grid(row=4, column=0, columnspan=3, sticky="w", padx=8, pady=10)
-
-        ttk.Button(bottom_row, text="Save Settings", command=self.save_config).pack(side="left", padx=4)
-        ttk.Button(bottom_row, text="Load Settings", command=self.load_config).pack(side="left", padx=4)
-
-        # ---- Generate (moved here from the old Generate Report tab) ----
-        gen_frame = ttk.Frame(self.tab_files)
-        gen_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-
-        ctk.CTkButton(gen_frame, text="🚚 Generate Reprice Report",
-                      fg_color="#a9743f", hover_color="#8c5e30",
-                      corner_radius=12, height=42,
-                      font=("Segoe UI", 13, "bold"),
-                      command=self.run_repricing).pack(anchor="w", pady=12)
-
-        ctk.CTkButton(gen_frame, text="📊 Generate Profit Report",
-                      fg_color="#8c5a4a", hover_color="#74473a",
-                      corner_radius=12, height=42,
-                      font=("Segoe UI", 13, "bold"),
-                      command=self.run_profit_report).pack(anchor="w",
-                                                           pady=(0, 12))
+        self.profit_report_button = ctk.CTkButton(
+            gen_frame, text="📊 Generate Profit Report",
+            fg_color=mt["RUN2"], hover_color=mt["RUN2_HOVER"],
+            bg_color=mt["BG"],
+            corner_radius=10, height=38, width=265,
+            font=display_font(12, "bold"),
+            command=self.run_profit_report)
+        self.profit_report_button.pack(side="left", padx=10)
 
         self.status_var = tk.StringVar(value="System Ready")
-        ttk.Label(gen_frame, textvariable=self.status_var).pack(anchor="w")
+        ttk.Label(column, textvariable=self.status_var,
+                  font=ui_font(9)).pack(anchor="w",
+                                                          pady=(12, 0))
 
+        self._files_settings_row = ttk.Frame(column)
+        self._files_settings_row.pack(anchor="w", pady=(16, 0))
+        # No Load Settings button: the settings file is read on startup and
+        # after every save, so the only thing this button could do was undo
+        # unsaved edits by surprise.
+        ttk.Button(self._files_settings_row, text="Save Settings",
+                   command=self.save_settings_now).pack(side="left")
+        # On the first page as well as the history tab: signing in is the
+        # thing you do BEFORE importing a file, not after chasing a parcel.
+        ttk.Button(self._files_settings_row, text="UPS Billing Center",
+                   command=self.open_billing_center).pack(side="left", padx=8)
         # Hidden preview holder (engine writes here; not shown as a tab)
-        self.preview = ttk.Treeview(gen_frame, columns=("info",),
+        self.preview = ttk.Treeview(column, columns=("info",),
                                     show="headings", height=1)
         self.preview.heading("info", text="")
 
-    def on_service_changed(self, event=None):
-        selected = self.base_rate_service.get()
-        self.current_service_label.config(text=f"Currently Editing: {selected}")
+        # The yard. Bottom of the first page, where the tab was empty anyway.
+        self.warehouse_strip = None      # Tally 的素描場
+        self.warehouse_panel = None      # Scoobi 的積木場
+        self._yard_parent = self.tab_files
+        self.build_yard()
+
+    def build_yard(self):
+        """依品牌把場景建起來。切品牌時先拆掉舊的再建新的 --
+        兩套畫法各有自己的計時器和事件綁定,留著另一份在背景跑會白吃 CPU。
+        場景是裝飾,建不起來就當沒有,不影響工具本身。"""
+        for attr in ("warehouse_strip", "warehouse_panel"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                try:
+                    if attr == "warehouse_strip":
+                        w.stop()
+                    (w if attr == "warehouse_strip" else w.cv).destroy()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+        parent = getattr(self, "_yard_parent", None)
+        if parent is None:
+            return
+        try:
+            if brand_is("Scoobi"):
+                self.warehouse_panel = WarehousePanel(parent, self)
+                self.warehouse_panel.cv.pack(side="bottom", fill="both",
+                                             expand=True)
+            else:
+                # Parented to the tab, not the column: the column is packed
+                # anchor="nw" and only as wide as the widest control on it,
+                # so a strip inside it stopped two thirds of the way across.
+                self.warehouse_strip = SketchWarehouse(parent, self.MILKTEA)
+                self.warehouse_strip.pack(side="bottom", fill="x",
+                                          padx=12, pady=(0, 10))
+                self.warehouse_strip.start()
+        except Exception as _e:
+            self.warehouse_strip = self.warehouse_panel = None
+            print("Yard skipped:", _e)
+
+    # ---- 引擎側的把手:兩套場景一個介面 ----------------------------
+    # 引擎只呼叫這三個,不必知道現在是哪個品牌。Scoobi 的場能顯示進度,
+    # Tally 的場只有忙／不忙兩種狀態,各自對應。
+    def _wp_start(self, total, sub=""):
+        p = getattr(self, "warehouse_panel", None)
+        if p is not None:
+            p.start_run(total, sub)
+        st = getattr(self, "warehouse_strip", None)
+        if st is not None:
+            st.set_busy(True)
+
+    def _wp_pulse(self):
+        p = getattr(self, "warehouse_panel", None)
+        if p is not None:
+            p.pulse()
+
+    def _wp_finish(self, ok, chip=""):
+        p = getattr(self, "warehouse_panel", None)
+        if p is not None:
+            p.finish(ok, chip)
+        st = getattr(self, "warehouse_strip", None)
+        if st is not None:
+            st.set_busy(False)
+
 
 
     # =========================================================
@@ -747,99 +5465,100 @@ class UPSRepricingTool:
     def _build_rules_tab(self):
 
         main_container = ttk.Frame(self.tab_rules)
-        main_container.pack(fill="both", expand=True, padx=10, pady=10)
+        main_container.pack(fill="both", expand=True, padx=10, pady=(4, 6))
 
         top_frame = ttk.Frame(main_container)
         top_frame.pack(fill="x", pady=6)
 
-        global_frame = ttk.LabelFrame(top_frame, text="⚙ Global Settings")
+        global_frame = ttk.LabelFrame(top_frame, text="⛽ Fuel")
         global_frame.pack(side="left", fill="both", expand=True, padx=6)
 
-        ttk.Label(global_frame, text="DIM Factor").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        ttk.Entry(global_frame, textvariable=self.dim_factor, width=12).grid(row=0, column=1, padx=8, pady=8)
+        # DIM Factor moved to Size Rules: it decides billable weight, which is
+        # what that tab is about, and it can be overridden per channel there
+        # the same way the AHS and Large Package thresholds are.
 
         # Fuel % is NOT a global setting any more -- it lives inside the fuel
         # schedule window as the "no range matched" default, so there is only
         # one place that decides fuel. self.fuel_percent is kept for config
         # backward compatibility.
 
-        oversize_frame = ttk.LabelFrame(top_frame, text="📏 Oversize Rules")
-        oversize_frame.pack(side="left", fill="both", expand=True, padx=6)
-
-        ttk.Checkbutton(oversize_frame, text="Enable Longest Side", variable=self.use_oversize_longest).grid(row=0, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(oversize_frame, textvariable=self.oversize_longest_side, width=12).grid(row=0, column=1, padx=8)
-
-        ttk.Checkbutton(oversize_frame, text="Enable Actual Weight", variable=self.use_oversize_weight).grid(row=1, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(oversize_frame, textvariable=self.oversize_actual_weight, width=12).grid(row=1, column=1, padx=8)
-
-        ttk.Checkbutton(oversize_frame, text="Enable Cubic Inches", variable=self.use_oversize_cubic).grid(row=2, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(oversize_frame, textvariable=self.oversize_cubic_inches, width=12).grid(row=2, column=1, padx=8)
-
-        ttk.Checkbutton(oversize_frame, text="Enable Length + Girth", variable=self.use_oversize_lg).grid(row=3, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(oversize_frame, textvariable=self.oversize_length_girth, width=12).grid(row=3, column=1, padx=8)
-
-        ttk.Label(oversize_frame, text="Oversize Min Billable Weight").grid(row=4, column=0, padx=8, pady=5, sticky="w")
-        ttk.Entry(oversize_frame, textvariable=self.oversize_min_billable_weight, width=12).grid(row=4, column=1, padx=8)
-
-        ahs_frame = ttk.LabelFrame(top_frame, text="📦 AHS Rules")
-        ahs_frame.pack(side="left", fill="both", expand=True, padx=6)
-
-        ttk.Label(ahs_frame, text="AHS Weight Threshold").grid(row=0, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(ahs_frame, textvariable=self.ahs_weight_threshold, width=12).grid(row=0, column=1, padx=8)
-
-        ttk.Label(ahs_frame, text="AHS-Dimension Longest Side (inches)").grid(row=1, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(ahs_frame, textvariable=self.ahs_longest_side, width=12).grid(row=1, column=1, padx=8)
-
-        ttk.Label(ahs_frame, text="AHS-Dimension Second Longest Side").grid(row=2, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(ahs_frame, textvariable=self.ahs_second_side, width=12).grid(row=2, column=1, padx=8)
-
-        ttk.Label(ahs_frame, text="AHS Cubic Inches").grid(row=3, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(ahs_frame, textvariable=self.ahs_cubic_inches, width=12).grid(row=3, column=1, padx=8)
-
-        ttk.Label(ahs_frame, text="AHS L+G Limit").grid(row=4, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(ahs_frame, textvariable=self.ahs_lg_limit, width=12).grid(row=4, column=1, padx=8)
-
-        ttk.Label(ahs_frame, text="AHS Min Billable Weight").grid(row=5, column=0, sticky="w", padx=8, pady=5)
-        ttk.Entry(ahs_frame, textvariable=self.ahs_min_billable_weight, width=12).grid(row=5, column=1, padx=8)
-
         # Fuel schedule lives in its own window so this tab's layout is
         # untouched -- only one button and a count label are added here.
+        # Fuel, per channel, in the one place fuel is set. UPS republishes
+        # the ground percentage every Monday, so this is the row that gets
+        # used most.
+        # No channel dropdown here. The fuel window has its own tick list, so
+        # this one only decided which channel was pre-ticked -- one more thing
+        # to set before opening the thing that sets it.
         ttk.Label(global_frame, text="Fuel Surcharge").grid(
             row=1, column=0, padx=8, pady=8, sticky="w")
 
-        fuel_btn_cell = ttk.Frame(global_frame)
-        fuel_btn_cell.grid(row=1, column=1, padx=8, pady=8, sticky="w")
+        fuel_row = ttk.Frame(global_frame)
+        fuel_row.grid(row=1, column=1, padx=8, pady=8, sticky="w")
 
-        ttk.Button(fuel_btn_cell, text="⛽ Set Schedule...", width=18,
-                   command=self.open_fuel_schedule_window).pack(side="left")
-
-        self.fuel_schedule_summary = tk.StringVar()
-        ttk.Label(fuel_btn_cell, textvariable=self.fuel_schedule_summary,
-                  font=("Segoe UI", 8)).pack(side="left", padx=6)
-
-        # UPS republishes the ground fuel percentage every Monday, so the
-        # schedule goes stale on its own. Its own row: side by side this
-        # widened Global Settings to 687px and pushed AHS Rules off the
-        # right edge of the window.
-        ttk.Button(global_frame, text="🌐 UPS Fuel Rates", width=18,
+        ttk.Button(fuel_row, text="⛽ Set Fuel Percentage", width=24,
+                   command=self.open_bulk_fuel_window).pack(side="left")
+        # Says where it goes: the second button opens the UPS website, it does
+        # not set anything here.
+        ttk.Button(fuel_row, text="🌐 Look Up UPS Fuel Percentage", width=30,
                    command=lambda: self.open_url(UPS_FUEL_SURCHARGE_URL)
-                   ).grid(row=2, column=1, padx=8, pady=(0, 8), sticky="w")
+                   ).pack(side="left", padx=8)
+
+        # Kept: the fuel window still writes its one-line summaries into these.
+        self.fuel_channel_summary = tk.StringVar(value="")
+        self.fuel_schedule_summary = tk.StringVar()
+
+        # No "fallback service" picker. It only ever applied to a line whose
+        # service the invoice did not identify, and those lines are reported
+        # in the issue list anyway -- a dropdown that silently decides how an
+        # unrecognised line is priced is worse than a fixed, stated rule.
+        # Unrecognised lines fall back to Ground Commercial and say so.
 
         acc_frame = ttk.LabelFrame(main_container, text="💵 Surcharge Rates")
-        acc_frame.pack(fill="both", expand=True, pady=10)
+        acc_frame.pack(fill="both", expand=True, pady=(6, 4))
 
         btn_frame = ttk.Frame(acc_frame)
         btn_frame.pack(fill="x", padx=10, pady=8)
 
         ttk.Button(btn_frame, text="➕ Custom Surcharges...", width=24, command=self.open_custom_surcharge_window).pack(side="left", padx=4)
-        ttk.Button(btn_frame, text="💾 Save Rates", width=20, command=self.save_accessorial_rates).pack(side="left", padx=4)
-        ttk.Button(btn_frame, text="Export Surcharge Rates", width=30, command=self.export_acc_template).pack(side="left", padx=4)
-        ttk.Button(btn_frame, text="Import Surcharge Rates", width=30, command=self.import_acc_template).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="💾 Save Rates", width=16,
+                   command=self.save_accessorial_rates).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="✕ Remove Ticked", width=18,
+                   command=self.remove_selected_shared_rates).pack(side="left", padx=4)
+        # Export the standard-zone template, export a single lane's own zones,
+        # then import -- the order the work is actually done in. The
+        # copy-from-another-channel button is gone; the window it opened is
+        # still there for the copy path, it just is not on this row.
+        ttk.Button(btn_frame, text="Export Ground Accessorials Template",
+                   width=34,
+                   command=self.export_acc_template).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Export Other Channels Accessorials Template",
+                   width=40,
+                   command=self.export_channel_zone_template).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Import Accessorials Template", width=34,
+                   command=self.import_acc_template).pack(side="left", padx=4)
+
+        # Channel rates used to be shown on the Channels tab instead. They are
+        # here now, which is why there has to be a filter: with a dozen
+        # channels the boxes run a long way sideways.
+        filter_row = ttk.Frame(acc_frame)
+        filter_row.pack(fill="x", padx=10, pady=(0, 4))
+        # "Show" plus a channel name reads as a display option; what it
+        # actually says is which channel's rates are on screen.
+        ttk.Label(filter_row, text="Channel").pack(side="left", padx=(0, 6))
+        self.acc_filter_var = tk.StringVar()
+        self.acc_filter_combo = ttk.Combobox(
+            filter_row, textvariable=self.acc_filter_var,
+            state="readonly", width=38)
+        self.acc_filter_combo.pack(side="left")
+        self.acc_filter_combo.bind(
+            "<<ComboboxSelected>>", lambda e: self.render_accessorial_tables())
 
         table_container = ttk.Frame(acc_frame)
-        table_container.pack(fill="both", expand=True, padx=10, pady=10)
+        table_container.pack(fill="both", expand=True, padx=10, pady=(4, 6))
 
-        self.acc_canvas = tk.Canvas(table_container, bg="#cbb189", highlightthickness=0)
+        self.acc_canvas = tk.Canvas(table_container,
+                                    bg=self.MILKTEA["BG"], highlightthickness=0)
         self.acc_y_scroll = ttk.Scrollbar(table_container, orient="vertical", command=self.acc_canvas.yview)
         self.acc_x_scroll = ttk.Scrollbar(table_container, orient="horizontal", command=self.acc_canvas.xview)
 
@@ -848,15 +5567,26 @@ class UPSRepricingTool:
         self.acc_canvas.pack(side="left", fill="both", expand=True)
 
         self.acc_canvas.configure(xscrollcommand=self.acc_x_scroll.set, yscrollcommand=self.acc_y_scroll.set)
+        self._bind_mousewheel(self.acc_canvas)
 
         self.acc_display_frame = ttk.Frame(self.acc_canvas)
-        self.acc_canvas.create_window((0, 0), window=self.acc_display_frame, anchor="nw")
+        # Keep the id: the content has to be told to use the canvas width,
+        # otherwise it stays as wide as its widgets happen to be and a wide
+        # window shows a page of boxes with a blank strip beside them.
+        self._acc_window_id = self.acc_canvas.create_window(
+            (0, 0), window=self.acc_display_frame, anchor="nw")
 
         def on_frame_configure(event):
+            # 內容變動時一併重算內容寬度，不然新增欄位之後捲軸範圍還是舊的
+            need = self.acc_display_frame.winfo_reqwidth()
+            avail = self.acc_canvas.winfo_width()
+            self.acc_canvas.itemconfigure(self._acc_window_id,
+                                          width=max(avail, need))
             self.acc_canvas.configure(scrollregion=self.acc_canvas.bbox("all"))
 
         self.acc_display_frame.bind("<Configure>", on_frame_configure)
-        self.acc_canvas.bind("<Configure>", lambda e: self.acc_canvas.configure(scrollregion=self.acc_canvas.bbox("all")))
+        self.acc_canvas.bind("<Configure>", self._on_acc_canvas_resize)
+        self._acc_flat_columns = 3
 
         self.accessorial_schema = {
             "AHS - Weight": ["Zone 2", "Zone 3-4", "Zone 5-6", "Zone 7+"],
@@ -866,6 +5596,38 @@ class UPSRepricingTool:
 
         self.accessorial_rates = {}
         self.render_accessorial_tables()
+
+    def _on_acc_canvas_resize(self, event=None):
+        """Keep the scroll region, and re-lay the boxes when the number of
+        columns that fit has actually changed.
+
+        Rebuilding on every pixel of a drag would be unusable, so the panel is
+        only redrawn when the answer to "how many fit" is different.
+        """
+        try:
+            width = getattr(event, "width", 0) or self.acc_canvas.winfo_width()
+            # 內容寬度取「畫布寬」和「內容自己要的寬」兩者的大值。
+            # 原本一律等於畫布寬，內容永遠塞不出畫布之外，bbox 也就永遠不會
+            # 超過可視範圍，橫向捲軸因此沒有東西可以捲、拉不動。
+            # 取大值之後：內容比畫布窄時照樣填滿（不會留白條），
+            # 內容比畫布寬時就撐出去，捲軸才有作用。
+            need = self.acc_display_frame.winfo_reqwidth()
+            self.acc_canvas.itemconfigure(self._acc_window_id,
+                                          width=max(width, need))
+            self.acc_canvas.configure(scrollregion=self.acc_canvas.bbox("all"))
+        except Exception:
+            return
+        columns = self.flat_rate_columns()
+        if columns != getattr(self, "_acc_flat_columns", None):
+            self._acc_flat_columns = columns
+            # After the resize settles, not during it.
+            if getattr(self, "_acc_relayout_job", None):
+                try:
+                    self.root.after_cancel(self._acc_relayout_job)
+                except Exception:
+                    pass
+            self._acc_relayout_job = self.root.after(
+                150, self.render_accessorial_tables)
 
     def dynamic_acc_columns(self):
         """
@@ -919,85 +5681,168 @@ class UPSRepricingTool:
                 blocked.add(name)
         return blocked
 
-    def save_accessorial_rates(self):
-        """Read every rate Entry back into accessorial_rate_table and persist."""
-        table = getattr(self, "accessorial_rate_table", {})
-        bad = []
+    def channel_rate_labels(self):
+        """Every shipment type a rate can be stored under."""
+        labels = []
+        for name, residential in self.built_in_channel_variants():
+            label = self.channel_surcharge_label(name, residential)
+            if label not in labels:
+                labels.append(label)
+        for name, cfg in self.custom_service_entries(enabled_only=False):
+            label = self.channel_surcharge_label(
+                name, bool(cfg.get("residential", False)))
+            if label not in labels:
+                labels.append(label)
+        return labels
 
-        for (key, zone), var in getattr(self, "acc_rate_vars", {}).items():
-            raw = var.get().strip()
-            if raw == "":
-                raw = "0"
-            try:
-                amount = float(str(raw).replace("$", "").replace(",", ""))
-            except Exception:
-                bad.append(f"{key}" + (f" / Zone {zone}" if zone is not None else ""))
-                continue
+    def expand_shared_rates_to_channels(self):
+        """Give every channel its own copy of any rate stored without one.
 
-            if zone is None:
-                table[key] = amount
-            else:
-                if not isinstance(table.get(key), dict):
-                    table[key] = {}
-                table[key][zone] = amount
+        There is no fallback rate any more: a fee the channel has no row for
+        costs 0. So a bare "DAS Commercial" row -- which used to serve every
+        channel at once -- has to become one row per channel, or the day this
+        version is opened every flat charge on every channel silently becomes
+        0.
+        """
+        table = getattr(self, "accessorial_rate_table", {}) or {}
+        bare = {k: v for k, v in table.items()
+                if not (isinstance(k, tuple) and len(k) == 2)}
+        if not bare:
+            return 0
+
+        labels = self.channel_rate_labels()
+        added = 0
+        for fee, value in bare.items():
+            for label in labels:
+                if (fee, label) in table:
+                    continue
+                table[(fee, label)] = (dict(value) if isinstance(value, dict)
+                                       else value)
+                added += 1
+            table.pop(fee, None)
 
         self.accessorial_rate_table = table
+        return added
 
-        try:
-            self.save_config()
-        except Exception as e:
-            print("Auto save config after surcharge rate edit failed:", e)
+    def seed_channel_rates_from(self, source_label, target_label,
+                                target_zones=None):
+        """Copy one shipment type's rates onto another that has none.
 
-        self.render_accessorial_tables()
-        try:
-            self.acc_canvas.update_idletasks()
-        except Exception:
-            pass
+        Used when a channel is created: starting a new lane at 0 for every
+        surcharge is not a useful blank slate, it is an invoice that underbills
+        until someone notices.
 
-        if bad:
-            messagebox.showwarning(
-                "Saved with warnings",
-                "These fields were not numeric and were left unchanged:\n\n"
-                + "\n".join(bad[:15])
-            )
-        else:
-            self.set_status("Surcharge rates saved.")
+        Zone tables are rebuilt on the TARGET channel's zones. Copying Ground's
+        2-8 / 44-46 onto a lane that only runs zone 21 gave it eleven boxes it
+        can never be charged on and no box for the one it can.
+        """
+        table = getattr(self, "accessorial_rate_table", {}) or {}
+        rows = {k[0]: v for k, v in table.items()
+                if isinstance(k, tuple) and len(k) == 2
+                and str(k[1]).strip() == source_label}
+        added = 0
+        for fee, value in rows.items():
+            if (fee, target_label) in table:
+                continue
+            if isinstance(value, dict):
+                zones = target_zones or list(value.keys())
+                table[(fee, target_label)] = {
+                    str(z): self.to_amount(value.get(str(z), 0)) for z in zones}
+            else:
+                table[(fee, target_label)] = value
+            added += 1
+        self.accessorial_rate_table = table
+        return added
+
+    def align_channel_zone_rates(self):
+        """Make every channel's zone tables match the zones it declares.
+
+        A rate stored against a zone the channel does not run on can never be
+        looked up, and a zone it does run on with no row is a silent 0 -- both
+        happen when a table is copied or imported from a lane with different
+        zones.
+        """
+        table = getattr(self, "accessorial_rate_table", {}) or {}
+        zoned = set(ACC_ZONE_FEE_TYPES)
+        fixed = 0
+
+        for name, cfg in self.custom_service_entries(enabled_only=False):
+            residential = bool(cfg.get("residential", False))
+            declared = sort_zone_keys(self.custom_service_zones(name, residential))
+            if not declared:
+                continue        # standard zones: nothing to align
+            declared = [str(z) for z in declared]
+            label = self.channel_surcharge_label(name, residential)
+
+            for fee in zoned:
+                entry = table.get((fee, label))
+                if not isinstance(entry, dict):
+                    continue
+                if sorted(entry.keys()) == sorted(declared):
+                    continue
+                table[(fee, label)] = {
+                    z: self.to_amount(entry.get(z, 0)) for z in declared}
+                fixed += 1
+
+        if fixed:
+            self.accessorial_rate_table = table
+        return fixed
+
+    def normalize_acc_table(self):
+        """Collapse zone tables that belong to flat fees.
+
+        The channel surcharge template writes one grid, so importing it gave
+        every fee a zone table -- including DAS, Signature and the rest, which
+        UPS charges as one amount. On screen that is a box per fee with a
+        single "Zone 20" row; at lookup time it is a rate that only exists on
+        the zones that happened to be in the file.
+        """
+        table = getattr(self, "accessorial_rate_table", {}) or {}
+        # The rule is the short list, not the long one: AHS and Large Package
+        # are the only fees UPS prices by zone. Everything else -- the built-in
+        # flat charges and every custom surcharge code -- is one amount per
+        # package, so a zone table under those names came from the template,
+        # not from the tariff.
+        zoned_names = set(ACC_ZONE_FEE_TYPES)
+        changed = 0
+
+        for key, value in list(table.items()):
+            fee = key[0] if isinstance(key, tuple) and len(key) == 2 else key
+            if fee in zoned_names or not isinstance(value, dict):
+                continue
+            amounts = [self.to_amount(v) for v in value.values()]
+            picked = next((a for a in amounts if a), 0.0)
+            table[key] = picked
+            changed += 1
+
+        if changed:
+            self.accessorial_rate_table = table
+        return changed
+
+
     def render_accessorial_tables(self):
 
         for widget in self.acc_display_frame.winfo_children():
             widget.destroy()
 
-        default_table = {
-            ("AHS Weight", "Ground Commercial"): {"2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "44": 0, "45": 0, "46": 0},
-            ("AHS Weight", "Ground Residential"): {"2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "44": 0, "45": 0, "46": 0},
-            ("AHS Dimension", "Ground Commercial"): {"2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "44": 0, "45": 0, "46": 0},
-            ("AHS Dimension", "Ground Residential"): {"2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "44": 0, "45": 0, "46": 0},
-            ("AHS Packaging", "Ground Commercial"): {"2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "44": 0, "45": 0, "46": 0},
-            ("AHS Packaging", "Ground Residential"): {"2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "44": 0, "45": 0, "46": 0},
-            ("Large Package", "Ground Commercial"): {"2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "44": 0, "45": 0, "46": 0},
-            ("Large Package", "Ground Residential"): {"2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "44": 0, "45": 0, "46": 0},
-            "DAS Commercial": 0,
-            "DAS Residential": 0,
-            "DAS Extended Commercial": 0,
-            "DAS Extended Residential": 0,
-            "Remote Area Commercial": 0,
-            "Remote Area Residential": 0,
-            "Remote Area - AK": 0,
-            "Remote Area - HI": 0,
-            "Over Maximum Size Surcharge": 0,
-            "Residential Surcharge": 0,
-            "Return To Sender": 0,
-            "Reroute": 0,
-            "Reschedule Delivery": 0,
-            "Returns Electronic Label": 0,
-            "Returns Print Label": 0,
-            "Signature": 0,
-            "Adult Signature": 0,
-            "Package Protection": 0,
-            "Address Correction": 0,
-            "Direct Delivery Only": 0,
-            "Declared Value Markup %": 0,
-        }
+        # A fresh install starts with the Ground pair filled in, because that
+        # is the only lane every account has. There are no rates without a
+        # shipment type any more -- a fee with no row costs 0.
+        default_table = {}
+        for _label in ("Ground Commercial", "Ground Residential"):
+            for _fee in ACC_ZONE_FEE_TYPES:
+                default_table[(_fee, _label)] = {
+                    z: 0 for z in ("2", "3", "4", "5", "6", "7", "8",
+                                   "44", "45", "46")}
+            for _fee in ACC_FLAT_FEE_TYPES:
+                default_table[(_fee, _label)] = 0
+
+        try:
+            self.normalize_acc_table()
+            self.expand_shared_rates_to_channels()
+            self.align_channel_zone_rates()
+        except Exception as e:
+            print("ACC table normalise failed:", e)
 
         existing_table = getattr(self, "accessorial_rate_table", {})
 
@@ -1018,115 +5863,138 @@ class UPSRepricingTool:
 
         for as_code, cfg in getattr(self, "dynamic_surcharge_mapping", {}).items():
             surcharge_name = str(cfg.get("name", "")).strip()
-            if surcharge_name and surcharge_name not in merged_table:
-                merged_table[surcharge_name] = 0
+            if not surcharge_name:
+                continue
+            for _label in ("Ground Commercial", "Ground Residential"):
+                if (surcharge_name, _label) not in merged_table:
+                    merged_table[(surcharge_name, _label)] = 0
 
         self.accessorial_rate_table = merged_table
         table = self.accessorial_rate_table
 
         # Rate cells are editable Entry widgets (they used to be read-only
         # Labels that merely looked like inputs). Every widget is registered in
-        # acc_rate_vars so "Save Rates" can read them all back.
         self.acc_rate_vars = {}
+        self.acc_rate_sel = {}
 
-        for key, value in table.items():
-            frame = ttk.LabelFrame(self.acc_display_frame, text=str(key))
-            frame.pack(side="left", padx=10, pady=10, anchor="n")
-
-            if isinstance(value, dict):
-                ttk.Label(frame, text="Zone", width=12).grid(row=0, column=0, padx=4, pady=4)
-                ttk.Label(frame, text="Rate", width=12).grid(row=0, column=1, padx=4, pady=4)
-
-                row_idx = 1
-                for zone, rate in value.items():
-                    ttk.Label(frame, text=f"Zone {zone}", width=12).grid(row=row_idx, column=0, padx=4, pady=3)
-                    var = tk.StringVar(value=str(rate))
-                    ttk.Entry(frame, textvariable=var, width=12).grid(row=row_idx, column=1, padx=4, pady=3)
-                    self.acc_rate_vars[(key, zone)] = var
-                    row_idx += 1
+        # Every shipment type is shown here now; the filter above decides how
+        # many at once.
+        try:
+            self.refresh_acc_filter_choices()
+        except Exception as e:
+            print("Surcharge filter refresh failed:", e)
+        shared = self.acc_rows_to_show(table)
+        # Boxes here, not the compact table: a Ground zone schedule is ten
+        # rows tall, so a box shows one whole schedule and Commercial sits
+        # next to Residential for comparison. The Extra Channel panel is the
+        # opposite shape -- many fee types, one or two zones -- and uses the
+        # table.
+        # Grouped by shipment type, with the channel written once at the top
+        # of its group. Repeating it in every box title made each box twice as
+        # wide as the number inside it.
+        groups = {}
+        for key, value in shared:
+            if isinstance(key, tuple) and len(key) == 2:
+                head = str(key[1]).strip()
             else:
-                ttk.Label(frame, text="Amount", width=12).grid(row=0, column=0, padx=4, pady=4)
-                var = tk.StringVar(value=str(value))
-                ttk.Entry(frame, textvariable=var, width=12).grid(row=1, column=0, padx=4, pady=3)
-                self.acc_rate_vars[(key, None)] = var
+                head = self._channel_ui(self.ACC_FILTER_FLAT,
+                                        "還沒歸到渠道的費率")
+            groups.setdefault(head, []).append((key, value))
+
+        self.acc_rate_vars.clear()
+        self.acc_rate_sel.clear()
+
+        account_wide = self._channel_ui(self.ACC_FILTER_FLAT,
+                                        "還沒歸到渠道的費率")
+        order = ([account_wide] if account_wide in groups else [])
+        # Same order as the picker above it.
+        order += [k for k in self.surcharge_labels_in_use() if k in groups]
+        order += sorted(k for k in groups if k not in order)
+
+        for head in order:
+            box = ttk.LabelFrame(self.acc_display_frame, text=head)
+            box.pack(fill="both", expand=True, anchor="w", padx=4, pady=(4, 8))
+
+            # Zone tables and flat amounts are different shapes, so they get
+            # different layouts. A flat rate drawn as a box with one row in it
+            # wastes the whole box on one number, and twenty of those next to
+            # the zone tables is what made this page look like rubble.
+            zoned = [(k, v) for k, v in groups[head] if isinstance(v, dict)]
+            flat = [(k, v) for k, v in groups[head] if not isinstance(v, dict)]
+
+            if zoned:
+                inner = ttk.Frame(box)
+                # fill 而不是 anchor="w":外層畫布已經把內容撐到視窗寬,
+                # 但這一層維持自然寬度,方塊就全擠在左邊、右半頁空著。
+                # 撐開之後底下的欄位權重才有作用。
+                inner.pack(fill="x", expand=True, padx=4, pady=2)
+                self._render_rate_boxes(inner, zoned,
+                                        self.acc_rate_vars, self.acc_rate_sel,
+                                        label_for=self.rate_fee_label,
+                                        reset=False)
+            _percent = [(k, v) for k, v in flat
+                        if (k[0] if isinstance(k, tuple) else k)
+                        in PERCENT_FEE_TYPES]
+            _money = [(k, v) for k, v in flat if (k, v) not in _percent]
+
+            if _percent:
+                pct_box = ttk.LabelFrame(
+                    box, text=self._channel_ui("Percentages", "百分比"))
+                pct_box.pack(fill="x", anchor="w", padx=6, pady=(2, 2))
+                self._render_flat_rates(pct_box, _percent,
+                                        self.acc_rate_vars, self.acc_rate_sel,
+                                        per_row=self.flat_rate_columns(),
+                                        unit="%")
+
+            if _money:
+                flat_box = ttk.LabelFrame(
+                    box, text=self._channel_ui("Flat amounts", "固定金額"))
+                flat_box.pack(fill="x", anchor="w", padx=6, pady=(2, 6))
+                self._render_flat_rates(flat_box, _money,
+                                        self.acc_rate_vars, self.acc_rate_sel,
+                                        per_row=self.flat_rate_columns())
+
+        # Declared Value is not a flat amount and not a percentage: it steps
+        # with the value declared. Its own box, next to the rates it belongs
+        # with rather than buried in Size Rules.
+        dv_box = ttk.LabelFrame(
+            box, text=self._channel_ui("Declared Value tiers", "申報價值級距"))
+        dv_box.pack(fill="x", anchor="w", padx=6, pady=(2, 6))
+        # 「欄位」（申報價值在來源檔的哪一欄，預設 AW）不顯示在這裡：
+        # 那是讀檔用的內部設定，不是費率，跟旁邊四個要調的數字混在一起
+        # 只會讓人以為它也要改。值仍由 self.dv_column 保留與存檔。
+        for _c, (_label_en, _label_zh, _var) in enumerate((
+                ("Free up to", "免收上限", self.dv_free_limit),
+                ("Minimum charge", "最低收費", self.dv_min_charge),
+                ("Step", "級距單位", self.dv_unit),
+                ("Per step", "每級距", self.dv_unit_rate))):
+            ttk.Label(dv_box, text=self._channel_ui(_label_en, _label_zh)).grid(
+                row=0, column=_c * 2, sticky="w", padx=(8, 2), pady=6)
+            ttk.Entry(dv_box, textvariable=_var, width=9).grid(
+                row=0, column=_c * 2 + 1, sticky="w", padx=(0, 10), pady=6)
+        ttk.Button(
+            dv_box, text=self._channel_ui("Reset", "重設"), width=8,
+            command=self.reset_declared_value_tiers).grid(
+                row=0, column=8, sticky="w", padx=(6, 8), pady=6)
+        # The worked example is the check: 0.85 typed as 85 prices a $264
+        # parcel at $255 and nothing on screen says so.
+        ttk.Label(
+            dv_box, textvariable=self.dv_example, font=ui_font(8)).grid(
+                row=1, column=0, columnspan=9, sticky="w", padx=8, pady=(0, 6))
+        for _v in (self.dv_free_limit, self.dv_min_charge,
+                   self.dv_unit, self.dv_unit_rate):
+            _v.trace_add("write", lambda *_a: self._refresh_dv_example())
+        self._refresh_dv_example()
+
+        try:
+            self.render_channel_accessorial_tables()
+        except Exception as e:
+            print("Channel rate panel refresh failed:", e)
 
 
     # =========================================================
     # TAB 3: RATE TABLES
     # =========================================================
-    def _build_rates_tab(self):
-        mt = self.MILKTEA
-        frm = ttk.Frame(self.tab_rates)
-        frm.pack(fill="both", expand=True, padx=12, pady=12)
-
-        # ---- Header card ----
-        card = ctk.CTkFrame(frm, fg_color=mt["PANEL"], corner_radius=14)
-        card.pack(fill="x", pady=(0, 10))
-        ctk.CTkLabel(card, text="📊  Base Rate Table",
-                     font=("Segoe UI", 15, "bold"),
-                     text_color="#7a4f24").pack(anchor="w", padx=16, pady=(12, 2))
-        ctk.CTkLabel(card,
-                     text="Freight rates by billable weight (rows) and zone "
-                          "(columns). Import a template to load, or filter below.",
-                     font=("Segoe UI", 10),
-                     text_color=mt["TEXT"]).pack(anchor="w", padx=16, pady=(0, 4))
-
-        toolbar = ctk.CTkFrame(card, fg_color="transparent")
-        toolbar.pack(fill="x", padx=12, pady=(0, 12))
-
-        ctk.CTkButton(toolbar, text="📤 Export Template",
-                      fg_color="#8b5e34", hover_color="#6f4a28",
-                      corner_radius=10, height=34,
-                      command=self.export_base_rate_template
-                      ).pack(side="left", padx=4)
-
-        ctk.CTkLabel(toolbar, text="🔍 Filter weight:",
-                     font=("Segoe UI", 10), text_color=mt["TEXT"]
-                     ).pack(side="left", padx=(16, 4))
-        self.rate_filter_var = tk.StringVar()
-        ent = ctk.CTkEntry(toolbar, textvariable=self.rate_filter_var,
-                           width=110, placeholder_text="e.g. 15")
-        ent.pack(side="left", padx=4)
-        ent.bind("<KeyRelease>", lambda e: self._apply_rate_filter())
-        ctk.CTkButton(toolbar, text="Clear", width=60,
-                      fg_color="#b89a6e", hover_color="#9c8055",
-                      corner_radius=10, height=34,
-                      command=self._clear_rate_filter).pack(side="left", padx=4)
-
-        self.rate_status = ctk.CTkLabel(
-            toolbar, text="No base rates loaded.",
-            font=("Segoe UI", 10, "italic"), text_color="#8b6a45")
-        self.rate_status.pack(side="right", padx=10)
-
-        # ---- Table with both scrollbars ----
-        table_wrap = ttk.Frame(frm)
-        table_wrap.pack(fill="both", expand=True)
-
-        cols = ["Service", "Weight", "Zone 2", "Zone 3", "Zone 4", "Zone 5",
-                "Zone 6", "Zone 7", "Zone 8", "Zone 44", "Zone 45", "Zone 46"]
-        self.rate_preview = ttk.Treeview(table_wrap, columns=cols,
-                                         show="headings", height=20)
-        for c in cols:
-            self.rate_preview.heading(c, text=c)
-            self.rate_preview.column(
-                c, width=130 if c == "Service" else 80,
-                anchor="w" if c == "Service" else "e")
-
-        vsb = ttk.Scrollbar(table_wrap, orient="vertical",
-                            command=self.rate_preview.yview)
-        hsb = ttk.Scrollbar(table_wrap, orient="horizontal",
-                            command=self.rate_preview.xview)
-        self.rate_preview.configure(yscrollcommand=vsb.set,
-                                    xscrollcommand=hsb.set)
-        self.rate_preview.grid(row=0, column=0, sticky="nsew")
-        vsb.grid(row=0, column=1, sticky="ns")
-        hsb.grid(row=1, column=0, sticky="ew")
-        table_wrap.rowconfigure(0, weight=1)
-        table_wrap.columnconfigure(0, weight=1)
-
-        # zebra striping tags
-        self.rate_preview.tag_configure("odd", background="#dbc6a4")
-        self.rate_preview.tag_configure("even", background="#d0bb98")
 
     def _populate_rate_preview(self, df):
         """Fill the rate table from a dataframe with zebra striping."""
@@ -1143,198 +6011,10 @@ class UPSRepricingTool:
             self.rate_status.configure(
                 text=f"{len(df)} rows loaded.")
 
-    def _apply_rate_filter(self):
-        q = self.rate_filter_var.get().strip()
-        df = getattr(self, "last_base_rate_df", None)
-        if df is None or df.empty:
-            return
-        if q == "":
-            self._populate_rate_preview(df.head(500))
-            return
-        try:
-            wt = int(float(q))
-            sub = df[pd.to_numeric(df["Weight"], errors="coerce") == wt]
-            self._populate_rate_preview(sub)
-        except ValueError:
-            self._populate_rate_preview(df.head(500))
-
-    def _clear_rate_filter(self):
-        self.rate_filter_var.set("")
-        df = getattr(self, "last_base_rate_df", None)
-        if df is not None and not df.empty:
-            self._populate_rate_preview(df.head(500))
-
     # =========================================================
     # TAB 4: AHS/LPS CODES
     # =========================================================
-    def _build_ahs_lps_codes_tab(self):
-        
-        main = ttk.Frame(self.tab_ahs_lps_codes)
-        main.pack(fill="both", expand=True, padx=12, pady=12)
 
-        title = ttk.Label(main, text="Charge Code Setup", font=("Segoe UI", 13, "bold"))
-        title.pack(anchor="w", pady=(0, 10))
-
-        desc = ttk.Label(main, text="Set which UPS charge codes should be treated as AHS or Large Package charges.")
-        desc.pack(anchor="w", pady=(0, 12))
-
-        self.ahs_lps_code_tree = ttk.Treeview(
-            main, 
-            columns=("CODE", "CHARGE_TYPE", "CATEGORY", "RC_CLASS", "DESCRIPTION"), 
-            show="headings", 
-            height=14
-        )
-
-        cols = [
-            ("CODE", "UPS Charge Code", 120),
-            ("CHARGE_TYPE", "Maps To", 180),
-            ("CATEGORY", "Category", 110),
-            ("RC_CLASS", "R/C Class", 110),
-            ("DESCRIPTION", "Description", 240),
-        ]
-
-        for key, title_text, width in cols:
-            self.ahs_lps_code_tree.heading(key, text=title_text)
-            self.ahs_lps_code_tree.column(key, width=width)
-
-        self.ahs_lps_code_tree.pack(fill="both", expand=True, pady=10)
-
-        btn_row = ttk.Frame(main)
-        btn_row.pack(fill="x", pady=10)
-
-        ttk.Button(btn_row, text="+ Add Code", command=self.open_ahs_lps_popup).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Delete Selected", command=self.delete_ahs_lps_code).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Save Setup", command=self.save_ahs_lps_registry).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Load Setup", command=self.load_ahs_lps_registry).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Export List", command=self.export_ahs_lps_code_template).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Import List", command=self.import_ahs_lps_code_template).pack(side="left", padx=4)
-
-        # Show the built-in default registry immediately (no import needed).
-        try:
-            self.load_ahs_lps_registry()
-        except Exception as e:
-            print("populate default AHS/LPS registry failed:", e)
-
-    def open_ahs_lps_popup(self):
-        
-        popup = tk.Toplevel(self.root)
-        popup.title("Add Charge Code")
-        popup.geometry("520x380")
-
-        container = ttk.Frame(popup)
-        container.pack(fill="both", expand=True, padx=16, pady=16)
-
-        ttk.Label(container, text="UPS Charge Code").grid(row=0, column=0, sticky="w", pady=8)
-        code_entry = ttk.Entry(container, width=35)
-        code_entry.grid(row=0, column=1, padx=8, pady=8)
-
-        ttk.Label(container, text="Maps To").grid(row=1, column=0, sticky="w", pady=8)
-        charge_type_var = tk.StringVar(value="AHS - Weight")
-        charge_type_combo = ttk.Combobox(
-            container, 
-            textvariable=charge_type_var,
-            values=[
-                "AHS - Weight",
-                "AHS - Dimension",
-                "AHS - Packaging",
-                "Large Package",
-            ],
-            state="readonly",
-            width=32
-        )
-        charge_type_combo.grid(row=1, column=1, padx=8, pady=8)
-
-        ttk.Label(container, text="Category").grid(row=2, column=0, sticky="w", pady=8)
-        category_var = tk.StringVar(value="AHS")
-        category_combo = ttk.Combobox(
-            container,
-            textvariable=category_var,
-            values=["AHS", "LPS", "OTHER"],
-            state="readonly",
-            width=32
-        )
-        category_combo.grid(row=2, column=1, padx=8, pady=8)
-
-        ttk.Label(container, text="R/C Class").grid(row=3, column=0, sticky="w", pady=8)
-        rc_class_var = tk.StringVar(value="None")
-        rc_class_combo = ttk.Combobox(
-            container,
-            textvariable=rc_class_var,
-            values=["Residential", "Commercial", "None"],
-            state="readonly",
-            width=32
-        )
-        rc_class_combo.grid(row=3, column=1, padx=8, pady=8)
-
-        ttk.Label(container, text="Description (optional)").grid(row=4, column=0, sticky="w", pady=8)
-        description_entry = ttk.Entry(container, width=35)
-        description_entry.grid(row=4, column=1, padx=8, pady=8)
-
-        def save_popup():
-            ups_code = code_entry.get().strip().upper()
-            maps_to = charge_type_var.get()
-            category = category_var.get()
-            rc_class = rc_class_var.get()
-            description = description_entry.get().strip()
-
-            if ups_code == "":
-                messagebox.showerror("Error", "UPS Charge Code cannot be empty")
-                return
-
-            self.ahs_lps_code_tree.insert("", "end", values=(
-                ups_code,
-                maps_to,
-                category,
-                rc_class,
-                description
-            ))
-
-            try:
-                self.save_ahs_lps_registry()
-            except Exception as e:
-                print("Auto save AHS/LPS registry failed:", e)
-
-            popup.destroy()
-
-        ttk.Button(container, text="Save Code", command=save_popup).grid(row=5, column=0, columnspan=2, pady=20)
-
-    def delete_ahs_lps_code(self):
-        selected = self.ahs_lps_code_tree.selection()
-        for item in selected:
-            self.ahs_lps_code_tree.delete(item)
-        try:
-            self.save_ahs_lps_registry()
-        except Exception as e:
-            print("Auto save failed:", e)
-
-    def save_ahs_lps_registry(self):
-        
-        self.ahs_lps_code_registry = {}
-
-        for item in self.ahs_lps_code_tree.get_children():
-            vals = self.ahs_lps_code_tree.item(item, "values")
-            if not vals or len(vals) < 2:
-                continue
-
-            ups_code = str(vals[0]).strip().upper()
-            maps_to = str(vals[1]).strip()
-
-            if ups_code == "":
-                continue
-
-            self.ahs_lps_code_registry[ups_code] = {
-                "charge_type": maps_to,
-                "category": str(vals[2]).strip() if len(vals) > 2 else "AHS",
-                "rc_class": str(vals[3]).strip() if len(vals) > 3 else "None",
-                "description": str(vals[4]).strip() if len(vals) > 4 else ""
-            }
-
-        try:
-            self.save_config()
-        except Exception as e:
-            print("Auto save config failed:", e)
-
-        self.set_status("Charge code setup saved.")
     def load_ahs_lps_registry(self):
         
         self.ahs_lps_code_tree.delete(*self.ahs_lps_code_tree.get_children())
@@ -1348,143 +6028,3736 @@ class UPSRepricingTool:
                 cfg.get("description", "")
             ))
 
-    def export_ahs_lps_code_template(self):
-        """Export AHS/LPS code registry as template"""
-        
-        path = filedialog.asksaveasfilename(
-            initialfile=self.export_name_for("ahs_lps", "AHS_LPS_Code_Template.xlsx")[0],
-            initialdir=self.export_name_for("ahs_lps", "AHS_LPS_Code_Template.xlsx")[1] or ".",
-            defaultextension=".xlsx",
-            filetypes=[("Excel", "*.xlsx")]
-        )
-
-        if not path:
-            return
-
-        rows = []
-
-        for ups_code, cfg in self.ahs_lps_code_registry.items():
-            rows.append({
-                "UPS Charge Code": ups_code,
-                "Maps To System Charge": cfg.get("charge_type", "AHS - Weight"),
-                "Category": cfg.get("category", "AHS"),
-                "R/C Class": cfg.get("rc_class", "None"),
-                "Description": cfg.get("description", "")
-            })
-
-        if not rows:
-            rows = [
-                {
-                    "UPS Charge Code": "AHG",
-                    "Maps To System Charge": "AHS - Weight",
-                    "Category": "AHS",
-                    "Description": "AHS Weight - Group Rate"
-                },
-                {
-                    "UPS Charge Code": "AHW",
-                    "Maps To System Charge": "AHS - Weight",
-                    "Category": "AHS",
-                    "Description": "AHS Weight - Weighted Rate"
-                },
-                {
-                    "UPS Charge Code": "AHL",
-                    "Maps To System Charge": "AHS - Weight",
-                    "Category": "AHS",
-                    "Description": "AHS Weight - List Rate"
-                },
-                {
-                    "UPS Charge Code": "AHD",
-                    "Maps To System Charge": "AHS - Dimension",
-                    "Category": "AHS",
-                    "Description": "AHS Dimension"
-                },
-                {
-                    "UPS Charge Code": "AHB",
-                    "Maps To System Charge": "AHS - Dimension",
-                    "Category": "AHS",
-                    "Description": "AHS Dimension (Alt)"
-                },
-                {
-                    "UPS Charge Code": "AHP",
-                    "Maps To System Charge": "AHS - Packaging",
-                    "Category": "AHS",
-                    "Description": "AHS Packaging"
-                },
-                {
-                    "UPS Charge Code": "AHC",
-                    "Maps To System Charge": "AHS - Packaging",
-                    "Category": "AHS",
-                    "Description": "AHS Packaging (Alt)"
-                },
-                {
-                    "UPS Charge Code": "LPS",
-                    "Maps To System Charge": "Large Package",
-                    "Category": "LPS",
-                    "Description": "Large Package Surcharge"
-                },
-            ]
-
-        pd.DataFrame(rows).to_excel(path, index=False)
-        self.set_status(f"Charge code setup exported:\n{path}")
-    def import_ahs_lps_code_template(self):
-        """Import AHS/LPS code registry from template"""
-        
-        path = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xls")])
-
-        if not path:
-            return
-        self.remember_import("ahs_lps", path)
-
-        try:
-            df = pd.read_excel(path).fillna("")
-
-            required = ["UPS Charge Code", "Maps To System Charge"]
-            missing = [c for c in required if c not in df.columns]
-            if missing:
-                raise Exception(f"Charge code setup file missing column(s): {missing}")
-
-            self.ahs_lps_code_registry = {}
-            self.ahs_lps_code_tree.delete(*self.ahs_lps_code_tree.get_children())
-
-            for _, row in df.iterrows():
-                ups_code = str(row.get("UPS Charge Code", "")).strip().upper()
-
-                if ups_code == "":
-                    continue
-
-                cfg = {
-                    "charge_type": str(row.get("Maps To System Charge", "AHS - Weight")).strip(),
-                    "category": str(row.get("Category", "AHS")).strip(),
-                    "rc_class": str(row.get("R/C Class", "None")).strip() or "None",
-                    "description": str(row.get("Description", "")).strip()
-                }
-
-                self.ahs_lps_code_registry[ups_code] = cfg
-
-                self.ahs_lps_code_tree.insert("", "end", values=(
-                    ups_code,
-                    cfg["charge_type"],
-                    cfg["category"],
-                    cfg["rc_class"],
-                    cfg["description"]
-                ))
-
-            try:
-                self.save_config()
-            except Exception as e:
-                print("Auto save config failed:", e)
-
-            self.confirm("Import complete",
-                         f"Charge code setup imported.\n\n"
-                         f"{os.path.basename(path)}\n"
-                         f"Total codes: {len(self.ahs_lps_code_registry)}")
-        except Exception as e:
-            messagebox.showerror("Import Failed", f"Error: {e}")
-
 
     # =========================================================
     # TAB 5: DYNAMIC SURCHARGE
     # =========================================================
+    # =========================================================
+    # CUSTOM SERVICES (CHANNELS) -- own window, same pattern as
+    # Custom Surcharges
+    # =========================================================
+    @staticmethod
+    def custom_service_key(name, residential):
+        return f"{str(name).strip()}|||{'R' if bool(residential) else 'C'}"
+
+    def custom_service_variants(self, service, enabled_only=True):
+        """Return every registered Commercial/Residential variant for a UPS service name."""
+        target = str(service).strip().lower()
+        out = []
+        for key, cfg in (getattr(self, "custom_service_registry", {}) or {}).items():
+            if not isinstance(cfg, dict):
+                continue
+            name = str(cfg.get("name", "")).strip()
+            if not name:
+                # Backward compatibility with old configs keyed only by service name.
+                name = str(key).split("|||", 1)[0].strip()
+            if name.lower() != target:
+                continue
+            if enabled_only and not cfg.get("enabled", True):
+                continue
+            out.append((name, cfg))
+        return out
+
+    def builtin_service_enabled(self, name):
+        """False when a built-in service has been switched off."""
+        return str(name or "").strip() not in getattr(
+            self, "builtin_service_disabled", set())
+
+    def set_builtin_service_enabled(self, name, enabled):
+        if not hasattr(self, "builtin_service_disabled"):
+            self.builtin_service_disabled = set()
+        name = str(name or "").strip()
+        if not name:
+            return
+        if enabled:
+            self.builtin_service_disabled.discard(name)
+        else:
+            self.builtin_service_disabled.add(name)
+
+    def custom_service_entries(self, enabled_only=True):
+        """[(display_name, cfg)] for every registered channel variant."""
+        items = []
+        for key, cfg in (getattr(self, "custom_service_registry", {}) or {}).items():
+            if not isinstance(cfg, dict):
+                continue
+            if enabled_only and not cfg.get("enabled", True):
+                continue
+            name = str(cfg.get("name", "")).strip() or str(key).split("|||", 1)[0].strip()
+            if name:
+                items.append((name, cfg))
+        return items
+
+    def custom_service_patterns(self):
+        """Invoice-text patterns. Same UPS name may have both R and C variants.
+
+        Each channel also contributes its name without the trailing
+        Commercial / Residential word. UPS writes adjustments as "Shipping
+        Charge Correction Next Day Air" -- no channel-type word at all -- so
+        the full name never matched and the row fell through to whatever the
+        Import Files dropdown happened to show (Ground Commercial, base rate
+        0). The bare alias points at the Commercial variant and
+        lookup_base_rate swaps to Residential when the billed accessorial
+        codes say the parcel was residential, exactly as it does for the
+        built-in "shipping charge correction ground" rule.
+
+        Aliases that collide with a built-in service that already exists in
+        both Commercial and Residential form are skipped: turning the bare
+        word "ground" into a channel match would swallow every Ground line on
+        the invoice. Services the built-in list carries only one form of
+        ("Next Day Air") are safe, and are exactly the ones that need this.
+        """
+        pairs = []
+        seen = set()
+        builtin = {n.strip().lower() for n in BUILT_IN_SERVICE_CHOICES}
+        reserved = {neutral_service_name(n).strip().lower()
+                    for n in BUILT_IN_SERVICE_CHOICES
+                    if f"{neutral_service_name(n).strip().lower()} commercial"
+                    in builtin
+                    and f"{neutral_service_name(n).strip().lower()} residential"
+                    in builtin}
+
+        for name, cfg in self.custom_service_entries():
+            for pattern in normalize_service_pattern_list(cfg.get("patterns", "")):
+                pair = (pattern, name)
+                if pair not in seen:
+                    pairs.append(pair); seen.add(pair)
+
+        for name, cfg in self.custom_service_entries():
+            neutral = neutral_service_name(name).strip()
+            if not neutral or neutral.lower() in reserved:
+                continue
+            if neutral.lower() == str(name).strip().lower():
+                continue          # name has no channel-type word to drop
+            pair = (neutral.lower(), f"{neutral} Commercial")
+            if pair not in seen:
+                pairs.append(pair); seen.add(pair)
+
+        pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
+        return pairs
+
+    def custom_service_zones(self, service, residential=None):
+        """Extra zones for one service variant; union both when variant is omitted."""
+        # A built-in service has no registry entry, so zones read off an
+        # invoice for it are kept by name instead.
+        builtin = str((getattr(self, "builtin_service_zones", {}) or {}).get(
+            str(service).strip(), "")).strip()
+        if builtin:
+            return set(normalize_service_zone_list(builtin))
+
+        variants = self.custom_service_variants(service)
+        zones = set()
+        for _name, cfg in variants:
+            if residential is not None and bool(cfg.get("residential", False)) != bool(residential):
+                continue
+            zones.update(normalize_service_zone_list(cfg.get("zones", "")))
+        return zones
+
+    def custom_service_is_residential(self, service, default=False):
+        variants = self.custom_service_variants(service)
+        if len(variants) == 1:
+            return bool(variants[0][1].get("residential", False))
+        return bool(default)
+
+    # Rule fields a channel may override, mapped to the global StringVar /
+    # BooleanVar that holds the account default. Editing them per channel is
+    # the same idea as the per-channel DIM factor: blank means "use the
+    # global value", which is what every existing channel does.
+    CHANNEL_RULE_FIELDS = [
+        # The panel these sit in already says LPS or AHS, so the prefix was
+        # said twice. The unit was not said at all -- 96, 110 and 17280 are
+        # inches, pounds and cubic inches, and nothing on screen admitted it.
+        ("oversize_longest_side", "Longest side (in)", "num"),
+        ("oversize_actual_weight", "Actual weight (lb)", "num"),
+        ("oversize_cubic_inches", "Cubic volume (in³)", "num"),
+        ("oversize_length_girth", "Length + girth (in)", "num"),
+        ("oversize_min_billable_weight", "Min billable weight (lb)", "num"),
+        ("ahs_weight_threshold", "Weight (lb)", "num"),
+        ("ahs_longest_side", "Longest side (in)", "num"),
+        ("ahs_second_side", "Second longest side (in)", "num"),
+        ("ahs_cubic_inches", "Cubic volume (in³)", "num"),
+        ("ahs_lg_limit", "Length + girth (in)", "num"),
+        ("ahs_min_billable_weight", "Min billable weight (lb)", "num"),
+        ("use_oversize_longest", "Enable LPS Longest Side", "bool"),
+        ("use_oversize_weight", "Enable LPS Actual Weight", "bool"),
+        ("use_oversize_cubic", "Enable LPS Cubic Inches", "bool"),
+        ("use_oversize_lg", "Enable LPS Length + Girth", "bool"),
+        ("use_ahs_weight", "Enable AHS Weight", "bool"),
+        ("use_ahs_longest", "Enable AHS Longest Side", "bool"),
+        ("use_ahs_second", "Enable AHS Second Longest Side", "bool"),
+        ("use_ahs_cubic", "Enable AHS Cubic Inches", "bool"),
+        ("use_ahs_lg", "Enable AHS L+G", "bool"),
+    ]
+
+    # What the Rules in Force table shows: one column per threshold, with its
+    # enable switch folded into the cell. Twenty columns -- eleven numbers and
+    # nine YES/NO -- did not fit, so every heading was cut off mid-word and the
+    # nine YES columns were indistinguishable from each other.
+    RULE_VIEW_COLUMNS = [
+        ("oversize_longest_side", "use_oversize_longest", "LPS Longest (in)"),
+        ("oversize_actual_weight", "use_oversize_weight", "LPS Weight (lb)"),
+        ("oversize_cubic_inches", "use_oversize_cubic", "LPS Cubic (in³)"),
+        ("oversize_length_girth", "use_oversize_lg", "LPS L+G (in)"),
+        ("oversize_min_billable_weight", None, "LPS Min Wt (lb)"),
+        ("ahs_weight_threshold", "use_ahs_weight", "AHS Weight (lb)"),
+        ("ahs_longest_side", "use_ahs_longest", "AHS Longest (in)"),
+        ("ahs_second_side", "use_ahs_second", "AHS 2nd Side (in)"),
+        ("ahs_cubic_inches", "use_ahs_cubic", "AHS Cubic (in³)"),
+        ("ahs_lg_limit", "use_ahs_lg", "AHS L+G (in)"),
+        ("ahs_min_billable_weight", None, "AHS Min Wt (lb)"),
+    ]
+
+    def channel_rules(self, service):
+        """Every AHS / LPS rule value in force for one service.
+
+        Returns {field: value} with the global setting as the base and the
+        channel's own entries laid over it. Numbers come back as floats,
+        switches as bools, so the caller does not have to parse anything.
+        """
+        out = {}
+        for field, _label, kind in self.CHANNEL_RULE_FIELDS:
+            var = getattr(self, field, None)
+            if kind == "bool":
+                out[field] = bool(var.get()) if var is not None else True
+            else:
+                try:
+                    out[field] = float(var.get())
+                except (ValueError, TypeError, AttributeError):
+                    out[field] = 0.0
+
+        name = str(service or "").strip()
+        if not name:
+            return out
+
+        overrides = None
+        for cname, cfg in self.custom_service_entries(enabled_only=False):
+            if str(cname).strip() == name:
+                overrides = cfg.get("rules", {}) or {}
+                break
+        if overrides is None:
+            # Built-in service: its overrides are kept by name, not in the
+            # custom-channel registry.
+            overrides = (getattr(self, "channel_rule_overrides", {})
+                         or {}).get(name, {})
+
+        for field, _label, kind in self.CHANNEL_RULE_FIELDS:
+            raw = str(overrides.get(field, "")).strip()
+            if raw == "":
+                continue
+            if kind == "bool":
+                out[field] = raw.upper() in ("YES", "Y", "TRUE", "1", "是")
+            else:
+                try:
+                    out[field] = float(raw)
+                except (ValueError, TypeError):
+                    pass
+        return out
+
+    def default_dim_divisor(self):
+        """The account-wide divisor, or the tariff 139 if it is not usable."""
+        try:
+            value = float(str(self.default_dim_factor.get()).strip())
+        except (ValueError, TypeError, AttributeError):
+            return DEFAULT_DIM_FACTOR
+        return value if value > 0 else DEFAULT_DIM_FACTOR
+
+    def channel_dim_factor(self, service, default=None):
+        """The DIM divisor for one service.
+
+        A channel can be contracted on a different divisor (139, 166, 250 ...)
+        than the account default. Blank on the channel means "use the global
+        DIM Factor from Pricing Rules", which is what every existing channel
+        will have.
+        """
+        # Nothing set for this channel: the account default on Size Rules,
+        # which starts at the tariff 139.
+        if default is None:
+            default = self.default_dim_divisor()
+        name = str(service or "").strip()
+        if not name:
+            return default
+
+        raw = ""
+        for _name, cfg in self.custom_service_entries(enabled_only=False):
+            if str(_name).strip() == name:
+                raw = str(cfg.get("dim_factor", "")).strip()
+                break
+        else:
+            # Built-in services have no registry entry, so theirs is kept by
+            # name -- same arrangement as the size rule overrides.
+            raw = str((getattr(self, "channel_dim_factors", {})
+                       or {}).get(name, "")).strip()
+
+        if raw:
+            try:
+                value = float(raw)
+            except (ValueError, TypeError):
+                value = 0
+            if value > 0:
+                return value
+        return default
+
+    def seed_channel_dim_factors(self):
+        """Give every channel a divisor of its own, once.
+
+        Settings written before this version kept one global divisor, so the
+        channels have nothing stored. Copying it into each of them keeps every
+        number the same as yesterday; without it they would all lose
+        dimensional weight the day this version is opened.
+        """
+        fallback = self.default_dim_divisor()
+        if fallback <= 0:
+            return 0
+
+        seeded = 0
+        for name in self.all_channel_names():
+            if self.channel_dim_factor(name) > 0:
+                continue
+            self.set_channel_dim_factor(name, f"{fallback:g}")
+            seeded += 1
+        return seeded
+
+    def channel_has_own_dim(self, service):
+        """True when this channel carries a divisor of its own."""
+        name = str(service or "").strip()
+        if not name:
+            return False
+        for _name, cfg in self.custom_service_entries(enabled_only=False):
+            if str(_name).strip() == name:
+                return str(cfg.get("dim_factor", "")).strip() != ""
+        return str((getattr(self, "channel_dim_factors", {}) or {}).get(
+            name, "")).strip() != ""
+
+    def set_channel_dim_factor(self, name, raw):
+        """Write one channel's divisor, wherever that channel keeps it."""
+        raw = str(raw).strip()
+        entries = [(k, c) for k, c in
+                   (getattr(self, "custom_service_registry", {}) or {}).items()
+                   if isinstance(c, dict) and str(c.get("name", "")).strip() == name]
+        if entries:
+            for key, cfg in entries:
+                cfg["dim_factor"] = raw
+                self.custom_service_registry[key] = cfg
+            return
+        if not hasattr(self, "channel_dim_factors"):
+            self.channel_dim_factors = {}
+        if raw:
+            self.channel_dim_factors[name] = raw
+        else:
+            self.channel_dim_factors.pop(name, None)
+
+
+    def custom_service_names(self, enabled_only=True):
+        """Channel display names, de-duplicated, in registration order.
+
+        The registry is keyed "<name>|||R" / "<name>|||C", so iterating the
+        dict itself hands back composite keys -- which is how "AAAA|||C" ended
+        up in an exported ACC template as a shipment type matching nothing.
+        Go through custom_service_entries and the name is the name.
+
+        enabled_only=False includes disabled channels: rate templates and rate
+        lookups should still know about a channel that is switched off, or
+        turning it back on would silently find no rates.
+        """
+        out = []
+        for name, _cfg in self.custom_service_entries(enabled_only=enabled_only):
+            if name not in out:
+                out.append(name)
+        return out
+
+    def zones_from_rate_table(self, service, residential=None):
+        """Zone columns present in this service's loaded base rate table.
+
+        The rate table is the closest thing to ground truth the tool holds:
+        if a lane was rated on zone 53, its rate sheet has a Zone 53 column.
+        Better than assuming the domestic 2-8 / 44-46 for a service that never
+        touches them.
+        """
+        tables = getattr(self, "rate_tables", {}) or {}
+        name = str(service).strip()
+        frames = []
+        for key, frame in tables.items():
+            if isinstance(key, tuple) and len(key) == 2:
+                if key[0] != name:
+                    continue
+                if residential is not None and bool(key[1]) != bool(residential):
+                    continue
+            elif key != name:
+                continue
+            frames.append(frame)
+
+        zones = set()
+        for frame in frames:
+            try:
+                for col in frame.columns:
+                    text = str(col).strip()
+                    if text.lower().startswith("zone"):
+                        z = text[4:].strip()
+                        if z:
+                            zones.add(z)
+            except Exception:
+                continue
+        return sort_zone_keys(zones)
+
+    def service_has_rate_table(self, service, residential=None):
+        tables = getattr(self, "rate_tables", {}) or {}
+        name = str(service).strip()
+        if residential is not None and (name, bool(residential)) in tables:
+            return True
+        if name in tables:  # legacy one-key tables
+            return True
+        if residential is None:
+            return any(isinstance(k, tuple) and len(k) == 2 and k[0] == name for k in tables)
+        return False
+
+    def refresh_service_dropdown(self):
+        """Registered channels join the Import Files dropdown, so Export Base
+        Rate can generate a template for them."""
+        combo = getattr(self, "service_combo", None)
+        if combo is None:
+            return
+        try:
+            if not combo.winfo_exists():
+                return
+        except Exception:
+            return
+        values = list(BUILT_IN_SERVICE_CHOICES)
+        for name in self.custom_service_names():
+            if name not in values:
+                values.append(name)
+        combo.configure(values=values)
+
+
+    def render_channel_accessorial_tables(self):
+        """The selected channel's surcharge rates, wrapped and scrollable."""
+        frame = getattr(self, "channel_acc_frame", None)
+        if frame is None:
+            return
+        try:
+            if not frame.winfo_exists():
+                return
+        except Exception:
+            return
+
+        for widget in frame.winfo_children():
+            widget.destroy()
+        self.channel_acc_rate_vars = {}
+        self.channel_acc_sel = {}
+
+        selected = self.selected_rate_channel()
+        if not selected:
+            self.channel_acc_summary.set(
+                "Select a channel to see its surcharge rates.")
+            return
+
+        name, residential = selected
+        label = self.channel_surcharge_label(name, residential)
+        table = getattr(self, "accessorial_rate_table", {})
+
+        items = [(k, v) for k, v in table.items()
+                 if isinstance(k, tuple) and len(k) == 2
+                 and str(k[1]).strip() in (label, str(name).strip())]
+
+        if not items:
+            self.channel_acc_summary.set(
+                f"{label}: no surcharge rates loaded yet — use Export "
+                f"Surcharge Template above, fill it in, then import it.")
+            return
+
+        self.channel_acc_summary.set(f"{label}: {len(items)} surcharge(s)")
+        # show_ship=False: every row here belongs to the selected channel, so
+        # the column would repeat one value down the whole list.
+        self._render_rate_table(frame, items, self.channel_acc_rate_vars,
+                                self.channel_acc_sel, show_ship=False)
+
+
+
+    # Checkbox column. A Treeview cannot hold real widgets, so the box is a
+    # character in the first column and clicking it toggles. Highlight alone
+    # was not enough: it is lost the moment focus moves, and "which rows did I
+    # pick" has to survive scrolling and a mis-click.
+    # Kept only so an old config being opened has somewhere to show rates
+    # that still carry no shipment type; the expansion on load empties it.
+    ACC_FILTER_FLAT = "Rates with no channel yet"
+
+    def refresh_acc_filter_choices(self):
+        combo = getattr(self, "acc_filter_combo", None)
+        if combo is None:
+            return
+        # Every channel, not only the ones that already have rows: a channel
+        # missing from this list cannot be given rates at all, and with no
+        # fallback left it would silently charge 0 for everything.
+        choices = list(self.channel_rate_labels())
+        for label in self.surcharge_labels_in_use():
+            if label not in choices:
+                choices.append(label)
+        leftovers = [k for k in (self.accessorial_rate_table or {})
+                     if not (isinstance(k, tuple) and len(k) == 2)]
+        if leftovers:
+            choices.insert(0, self.ACC_FILTER_FLAT)
+        if not choices:
+            choices = [self.ACC_FILTER_FLAT]
+        try:
+            combo.configure(values=choices)
+        except Exception:
+            return
+        if self.acc_filter_var.get() not in choices:
+            self.acc_filter_var.set(choices[0])
+
+    def acc_rows_to_show(self, table):
+        """Which (key, value) pairs the panel draws, per the filter."""
+        chosen = str(getattr(self, "acc_filter_var", tk.StringVar()).get()).strip()
+        items = list(table.items())
+
+        if chosen and chosen != self.ACC_FILTER_FLAT:
+            own = {k[0]: v for k, v in items
+                   if isinstance(k, tuple) and len(k) == 2
+                   and str(k[1]).strip() == chosen}
+
+            # Fees this channel has no row for are shown at 0 -- which is what
+            # they cost -- so they can be typed in here instead of the channel
+            # simply having no way to be set up. A 0 left alone is not saved,
+            # so the config still only carries rates that were entered.
+            zones = self.surcharge_zones_for_label(chosen)
+            self._acc_inherited = {}
+            rows = []
+            for fee in self.channel_surcharge_fee_types():
+                key = (fee, chosen)
+                if fee in own:
+                    rows.append((key, own[fee]))
+                    continue
+                blank = ({z: 0.0 for z in zones} if fee in ACC_ZONE_FEE_TYPES
+                         else 0.0)
+                rows.append((key, blank))
+                self._acc_inherited[key] = blank
+
+            # Anything stored under this channel that is not in the standard
+            # list (a custom code) still shows.
+            for key, value in items:
+                if (isinstance(key, tuple) and len(key) == 2
+                        and str(key[1]).strip() == chosen
+                        and key[0] not in self.channel_surcharge_fee_types()):
+                    rows.append((key, value))
+            return rows
+
+        self._acc_inherited = {}
+        return [(k, v) for k, v in items
+                if not (isinstance(k, tuple) and len(k) == 2)]
+
+    def zones_in_force(self, service, residential=None):
+        """The zones this channel is actually rated on.
+
+        Declared zones, else the zones its loaded rate table uses, else the
+        domestic standard set -- except for a built-in service the contract
+        says nothing about, which stays empty until its zones are declared or
+        scanned. The list and the rate/surcharge tables all read this, so what
+        is on screen is what pricing uses.
+        """
+        declared = sort_zone_keys(self.custom_service_zones(service, residential))
+        if declared:
+            return [str(z) for z in declared]
+        loaded = self.zones_from_rate_table(service, residential)
+        if loaded:
+            return [str(z) for z in loaded]
+        if str(service or "").strip() in BUILTIN_SERVICES_WITHOUT_ZONES:
+            return []
+        return [str(z) for z in BASE_RATE_TEMPLATE_ZONES]
+
+    def surcharge_zones_for_label(self, label):
+        """The zone columns a channel's surcharge tables should have.
+
+        Declared zones first, then the zones its own base rate table uses, and
+        only then the domestic default. UPS Standard runs on zone 53 and the
+        Worldwide services on three-digit zones, so handing every channel
+        2-8 / 44-46 gave them eleven boxes they can never be charged on.
+        """
+        for name in self.all_channel_names():
+            for residential in (False, True):
+                if self.channel_surcharge_label(name, residential) != label:
+                    continue
+                return self.zones_in_force(name, residential)
+        return [str(z) for z in BASE_RATE_TEMPLATE_ZONES]
+
+    @staticmethod
+    def rate_box_text(value):
+        """What a rate box shows: two decimals, always.
+
+        str() on the stored value printed whatever type it happened to be --
+        0, 0.0, 13.6, 1875.0 -- so a column of boxes had the decimal point in
+        three different places and a rate that reads 13.6 looked like a
+        different kind of number from 13.60.
+        """
+        try:
+            return f"{float(value):.2f}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    def rate_fee_label(self, key):
+        """Box title inside a group: the fee name, nothing else.
+
+        UPS's wording, so a box on this page and a line on the invoice are
+        called the same thing. The key behind it is untouched.
+        """
+        fee = key[0] if isinstance(key, tuple) and len(key) == 2 else key
+        return self.fee_display_name(fee)
+
+
+
+    def _render_rate_boxes(self, parent, items, var_store, sel_store,
+                           label_for=str, reset=True):
+        """One bordered box per rate, packed left to right.
+
+        The layout the Surcharge Rates panel has always had: a Ground zone
+        table is ten rows tall, so a box shows a whole schedule at a glance
+        and the eye compares Commercial against Residential side by side.
+        The only addition is a tick box in each header, for the rows you want
+        to remove.
+        """
+        # reset=False when the caller is drawing several groups into the same
+        # two stores, one group at a time.
+        if reset:
+            var_store.clear()
+            sel_store.clear()
+
+        # Wrapped, not one endless row. Ground has four boxes and fitted; a
+        # channel with the full fee list ran off the right edge and had to be
+        # scrolled sideways to be read.
+        per_row = 6
+        # 方塊本身維持自然寬度(裡面是十列固定寬的輸入框,拉寬只會多出
+        # 一片空白),多出來的寬度平均分給每一欄,方塊在自己那欄置中 --
+        # 四個方塊就會散開鋪滿整列。只有一兩個方塊時不給權重:
+        # 單獨一個飄在頁面正中間比靠左更奇怪。
+        used = min(per_row, max(1, len(items)))
+        for c in range(per_row):
+            parent.columnconfigure(c, weight=1 if (used >= 3 and c < used)
+                                   else 0)
+        for index, (key, value) in enumerate(items):
+            frame = ttk.LabelFrame(parent, text=label_for(key))
+            frame.grid(row=index // per_row, column=index % per_row,
+                       padx=10, pady=(6, 10), sticky="n")
+
+            sel = tk.BooleanVar(value=False)
+            sel_store[key] = sel
+            ttk.Checkbutton(frame, variable=sel, text="Select").grid(
+                row=0, column=0, columnspan=2, sticky="w", padx=4, pady=(4, 2))
+
+            if isinstance(value, dict):
+                # 標題列:字小一級、顏色淡一階,跟下面的資料分開 --
+                # 同樣大小的話,Zones / Rate 會被當成第一列資料。
+                _mut = self.MILKTEA.get("LINE", "#a98c63")
+                _hdr = ttk.Label(frame, text="Zones", font=ui_font(9),
+                                 foreground=_mut)
+                _hdr.grid(row=1, column=0, padx=(10, 4), pady=(2, 5),
+                          sticky="w")
+                ttk.Label(frame, text="Rate", font=ui_font(9),
+                          foreground=_mut).grid(row=1, column=1, padx=(4, 10),
+                                                pady=(2, 5), sticky="w")
+                row_idx = 2
+                for zone, rate in value.items():
+                    # zone 名稱靠左對齊:置中的話 "Zone 2" 和 "Zone 44"
+                    # 的左緣會差一個字,一整排看起來是歪的。
+                    ttk.Label(frame, text=f"Zone {zone}").grid(
+                        row=row_idx, column=0, padx=(10, 4), pady=2,
+                        sticky="w")
+                    # "$ [ 12.69 ]", not a heading that reads "Rate ($)".
+                    money = ttk.Frame(frame)
+                    money.grid(row=row_idx, column=1, padx=(4, 10), pady=2,
+                               sticky="w")
+                    ttk.Label(money, text="$", foreground=_mut,
+                              font=ui_font(9)).pack(side="left", padx=(0, 4))
+                    var = tk.StringVar(value=self.rate_box_text(rate))
+                    ttk.Entry(money, textvariable=var, width=9,
+                              justify="right").pack(side="left")
+                    var_store[(key, zone)] = var
+                    row_idx += 1
+                frame.grid_rowconfigure(row_idx, minsize=scaled(6))
+            else:
+                ttk.Label(frame, text="Amount", width=12).grid(
+                    row=1, column=0, padx=4, pady=4)
+                var = tk.StringVar(value=self.rate_box_text(value))
+                ttk.Entry(frame, textvariable=var, width=12).grid(
+                    row=2, column=0, padx=4, pady=3)
+                var_store[(key, None)] = var
+
+    # ---- surcharge panel layout ----------------------------------------
+
+    def flat_rate_columns(self):
+        """How many flat-amount columns fit across the panel as it is now.
+
+        Three was hard-coded, so a maximised window showed three columns of
+        boxes and a third of the page empty, while a narrow one pushed the
+        third column off the edge. One item is a name, a $ and a box: about
+        350 scaled pixels.
+        """
+        canvas = getattr(self, "acc_canvas", None)
+        try:
+            width = canvas.winfo_width() if canvas is not None else 0
+        except Exception:
+            width = 0
+        if width <= 1:                      # not laid out yet
+            return 3
+        return max(1, min(6, int((width - scaled(60)) // scaled(350))))
+
+    def _render_flat_rates(self, parent, items, var_store, sel_store,
+                           per_row=3, unit="$"):
+        """One amount per fee: tick, name, unit, box -- in aligned columns.
+
+        Same two stores as the zone boxes, so Save Rates and Remove Ticked
+        keep working on both without knowing which layout drew what.
+
+        Each item occupies four real grid columns rather than living inside a
+        Frame of its own. A Frame packs to the width of ITS name, so every box
+        in a column started at a different x and the panel read as scattered.
+        Fixed column widths line the boxes up down the page.
+
+        The unit is a label beside the box, never part of the value: a "$"
+        typed into the field would have to be stripped again on save, and the
+        one that got missed would read as 0.
+        """
+        per_item = 4
+        name_width = scaled(215)
+
+        for col in range(per_row):
+            base = col * per_item
+            parent.columnconfigure(base, minsize=scaled(22), weight=0)
+            parent.columnconfigure(base + 1, minsize=name_width, weight=0)
+            parent.columnconfigure(base + 2, minsize=scaled(14), weight=0)
+            parent.columnconfigure(base + 3, minsize=scaled(96), weight=0)
+
+        for index, (key, value) in enumerate(items):
+            row, col = divmod(index, per_row)
+            base = col * per_item
+
+            sel = tk.BooleanVar(value=False)
+            sel_store[key] = sel
+            ttk.Checkbutton(parent, variable=sel).grid(
+                row=row, column=base, sticky="w", padx=(8, 0), pady=3)
+
+            # Wrapped, not truncated: "Future Day Pickup - Alternate Address -
+            # Web Request" is 51 characters and would otherwise run under the
+            # box beside it. wraplength alone decides where it breaks -- a
+            # character width set as well fights it and wins.
+            ttk.Label(parent, text=self.rate_fee_label(key),
+                      anchor="w", justify="left",
+                      wraplength=name_width).grid(
+                row=row, column=base + 1, sticky="w", padx=(2, 4), pady=3)
+
+            var = tk.StringVar(value=self.rate_box_text(value))
+            if unit == "$":
+                ttk.Label(parent, text="$", foreground="#7a6a53").grid(
+                    row=row, column=base + 2, sticky="e", pady=3)
+                ttk.Entry(parent, textvariable=var, width=10).grid(
+                    row=row, column=base + 3, sticky="w", padx=(3, 12), pady=3)
+            else:
+                ttk.Entry(parent, textvariable=var, width=10).grid(
+                    row=row, column=base + 2, columnspan=1, sticky="w",
+                    padx=(3, 3), pady=3)
+                ttk.Label(parent, text=unit, foreground="#7a6a53").grid(
+                    row=row, column=base + 3, sticky="w", padx=(0, 12), pady=3)
+            var_store[(key, None)] = var
+
+    def _render_rate_table(self, parent, items, var_store, sel_store,
+                           show_ship=True):
+        """Rate table: type straight into the cells, tick rows to act on them.
+
+        The cells stay editable because changing a rate is the common job and
+        it should cost one click, not a dialog. The tick box is for the other
+        job -- removing entries -- which needs to take several at once.
+        """
+        zones = []
+        has_flat = False
+        for _key, value in items:
+            if isinstance(value, dict):
+                for z in value:
+                    if z not in zones:
+                        zones.append(z)
+            else:
+                has_flat = True
+        zones = sort_zone_keys(zones)
+
+        var_store.clear()
+        sel_store.clear()
+
+        head = ui_font(9, "bold")
+        col = 0
+        all_var = tk.BooleanVar(value=False)
+
+        def toggle_all():
+            on = all_var.get()
+            for v in sel_store.values():
+                v.set(on)
+
+        ttk.Checkbutton(parent, variable=all_var, command=toggle_all).grid(
+            row=0, column=col, padx=(4, 2))
+        col += 1
+        ttk.Label(parent, text="Fee Type", font=head).grid(
+            row=0, column=col, sticky="w", padx=(4, 14), pady=(0, 6))
+        fee_col = col
+        col += 1
+        if show_ship:
+            ttk.Label(parent, text="Shipment Type", font=head).grid(
+                row=0, column=col, sticky="w", padx=(4, 14), pady=(0, 6))
+            col += 1
+        ship_col = col - 1 if show_ship else None
+        zone_cols = {}
+        for z in zones:
+            ttk.Label(parent, text=f"Zone {z}", font=head).grid(
+                row=0, column=col, padx=6, pady=(0, 6))
+            zone_cols[z] = col
+            col += 1
+        flat_col = col
+        if has_flat:
+            ttk.Label(parent, text="Amount", font=head).grid(
+                row=0, column=flat_col, padx=6, pady=(0, 6))
+
+        for r, (key, value) in enumerate(items, start=1):
+            fee = key[0] if isinstance(key, tuple) and len(key) == 2 else key
+            ship = key[1] if isinstance(key, tuple) and len(key) == 2 else ""
+
+            sel = tk.BooleanVar(value=False)
+            sel_store[key] = sel
+            ttk.Checkbutton(parent, variable=sel).grid(
+                row=r, column=0, padx=(4, 2))
+
+            ttk.Label(parent, text=str(fee)).grid(
+                row=r, column=fee_col, sticky="w", padx=(4, 14), pady=2)
+            if show_ship:
+                ttk.Label(parent, text=str(ship), foreground="#555").grid(
+                    row=r, column=ship_col, sticky="w", padx=(4, 14), pady=2)
+
+            if isinstance(value, dict):
+                for z in zones:
+                    if z not in value:
+                        # "—", not an empty box: no rate for that zone is a
+                        # different thing from a rate of nothing, and an empty
+                        # box would save as 0.
+                        ttk.Label(parent, text="—", foreground="#8a7f6a").grid(
+                            row=r, column=zone_cols[z], padx=6, pady=2)
+                        continue
+                    var = tk.StringVar(value=self.rate_box_text(value[z]))
+                    ttk.Entry(parent, textvariable=var, width=10).grid(
+                        row=r, column=zone_cols[z], padx=6, pady=2)
+                    var_store[(key, z)] = var
+                if has_flat:
+                    ttk.Label(parent, text="—", foreground="#8a7f6a").grid(
+                        row=r, column=flat_col, padx=6, pady=2)
+            else:
+                for z in zones:
+                    ttk.Label(parent, text="—", foreground="#8a7f6a").grid(
+                        row=r, column=zone_cols[z], padx=6, pady=2)
+                var = tk.StringVar(value=self.rate_box_text(value))
+                ttk.Entry(parent, textvariable=var, width=10).grid(
+                    row=r, column=flat_col, padx=6, pady=2)
+                var_store[(key, None)] = var
+
+    def _write_rate_vars(self, var_store):
+        """Entry widgets -> accessorial_rate_table. Returns the unreadable ones."""
+        table = getattr(self, "accessorial_rate_table", {})
+        bad = []
+
+        inherited = getattr(self, "_acc_inherited", {}) or {}
+
+        # Group by key so an inherited box can be judged as a whole: touch one
+        # zone and the channel gets its own row for that fee, complete with
+        # the zones you did not touch. Touch none and no row is written --
+        # otherwise merely opening the page would freeze today's default rate
+        # onto every channel.
+        by_key = {}
+        for (key, zone), var in (var_store or {}).items():
+            by_key.setdefault(key, []).append((zone, var))
+
+        for key, cells in by_key.items():
+            values = {}
+            unreadable = False
+            for zone, var in cells:
+                raw = str(var.get()).strip()
+                try:
+                    values[zone] = round(float(raw), 4)
+                except (ValueError, TypeError):
+                    bad.append(f"{key} / {zone}: {raw!r}")
+                    unreadable = True
+            if unreadable:
+                continue
+
+            if key in inherited:
+                shown = inherited[key]
+                same = all(
+                    round(float(shown.get(zone, 0) if isinstance(shown, dict)
+                                else shown), 4) == amount
+                    for zone, amount in values.items())
+                if same:
+                    continue
+
+            for zone, amount in values.items():
+                if zone is None:
+                    table[key] = amount
+                else:
+                    if not isinstance(table.get(key), dict):
+                        table[key] = {}
+                    table[key][zone] = amount
+
+        self.accessorial_rate_table = table
+        return bad
+
+    def _ticked_keys(self, sel_store):
+        return [k for k, v in (sel_store or {}).items() if bool(v.get())]
+
+    def remove_rate_keys(self, keys):
+        """Delete several rate entries after confirming. Used by both panels."""
+        if not keys:
+            messagebox.showinfo(
+                self._channel_ui("Nothing ticked", "尚未勾選"),
+                self._channel_ui("Tick the rows you want to remove first.",
+                                 "請先勾選要移除的列。"))
+            return
+        names = "\n".join(
+            (f"{k[0]}  ({k[1]})" if isinstance(k, tuple) and len(k) == 2
+             else str(k)) for k in keys[:12])
+        more = f"\n… +{len(keys) - 12}" if len(keys) > 12 else ""
+        if not messagebox.askyesno(
+                self._channel_ui("Remove rates", "移除費率"),
+                self._channel_ui(
+                    f"Remove {len(keys)} rate(s)?\n\n{names}{more}\n\n"
+                    f"They fall back to the default rate, and the issue list "
+                    f"will name them.",
+                    f"確定移除 {len(keys)} 筆費率？\n\n{names}{more}\n\n"
+                    f"移除後會改用預設費率，issue 清單也會列出它們。")):
+            return
+
+        table = getattr(self, "accessorial_rate_table", {}) or {}
+        for k in keys:
+            table.pop(k, None)
+        self.accessorial_rate_table = table
+        self.render_accessorial_tables()
+        try:
+            self.render_channel_accessorial_tables()
+        except Exception:
+            pass
+        try:
+            self.save_config()
+        except Exception as e:
+            print("Auto save after removing rates failed:", e)
+        self.set_status(self._channel_ui(
+            f"{len(keys)} rate(s) removed.", f"已移除 {len(keys)} 筆費率。"))
+
+    # --- Surcharge Setup panel ---
+    def save_accessorial_rates(self):
+        """Read every rate cell back into the table and persist."""
+        bad = self._write_rate_vars(getattr(self, "acc_rate_vars", {}))
+
+        try:
+            self.save_config()
+        except Exception as e:
+            print("Auto save config after surcharge rate edit failed:", e)
+
+        self.render_accessorial_tables()
+        try:
+            self.acc_canvas.update_idletasks()
+        except Exception:
+            pass
+
+        if bad:
+            messagebox.showwarning(
+                "Saved with warnings",
+                "These fields were not numeric and were left unchanged:\n\n"
+                + "\n".join(str(b) for b in bad[:15]))
+        else:
+            self.report_ok(self._channel_ui("Surcharge rates saved.",
+                                            "附加費費率已儲存。"))
+
+    def remove_selected_shared_rates(self):
+        self.remove_rate_keys(self._ticked_keys(
+            getattr(self, "acc_rate_sel", {})))
+
+    # --- Extra Channel section 4 ---
+
+
+    def _build_size_rules_tab(self):
+        """Oversize / AHS thresholds: the account defaults.
+
+        These used to live on Pricing Rules as one set for the whole account.
+        A lane contracted on different limits was then judged by Ground's
+        numbers, which either misses a Large Package or invents one. Same
+        panels, with a channel picker on top: pick the global row or a
+        channel, edit, save.
+        """
+        wrap = ttk.Frame(self.tab_size_rules)
+        wrap.pack(fill="both", expand=True, padx=10, pady=(4, 6))
+
+        # DIM factor decides billable weight, so it belongs with the size
+        # thresholds rather than beside the surcharge rates.
+        dim_box = ttk.LabelFrame(wrap, text="DIM Factor")
+        dim_box.pack(fill="x", pady=(0, 8))
+
+        dim_row = ttk.Frame(dim_box)
+        dim_row.pack(fill="x", padx=10, pady=(9, 4))
+        # The account default, as a field. It was the constant 139 with no way
+        # to see or change it.
+        ttk.Label(dim_row, text="Default DIM Factor").pack(side="left")
+        ttk.Entry(dim_row, textvariable=self.default_dim_factor,
+                  width=9).pack(side="left", padx=6)
+        ttk.Button(dim_row, text="💾 Save",
+                   command=self.save_default_dim_factor).pack(side="left")
+
+        # Per channel: same shape as the fuel window -- pick the channels
+        # (one or twenty), type the number, apply. The inline dropdown that
+        # used to sit here could only do one at a time and had its own Save,
+        # so there were two ways to write the same field.
+        ttk.Button(dim_row, text="⚙ Set Channel DIM",
+                   command=self.open_bulk_dim_window).pack(side="left", padx=(12, 0))
+
+        # The two buttons used to sit in their own titled box called
+        # "AHS / Large Package Thresholds" that contained nothing else -- a
+        # frame named after data it did not show, above a frame called
+        # "Rules in Force" that did show it. They belong on the table they
+        # edit.
+        self.rules_view_var = tk.StringVar()
+
+        self.rules_hint = tk.StringVar(value="")
+
+        # One StringVar per field, still, because the editing windows fill them.
+        self._rule_vars = {f: tk.StringVar()
+                           for f, _l, _k in self.CHANNEL_RULE_FIELDS}
+        self._rule_global_labels = {}
+
+        view_box = ttk.LabelFrame(wrap, text="Rules in Force")
+        view_box.pack(fill="both", expand=True)
+
+        # The picker belongs to the table it filters, not to the buttons.
+        view_bar = ttk.Frame(view_box)
+        view_bar.pack(fill="x", padx=10, pady=(9, 0))
+        ttk.Label(view_bar, text="Channel").pack(side="left", padx=(0, 6))
+        self.rules_view_choice = ttk.Combobox(
+            view_bar, textvariable=self.rules_view_var,
+            state="readonly", width=34)
+        self.rules_view_choice.pack(side="left")
+        self.rules_view_choice.bind(
+            "<<ComboboxSelected>>", lambda e: self.refresh_rules_view())
+        ttk.Button(view_bar, text="⚙ Default Thresholds",
+                   command=self.open_default_rules_window).pack(
+            side="left", padx=(16, 0))
+        ttk.Button(view_bar, text="📏 Bulk Set Channels",
+                   command=self.open_bulk_rules_window).pack(side="left", padx=6)
+
+        tree_wrap = ttk.Frame(view_box)
+        tree_wrap.pack(fill="both", expand=True, padx=10, pady=(9, 10))
+
+        columns = ["CHANNEL"] + [f for f, _sw, _l in self.RULE_VIEW_COLUMNS]
+        self.rules_tree = ttk.Treeview(tree_wrap, columns=columns,
+                                       show="headings", height=14)
+        self.rules_tree.heading("CHANNEL", text="Channel")
+        # Wide enough for the longest channel name in the wider face --
+        # "Worldwide Expedited" was losing its last word at 200.
+        self.rules_tree.column("CHANNEL", width=scaled(250), anchor="w",
+                               minwidth=scaled(180), stretch=True)
+        for field, _switch, label in self.RULE_VIEW_COLUMNS:
+            self.rules_tree.heading(field, text=label)
+            self.rules_tree.column(field, width=112, anchor="center",
+                                   minwidth=scaled(80), stretch=False)
+        # 112 was picked against the old font and the English labels. The
+        # drawn face is wider and the Chinese labels are wider again, so
+        # "LPS 最低計費重" no longer fits in it. Measure instead.
+        self._fit_tree_columns(self.rules_tree, minimum=112)
+
+        y_scroll = ttk.Scrollbar(tree_wrap, orient="vertical",
+                                 command=self.rules_tree.yview)
+        x_scroll = ttk.Scrollbar(tree_wrap, orient="horizontal",
+                                 command=self.rules_tree.xview)
+        self.rules_tree.configure(yscrollcommand=y_scroll.set,
+                                  xscrollcommand=x_scroll.set)
+        y_scroll.pack(side="right", fill="y")
+        x_scroll.pack(side="bottom", fill="x")
+        self.rules_tree.pack(side="left", fill="both", expand=True)
+
+        # Double-click a channel row to edit that channel, with it already
+        # ticked -- the same window the button opens.
+        self.rules_tree.bind("<Double-1>", self.edit_rules_row)
+
+        # The star and the word "off" both mean something specific, and both
+        # were only written down in the source. Double-click was not
+        # advertised anywhere either.
+        ttk.Label(view_box, font=ui_font(8), foreground="#7a6a53",
+                  text="* = set by this channel   |   no star = following the "
+                       "default   |   off = threshold kept but not applied   "
+                       "|   double-click a row to edit that channel"
+                  ).pack(anchor="w", padx=10, pady=(0, 8))
+
+        self.refresh_rules_view_choices()
+
+
+    def selected_rules_channel(self):
+        # The tab shows the defaults; channels are edited in the bulk window.
+        return None
+
+    def _rules_registry_entries(self, name):
+        """Every registry entry for one channel name (both variants)."""
+        return [(k, c) for k, c in
+                (getattr(self, "custom_service_registry", {}) or {}).items()
+                if isinstance(c, dict) and str(c.get("name", "")).strip() == name]
+
+    def rule_overrides_for(self, name):
+        """This channel's size-rule overrides, wherever they live.
+
+        A custom channel keeps them inside its registry entry (that is what
+        the channel export/import carries). A built-in service has no registry
+        entry, so its overrides go in channel_rule_overrides, keyed by name.
+        """
+        for _key, cfg in self._rules_registry_entries(name):
+            return cfg.get("rules", {}) or {}
+        return (getattr(self, "channel_rule_overrides", {}) or {}).get(name, {})
+
+    def set_rule_overrides_for(self, name, cleaned):
+        entries = self._rules_registry_entries(name)
+        if entries:
+            for key, cfg in entries:
+                cfg["rules"] = dict(cleaned)
+                self.custom_service_registry[key] = cfg
+            return len(entries)
+        if not hasattr(self, "channel_rule_overrides"):
+            self.channel_rule_overrides = {}
+        if cleaned:
+            self.channel_rule_overrides[name] = dict(cleaned)
+        else:
+            self.channel_rule_overrides.pop(name, None)
+        return 1
+
+    def load_rules_for_selected(self):
+        if not getattr(self, "_rule_vars", None):
+            return
+        name = self.selected_rules_channel()
+
+        for field, _label, kind in self.CHANNEL_RULE_FIELDS:
+            gvar = getattr(self, field, None)
+            if kind == "bool":
+                gtext = "YES" if (gvar is not None and bool(gvar.get())) else "NO"
+            else:
+                gtext = str(gvar.get()) if gvar is not None else ""
+            lbl = self._rule_global_labels.get(field)
+
+            if name is None:
+                self._rule_vars[field].set(gtext)
+                if lbl is not None:
+                    lbl.config(text="")
+            else:
+                # Filled in, not blank. A blank box beside a grey "default 110"
+                # reads as "no value", and the only way to see what this
+                # channel will actually use was to know the convention. The
+                # box now shows the value in force; anything left equal to the
+                # default is simply not stored as an override.
+                overrides = self.rule_overrides_for(name)
+                raw = str(overrides.get(field, "")).strip()
+                self._rule_vars[field].set(raw or gtext)
+                if lbl is not None:
+                    lbl.config(text=self._channel_ui(f"default {gtext}",
+                                                    f"預設：{gtext}"))
+
+        if name is None:
+            self.rules_hint.set(self._channel_ui(
+                "These are the account defaults — they apply to Ground and to "
+                "any channel that does not set its own.",
+                "這是預設值，套用於 Ground 以及所有沒有自行設定的渠道。"))
+        else:
+            overrides = self.rule_overrides_for(name)
+            n = sum(1 for f, _l, _k in self.CHANNEL_RULE_FIELDS
+                    if str(overrides.get(f, "")).strip())
+            self.rules_hint.set(self._channel_ui(
+                f"{name}: {n} value(s) differ from the default. A box left at "
+                f"the grey default is not stored.",
+                f"{name}：有 {n} 項和預設不同。維持灰字預設值的欄位不會另外儲存。"))
+
+    RULES_VIEW_ALL = "All channels"
+    RULES_VIEW_ALL_ZH = "所有渠道"
+    RULES_VIEW_DEFAULT = "Default (channels without their own)"
+    RULES_VIEW_DEFAULT_ZH = "預設（沒有單獨設定的渠道）"
+
+    def rules_view_all_label(self):
+        return self._channel_ui(self.RULES_VIEW_ALL, self.RULES_VIEW_ALL_ZH)
+
+    def rules_view_default_label(self):
+        return self._channel_ui(self.RULES_VIEW_DEFAULT,
+                                self.RULES_VIEW_DEFAULT_ZH)
+
+    def refresh_rules_view_choices(self):
+        combo = getattr(self, "rules_view_choice", None)
+        if combo is None:
+            return
+        # Resolve what is selected before the labels change with the language.
+        current = self.rules_view_target()
+        choices = [self.rules_view_all_label(), self.rules_view_default_label()]
+        choices += [self.channel_picker_label(n) for n in self.all_channel_names()]
+        try:
+            combo.configure(values=choices)
+        except Exception:
+            return
+        wanted = choices[0]
+        if current == "default":
+            wanted = self.rules_view_default_label()
+        elif current not in (None, "all"):
+            for name in self.all_channel_names():
+                if name == current:
+                    wanted = self.channel_picker_label(name)
+                    break
+        self.rules_view_var.set(wanted)
+        self.refresh_rules_view()
+
+    def rules_view_target(self):
+        """"all", "default", or a channel name."""
+        label = str(getattr(self, "rules_view_var", tk.StringVar()).get()).strip()
+        if label in (self.RULES_VIEW_ALL, self.RULES_VIEW_ALL_ZH, ""):
+            return "all"
+        if label in (self.RULES_VIEW_DEFAULT, self.RULES_VIEW_DEFAULT_ZH):
+            return "default"
+        for name in self.all_channel_names():
+            if self.channel_picker_label(name) == label:
+                return name
+        return "all"
+
+    def rules_row_values(self, name):
+        """The values in force for one channel, or the defaults when None."""
+        if name is None:
+            out = {}
+            for field, _label, kind in self.CHANNEL_RULE_FIELDS:
+                var = getattr(self, field, None)
+                if var is None:
+                    out[field] = ""
+                elif kind == "bool":
+                    out[field] = "YES" if bool(var.get()) else "NO"
+                else:
+                    out[field] = str(var.get())
+            return out
+
+        rules = self.channel_rules(name)
+        overrides = self.rule_overrides_for(name)
+        out = {}
+        for field, _label, kind in self.CHANNEL_RULE_FIELDS:
+            value = rules.get(field)
+            if kind == "bool":
+                text = "YES" if bool(value) else "NO"
+            else:
+                text = f"{float(value):g}" if value is not None else ""
+            # A star marks a value this channel sets itself, so "which of
+            # these did I change" does not need a second screen.
+            if str(overrides.get(field, "")).strip():
+                text += " *"
+            out[field] = text
+        return out
+
+    def refresh_rules_view(self):
+        tree = getattr(self, "rules_tree", None)
+        if tree is None:
+            return
+        try:
+            tree.delete(*tree.get_children())
+        except Exception:
+            self.rules_tree = None
+            return
+
+        chosen = self.rules_view_target()
+        default_label = self._channel_ui("Default", "預設")
+
+        rows = []
+        if chosen in ("all", "default"):
+            rows.append((default_label, None))
+        if chosen == "all":
+            rows += [(self.channel_picker_label(n), n)
+                     for n in self.all_channel_names()]
+        elif chosen != "default":
+            rows.append((self.channel_picker_label(chosen), chosen))
+
+        off = self._channel_ui("off", "停用")
+        for label, name in rows:
+            values = self.rules_row_values(name)
+            cells = []
+            for field, switch, _label in self.RULE_VIEW_COLUMNS:
+                text = values.get(field, "")
+                if switch and str(values.get(switch, "")).startswith("NO"):
+                    # The threshold is still stored; it just is not being
+                    # applied. Showing the number alone would be a lie.
+                    text = off + (" *" if "*" in str(values.get(switch, "")) else "")
+                cells.append(text)
+            tree.insert("", "end", values=(label, *cells))
+
+    def edit_rules_row(self, event=None):
+        """Double-click: edit whatever that row is."""
+        tree = getattr(self, "rules_tree", None)
+        item = tree.identify_row(event.y) if (tree and event) else None
+        if not item:
+            return
+        label = str(tree.item(item, "values")[0])
+        if label == self._channel_ui("Default", "預設"):
+            self.open_default_rules_window()
+            return
+        for name in self.all_channel_names():
+            if self.channel_picker_label(name) == label:
+                self.open_bulk_rules_window(preselect=name)
+                return
+
+    def open_default_rules_window(self):
+        """The account defaults, in their own window."""
+        existing = getattr(self, "_default_rules_window", None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.destroy()
+            except Exception:
+                pass
+
+        win = tk.Toplevel(self.root)
+        self._default_rules_window = win
+        win.title("Default Thresholds")
+        win.geometry(f"{scaled(880)}x{scaled(520)}")
+        win.transient(self.root)
+
+        actions = ttk.Frame(win)
+        actions.pack(side="bottom", fill="x", padx=12, pady=(4, 12))
+
+        ttk.Label(win, font=ui_font(9),
+                  text="Used by every channel that has not been given its own."
+                  ).pack(anchor="w", padx=12, pady=(10, 2))
+        # load_rules_for_selected() has always written a line here saying how
+        # many values differ from the default and that a box left at the grey
+        # default is not stored. Nothing was bound to it, so it has never
+        # appeared on screen.
+        ttk.Label(win, textvariable=self.rules_hint, font=ui_font(8),
+                  foreground="#7a6a53").pack(anchor="w", padx=12, pady=(0, 6))
+
+        panels = ttk.Frame(win)
+        panels.pack(fill="both", expand=True, padx=6)
+
+        oversize_frame = ttk.LabelFrame(panels, text="📏 Large Package (LPS)")
+        oversize_frame.pack(side="left", fill="both", expand=True, padx=6)
+        ahs_frame = ttk.LabelFrame(panels, text="📦 Additional Handling (AHS)")
+        ahs_frame.pack(side="left", fill="both", expand=True, padx=6)
+
+        self._rule_global_labels = {}
+
+        self._rule_rows(oversize_frame, ahs_frame, self._rule_vars,
+                        show_defaults=False)
+
+        def save_and_close():
+            self.save_rules_for_selected()
+            self.refresh_rules_view()
+            win.destroy()
+
+        ttk.Button(actions, text="💾 Save Rules",
+                   command=save_and_close).pack(side="right", padx=4)
+        ttk.Button(actions, text="Close", width=10,
+                   command=win.destroy).pack(side="right", padx=4)
+
+        self.load_rules_for_selected()
+
+    def _rule_rows(self, oversize_frame, ahs_frame, store,
+                   show_defaults=False, allow_blank_switch=False):
+        """Draw the thresholds, each on one line with its own on/off switch.
+
+        The two used to be separate blocks -- five numbers, then four YES/NO
+        boxes named "Enable ..." -- so working out which switch belonged to
+        which number meant reading both lists and matching the wording.
+        """
+        switch_for = {threshold: switch
+                      for threshold, switch, _label in self.RULE_VIEW_COLUMNS}
+        label_for = {f: l for f, l, _k in self.CHANNEL_RULE_FIELDS}
+
+        def head(parent):
+            for col, text in ((0, "Rule"), (1, "Value"), (2, "Applied")):
+                ttk.Label(parent, text=text,
+                          font=ui_font(8, "bold"),
+                          foreground="#7a6a53").grid(
+                    row=0, column=col, sticky="w", padx=8, pady=(6, 2))
+
+        def draw(parent, fields):
+            head(parent)
+            for r, threshold in enumerate(fields, start=1):
+                ttk.Label(parent, text=label_for[threshold]).grid(
+                    row=r, column=0, sticky="w", padx=8, pady=3)
+                ttk.Entry(parent, textvariable=store[threshold], width=11).grid(
+                    row=r, column=1, padx=8, pady=3, sticky="w")
+
+                switch = switch_for.get(threshold)
+                if switch:
+                    values = (["", "YES", "NO"] if allow_blank_switch
+                              else ["YES", "NO"])
+                    ttk.Combobox(parent, textvariable=store[switch],
+                                 values=values, state="readonly",
+                                 width=8).grid(row=r, column=2, padx=8,
+                                               pady=3, sticky="w")
+                else:
+                    # No switch: these two are floors, always applied.
+                    ttk.Label(parent, text="—", foreground="#7a6a53").grid(
+                        row=r, column=2, padx=8, pady=3, sticky="w")
+
+                if show_defaults:
+                    gvar = getattr(self, threshold, None)
+                    parts = []
+                    if gvar is not None:
+                        parts.append(str(gvar.get()))
+                    if switch:
+                        svar = getattr(self, switch, None)
+                        if svar is not None:
+                            parts.append("YES" if bool(svar.get()) else "NO")
+                    if parts:
+                        text = " / ".join(parts)
+                        ttk.Label(parent,
+                                  text=self._channel_ui(f"default {text}",
+                                                        f"預設：{text}"),
+                                  foreground="#7a6a53",
+                                  font=ui_font(8)).grid(
+                            row=r, column=3, sticky="w", padx=4)
+
+        oversize_fields = [f for f, _s, _l in self.RULE_VIEW_COLUMNS
+                           if not f.startswith("ahs")]
+        ahs_fields = [f for f, _s, _l in self.RULE_VIEW_COLUMNS
+                      if f.startswith("ahs")]
+        draw(oversize_frame, oversize_fields)
+        draw(ahs_frame, ahs_fields)
+
+    def _rules_form_values(self, bad):
+        """What the form is currently saying, as overrides.
+
+        A value equal to the account default is dropped: the channel then
+        keeps following the default instead of freezing today's number, which
+        is what "left it alone" means.
+        """
+        cleaned = {}
+        for field, label, kind in self.CHANNEL_RULE_FIELDS:
+            raw = self._rule_vars[field].get().strip()
+            if raw == "":
+                continue
+            gvar = getattr(self, field, None)
+            if kind == "bool":
+                gtext = "YES" if (gvar is not None and bool(gvar.get())) else "NO"
+                if raw.upper() == gtext:
+                    continue
+            else:
+                try:
+                    value = float(raw)
+                except (ValueError, TypeError):
+                    bad.append(label)
+                    continue
+                try:
+                    if gvar is not None and float(gvar.get()) == value:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            cleaned[field] = raw
+        return cleaned
+
+    def save_rules_for_selected(self):
+        name = self.selected_rules_channel()
+        bad = []
+
+        if name is None:
+            # Editing the account defaults: every field must have a value,
+            # because there is nothing above them to fall back to.
+            for field, label, kind in self.CHANNEL_RULE_FIELDS:
+                raw = self._rule_vars[field].get().strip()
+                gvar = getattr(self, field, None)
+                if gvar is None:
+                    continue
+                if kind == "bool":
+                    if raw.upper() in ("YES", "Y", "TRUE", "1", "是"):
+                        gvar.set(True)
+                    elif raw.upper() in ("NO", "N", "FALSE", "0", "否"):
+                        gvar.set(False)
+                    else:
+                        bad.append(label)
+                else:
+                    try:
+                        float(raw)
+                    except (ValueError, TypeError):
+                        bad.append(label)
+                        continue
+                    gvar.set(raw)
+            saved_desc = self._channel_ui("default thresholds saved", "已儲存預設門檻")
+        else:
+            cleaned = self._rules_form_values(bad)
+            written = self.set_rule_overrides_for(name, cleaned)
+            saved_desc = self._channel_ui(
+                f"{name}: {len(cleaned)} override(s) saved"
+                + (f" (applied to {written} variant(s))" if written > 1 else ""),
+                f"{name}：已儲存 {len(cleaned)} 項覆寫"
+                + (f"（套用到 {written} 種類型）" if written > 1 else ""))
+
+        if bad:
+            messagebox.showwarning(
+                self._channel_ui("Not a valid value", "數值不正確"),
+                self._channel_ui(
+                    "These fields were left unchanged:\n\n",
+                    "以下欄位未變更：\n\n") + "\n".join(bad))
+
+        try:
+            self.save_config()
+        except Exception as e:
+            self.report_failed(self._channel_ui(
+                f"Thresholds not saved: {e}", f"門檻儲存失敗：{e}"))
+            return
+        self.load_rules_for_selected()
+        self.report_ok(saved_desc)
+
+    def open_bulk_dim_window(self):
+        """One divisor written to several channels."""
+        existing = getattr(self, "_bulk_dim_window", None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.destroy()
+            except Exception:
+                pass
+
+        win = tk.Toplevel(self.root)
+        self._bulk_dim_window = win
+        win.title("Bulk Set DIM Factor")
+        win.geometry(f"{scaled(760)}x{scaled(640)}")
+        win.transient(self.root)
+
+        actions = ttk.Frame(win)
+        actions.pack(side="bottom", fill="x", padx=12, pady=(4, 12))
+
+        ttk.Label(win, font=ui_font(9),
+                  text="Tick channels, type a divisor, apply. Blank clears the override and follows the global one."
+                  ).pack(anchor="w", padx=12, pady=(10, 6))
+
+        line = ttk.Frame(win)
+        line.pack(fill="x", padx=12, pady=(0, 6))
+        ttk.Label(line, text="DIM Factor").pack(side="left")
+        # Blank, not 139: a pre-filled number in a window that also lists the
+        # current values is a third figure on screen with no status -- is it
+        # set, is it a suggestion, is it what Ground uses? The hint beside it
+        # can say 139 without pretending to be a setting.
+        self.bulk_dim_value_var = tk.StringVar(value="")
+        ttk.Entry(line, textvariable=self.bulk_dim_value_var,
+                  width=10).pack(side="left", padx=6)
+        ttk.Label(line, font=ui_font(8),
+                  text="UPS air contracts commonly use 139."
+                  ).pack(side="left", padx=(4, 0))
+
+        targets = ttk.LabelFrame(win, text="Select Channels")
+        targets.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+
+        tick_row = ttk.Frame(targets)
+        tick_row.pack(fill="x", padx=12, pady=(8, 4))
+
+        ticked, set_all = self._channel_check_list(targets, include_default=False,
+                                                   height=150)
+
+        ttk.Button(tick_row, text="Select All", width=14,
+                   command=lambda: set_all(True)).pack(side="left")
+        ttk.Button(tick_row, text="Deselect All", width=14,
+                   command=lambda: set_all(False)).pack(side="left", padx=6)
+        ttk.Button(tick_row, text="Apply to Ticked Channels",
+                   command=lambda: self.apply_bulk_dim(ticked())
+                   ).pack(side="right")
+
+        # What is set right now, in the same window that sets it.
+        current = ttk.LabelFrame(win, text="DIM Factors in Force")
+        current.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+
+        tree_wrap = ttk.Frame(current)
+        tree_wrap.pack(fill="both", expand=True, padx=10, pady=(8, 4))
+
+        # No source column: since v123 every channel carries its own divisor,
+        # so it said "set here" on every row -- and it was headed "Group
+        # Source", a label borrowed from the demand mapping table.
+        self.dim_tree = ttk.Treeview(
+            tree_wrap, columns=("CHANNEL", "VALUE"),
+            show="headings", height=8)
+        for key, title, width in [("CHANNEL", "Channel", 320),
+                                  ("VALUE", "DIM Factor", 120)]:
+            self.dim_tree.heading(key, text=title)
+            self.dim_tree.column(key, width=width,
+                                 anchor="w" if key == "CHANNEL" else "center")
+
+        bar = ttk.Scrollbar(tree_wrap, orient="vertical",
+                            command=self.dim_tree.yview)
+        self.dim_tree.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        self.dim_tree.pack(side="left", fill="both", expand=True)
+
+        ttk.Button(current, text="Clear Selected",
+                   command=self.clear_dim_rows).pack(anchor="w", padx=10,
+                                                     pady=(0, 8))
+
+        ttk.Button(actions, text="Close", width=10,
+                   command=win.destroy).pack(side="right", padx=4)
+
+        self.refresh_dim_tree()
+
+    def refresh_dim_tree(self):
+        tree = getattr(self, "dim_tree", None)
+        if tree is None:
+            return
+        try:
+            tree.delete(*tree.get_children())
+        except Exception:
+            self.dim_tree = None
+            return
+
+        # A channel with nothing of its own still divides by 139, so the cell
+        # shows 139 and says where it came from.
+        mark = self._channel_ui(" (default)", "（預設）")
+        for name in self.all_channel_names():
+            own = str((getattr(self, "channel_dim_factors", {}) or {}).get(name, "")).strip()
+            if not own:
+                for _n, cfg in self.custom_service_entries(enabled_only=False):
+                    if str(_n).strip() == name:
+                        own = str(cfg.get("dim_factor", "")).strip()
+                        break
+            value = self.channel_dim_factor(name)
+            tree.insert("", "end", values=(
+                self.channel_picker_label(name),
+                f"{value:g}" if own else f"{value:g}{mark}"))
+
+    def clear_dim_rows(self):
+        """Drop the override so those channels follow the global divisor."""
+        tree = getattr(self, "dim_tree", None)
+        selected = tree.selection() if tree else None
+        if not selected:
+            messagebox.showwarning(
+                "Clear", "Select a row first.",
+                parent=getattr(self, "_bulk_dim_window", self.root))
+            return
+
+        label_to_name = {self.channel_picker_label(n): n
+                         for n in self.all_channel_names()}
+        for item in selected:
+            values = tree.item(item, "values")
+            if values:
+                self.set_channel_dim_factor(
+                    label_to_name.get(str(values[0]), str(values[0])), "")
+
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}",
+                                 parent=getattr(self, "_bulk_dim_window",
+                                                self.root))
+            return
+        self.refresh_dim_tree()
+        try:
+            self.load_custom_service_registry()
+        except Exception:
+            pass
+
+    def apply_bulk_dim(self, targets):
+        parent = getattr(self, "_bulk_dim_window", self.root)
+
+        if not targets:
+            messagebox.showwarning(
+                "Nothing ticked",
+                self._channel_ui("Tick at least one channel first.",
+                                 "請先勾選至少一條渠道。"),
+                parent=parent)
+            return
+
+        raw = str(self.bulk_dim_value_var.get()).strip()
+        if raw:
+            try:
+                if float(raw) <= 0:
+                    raise ValueError
+            except (ValueError, TypeError):
+                messagebox.showerror(
+                    self._channel_ui("Not a valid value", "數值不正確"),
+                    self._channel_ui("DIM factor must be a number above 0.",
+                                     "材積除數必須是大於 0 的數字。"),
+                    parent=parent)
+                return
+
+        for name in targets:
+            self.set_channel_dim_factor(name, raw)
+
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}",
+                                 parent=parent)
+            return
+
+        self.refresh_dim_tree()
+        try:
+            self.load_custom_service_registry()
+        except Exception:
+            pass
+
+        messagebox.showinfo(
+            "Applied",
+            self._channel_ui(
+                f"DIM factor {raw or '(cleared)'} written to "
+                f"{len(targets)} channel(s):\n\n" + "\n".join(targets),
+                f"材積除數 {raw or '（已清除）'} 已寫入 {len(targets)} 條渠道："
+                "\n\n" + "\n".join(targets)),
+            parent=parent)
+
+    def open_bulk_rules_window(self, preselect=None):
+        """Tick channels, type the thresholds here, save.
+
+        It used to write whatever the tab behind it happened to be showing,
+        which meant setting up the values on one screen and applying them on
+        another. The numbers are typed in this window now.
+        """
+        existing = getattr(self, "_bulk_rules_window", None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.destroy()
+            except Exception:
+                pass
+
+        win = tk.Toplevel(self.root)
+        self._bulk_rules_window = win
+        win.title("Bulk Set Channels")
+        # 900 wide cut the "default 96 / YES" hints off the right-hand panel
+        # and truncated the line of explanation above them.
+        win.geometry(f"{scaled(1120)}x{scaled(700)}")
+        win.minsize(scaled(900), scaled(600))
+        win.transient(self.root)
+        try:
+            win.configure(bg=self.MILKTEA["BG"])
+        except Exception:
+            pass
+
+        actions = ttk.Frame(win)
+        actions.pack(side="bottom", fill="x", padx=12, pady=(4, 12))
+
+        # Wrapped, not one long line running off the edge.
+        ttk.Label(win, font=ui_font(9), justify="left",
+                  wraplength=scaled(1060),
+                  text="Tick one channel and its current thresholds appear below, ready to edit. Tick several to write the same values into all of them. A blank field is left alone; a value equal to the default sends that channel back to following the default."
+                  ).pack(anchor="w", padx=12, pady=(10, 6))
+
+        targets = ttk.LabelFrame(win, text="Select Channels")
+        targets.pack(fill="x", padx=12, pady=(0, 6))
+
+        tick_row = ttk.Frame(targets)
+        tick_row.pack(fill="x", padx=12, pady=(8, 4))
+
+        # Ticking a channel is the moment you want to see what it is set to.
+        # Before, the boxes stayed blank and you had to know to press a button
+        # at the far corner of the window to fill them -- next to the one that
+        # wipes the overrides.
+        def on_ticks_changed():
+            if getattr(self, "_bulk_rules_loading", False):
+                return
+            # Typing wins. Once something has been entered by hand, changing
+            # the ticks must not wipe it -- the usual reason for ticking a
+            # second channel is to write what you just typed into it as well.
+            if getattr(self, "_bulk_rules_user_edited", False):
+                return
+            names = ticked()
+            if names:
+                self._fill_bulk_rules_from(names)
+            else:
+                self._bulk_rules_loading = True
+                try:
+                    for var in (getattr(self, "_bulk_rule_vars", {}) or {}).values():
+                        var.set("")
+                finally:
+                    self._bulk_rules_loading = False
+
+        ticked, set_all = self._channel_check_list(
+            targets, include_default=False, height=120,
+            preselect=[preselect] if preselect else None,
+            on_change=lambda: win.after_idle(on_ticks_changed))
+
+        ttk.Button(tick_row, text="Select All", width=14,
+                   command=lambda: set_all(True)).pack(side="left")
+        ttk.Button(tick_row, text="Deselect All", width=14,
+                   command=lambda: set_all(False)).pack(side="left", padx=6)
+
+        # The values, here rather than on the tab behind.
+        values_box = ttk.LabelFrame(win, text="Values to Write")
+        values_box.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+
+        panels = ttk.Frame(values_box)
+        panels.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+
+        oversize = ttk.LabelFrame(panels, text="📏 Large Package (LPS)")
+        oversize.pack(side="left", fill="both", expand=True, padx=6)
+        ahs = ttk.LabelFrame(panels, text="📦 Additional Handling (AHS)")
+        ahs.pack(side="left", fill="both", expand=True, padx=6)
+
+        self._bulk_rule_vars = {f: tk.StringVar()
+                                for f, _l, _k in self.CHANNEL_RULE_FIELDS}
+        # Anything written into a box that did not come from a tick is the
+        # user typing, and from then on the ticks stop rewriting the boxes.
+        self._bulk_rules_user_edited = False
+
+        def _mark_edited(*_args):
+            if not getattr(self, "_bulk_rules_loading", False):
+                self._bulk_rules_user_edited = True
+
+        for _var in self._bulk_rule_vars.values():
+            _var.trace_add("write", _mark_edited)
+
+        self._rule_rows(oversize, ahs, self._bulk_rule_vars,
+                        show_defaults=True, allow_blank_switch=True)
+
+        # Opened on one channel (double-click on the table): its values in
+        # force go into the boxes, so the window shows what that channel is
+        # using instead of an empty form next to a grey default.
+        if preselect:
+            self._fill_bulk_rules_from(preselect)
+
+        # Right to left in order of consequence: Apply is the point of the
+        # window, Close is beside it, and the one that wipes a channel's
+        # overrides sits on the far side by itself rather than next to the
+        # harmless button that only reads values in.
+        ttk.Button(actions, text="Apply to Ticked Channels",
+                   command=lambda: self.apply_bulk_rules(ticked())
+                   ).pack(side="right", padx=4)
+        ttk.Button(actions, text="Load Values from Ticked Channel",
+                   command=lambda: self.load_bulk_rules_from_ticked(ticked())
+                   ).pack(side="left", padx=4)
+        ttk.Button(actions, text="Clear Overrides on Ticked",
+                   command=lambda: self.clear_bulk_rules(ticked())
+                   ).pack(side="right", padx=(40, 20))
+        ttk.Button(actions, text="Close", width=10,
+                   command=win.destroy).pack(side="right", padx=4)
+
+    def _rule_value_text(self, name, field, kind):
+        """One channel's value in force for one field, as text.
+
+        The channel's own override where it has one, the account default
+        otherwise -- the same reading as the per-channel window.
+        """
+        raw = str(self.rule_overrides_for(name).get(field, "")).strip()
+        if raw:
+            if kind == "bool":
+                return ("YES" if raw.upper() in ("YES", "Y", "TRUE", "1", "是")
+                        else "NO")
+            return raw
+        gvar = getattr(self, field, None)
+        if gvar is None:
+            return ""
+        if kind == "bool":
+            return "YES" if bool(gvar.get()) else "NO"
+        return str(gvar.get())
+
+    def _fill_bulk_rules_from(self, names):
+        """Put the values in force into the bulk boxes.
+
+        One channel or twenty: a field where every ticked channel agrees shows
+        that value, a field where they differ is left blank, because one box
+        cannot say two numbers -- and blank still means "leave this alone" on
+        apply. A box left at the default is not stored as an override.
+
+        The loading flag stops the tick handler reacting to the writes this
+        makes, which would otherwise call it again for every field.
+        """
+        store = getattr(self, "_bulk_rule_vars", None)
+        self._bulk_rules_loading = True
+        try:
+            self._fill_bulk_rule_values(store, names)
+        finally:
+            self._bulk_rules_loading = False
+
+    def _fill_bulk_rule_values(self, store, names):
+        if isinstance(names, (list, tuple, set)):
+            names = [str(n).strip() for n in names if str(n or "").strip()]
+        else:
+            names = [str(names).strip()] if str(names or "").strip() else []
+        if not store or not names:
+            return
+        for field, _label, kind in self.CHANNEL_RULE_FIELDS:
+            texts = {self._rule_value_text(n, field, kind) for n in names}
+            store[field].set(texts.pop() if len(texts) == 1 else "")
+
+    def load_bulk_rules_from_ticked(self, targets):
+        """Fill the boxes from the one ticked channel."""
+        parent = getattr(self, "_bulk_rules_window", self.root)
+        if not targets:
+            messagebox.showwarning(
+                "Nothing ticked",
+                self._channel_ui("Tick at least one channel first.",
+                                 "請先勾選至少一條渠道。"), parent=parent)
+            return
+        self._fill_bulk_rules_from(targets)
+        self.set_status(self._channel_ui(
+            f"Values loaded from {len(targets)} channel(s).",
+            f"已載入 {len(targets)} 條渠道的現值。"))
+
+    def clear_bulk_rules(self, targets):
+        """Send the ticked channels back to the account defaults."""
+        parent = getattr(self, "_bulk_rules_window", self.root)
+        if not targets:
+            messagebox.showwarning(
+                "Nothing ticked",
+                self._channel_ui("Tick at least one channel first.",
+                                 "請先勾選至少一條渠道。"), parent=parent)
+            return
+        if not messagebox.askyesno(
+                self._channel_ui("Clear overrides", "清除覆寫"),
+                self._channel_ui(
+                    f"Remove every size-rule override on {len(targets)} "
+                    f"channel(s)? They then follow the defaults.",
+                    f"確定清除這 {len(targets)} 條渠道的全部尺寸規則覆寫？"
+                    f"之後它們會跟著預設值走。"), parent=parent):
+            return
+        for name in targets:
+            self.set_rule_overrides_for(name, {})
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}",
+                                 parent=parent)
+            return
+        self.set_status(self._channel_ui(
+            f"Overrides cleared on {len(targets)} channel(s).",
+            f"已清除 {len(targets)} 條渠道的覆寫。"))
+
+    def apply_bulk_rules(self, targets):
+        parent = getattr(self, "_bulk_rules_window", self.root)
+
+        if not targets:
+            messagebox.showwarning(
+                "Nothing ticked",
+                self._channel_ui("Tick at least one channel first.",
+                                 "請先勾選至少一條渠道。"),
+                parent=parent)
+            return
+
+        bad = []
+        typed = {}
+        for field, label, kind in self.CHANNEL_RULE_FIELDS:
+            raw = str(self._bulk_rule_vars[field].get()).strip()
+            if raw == "":
+                continue        # left blank: this field is not being changed
+            if kind == "num":
+                try:
+                    float(raw)
+                except (ValueError, TypeError):
+                    bad.append(label)
+                    continue
+            typed[field] = raw
+
+        if bad:
+            messagebox.showerror(
+                self._channel_ui("Not a valid value", "數值不正確"),
+                self._channel_ui("Fix these fields first:\n\n",
+                                 "請先修正這些欄位：\n\n") + "\n".join(bad),
+                parent=parent)
+            return
+
+        if not typed:
+            messagebox.showwarning(
+                self._channel_ui("Nothing to write", "沒有要寫入的值"),
+                self._channel_ui("Every field is blank.", "所有欄位都是空的。"),
+                parent=parent)
+            return
+
+        # A value equal to the account default removes the override instead of
+        # freezing today's number onto the channel.
+        for name in targets:
+            overrides = dict(self.rule_overrides_for(name))
+            for field, raw in typed.items():
+                gvar = getattr(self, field, None)
+                kind = next(k for f, _l, k in self.CHANNEL_RULE_FIELDS
+                            if f == field)
+                if gvar is not None:
+                    if kind == "bool":
+                        same = raw.upper() == ("YES" if bool(gvar.get()) else "NO")
+                    else:
+                        try:
+                            same = float(raw) == float(gvar.get())
+                        except (ValueError, TypeError):
+                            same = False
+                    if same:
+                        overrides.pop(field, None)
+                        continue
+                overrides[field] = raw
+            self.set_rule_overrides_for(name, overrides)
+
+        cleaned = typed
+
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}",
+                                 parent=parent)
+            return
+
+        self.load_rules_for_selected()
+        try:
+            self.refresh_rules_view()
+        except Exception:
+            pass
+
+        # The boxes now show what the ticked channels are using, instead of
+        # going back to blank after a write. That is a fresh state, so ticking
+        # picks up again from here.
+        self._bulk_rules_user_edited = False
+        self._fill_bulk_rules_from(targets)
+
+        messagebox.showinfo(
+            "Applied",
+            self._channel_ui(
+                f"{len(cleaned)} value(s) written to {len(targets)} channel(s):"
+                "\n\n" + "\n".join(targets),
+                f"已將 {len(cleaned)} 項寫入 {len(targets)} 條渠道：\n\n"
+                + "\n".join(targets)),
+            parent=parent)
+        self.set_status(self._channel_ui(
+            f"Size rules applied to {len(targets)} channel(s).",
+            f"尺寸規則已套用到 {len(targets)} 條渠道。"))
+
+    def _build_channels_tab(self):
+        """Channel Management, as a tab beside Pricing Rules.
+
+        It used to be a Toplevel opened from a button on Import Files, which
+        meant the place you register a channel was two clicks away from the
+        place you use it. Building it here also means one set of widgets:
+        when it was a window, opening it a second time rebuilt
+        custom_service_tree and every later save read the newest copy.
+        """
+        # The panel is taller than the window -- channel details, rate table
+        # status, the channel list, and now the surcharge grid. Without this
+        # the surcharge section sat below the bottom edge with no way to reach
+        # it, which looked exactly like it had not been built.
+        self.channels_canvas = canvas = tk.Canvas(
+            self.tab_channels, bg=self.MILKTEA["BG"], highlightthickness=0)
+        bar = ttk.Scrollbar(self.tab_channels, orient="vertical",
+                            command=canvas.yview)
+        canvas.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        # Content uses the full width, and at least the full height. Width
+        # alone left the page ending wherever the widgets happened to stop,
+        # so a maximised window had the channel list floating in a band of
+        # empty panel. Given the height too, the list grows into it.
+        def _fit(event):
+            canvas.itemconfigure(window_id, width=event.width)
+            needed = inner.winfo_reqheight()
+            canvas.itemconfigure(window_id,
+                                 height=max(event.height, needed))
+
+        canvas.bind("<Configure>", _fit)
+
+        self._bind_mousewheel(canvas)
+
+        self.channels_canvas = canvas
+        self._build_custom_service_tab(parent=inner)
+        # Historical name. refresh_custom_service_language and every
+        # messagebox parent=... in the channel code look for it; a Frame works
+        # for both, so the panel keeps being re-translated and dialogs still
+        # open over it now that there is no separate window.
+        self.custom_service_window = self.tab_channels
+        try:
+            self.load_custom_service_registry()
+        except Exception as e:
+            print("Populating channels tab failed:", e)
+        try:
+            self.new_custom_service_form()
+        except Exception as e:
+            print("Channel form reset failed:", e)
+        # Draw the grid now rather than waiting for someone to touch the
+        # channel dropdown: on a fresh start nothing fires that event, so the
+        # section stayed empty even with rates already loaded.
+        try:
+            self.render_channel_accessorial_tables()
+        except Exception as e:
+            print("Channel rate panel first draw failed:", e)
+
+    def _build_custom_service_tab(self, parent=None):
+        main = ttk.Frame(parent if parent is not None else self.root)
+        main.pack(fill="both", expand=True, padx=14, pady=14)
+
+        ttk.Label(main, text="Channels",
+                  font=ui_font(15, "bold")).pack(
+            anchor="w", pady=(0, 8))
+
+        self.custom_service_editing_item = None
+        self.custom_service_name_var = tk.StringVar()
+        # Kept internally for backward compatibility. New entries use the
+        # channel name itself as the UPS billing matching text.
+        self.custom_service_patterns_var = tk.StringVar()
+        self.custom_service_zones_var = tk.StringVar()
+        self.custom_service_dim_var = tk.StringVar()
+        self.custom_service_residential_var = tk.BooleanVar(value=False)
+        self.custom_service_enabled_var = tk.BooleanVar(value=True)
+
+        # ── Fuel, at the top and on its own ──────────────────
+        # Fuel moves every week, so it does not belong in the import flow
+        # further down -- that is a once-per-contract job. Its own dropdown
+        # too: picking a channel to update its fuel has nothing to do with
+        # whichever channel you were last importing rates for.
+        # Fuel used to sit here as well as on Surcharge Setup. One thing,
+        # two screens, and the one on Surcharge Setup only reached the global
+        # schedule -- so the whole bar moved there instead.
+
+        # ── 1. Channel details ───────────────────────────────
+        editor = ttk.LabelFrame(main, text="① Channel Details")
+        editor.pack(fill="x", pady=(0, 8))
+        editor.columnconfigure(1, weight=1)
+
+        ttk.Label(editor, text="Channel Name",
+                  font=ui_font(9, "bold")).grid(
+            row=0, column=0, sticky="w", padx=10, pady=(10, 5))
+        self.custom_service_name_entry = ttk.Entry(
+            editor, textvariable=self.custom_service_name_var, width=48)
+        self.custom_service_name_entry.grid(row=0, column=1, sticky="ew",
+                                            padx=8, pady=(10, 5))
+        ttk.Label(editor, text="Zones",
+                  font=ui_font(9, "bold")).grid(
+            row=1, column=0, sticky="w", padx=10, pady=5)
+        ttk.Entry(editor, textvariable=self.custom_service_zones_var).grid(
+            row=1, column=1, sticky="ew", padx=8, pady=5)
+        # No "UPS Billing Text" field. Blank meant "match on the channel name",
+        # which is what it was for every channel here, and the channel name is
+        # required to be the invoice's service name anyway. The variable stays
+        # so an existing channel's hand-entered wordings survive an edit.
+
+        # DIM factor is set on Size Rules, for one channel or twenty at once.
+        # It was here as well, so the same divisor had two homes and the one
+        # here could only ever do the channel being created.
+        switches = ttk.Frame(editor)
+        switches.grid(row=2, column=1, sticky="w", padx=8, pady=(4, 2))
+        ttk.Checkbutton(switches, text="Residential channel",
+                        variable=self.custom_service_residential_var).pack(
+            side="left")
+        ttk.Checkbutton(switches, text="Enable this channel",
+                        variable=self.custom_service_enabled_var).pack(
+            side="left", padx=(16, 0))
+        editor_actions = ttk.Frame(editor)
+        editor_actions.grid(row=3, column=1, columnspan=2, sticky="w",
+                            padx=8, pady=(2, 10))
+        self.custom_service_save_button = ttk.Button(
+            editor_actions, text="Add Channel",
+            command=self.save_custom_service_form)
+        self.custom_service_save_button.pack(side="left", padx=(0, 5))
+
+        # ── 2. Rate table status ─────────────────────────────
+        status = ttk.LabelFrame(main, text="② Rate Table Status")
+        status.pack(fill="x", pady=8)
+        self.custom_service_rate_status = tk.StringVar(value="No channel selected")
+        self.custom_service_rate_detail = tk.StringVar(value="")
+        ttk.Label(status, textvariable=self.custom_service_rate_status,
+                  font=ui_font(11, "bold")).pack(
+            anchor="w", padx=10, pady=(9, 2))
+        ttk.Label(status, textvariable=self.custom_service_rate_detail,
+                  font=ui_font(9)).pack(
+            anchor="w", padx=10, pady=(0, 8))
+        rate_select = ttk.Frame(status)
+        rate_select.pack(fill="x", padx=10, pady=(4, 6))
+        ttk.Label(rate_select, text="Select Channel for Rate Table",
+                  font=ui_font(9, "bold")).pack(side="left", padx=(0, 8))
+        self.custom_service_rate_choice_var = tk.StringVar()
+        self.custom_service_rate_choice = ttk.Combobox(
+            rate_select, textvariable=self.custom_service_rate_choice_var,
+            state="readonly", width=48)
+        self.custom_service_rate_choice.pack(side="left", fill="x", expand=True)
+        self.custom_service_rate_choice.bind(
+            "<<ComboboxSelected>>", lambda e: self.update_rate_status_from_choice())
+
+        rate_actions = ttk.Frame(status)
+        rate_actions.pack(anchor="w", padx=8, pady=(0, 9))
+        ttk.Button(rate_actions, text="Export Base Rate Template",
+                   command=self.export_selected_service_rate_template).pack(
+            side="left", padx=3)
+        ttk.Button(rate_actions, text="Import Completed Base Rate",
+                   command=self.import_channel_base_rate_template).pack(
+            side="left", padx=3)
+        # Several at once, each going to the channel its own file names.
+        ttk.Button(rate_actions, text="Batch Import Base Rates", width=24,
+                   command=self.batch_import_base_rates).pack(side="left", padx=3)
+        ttk.Button(rate_actions, text="🔍 Scan Zones from Invoice",
+                   command=self.scan_invoice_zones).pack(side="left", padx=3)
+        # Until now the only way to see the numbers that are loaded was to
+        # export the template back out or read the rate card CSV after a run.
+        ttk.Button(rate_actions, text="👁 View Loaded Rates",
+                   command=self.open_loaded_rate_viewer).pack(side="left", padx=3)
+        # Own row, under the base rate pair. Four buttons abreast fitted on
+        # paper and still risked being pushed past the right edge on a
+        # narrower window -- a button you cannot see is a button that is not
+        # there.
+        # No surcharge template buttons here. Surcharges live on Surcharge
+        # Setup, and its own export/import already carries every channel --
+        # a second per-channel file was another way to write the same rows.
+
+        # ── 3. Existing channels ─────────────────────────────
+        # Takes the rest of the page. It was fill="x" with a fixed ten-row
+        # tree, so a maximised window showed ten channels and half a screen of
+        # empty panel under them.
+        list_box = ttk.LabelFrame(main, text="③ All Channels")
+        list_box.pack(fill="both", expand=True, pady=(8, 0))
+
+        list_actions = ttk.Frame(list_box)
+        list_actions.pack(fill="x", padx=8, pady=(8, 3))
+        ttk.Button(list_actions, text="Edit Selected Channel",
+                   command=self.begin_edit_selected_custom_service).pack(side="left", padx=3)
+        ttk.Button(list_actions, text="Delete Selected Channel",
+                   command=self.delete_custom_service_row).pack(side="left", padx=3)
+        # Channel edits write config.json as they happen, but there was no way
+        # to save from this page and see that it worked.
+        ttk.Button(list_actions, text="💾 Save Settings",
+                   command=self.save_settings_now).pack(side="left", padx=(16, 3))
+
+        # Thirty rows and growing, so: a filter. It matches anything in the
+        # row -- name, zone, type, status -- because "which channels have no
+        # rates" and "which run on zone 53" are the same kind of question.
+        ttk.Label(list_actions, text="Find").pack(side="left", padx=(18, 4))
+        self.channel_filter_var = tk.StringVar()
+        _filter_box = ttk.Entry(list_actions, textvariable=self.channel_filter_var,
+                                width=22)
+        _filter_box.pack(side="left")
+        _filter_box.bind("<KeyRelease>",
+                         lambda e: self.load_custom_service_registry())
+        ttk.Button(list_actions, text="Clear", width=8,
+                   command=self.clear_channel_filter).pack(side="left", padx=4)
+        self.channel_count_var = tk.StringVar(value="")
+        ttk.Label(list_actions, textvariable=self.channel_count_var,
+                  font=ui_font(8)).pack(side="left", padx=(10, 0))
+        # No channel export/import: config.json already carries every channel
+        # setting, and it is the file that gets backed up and moved between
+        # machines. A second, partial copy of the same thing is one more file
+        # to keep in step.
+
+        tree_wrap = ttk.Frame(list_box)
+        tree_wrap.pack(fill="both", expand=True, padx=8, pady=(3, 8))
+
+        # PATTERNS remains as a hidden compatibility column. It is populated
+        # automatically from Channel Name for new/edited rows.
+        self.custom_service_tree = ttk.Treeview(
+            tree_wrap, columns=("NAME", "PATTERNS", "ZONES", "RESIDENTIAL", "RATE", "ENABLED", "DIM"),
+            show="headings", height=10, selectmode="extended")
+        # Heading and cell share an anchor: names and zone lists read left,
+        # the short status columns are centred under centred headings. They
+        # used to be centred headings over left-aligned cells, so no column
+        # lined up with its own title.
+        cols = [("NAME", "Channel Name", 240, "w"),
+                ("ZONES", "Zones", 240, "w"),
+                ("RESIDENTIAL", "Channel Type", 110, "center"),
+                ("RATE", "Rate Status", 130, "center"),
+                ("ENABLED", "Enabled", 80, "center")]
+        # PATTERNS and DIM stay as columns but are not shown: the divisor is
+        # set and read on Size Rules now, and the values still have to travel
+        # through this tree because it is what gets written back to the
+        # registry. Dropping the column outright would shift every index and
+        # take the stored divisor with it.
+        for hidden in ("PATTERNS", "DIM"):
+            self.custom_service_tree.heading(hidden, text="")
+            self.custom_service_tree.column(hidden, width=0, minwidth=0,
+                                            stretch=False)
+        for key, title, width, anchor in cols:
+            self.custom_service_tree.heading(key, text=title, anchor=anchor)
+            self.custom_service_tree.column(key, width=width, anchor=anchor,
+                                            minwidth=scaled(60),
+                                            stretch=(key in ("NAME", "ZONES")))
+        tree_scroll = ttk.Scrollbar(tree_wrap, orient="vertical",
+                                    command=self.custom_service_tree.yview)
+        self.custom_service_tree.configure(yscrollcommand=tree_scroll.set)
+        tree_scroll.pack(side="right", fill="y")
+        self.custom_service_tree.pack(side="left", fill="both", expand=True)
+        # Selecting a row only selects it. Editing starts only after the user
+        # presses Edit Selected Channel, preventing accidental overwrites.
+
+        # The per-channel surcharge panel that used to sit here is gone.
+        # Surcharge Setup now lists every shipment type, with a filter and a
+        # copy-to-channels button, so there is one page that answers "what
+        # does this fee cost" instead of two that each show half of it.
+        # These stay as empty holders: the render helpers are shared with
+        # Surcharge Setup and check for them.
+        self.channel_acc_frame = None
+        self.channel_acc_rate_vars = {}
+        self.channel_acc_sel = {}
+        self.channel_acc_summary = tk.StringVar(value="")
+
+    # Palettes. Each one is the six colours the whole interface is built from,
+    # so adding a scheme is six values, not a pass over every widget.
+    UI_THEMES = {
+        "Milk Tea": dict(BG="#cbb189", PANEL="#dbc6a4", TAB_BG="#bfa477",
+                         ACCENT="#a9743f", TEXT="#3b2f23", LINE="#a98c63",
+                         TITLE="#7a4f24", SELECT="#e3c79a",
+                         STRIPE="#d3bb96", NEGATIVE="#8c2f2f",
+                         RUN="#a9743f", RUN_HOVER="#8c5e30",
+                         RUN2="#8c5a4a", RUN2_HOVER="#74473a"),
+        "Slate": dict(BG="#cfd6dd", PANEL="#e3e8ee", TAB_BG="#b3bec9",
+                      ACCENT="#41586e", TEXT="#22303c", LINE="#93a2b1",
+                      TITLE="#2f4356", SELECT="#c3d2e0",
+                      STRIPE="#d9e0e7", NEGATIVE="#a3323c",
+                      RUN="#41586e", RUN_HOVER="#324556",
+                      RUN2="#5c6b7a", RUN2_HOVER="#46525e"),
+        "Sage": dict(BG="#c9d5c2", PANEL="#e0e8da", TAB_BG="#adbea4",
+                     ACCENT="#4f6b48", TEXT="#263323", LINE="#93a889",
+                     TITLE="#3c5236", SELECT="#cfe0c6",
+                     STRIPE="#d6e0cf", NEGATIVE="#8e3630",
+                     RUN="#4f6b48", RUN_HOVER="#3c5236",
+                     RUN2="#6b7f5c", RUN2_HOVER="#556647"),
+        # The quote platform's UPS palette, value for value, so the two
+        # tools are recognisably the same product. The shield is gold behind
+        # brown lettering, which is why the tab strip is gold and the accent
+        # is brown -- brown as the page background inverts it.
+        # Official: UPS brown #351C15, gold #FFB500.
+        "Brown Gold": dict(BG="#f4ecdc", PANEL="#fffdf7", TAB_BG="#ffb500",
+                           ACCENT="#351c15", TEXT="#2b1a10", LINE="#caa356",
+                           TITLE="#351c15", SELECT="#ffdd8f",
+                           STRIPE="#f7f1e4", NEGATIVE="#b3261e",
+                           RUN="#351c15", RUN_HOVER="#1f100b",
+                           RUN2="#8a6104", RUN2_HOVER="#6b4b03"),
+        "Graphite": dict(BG="#3a3d42", PANEL="#4a4e55", TAB_BG="#2f3237",
+                         ACCENT="#c08a3e", TEXT="#f0ece4", LINE="#5c626b",
+                         TITLE="#e6c48a", SELECT="#5f6672",
+                         STRIPE="#43474e", NEGATIVE="#f0a48c",
+                         RUN="#c08a3e", RUN_HOVER="#9c6d2d",
+                         RUN2="#6e7480", RUN2_HOVER="#585d67"),
+    }
+
+    UI_THEME_LABELS_ZH = {
+        "Milk Tea": "奶茶",
+        "Brown Gold": "棕金",
+        "Slate": "灰藍",
+        "Sage": "草綠",
+        "Graphite": "石墨",
+    }
+
+    # Largest pair that fits, biggest first. Below 7pt it stops shrinking and
+    # accepts the clipping -- a tab strip nobody can read is not an
+    # improvement on one that loses a letter.
+    TAB_FIT_STEPS = ((10, 10), (9, 9), (9, 7), (8, 7), (8, 5), (7, 5), (7, 3))
+
+    def _fit_tree_columns(self, tree, minimum=100, pad=26):
+        """Widen each column until its heading fits.
+
+        Column widths were written against one font and one language. Both
+        have changed, so anything hard-coded is now either too tight or
+        wasteful. Never narrows a column below what it was asked for.
+        """
+        try:
+            probe = tkfont.Font(font=display_font(9 + SKETCH_TABLE_BONUS,
+                                                  "bold"))
+            columns = tree["columns"]
+        except Exception:
+            return
+        for field in columns:
+            try:
+                label = tree.heading(field).get("text", "")
+                if not label:
+                    continue
+                want = probe.measure(str(label)) + scaled(pad)
+                have = max(minimum, int(tree.column(field, "width") or 0))
+                if want > have:
+                    tree.column(field, width=want)
+            except Exception:
+                continue
+
+    def _fit_tab_strip(self, event=None):
+        """Shrink the tab font and padding until every label fits.
+
+        Called after a theme change, a language change, and whenever the
+        notebook is resized: all three change how much room the labels need
+        or how much there is.
+        """
+        notebook = getattr(self, "main_notebook", None)
+        if notebook is None:
+            return
+        try:
+            avail = notebook.winfo_width() - scaled(14)
+            tabs = notebook.tabs()
+        except Exception:
+            return
+        if avail < scaled(200) or not tabs:
+            return
+        try:
+            labels = [notebook.tab(t, "text") for t in tabs]
+        except Exception:
+            return
+
+        chosen = self.TAB_FIT_STEPS[-1]
+        for size, padx in self.TAB_FIT_STEPS:
+            try:
+                probe = tkfont.Font(font=display_font(size, "bold"))
+                total = sum(probe.measure(text) + 2 * scaled(padx) + scaled(6)
+                            for text in labels)
+            except Exception:
+                return
+            if total <= avail:
+                chosen = (size, padx)
+                break
+        if chosen == getattr(self, "_tab_fit", None):
+            return
+        self._tab_fit = chosen
+        try:
+            self.ui_style.configure("TNotebook.Tab",
+                                    padding=[chosen[1], 5],
+                                    font=display_font(chosen[0], "bold"))
+        except Exception as _e:
+            print("Tab fit failed:", _e)
+
+    def theme_label(self, name):
+        return self._channel_ui(name, self.UI_THEME_LABELS_ZH.get(name, name))
+
+    def theme_from_label(self, label):
+        label = str(label).strip()
+        for name in self.UI_THEMES:
+            if label in (name, self.UI_THEME_LABELS_ZH.get(name)):
+                return name
+        return self.theme_name
+
+    def refresh_theme_choices(self):
+        """Theme names are combobox values, so the language walker never sees
+        them -- they are rebuilt per language, with the selection carried
+        across by name rather than by the label on screen."""
+        combo = getattr(self, "theme_combo", None)
+        if combo is None:
+            return
+        current = self.theme_name
+        try:
+            combo.configure(values=[self.theme_label(n) for n in self.UI_THEMES])
+        except Exception:
+            return
+        self.ui_theme.set(self.theme_label(current))
+
+    def apply_theme(self, name):
+        """Repaint the interface from one of the palettes.
+
+        Every ttk widget already draws from these styles, so changing them
+        repaints what is on screen; nothing has to be rebuilt.
+        """
+        palette = self.UI_THEMES.get(name) or self.UI_THEMES["Brown Gold"]
+        self.theme_name = name if name in self.UI_THEMES else "Brown Gold"
+        self.MILKTEA = dict(palette)
+
+        # 繪圖引擎跟著品牌走。Tally 的邊框是畫布畫的,ttk 不必畫,用
+        # default 就好;Scoobi 關掉了那層塗層,邊框改由 ttk 自己畫 --
+        # 而 default 引擎的 Labelframe 不吃 bordercolor,只畫得出黑框或
+        # 沒有框(回報:框線不見了)。clam 吃,所以 Scoobi 換 clam。
+        # 換引擎會清掉所有樣式設定,一定要在下面那整串 configure 之前換。
+        try:
+            _want = "clam" if brand_is("Scoobi") else "default"
+            if self.ui_style.theme_use() != _want:
+                self.ui_style.theme_use(_want)
+        except Exception as _e:
+            print("ttk engine switch failed:", _e)
+        # Treeview tags are per-widget, not part of the ttk style, so a theme
+        # change has to reach them by hand.
+        try:
+            self.paint_history_rows()
+        except Exception:
+            pass
+
+        BG, PANEL, TAB_BG = palette["BG"], palette["PANEL"], palette["TAB_BG"]
+        ACCENT, TEXT, LINE = palette["ACCENT"], palette["TEXT"], palette["LINE"]
+        TITLE, SELECT = palette["TITLE"], palette["SELECT"]
+
+        style = self.ui_style
+        try:
+            self.root.configure(fg_color=BG)
+        except Exception:
+            pass
+
+        style.configure("TFrame", background=BG)
+        style.configure("TLabelframe", background=BG, foreground=TEXT,
+                        bordercolor=LINE, relief="groove")
+        style.configure("TLabelframe.Label", background=BG, foreground=TITLE,
+                        font=ui_font(10, "bold"))
+        # Tally:邊框是畫布畫的,ttk 不能再畫一層在底下。
+        # Scoobi:塗層關著,這裡就是唯一的邊 -- 不畫的話整頁沒有框。
+        if brand_is("Scoobi"):
+            style.configure("Sketch.TLabelframe", background=BG,
+                            foreground=TEXT, borderwidth=2, relief="solid",
+                            bordercolor=LINE, darkcolor=LINE, lightcolor=LINE)
+            style.configure("Sketch.TLabelframe.Label", background=BG,
+                            foreground=TITLE, font=title_font(11, "bold"))
+        else:
+            style.configure("Sketch.TLabelframe", background=BG,
+                            foreground=TEXT, borderwidth=0, relief="flat")
+            style.configure("Sketch.TLabelframe.Label", background=BG,
+                            foreground=TITLE, font=display_font(10, "bold"))
+        style.configure("TLabel", background=BG, foreground=TEXT,
+                        font=ui_font(10))
+        style.configure("TCheckbutton", background=BG, foreground=TEXT,
+                        font=ui_font(10))
+        style.configure("TRadiobutton", background=BG, foreground=TEXT,
+                        font=ui_font(10))
+        style.configure("TButton", background=TAB_BG, foreground=TEXT,
+                        font=display_font(9, "bold"), padding=[8, 4])
+        style.map("TButton", background=[("active", ACCENT)],
+                  foreground=[("active", "white")])
+        style.configure("TEntry", fieldbackground=PANEL, foreground=TEXT,
+                        font=ui_font(10 + SKETCH_TABLE_BONUS))
+        style.configure("TCombobox", fieldbackground=PANEL, background=PANEL,
+                        foreground=TEXT, arrowcolor=TEXT,
+                        font=ui_font(10 + SKETCH_TABLE_BONUS))
+        # A readonly combobox draws its text as a selection, so Tk painted the
+        # value on a blue block. Same colours as the field, in every state.
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", PANEL), ("disabled", PANEL)],
+                  background=[("readonly", PANEL), ("active", PANEL)],
+                  foreground=[("readonly", TEXT), ("disabled", LINE)],
+                  selectbackground=[("readonly", PANEL), ("!focus", PANEL)],
+                  selectforeground=[("readonly", TEXT), ("!focus", TEXT)],
+                  arrowcolor=[("readonly", TEXT)])
+        style.configure("TNotebook", background=BG, borderwidth=0)
+        # Size and padding are not fixed here: _fit_tab_strip measures the
+        # labels against the window and picks the largest pair that fits. The
+        # display face is wider than the body one and the Chinese labels are
+        # wider again, so a constant that works on one machine loses the last
+        # letter of a tab on the next.
+        style.configure("TNotebook.Tab", background=TAB_BG, foreground=TEXT,
+                        padding=[10, 5], font=display_font(9, "bold"))
+        style.map("TNotebook.Tab", background=[("selected", ACCENT)],
+                  foreground=[("selected", "white")])
+        style.configure("Treeview", background=PANEL, foreground=TEXT,
+                        rowheight=scaled(22 + 2 * SKETCH_TABLE_BONUS),
+                        fieldbackground=PANEL, borderwidth=0,
+                        font=ui_font(10 + SKETCH_TABLE_BONUS))
+        style.configure("Treeview.Heading", background=ACCENT,
+                        foreground="white",
+                        font=display_font(9 + SKETCH_TABLE_BONUS, "bold"))
+        style.map("Treeview", background=[("selected", SELECT)],
+                  foreground=[("selected", TEXT)])
+
+        # customtkinter widgets hold their own colours, so they are repainted
+        # by hand rather than by the style table.
+        for attr, fg, hover in (("run_report_button", "RUN", "RUN_HOVER"),
+                                ("profit_report_button", "RUN2", "RUN2_HOVER")):
+            widget = getattr(self, attr, None)
+            try:
+                if widget is not None:
+                    widget.configure(fg_color=palette[fg],
+                                     hover_color=palette[hover],
+                                     bg_color=BG)
+            except Exception:
+                pass
+
+        for attr in ("theme_caption", "language_label"):
+            widget = getattr(self, attr, None)
+            try:
+                if widget is not None:
+                    widget.configure(text_color=TEXT)
+            except Exception:
+                pass
+
+        # The header sits on the page background, so it follows the title
+        # colour rather than a fixed brown.
+        try:
+            if getattr(self, "header_label", None) is not None:
+                self.header_label.configure(text_color=TITLE, bg_color=BG)
+        except Exception:
+            pass
+
+        # The top strip and the widgets on it: painted with the real colour,
+        # not "transparent". Transparent is resolved once, at draw time, so
+        # the strip kept the palette it was born with -- a slate page under a
+        # brown title bar.
+        for attr in ("topbar", "topbar_controls"):
+            widget = getattr(self, attr, None)
+            try:
+                if widget is not None:
+                    widget.configure(fg_color=BG, bg_color=BG)
+            except Exception:
+                pass
+        for attr in ("theme_caption", "language_label"):
+            widget = getattr(self, attr, None)
+            try:
+                if widget is not None:
+                    widget.configure(bg_color=BG)
+            except Exception:
+                pass
+
+        try:
+            self._fit_tab_strip()
+        except Exception as _e:
+            print("Tab fit skipped:", _e)
+
+        # The ink follows the palette: the borders are drawn, not styled, so
+        # nothing repaints them unless they are told to.
+        try:
+            SketchLabelFrame.set_palette(BG, LINE, TITLE)
+            repaint_sketch_frames()
+        except Exception as _e:
+            print("Sketch repaint skipped:", _e)
+        for attr in ("warehouse_strip", "header_title"):
+            widget = getattr(self, attr, None)
+            try:
+                if widget is not None:
+                    widget.set_palette(palette)
+            except Exception as _e:
+                print("Sketch repaint skipped (%s): %s" % (attr, _e))
+
+        # The clock and the calendar draw themselves, so a palette they were
+        # not told about leaves them in the previous theme's colours. The
+        # clock caught up within a second on its own tick; the calendar only
+        # looks once every few seconds and was visibly stale.
+        for attr in ("files_clock", "files_date"):
+            widget = getattr(self, attr, None)
+            try:
+                if widget is not None:
+                    widget.repaint()
+            except Exception:
+                pass
+
+        # Canvases carry their own background, so they have to be told.
+        for attr in ("acc_canvas", "channels_canvas"):
+            widget = getattr(self, attr, None)
+            try:
+                if widget is not None:
+                    widget.configure(bg=BG)
+            except Exception:
+                pass
+
+    def _repaint_window_background(self, event=None):
+        """Keep the window's own background in step with the palette.
+
+        Normally a no-op: it only writes when the colour is actually wrong, so
+        it costs nothing on the flood of Configure events a drag produces. The
+        exception is the first Configure after a theme change, where the paint
+        on screen is the OLD palette even though every colour value is already
+        the new one -- that one is forced.
+        """
+        if event is not None and getattr(event, "widget", None) is not self.root:
+            return
+        colour = (getattr(self, "MILKTEA", {}) or {}).get("BG")
+        if not colour:
+            return
+        force = getattr(self, "_theme_repaint_pending", False)
+        try:
+            if force or self.root.cget("bg") != colour:
+                self.root.configure(bg=colour)
+                if force:
+                    self._theme_repaint_pending = False
+                    self.force_full_repaint()
+        except Exception:
+            pass
+
+    def force_full_repaint(self):
+        """Make the whole window redraw itself, now.
+
+        Changing a colour updates the widgets' properties; it does not
+        guarantee the pixels already on screen are replaced. Windows keeps the
+        old paint until the window is disturbed -- which is why the previous
+        palette showed around the edges until the window was dragged. A
+        one-pixel resize and back is a disturbance, and it is invisible.
+        """
+        try:
+            self.root.update_idletasks()
+            geometry = self.root.geometry()          # WxH+X+Y
+            size, _, position = geometry.partition("+")
+            width, _, height = size.partition("x")
+            self.root.geometry(f"{int(width) + 1}x{height}"
+                               + ("+" + position if position else ""))
+            self.root.update_idletasks()
+            self.root.geometry(geometry)
+            self.root.update_idletasks()
+        except Exception as e:
+            print("Repaint nudge failed:", e)
+
+    def change_ui_brand(self, event=None):
+        """換品牌。三件事:字體、外框的手繪塗層、場景。
+        外框不重建 -- SketchLabelFrame 只是把塗層關掉,露出 ttk 原本的框,
+        重建整個介面的話,所有分頁的狀態(捲動位置、填到一半的欄位)都會沒。"""
+        global UI_BRAND
+        want = str(self.ui_brand.get()).strip()
+        UI_BRAND = want if want in BRANDS else BRANDS[0]
+        try:
+            SketchLabelFrame.set_sketch(brand_is("Tally"))
+        except Exception as e:
+            print("Frame style switch failed:", e)
+        try:
+            self.apply_brand_font()
+        except Exception as e:
+            print("Brand font switch failed:", e)
+        try:
+            self.build_yard()
+        except Exception as e:
+            print("Yard rebuild failed:", e)
+        try:
+            self.apply_theme(self.theme_name)   # 顏色照舊,重畫一次
+            self.force_full_repaint()
+        except Exception as e:
+            print("Repaint after brand switch failed:", e)
+        try:
+            self.save_config(silent=True)
+        except Exception:
+            pass
+
+    def apply_brand_font(self):
+        """Tally 走素描字,Scoobi 走圓體＋手寫字。兩套字體系統是分開的,
+        切過去要整組換,不然會變成 Scoobi 的畫面配 Tally 的字。"""
+        global UI_FONT
+        if brand_is("Scoobi"):
+            resolve_round_font(self.root)
+            _zh = getattr(self, "_ui_language_code", "en") == "zh"
+            _hand = UI_FONT_HAND
+            if _hand and _zh and _hand not in HAND_CJK:
+                _hand = None
+            set_ui_font(_hand or UI_FONT_ROUND or UI_FONT_BASE,
+                        UI_FONT_ROUND or UI_FONT_BASE,
+                        _hand or UI_FONT_ROUND or UI_FONT_BASE)
+        else:
+            _fam, _boost = pick_sketch_font(UI_FONT_BASE)
+            UI_FONT = _fam
+            set_ui_font(_fam, _fam, _fam)
+            try:
+                apply_sketch_font(self.root, UI_FONT,
+                                  max(1, int(round((10 + FONT_BOOST)
+                                                   * UI_SCALE))))
+            except Exception:
+                pass
+
+    def _clock_loop(self):
+        """Ticks once a second; writes only when the minute changes, so the
+        two labels are rewritten 1,440 times a day rather than 86,400."""
+        try:
+            now, exact = tz_now()
+            zh = getattr(self, "_ui_language_code", "en") == "zh"
+            # Day and language belong in the stamp too: without them the
+            # caption keeps yesterday's date past midnight, and keeps the
+            # old language until the next minute ticks over.
+            stamp = (now.hour, now.minute, now.day, UI_TZ, zh)
+            if stamp != getattr(self, "_clock_stamp", None):
+                self._clock_stamp = stamp
+                self.clock_time.configure(
+                    text="%02d:%02d" % (now.hour, now.minute))
+                # A tilde means the fixed offset is in use because the time
+                # zone database is missing: the hour may be out by one under
+                # daylight saving, and a clock that lies quietly is worse
+                # than one that admits it.
+                self.clock_zone.configure(
+                    text="%s · %s%s" % (date_text(now, zh), UI_TZ,
+                                        "" if exact else "  ~"))
+        except Exception:
+            pass
+        try:
+            self.root.after(1000, self._clock_loop)
+        except Exception:
+            pass
+
+    def change_ui_tz(self, event=None):
+        """Display only -- no rate, no date and no stored figure moves."""
+        global UI_TZ
+        chosen = str(self.ui_tz.get()).strip()
+        if chosen not in TZ_LABELS:
+            return
+        UI_TZ = chosen
+        self._clock_stamp = None
+        try:
+            now, exact = tz_now()
+            self.clock_time.configure(text="%02d:%02d" % (now.hour, now.minute))
+            self.clock_zone.configure(
+                text="%s · %s%s" % (
+                    date_text(now,
+                              getattr(self, "_ui_language_code", "en") == "zh"),
+                    UI_TZ, "" if exact else "  ~"))
+        except Exception:
+            pass
+        # Repaint now rather than waiting for the next animation frame, so
+        # the clock answers the moment it is asked.
+        for attr in ("warehouse_panel", "warehouse_strip"):
+            scene = getattr(self, attr, None)
+            if scene is None:
+                continue
+            try:
+                scene._draw()
+            except Exception:
+                pass
+        for _w in (getattr(self, "files_clock", None),
+                   getattr(self, "files_date", None)):
+            try:
+                _w.repaint()
+            except Exception:
+                pass
+        try:
+            self.save_config(silent=True)
+        except Exception:
+            pass
+
+    def change_ui_theme(self, event=None):
+        self.apply_theme(self.theme_from_label(self.ui_theme.get()))
+        self.refresh_theme_choices()
+        # Repaint what the style table cannot reach on its own. ttk restyles
+        # itself, but the panels drawn into a Canvas keep whatever was on
+        # screen until something asks them to redraw -- which is how half a
+        # page can be left in the old colours, or blank, after a theme change.
+        try:
+            self.root.update_idletasks()
+            self.render_accessorial_tables()
+            self.load_custom_service_registry()
+            self.paint_history_rows()
+            self._theme_repaint_pending = True
+            self.force_full_repaint()
+        except Exception as e:
+            print("Repaint after theme change failed:", e)
+        try:
+            self.save_config(silent=True)
+        except Exception:
+            pass
+
+    def _channel_ui(self, en, zh):
+        return zh if self._ui_language_code == "zh" else en
+
+    def channels_without_rate_table(self):
+        """['Next Day Air Commercial — Commercial', ...] for the status line.
+
+        Iterating the registry dict hands back its composite keys, so this
+        used to print "Next Day Air Commercial|||C" at the user AND ask
+        service_has_rate_table about a service by that name -- which never
+        matches anything, so every channel was reported as having no rate
+        table even with one loaded.
+        """
+        out = []
+        for name, cfg in self.custom_service_entries(enabled_only=False):
+            residential = bool(cfg.get("residential", False))
+            if self.service_has_rate_table(name, residential):
+                continue
+            out.append(f"{name} — "
+                       + self._channel_ui("Residential" if residential
+                                          else "Commercial",
+                                          "住宅" if residential else "商業"))
+        return sorted(set(out))
+
+    def refresh_channel_status_text(self):
+        """Refresh the bottom channel status in the selected UI language."""
+        if getattr(self, "_channel_status_mode", None) != "saved":
+            return
+        total = len(getattr(self, "custom_service_registry", {}) or {})
+        missing = self.channels_without_rate_table()
+        if self._ui_language_code == "zh":
+            msg = f"渠道設定已儲存，共 {total} 個渠道"
+            if missing:
+                msg += ("　｜　尚未載入基本運費表：" + ", ".join(missing) +
+                        "。請先匯出基本運費模板，填寫後再匯入基本運費表。")
+        else:
+            msg = f"Channel settings saved. Total channels: {total}"
+            if missing:
+                msg += ("   |   Base rate table not loaded: " + ", ".join(missing) +
+                        ". Export the base rate template, complete it, and then import the base rate table.")
+        self.set_status(msg)
+
+    def clear_channel_filter(self):
+        self.channel_filter_var.set("")
+        self.load_custom_service_registry()
+
+    def refresh_custom_service_language(self):
+        """Refresh Channel Management, including dynamic StringVar and table values."""
+        if not hasattr(self, "custom_service_window"):
+            return
+        try:
+            if self.custom_service_window.winfo_exists():
+                self._translate_widget_tree(self.custom_service_window)
+        except Exception:
+            return
+        try:
+            name = self.custom_service_name_var.get().strip()
+            self.update_custom_service_rate_status(name)
+            self.update_custom_service_action_button()
+            tree = getattr(self, "custom_service_tree", None)
+            if tree is not None:
+                for item in tree.get_children():
+                    vals = list(tree.item(item, "values"))
+                    if len(vals) >= 6:
+                        loaded = self.service_has_rate_table(vals[0], self._channel_value_is_residential(vals[3]))
+                        # This column is Residential / Commercial, not a
+                        # yes-no switch. It was being rewritten to YES / NO on
+                        # every language refresh, so the list said YES / NO
+                        # under a heading that had been translated.
+                        vals[3] = self._channel_ui(
+                            "Residential" if self._channel_value_is_residential(vals[3])
+                            else "Commercial",
+                            "住宅" if self._channel_value_is_residential(vals[3])
+                            else "商業")
+                        vals[4] = self._channel_ui("LOADED" if loaded else "MISSING",
+                                                   "已載入" if loaded else "未載入")
+                        vals[5] = self._channel_ui("YES" if str(vals[5]).upper() in ("YES", "是") else "NO",
+                                                   "是" if str(vals[5]).upper() in ("YES", "是") else "否")
+                        tree.item(item, values=tuple(vals))
+        except Exception:
+            pass
+
+    def update_custom_service_action_button(self):
+        btn = getattr(self, "custom_service_save_button", None)
+        if btn is None:
+            return
+        editing = getattr(self, "custom_service_editing_item", None)
+        btn.configure(text=self._channel_ui(
+            "Save Changes" if editing else "Add Channel",
+            "儲存修改" if editing else "新增渠道"))
+
+    def new_custom_service_form(self):
+        self.custom_service_editing_item = None
+        self.custom_service_editing_builtin = None
+        entry = getattr(self, "custom_service_name_entry", None)
+        if entry is not None:
+            try:
+                entry.configure(state="normal")
+            except Exception:
+                pass
+        for name in ("custom_service_name_var", "custom_service_patterns_var",
+                     "custom_service_zones_var", "custom_service_dim_var"):
+            var = getattr(self, name, None)
+            if var is not None:
+                var.set("")
+        if hasattr(self, "custom_service_residential_var"):
+            self.custom_service_residential_var.set(False)
+        if hasattr(self, "custom_service_enabled_var"):
+            self.custom_service_enabled_var.set(True)
+        tree = getattr(self, "custom_service_tree", None)
+        if tree is not None:
+            tree.selection_remove(tree.selection())
+        self.update_custom_service_rate_status("")
+        self.update_custom_service_action_button()
+
+    def begin_edit_selected_custom_service(self):
+        tree = getattr(self, "custom_service_tree", None)
+        if tree is None or not tree.selection():
+            messagebox.showwarning(
+                self._channel_ui("Nothing selected", "尚未選擇"),
+                self._channel_ui("Select a channel first, then click Edit Selected Channel.",
+                                 "請先選擇渠道，再按「修改所選渠道」。"),
+                parent=getattr(self, "custom_service_window", self.root))
+            return
+        self.load_selected_custom_service_form()
+
+    def _selection_has_builtin(self, tree):
+        """True (and says so) if a built-in row is in the selection.
+
+        Used by Delete only: a built-in service is not a registry entry, so it
+        cannot be removed. It CAN be edited -- see load_selected_custom_service_form.
+        """
+        for item in tree.selection():
+            if "builtin" in tree.item(item, "tags"):
+                messagebox.showinfo(
+                    self._channel_ui("Default service", "預設服務"),
+                    self._channel_ui(
+                        "Default services cannot be renamed or removed. "
+                        "Their rates, surcharges, fuel and size rules are set "
+                        "from the panels above and on the other tabs.",
+                        "預設服務不能改名或刪除。它的費率、附加費、燃油與尺寸規則"
+                        "仍然可以在上面的面板與其他分頁設定。"),
+                    parent=getattr(self, "custom_service_window", self.root))
+                return True
+        return False
+
+    def load_selected_custom_service_form(self, event=None):
+        tree = getattr(self, "custom_service_tree", None)
+        if tree is None or not tree.selection():
+            return
+        item = tree.selection()[0]
+        vals = tree.item(item, "values")
+        if not vals:
+            return
+        self.custom_service_editing_item = item
+        # A built-in service can have its zones changed but not its name: the
+        # name is what matches the invoice, and there is no other copy of it.
+        builtin = "builtin" in tree.item(item, "tags")
+        self.custom_service_editing_builtin = str(vals[0]) if builtin else None
+        stored_zones = None
+        if builtin:
+            stored_zones = str((getattr(self, "builtin_service_zones", {})
+                                or {}).get(str(vals[0]), "")).strip()
+        entry = getattr(self, "custom_service_name_entry", None)
+        if entry is not None:
+            entry.configure(state="readonly" if builtin else "normal")
+        self.custom_service_name_var.set(str(vals[0]))
+        self.custom_service_patterns_var.set(str(vals[1]) or str(vals[0]))
+        # Blank means "the standard set" -- so the box shows what is stored,
+        # not the zones being used. Filling it with the standard list would
+        # turn a default into a declaration the moment you pressed save.
+        self.custom_service_zones_var.set(
+            stored_zones if builtin else self._stored_zones_for_row(vals))
+        self.custom_service_residential_var.set(self._channel_value_is_residential(vals[3]))
+        self.custom_service_enabled_var.set(str(vals[5]).upper() in ("YES", "是"))
+        self.custom_service_dim_var.set(str(vals[6]).strip() if len(vals) > 6 else "")
+        self.update_custom_service_rate_status(str(vals[0]), self._channel_value_is_residential(vals[3]))
+        self.update_custom_service_action_button()
+
+    def _stored_zones_for_row(self, vals):
+        """A custom channel's declared zones, from the registry rather than
+        the list cell (which shows the zones in force)."""
+        name = str(vals[0]).strip()
+        residential = self._channel_value_is_residential(vals[3])
+        for _key, cfg in (getattr(self, "custom_service_registry", {}) or {}).items():
+            if (isinstance(cfg, dict)
+                    and str(cfg.get("name", "")).strip() == name
+                    and bool(cfg.get("residential", False)) == residential):
+                return ", ".join(normalize_service_zone_list(cfg.get("zones", "")))
+        return ""
+
+    def save_custom_service_form(self):
+        tree = getattr(self, "custom_service_tree", None)
+        if tree is None:
+            return
+
+        builtin = getattr(self, "custom_service_editing_builtin", None)
+        if builtin:
+            zones = normalize_service_zone_list(
+                self.custom_service_zones_var.get())
+            if zones:
+                self.builtin_service_zones[builtin] = ", ".join(zones)
+            else:
+                self.builtin_service_zones.pop(builtin, None)
+            self.set_builtin_service_enabled(
+                builtin, bool(self.custom_service_enabled_var.get()))
+            try:
+                self.save_config()
+            except Exception as e:
+                messagebox.showerror("Save failed", f"Could not save config: {e}")
+                return
+            self.load_custom_service_registry()
+            try:
+                self.render_accessorial_tables()
+            except Exception:
+                pass
+            _on = self.builtin_service_enabled(builtin)
+            self.set_status(self._channel_ui(
+                f"{builtin}: zones saved "
+                f"({', '.join(zones) if zones else 'standard'}), "
+                f"{'enabled' if _on else 'DISABLED'}.",
+                f"{builtin}：Zone 已儲存"
+                f"（{'、'.join(zones) if zones else '標準'}），"
+                f"{'已啟用' if _on else '已停用'}。"))
+            self.new_custom_service_form()
+            return
+        name = self.custom_service_name_var.get().strip()
+        # UPS Billing Text is optional: blank means "match the channel name".
+        # It used to be overwritten with the name on every save, which threw
+        # away anything typed into the field.
+        typed_patterns = self.custom_service_patterns_var.get().strip()
+        patterns = (normalize_service_pattern_list(typed_patterns)
+                    or normalize_service_pattern_list(name))
+        zones = normalize_service_zone_list(self.custom_service_zones_var.get())
+        if not name:
+            messagebox.showwarning(
+                self._channel_ui("Missing channel name", "缺少渠道名稱"),
+                self._channel_ui("Enter a channel name first.", "請先輸入渠道名稱。"),
+                parent=getattr(self, "custom_service_window", self.root))
+            return
+        editing = self.custom_service_editing_item
+        for item in tree.get_children():
+            if item == editing:
+                continue
+            vals = tree.item(item, "values")
+            same_name = vals and str(vals[0]).strip().lower() == name.lower()
+            same_res = vals and (self._channel_value_is_residential(vals[3])) == bool(self.custom_service_residential_var.get())
+            if same_name and same_res:
+                kind = self._channel_ui("Residential" if self.custom_service_residential_var.get() else "Commercial",
+                                        "住宅" if self.custom_service_residential_var.get() else "商業")
+                messagebox.showwarning(
+                    self._channel_ui("Duplicate channel", "渠道重複"),
+                    self._channel_ui(f'Channel "{name}" ({kind}) already exists.',
+                                     f'渠道「{name}」（{kind}）已存在。'),
+                    parent=getattr(self, "custom_service_window", self.root))
+                return
+
+        values = (name, "; ".join(patterns), ", ".join(zones),
+                  self._channel_ui("Residential", "住宅") if self.custom_service_residential_var.get() else self._channel_ui("Commercial", "商業"),
+                  self._channel_ui("LOADED", "已載入") if self.service_has_rate_table(name, self.custom_service_residential_var.get()) else self._channel_ui("MISSING", "未載入"),
+                  self._channel_ui("YES", "是") if self.custom_service_enabled_var.get() else self._channel_ui("NO", "否"),
+                  self.custom_service_dim_var.get().strip())
+        if editing and tree.exists(editing):
+            tree.item(editing, values=values)
+        else:
+            editing = tree.insert("", "end", values=values)
+            self.custom_service_editing_item = editing
+
+            # A brand new channel with no surcharge rows would charge 0 for
+            # every accessorial. Seed it from the matching Ground schedule so
+            # it starts somewhere real, and say so -- the numbers are its own
+            # from that moment and can be edited freely.
+            residential = bool(self.custom_service_residential_var.get())
+            ground = "Ground Residential" if residential else "Ground Commercial"
+            if self.channel_dim_factor(name) <= 0:
+                _div = self.channel_dim_factor(ground)
+                if _div > 0:
+                    self.set_channel_dim_factor(name, f"{_div:g}")
+
+            seeded = self.seed_channel_rates_from(
+                "Ground Residential" if residential else "Ground Commercial",
+                self.channel_surcharge_label(name, residential),
+                target_zones=(zones or None))
+            if seeded:
+                self.set_status(self._channel_ui(
+                    f"{name}: {seeded} surcharge rate(s) copied from the "
+                    f"Ground schedule as a starting point.",
+                    f"{name}：已從 Ground 複製 {seeded} 筆附加費費率當起點。"))
+        tree.selection_set(editing)
+        self.save_custom_service_registry()
+
+        # After adding or saving changes, return to Add Channel mode so the
+        # user can immediately create another channel without manually
+        # clearing the selected row.
+        self.new_custom_service_form()
+
+    def update_custom_service_rate_status(self, name, residential=None):
+        if not hasattr(self, "custom_service_rate_status"):
+            return
+        name = str(name or "").strip()
+        if not name:
+            self.custom_service_rate_status.set(self._channel_ui("No channel selected", "尚未選擇渠道"))
+            self.custom_service_rate_detail.set(self._channel_ui("Enter the channel details above, then click Add Channel.", "請直接填寫上方渠道資料，再按「新增渠道」。"))
+        elif self.service_has_rate_table(name, residential):
+            self.custom_service_rate_status.set(self._channel_ui("✓ Ready to reprice", "✓ 已可重新計價"))
+            self.custom_service_rate_detail.set(self._channel_ui(f'The base transportation table for "{name}" is loaded.', f"「{name}」的基本運費表已載入。"))
+        else:
+            self.custom_service_rate_status.set(self._channel_ui("⚠ Base transportation table missing", "⚠ 尚未載入基本運費表"))
+            self.custom_service_rate_detail.set(
+                self._channel_ui(f'"{name}" is registered, but shipments remain NOT RATED until its base transportation table is imported.', f"「{name}」已建立，但在匯入基本運費表前，相關包裹會顯示為 NOT RATED。"))
+
+
+    def delete_custom_service_row(self):
+        tree = getattr(self, "custom_service_tree", None)
+        if tree is None or not tree.selection():
+            messagebox.showwarning("尚未選擇", "請先選擇要刪除的渠道。")
+            return
+        if self._selection_has_builtin(tree):
+            return
+        names = [str(tree.item(i, "values")[0]) for i in tree.selection()]
+        if not messagebox.askyesno("確認刪除", "確定刪除以下渠道？\n\n" + "\n".join(names)):
+            return
+        for item in tree.selection():
+            tree.delete(item)
+        self.save_custom_service_registry()
+        self.new_custom_service_form()
+
+
+    @staticmethod
+    def _channel_value_is_residential(value):
+        return str(value).strip().upper() in ("YES", "Y", "TRUE", "1", "是", "RESIDENTIAL", "住宅")
+
+    def refresh_rate_channel_choices(self):
+        combo = getattr(self, "custom_service_rate_choice", None)
+        if combo is None:
+            return
+        choices = []
+        self._rate_choice_map = {}
+
+        # Built-in services first: their rate tables live in the same
+        # (service, residential) store, so there is no reason for them to be
+        # imported from a different screen than the custom channels.
+        pairs = list(self.built_in_channel_variants())
+        for name, cfg in self.custom_service_entries(enabled_only=False):
+            pairs.append((name, bool(cfg.get("residential", False))))
+
+        for name, residential in pairs:
+            kind = self._channel_ui("Residential" if residential else "Commercial",
+                                    "住宅" if residential else "商業")
+            label = f"{name} — {kind}"
+            if label in self._rate_choice_map:
+                continue
+            choices.append(label)
+            self._rate_choice_map[label] = (name, residential)
+        combo.configure(values=choices)
+        current = self.custom_service_rate_choice_var.get()
+        if current not in choices:
+            self.custom_service_rate_choice_var.set(choices[0] if choices else "")
+        self.update_rate_status_from_choice()
+        try:
+            self.refresh_rules_view_choices()
+        except Exception as e:
+            print("Rules view refresh failed:", e)
+
+    def selected_rate_channel(self):
+        label = getattr(self, "custom_service_rate_choice_var", tk.StringVar()).get().strip()
+        return getattr(self, "_rate_choice_map", {}).get(label)
+
+    def update_rate_status_from_choice(self):
+        try:
+            self.render_channel_accessorial_tables()
+        except Exception as e:
+            print("Channel rate panel refresh failed:", e)
+
+        selected = self.selected_rate_channel()
+        if not selected:
+            self.update_custom_service_rate_status("")
+            return
+        name, residential = selected
+        self.update_custom_service_rate_status(name, residential)
+
+    def open_loaded_rate_viewer(self):
+        """Show the base rate table this channel actually has loaded.
+
+        The rate tables are DataFrames held in memory; the tab only said
+        LOADED or MISSING, so checking a single number meant exporting the
+        template back out or opening the rate card CSV after a run.
+        """
+        selected = self.selected_rate_channel()
+        if not selected:
+            messagebox.showwarning(
+                self._channel_ui("No channel selected", "尚未選擇渠道"),
+                self._channel_ui(
+                    "Choose a channel from the rate-table list first.",
+                    "請先從費率表渠道清單選擇一個渠道。"))
+            return
+
+        name, residential = selected
+        tables = getattr(self, "rate_tables", {}) or {}
+        frame = tables.get((name, bool(residential)))
+        if frame is None:
+            frame = tables.get(name)      # legacy one-key table
+        if frame is None or getattr(frame, "empty", True):
+            messagebox.showinfo(
+                self._channel_ui("Not loaded", "尚未載入"),
+                self._channel_ui(
+                    f'"{name}" has no base transportation table loaded yet.',
+                    f"「{name}」還沒載入基本運費表。"))
+            return
+
+        cols = [c for c in frame.columns if str(c).strip().lower() == "weight"]
+        cols += [c for c in frame.columns if str(c).strip().startswith("Zone")]
+        if not cols:
+            messagebox.showinfo(
+                self._channel_ui("Nothing to show", "沒有可顯示的欄位"),
+                self._channel_ui("This table has no Weight or Zone columns.",
+                                 "這張表沒有 Weight 或 Zone 欄位。"))
+            return
+
+        existing = getattr(self, "_rate_viewer_window", None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.destroy()
+            except Exception:
+                pass
+
+        win = tk.Toplevel(self.root)
+        self._rate_viewer_window = win
+        win.title("Loaded Base Rates")
+        win.geometry(f"{scaled(980)}x{scaled(600)}")
+        win.transient(self.root)
+        # A Toplevel keeps the system background, so the padding around the
+        # themed frames came out white against the milk tea.
+        try:
+            win.configure(bg=self.MILKTEA["BG"])
+        except Exception:
+            pass
+
+        kind = self._channel_ui("Residential" if residential else "Commercial",
+                                "住宅" if residential else "商業")
+        try:
+            rows_n = len(frame.index)
+        except Exception:
+            rows_n = 0
+        ttk.Label(win, font=ui_font(10, "bold"),
+                  text=f"{name} — {kind}   ({rows_n})").pack(
+            anchor="w", padx=12, pady=(10, 6))
+
+        wrap = ttk.Frame(win)
+        wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        keys = [f"c{i}" for i in range(len(cols))]
+        tree = ttk.Treeview(wrap, columns=keys, show="headings")
+        for key, col in zip(keys, cols):
+            tree.heading(key, text=str(col), anchor="center")
+            tree.column(key, width=scaled(90), anchor="center", stretch=False)
+
+        y_scroll = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview)
+        x_scroll = ttk.Scrollbar(wrap, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
+        y_scroll.pack(side="right", fill="y")
+        x_scroll.pack(side="bottom", fill="x")
+        tree.pack(side="left", fill="both", expand=True)
+
+        try:
+            view = frame[cols]
+            if "Weight" in view.columns:
+                view = view.sort_values(
+                    by="Weight", key=lambda c: pd.to_numeric(c, errors="coerce"))
+        except Exception:
+            view = frame[cols]
+
+        def cell(col, value):
+            """Weights whole, rates to two places.
+
+            Straight str() on a float column prints 9.299999999999999, which
+            is the same number and a worse answer to "what is the rate".
+            """
+            try:
+                if pd.isna(value):
+                    return ""
+            except Exception:
+                pass
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            if str(col).strip().lower() == "weight":
+                return str(int(number)) if number == int(number) else f"{number:g}"
+            return f"{number:,.2f}"
+
+        for _, row in view.iterrows():
+            tree.insert("", "end", values=[cell(c, row[c]) for c in cols])
+
+        ttk.Button(win, text="Close", width=10,
+                   command=win.destroy).pack(anchor="e", padx=12, pady=(0, 10))
+
+    def export_selected_service_rate_template(self):
+        """Export one channel's visible rate table without a YES/NO column.
+
+        Residential/Commercial is stored in a hidden metadata sheet, so the
+        user only sees Service, Weight and Zone columns.
+        """
+        selected = self.selected_rate_channel()
+        if not selected:
+            messagebox.showwarning(
+                self._channel_ui("No channel selected", "尚未選擇渠道"),
+                self._channel_ui("Choose a channel from the rate-table list first.",
+                                 "請先從費率表渠道清單選擇一個渠道。"),
+                parent=getattr(self, "custom_service_window", self.root))
+            return
+        name, residential = selected
+        kind = "Residential" if residential else "Commercial"
+        path = filedialog.asksaveasfilename(
+            initialfile=self.template_file_name("BaseRate", name, kind),
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx")])
+        if not path:
+            return
+        try:
+            zones = self.write_base_rate_template(name, path, residential)
+        except Exception as e:
+            self.report_failed(self._channel_ui(
+                f"Base rate template export failed: {e}",
+                f"基本運費表模板匯出失敗：{e}"))
+            return
+        self.report_ok(self._channel_ui(
+            f"Base rate template exported: {name} — {kind} (zones {', '.join(zones)})\n{path}",
+            f"基本運費表模板已匯出：{name}－{'住宅' if residential else '商業'}（Zone {', '.join(zones)}）\n{path}"))
+
+    def channel_from_workbook(self, path):
+        """Which channel this base rate file is for, and how we know.
+
+        Three sources, best first:
+          1. the hidden _ChannelInfo sheet the export writes;
+          2. the Service column, which every row carries;
+          3. the file name, for a workbook somebody built by hand.
+        Returns (service, residential, how) or None.
+        """
+        try:
+            with pd.ExcelFile(path) as book:
+                if "_ChannelInfo" in book.sheet_names:
+                    info = pd.read_excel(book, sheet_name="_ChannelInfo").fillna("")
+                    if not info.empty:
+                        service = str(info.iloc[0].get("Service", "")).strip()
+                        kind = str(info.iloc[0].get("Channel Type", "")).strip()
+                        if service:
+                            return (service, kind.lower() == "residential",
+                                    self._channel_ui("file", "檔案內容"))
+                sheet = ("Base Rates" if "Base Rates" in book.sheet_names
+                         else book.sheet_names[0])
+                head = pd.read_excel(book, sheet_name=sheet, nrows=5).fillna("")
+                if "Service" in head.columns:
+                    for value in head["Service"]:
+                        service = self.canonical_rate_service_name(value)
+                        if service:
+                            return (service,
+                                    residential_flag_from_service_name(service),
+                                    self._channel_ui("file", "檔案內容"))
+        except Exception as e:
+            print("Could not read channel from", path, e)
+
+        return self.channel_from_filename(path)
+
+    def channel_from_filename(self, path):
+        """Last resort: read the channel out of the file name.
+
+        Exported files are called UPS_BaseRate_<channel>.xlsx, and a
+        hand-made one is usually named after its channel too. Longest match
+        wins, so "Next Day Air Early" is not taken as "Next Day Air".
+        """
+        stem = os.path.splitext(os.path.basename(str(path)))[0]
+        text = re.sub(r"[_\-]+", " ", stem).lower()
+        for prefix in ("ups baserate", "ups base rate", "baserate", "base rate"):
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+
+        residential = None
+        if "residential" in text:
+            residential = True
+        elif "commercial" in text:
+            residential = False
+
+        best = None
+        for name in self.all_channel_names():
+            if name.lower() in text and (best is None or len(name) > len(best)):
+                best = name
+        if best is None:
+            return None
+        if residential is None:
+            residential = residential_flag_from_service_name(best)
+        return (best, residential, self._channel_ui("file name", "檔名"))
+
+    def batch_import_base_rates(self):
+        """Import several base rate workbooks at once, each to its own channel.
+
+        One file at a time meant picking the channel in the dropdown, browsing,
+        importing, and repeating -- fifteen times for a full set, with the
+        chance of picking the wrong channel every time. The file says which
+        channel it is; this reads it and shows what it worked out before
+        anything is loaded.
+        """
+        paths = filedialog.askopenfilenames(
+            title=self._channel_ui("Base rate workbooks", "基本運費表檔案"),
+            filetypes=[("Excel", "*.xlsx *.xls"), ("All", "*.*")])
+        if not paths:
+            return
+
+        resolved, unknown = [], []
+        for path in paths:
+            found = self.channel_from_workbook(path)
+            if found:
+                resolved.append((path, found))
+            else:
+                unknown.append(path)
+
+        lines = []
+        for path, (service, residential, how) in resolved:
+            kind = self._channel_ui("Residential" if residential else "Commercial",
+                                    "住宅" if residential else "商業")
+            lines.append("%s\n    → %s（%s）　%s" % (
+                os.path.basename(path), service, kind, how) if self._ui_language_code == "zh"
+                else "%s\n    -> %s (%s)   from %s" % (
+                    os.path.basename(path), service, kind, how))
+        for path in unknown:
+            lines.append(("%s\n    → 認不出是哪條渠道，會跳過" if self._ui_language_code == "zh"
+                          else "%s\n    -> channel not recognised, skipped")
+                         % os.path.basename(path))
+
+        if not resolved:
+            self.report_failed(self._channel_ui(
+                "None of these files says which channel it is for. Export the "
+                "template from this tab and fill that in, or name the file "
+                "after the channel.",
+                "這些檔案都看不出屬於哪條渠道。請用本頁的「匯出基本運費表模板」"
+                "產生檔案再填，或把檔名取成渠道名稱。"))
+            return
+
+        if not messagebox.askyesno(
+                self._channel_ui("Import these?", "確認匯入"),
+                "\n".join(lines) + "\n\n" + self._channel_ui(
+                    "Import them into the channels shown?",
+                    "照上面的對應匯入嗎？")):
+            return
+
+        done, failed = [], []
+        for path, (service, residential, _how) in resolved:
+            try:
+                self._load_base_rate_files([path], quiet=True,
+                                           channel_override=(service, residential))
+                done.append(f"{service} {'Residential' if residential else 'Commercial'}")
+            except Exception as e:
+                failed.append(f"{os.path.basename(path)}: {e}")
+
+        try:
+            self.load_custom_service_registry()
+            self.refresh_rate_channel_choices()
+            self.save_config()
+        except Exception as e:
+            print("Refresh after batch import failed:", e)
+
+        message = self._channel_ui(
+            "%d channel(s) loaded:\n\n%s" % (len(done), "\n".join(done)),
+            "已載入 %d 條渠道：\n\n%s" % (len(done), "\n".join(done)))
+        if failed:
+            message += self._channel_ui("\n\nFailed:\n", "\n\n失敗：\n") + "\n".join(failed)
+        if unknown:
+            message += self._channel_ui("\n\nSkipped:\n", "\n\n跳過：\n") + "\n".join(
+                os.path.basename(p) for p in unknown)
+        self.report_ok(message)
+
+    def import_channel_base_rate_template(self):
+        selected = self.selected_rate_channel()
+        if not selected:
+            messagebox.showwarning(
+                self._channel_ui("No channel selected", "尚未選擇渠道"),
+                self._channel_ui("Choose the channel that this rate table belongs to first.",
+                                 "請先選擇這份基本運費表所屬的渠道。"),
+                parent=getattr(self, "custom_service_window", self.root))
+            return
+        paths = filedialog.askopenfilenames(filetypes=[("Excel", "*.xlsx *.xls")])
+        if not paths:
+            return
+        self._load_base_rate_files(paths, quiet=False, channel_override=selected)
+        self.refresh_rate_channel_choices()
+
+    def channel_surcharge_fee_types(self):
+        """Every surcharge row a channel template offers, in display order."""
+        rows = list(ACC_ZONE_FEE_TYPES) + list(ACC_FLAT_FEE_TYPES)
+        for _as, name, _fuel, _mode in self.dynamic_acc_columns():
+            if name not in rows:
+                rows.append(name)
+        return rows
+
+    def channel_surcharge_label(self, service, residential):
+        """The Shipment Type this channel's rates are stored under.
+
+        A name that already ends in Commercial or Residential keeps it: the
+        built-in services are now in this picker too, and blindly appending
+        gave "Ground Commercial Commercial", which nothing looks up.
+        """
+        name = str(service).strip()
+        low = name.lower()
+        if low.endswith("commercial") or low.endswith("residential"):
+            return name
+        return f"{name} {'Residential' if residential else 'Commercial'}"
+
+    # "Default" on its own reads as a setting name. It is a target: the
+    # channels that were not given one of their own.
+    SHARED_CHANNEL_LABEL = "Default (channels without their own)"
+    SHARED_CHANNEL_LABEL_ZH = "預設（沒有單獨設定的渠道）"
+
+    def global_channel_label(self):
+        """The first entry of every channel picker, in the current language.
+
+        Combobox VALUES are data, not widget text, so the language walker
+        never reaches them -- this one has to be built per language instead.
+        """
+        return self._channel_ui(self.SHARED_CHANNEL_LABEL, self.SHARED_CHANNEL_LABEL_ZH)
+
+    def built_in_channel_variants(self):
+        """[(service name, residential), ...] for the built-in services.
+
+        A name that says Residential or Commercial has one variant; anything
+        else can be rated both ways, and the rate table key is
+        (service, residential), so both are offered.
+        """
+        out = []
+        for name in BUILT_IN_SERVICE_CHOICES:
+            low = name.lower()
+            if "residential" in low or "commercial" in low:
+                out.append((name, residential_flag_from_service_name(name)))
+            else:
+                out.append((name, False))
+                out.append((name, True))
+        return out
+
+    def channel_picker_label(self, name):
+        """How a channel reads in a picker. A custom channel says so -- the
+        built-in services and the ones you added yourself were listed the same
+        way, so a typo'd channel looked like a UPS service."""
+        if name in BUILT_IN_SERVICE_CHOICES:
+            return name
+        return f"{name}" + self._channel_ui(" (custom)", "（自訂）")
+
+    def all_channel_names(self):
+        """Every channel that can carry its own settings: the built-in
+        services first, then the custom ones.
+
+        The pickers used to list custom channels only, so a built-in service
+        could not be given its own fuel at all -- and the list looked like the
+        tool had forgotten about Ground and Next Day Air.
+        """
+        names = list(BUILT_IN_SERVICE_CHOICES)
+        for name in self.custom_service_names(enabled_only=False):
+            if name not in names:
+                names.append(name)
+        return names
+
+    def refresh_fuel_channel_summary(self):
+        """Kept as a no-op: several places refresh it, and the bar it used to
+        write into is gone. The fuel window's own table is the summary now."""
+        return
+
+    def apply_channel_surcharge_rows(self, rows, label):
+        """Sheet values (header row first) -> rates stored under `label`.
+
+        Returns (loaded, skipped). Split out of the import handler so the
+        parsing rules can be exercised without a file dialog.
+        """
+        if not rows:
+            raise Exception("The surcharge sheet is empty.")
+
+        headers = [str(h).strip() if h is not None else "" for h in rows[0]]
+
+        # A base rate template is Service / Weight / Zone N -- the same Zone
+        # columns a surcharge template has. Fed in here it imported happily,
+        # taking the service name as a "fee type" and the 150 weight rows as
+        # 150 rate rows, which is where a nonsense entry like
+        # ('Ground Commercial', 'Ground Commercial Commercial') comes from.
+        lowered = [h.lower() for h in headers]
+        if "weight" in lowered and "fee type" not in lowered:
+            raise Exception(
+                "This looks like a BASE RATE template (it has a Weight "
+                "column), not a surcharge template.\n\n"
+                "Use Import Completed Base Rate for this file, and Export "
+                "Surcharge Template to get the right one.")
+
+        if "fee type" not in lowered:
+            raise Exception(
+                "No 'Fee Type' column found. Use Export Surcharge Template "
+                "to produce the file this import expects.")
+
+        zone_idx = [(i, headers[i].replace("Zone", "").strip())
+                    for i in range(len(headers))
+                    if headers[i].startswith("Zone")]
+        if not zone_idx:
+            raise Exception("No Zone columns found in this file.")
+
+        loaded = 0
+        skipped = 0
+
+        for raw in rows[1:]:
+            fee = self.fee_key_from_display(raw[0]) if raw else ""
+            if fee == "":
+                continue
+
+            cells = {z: (raw[i] if i < len(raw) else None) for i, z in zone_idx}
+            # An untouched row is not a rate of 0. Left out, the lookup falls
+            # back to the default schedule and the issue list names it --
+            # better than quietly pricing the channel at zero.
+            if all(v is None or str(v).strip() == "" for v in cells.values()):
+                skipped += 1
+                continue
+
+            self.accessorial_rate_table[(fee, label)] = {
+                z: self.to_amount(v, f"{label} | {fee} | Zone {z}")
+                for z, v in cells.items()}
+            loaded += 1
+
+        return loaded, skipped
+
+    def save_custom_service_registry(self):
+        """Tree -> memory + config, and refresh the Import Files dropdown."""
+        tree = getattr(self, "custom_service_tree", None)
+        if tree is None or not tree.winfo_exists():
+            return
+
+        # AHS / LPS overrides are edited in their own window and have no
+        # column here, so carry them across the rebuild -- otherwise saving
+        # the channel form would silently discard them.
+        previous_rules = {
+            k: (c.get("rules", {}) or {})
+            for k, c in (getattr(self, "custom_service_registry", {}) or {}).items()
+            if isinstance(c, dict) and c.get("rules")
+        }
+
+        self.custom_service_registry = {}
+
+        for item in tree.get_children():
+            if "builtin" in tree.item(item, "tags"):
+                continue        # read-only row, not a custom channel
+            vals = tree.item(item, "values")
+            if not vals:
+                continue
+            name = str(vals[0]).strip()
+            if name == "":
+                continue
+            residential = self._channel_value_is_residential(vals[3])
+            key = self.custom_service_key(name, residential)
+            self.custom_service_registry[key] = {
+                "name": name,
+                "patterns": normalize_service_pattern_list(vals[1]) or normalize_service_pattern_list(name),
+                "zones": normalize_service_zone_list(vals[2]),
+                "residential": residential,
+                "enabled": str(vals[5]).strip().upper() in ("YES", "是"),
+                "dim_factor": (str(vals[6]).strip() if len(vals) > 6 else ""),
+                "rules": previous_rules.get(key, {}),
+            }
+
+        # Rate Table column is live state, not something the user types.
+        for item in tree.get_children():
+            vals = list(tree.item(item, "values"))
+            if not vals:
+                continue
+            if "builtin" in tree.item(item, "tags"):
+                _loaded = self.service_has_rate_table(
+                    vals[0], self._channel_value_is_residential(vals[3]))
+                vals[4] = self._channel_ui("LOADED" if _loaded else "MISSING",
+                                           "已載入" if _loaded else "未載入")
+                tree.item(item, values=tuple(vals))
+                continue
+            _res = self._channel_value_is_residential(vals[3])
+            _loaded = self.service_has_rate_table(vals[0], _res)
+            vals[4] = self._channel_ui("LOADED" if _loaded else "MISSING",
+                                      "已載入" if _loaded else "未載入")
+            tree.item(item, values=tuple(vals))
+
+        try:
+            self.refresh_service_dropdown()
+        except Exception as e:
+            print("Service dropdown refresh failed:", e)
+
+        try:
+            self.save_config()
+        except Exception as e:
+            print("Auto save config after custom service registry failed:", e)
+
+        self._channel_status_mode = "saved"
+        self.refresh_channel_status_text()
+        self.refresh_rate_channel_choices()
+
+    def load_custom_service_registry(self):
+        """Memory -> tree.
+
+        Rows are gathered first, then ordered and filtered, rather than
+        inserted as they are found. Two reasons: a channel with no rates is
+        the one you have to act on, so it belongs at the bottom where the eye
+        finishes rather than scattered through the list; and the search box
+        needs something to filter.
+        """
+        tree = getattr(self, "custom_service_tree", None)
+        if tree is None or not tree.winfo_exists():
+            return
+
+        tree.delete(*tree.get_children())
+
+        loaded_text = self._channel_ui("LOADED", "已載入")
+        missing_text = self._channel_ui("MISSING", "未載入")
+
+        rows = []
+        # Built-in services are listed too, tagged so the code below can tell
+        # them apart. They are read-only rows: the list is the one place that
+        # answers "which channels exist and do they have rates", and a list
+        # that silently leaves out Ground is not that.
+        for name, residential in self.built_in_channel_variants():
+            has_rates = self.service_has_rate_table(name, residential)
+            rows.append((
+                has_rates, name, residential, ("builtin",),
+                (name,
+                 "",
+                 ", ".join(self.zones_in_force(name, residential)),
+                 self._channel_ui("Residential", "住宅") if residential
+                 else self._channel_ui("Commercial", "商業"),
+                 loaded_text if has_rates else missing_text,
+                 self._channel_ui("YES", "是")
+                 if self.builtin_service_enabled(name)
+                 else self._channel_ui("NO", "否"),
+                 str(self.channel_dim_factor(name, "") or "").strip())))
+
+        for key, cfg in (getattr(self, "custom_service_registry", {}) or {}).items():
+            name = str(cfg.get("name", "")).strip() or str(key).split("|||", 1)[0].strip()
+            residential = bool(cfg.get("residential", False))
+            has_rates = self.service_has_rate_table(name, residential)
+            rows.append((
+                has_rates, name, residential, (),
+                (name,
+                 "; ".join(normalize_service_pattern_list(cfg.get("patterns", ""))),
+                 ", ".join(self.zones_in_force(name, residential)),
+                 self._channel_ui("Residential", "住宅") if residential
+                 else self._channel_ui("Commercial", "商業"),
+                 loaded_text if has_rates else missing_text,
+                 self._channel_ui("YES", "是") if cfg.get("enabled", True)
+                 else self._channel_ui("NO", "否"),
+                 str(cfg.get("dim_factor", "") or "").strip())))
+
+        # Rated channels first, then the ones still waiting for a rate table.
+        # Within each group the original order is kept -- Ground, SurePost,
+        # 3 Day Select and the rest read as the service list they are.
+        rows.sort(key=lambda r: (not r[0],))
+
+        needle = str(getattr(self, "channel_filter_var",
+                             tk.StringVar()).get()).strip().lower()
+        shown = 0
+        for has_rates, name, residential, tags, values in rows:
+            if needle and needle not in " ".join(str(v) for v in values).lower():
+                continue
+            tree.insert("", "end", tags=tags, values=values)
+            shown += 1
+
+        if hasattr(self, "channel_count_var"):
+            self.channel_count_var.set(
+                ("顯示 %d / %d 條渠道" if self._ui_language_code == "zh"
+                 else "showing %d of %d channels") % (shown, len(rows)))
+
+        try:
+            self.refresh_service_dropdown()
+            self.refresh_rate_channel_choices()
+        except Exception as e:
+            print("Service dropdown refresh failed:", e)
+
+
+
     def open_custom_surcharge_window(self):
         """
         Custom Surcharges UI. It used to live on its own notebook tab, but that
@@ -1495,7 +9768,7 @@ class UPSRepricingTool:
         """
         win = tk.Toplevel(self.root)
         win.title("Custom Surcharges")
-        win.geometry("1000x580")
+        win.geometry(f"{scaled(1000)}x{scaled(580)}")
         self._build_dynamic_surcharge_tab(parent=win)
         try:
             self.load_dynamic_surcharge_registry()
@@ -1509,10 +9782,10 @@ class UPSRepricingTool:
         main = ttk.Frame(parent if parent is not None else self.tab_dynamic_surcharge)
         main.pack(fill="both", expand=True, padx=12, pady=12)
 
-        title = ttk.Label(main, text="Custom Surcharges", font=("Segoe UI", 13, "bold"))
+        title = ttk.Label(main, text="Custom Surcharges", font=ui_font(13, "bold"))
         title.pack(anchor="w", pady=(0, 10))
 
-        ttk.Label(main, font=("Segoe UI", 8), foreground="#555", justify="left",
+        ttk.Label(main, font=ui_font(8), foreground="#555", justify="left",
                   text="AS Code must match the invoice exactly. Surcharge Name "
                        "becomes a report column; set its rate on Pricing Rules "
                        "-> Surcharge Rates."
@@ -1550,8 +9823,57 @@ class UPSRepricingTool:
         self.dynamic_surcharge_tree.pack(side="left", fill="both", expand=True)
 
     # =========================================================
+    # BULK -- one channel's surcharge rates copied to several others
+    # =========================================================
+    def surcharge_labels_in_use(self):
+        """Every Shipment Type that currently has surcharge rows.
+
+        In channel order -- the built-in services as they are listed, each
+        Commercial before Residential, then the channels you added. Sorting
+        alphabetically put 2nd Day Air first and moved entries around as rates
+        were added, so the list you picked from was never in the same place
+        twice.
+        """
+        present = set()
+        for key in (getattr(self, "accessorial_rate_table", {}) or {}):
+            if isinstance(key, tuple) and len(key) == 2:
+                label = str(key[1]).strip()
+                if label:
+                    present.add(label)
+
+        ordered = [label for label in self.channel_rate_labels()
+                   if label in present]
+        # Anything stored under a name that is not a channel any more still
+        # has to be reachable, so it goes on the end rather than disappearing.
+        ordered += sorted(present - set(ordered))
+        return ordered
+
+    # =========================================================
     # FUEL SCHEDULE (by ship date) -- own window, own date picker
     # =========================================================
+    def fuel_settings_for(self, service, global_default):
+        """(schedule, default percent) for one shipment's service.
+
+        A channel with its own schedule uses it; anything else uses the global
+        one. A channel may also carry its own default percent for dates the
+        schedule does not cover.
+        """
+        # Keyed by NAME, not by the custom-channel registry: the picker now
+        # offers the built-in services too, and a schedule set against one of
+        # them was being ignored here while still showing on screen.
+        name = str(service or "").strip()
+        sched = (self.channel_fuel_schedules or {}).get(name) or []
+        raw = str((self.channel_fuel_percents or {}).get(name, "")).strip()
+
+        if sched or raw != "":
+            try:
+                pct = float(raw) if raw != "" else global_default
+            except (ValueError, TypeError):
+                pct = global_default
+            return sched or list(getattr(self, "fuel_schedule", [])), pct
+
+        return list(getattr(self, "fuel_schedule", [])), global_default
+
     def update_fuel_schedule_summary(self):
         """One short line on the Rules tab: how many ranges and what they cover."""
         var = getattr(self, "fuel_schedule_summary", None)
@@ -1564,6 +9886,22 @@ class UPSRepricingTool:
 
         var.set(f"{len(self.fuel_schedule)} range(s): "
                 f"{self.fuel_schedule[0]['start']} ~ {self.fuel_schedule[-1]['end']}")
+
+    def pick_fuel_start_date(self, parent=None):
+        """From date, then straight on to the To date.
+
+        UPS republishes fuel weekly, so the To date is filled in six days
+        later before its calendar opens -- press a day to change it, or the
+        Close on the calendar to keep the week.
+        """
+        from datetime import timedelta as _timedelta
+
+        self.pick_date_into(self.bulk_fuel_start_var, parent)
+        start = parse_schedule_date(self.bulk_fuel_start_var.get())
+        if start is None:
+            return
+        self.bulk_fuel_end_var.set((start + _timedelta(days=6)).isoformat())
+        self.pick_date_into(self.bulk_fuel_end_var, parent)
 
     def pick_date_into(self, target_var, parent=None):
         """Small built-in month calendar. No third-party dependency."""
@@ -1626,256 +9964,1565 @@ class UPSRepricingTool:
         ttk.Button(header, text=">>", width=4,
                    command=lambda: shift(12)).pack(side="left")
 
-        redraw()
+        # Keep what is already in the box: the To calendar opens with the week
+        # already filled in, and closing it should not clear that.
+        ttk.Button(win, text="Close", width=10,
+                   command=win.destroy).pack(pady=(0, 8))
 
-    def open_fuel_schedule_window(self):
-        """Fuel schedule editor. Holds any number of ranges (scrollable)."""
-        existing = getattr(self, "_fuel_window", None)
+        redraw()
+        # Wait for it. Without this the call returned the moment the calendar
+        # appeared, so anything that reads the date straight afterwards read
+        # the OLD value -- which is why picking a From date never carried into
+        # the To date.
+        try:
+            win.wait_window()
+        except Exception:
+            pass
+
+    # The separate single-channel fuel editor used to live here. It did the
+    # same job as the fuel window below, with different buttons and its own
+    # weekly-splitting -- two editors for one set of numbers, so which one you
+    # opened decided what you could do. One window now, with a tick list.
+
+    # =========================================================
+    # BULK -- one setting written to several channels at once
+    # =========================================================
+    def _channel_check_list(self, parent, include_default=True, height=200,
+                            preselect=None, on_change=None):
+        """Scrollable list of channels with a tick box on each.
+
+        Returns a zero-argument callable handing back the ticked targets, where
+        None means the default (global) schedule. Deliberately generic: the
+        demand surcharge editor will want the same picker.
+        """
+        wrap = ttk.Frame(parent)
+        wrap.pack(fill="both", expand=True, padx=12, pady=(0, 4))
+
+        # Canvas background follows the theme: it was white, so the part of
+        # the list with no channels in it read as an empty input area.
+        try:
+            canvas_bg = self.MILKTEA.get("BG", "#cbb189")
+        except Exception:
+            canvas_bg = "#cbb189"
+
+        canvas = tk.Canvas(wrap, height=scaled(height), highlightthickness=0,
+                           bg=canvas_bg)
+        bar = ttk.Scrollbar(wrap, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        self._bind_mousewheel(canvas)
+
+        entries = []
+        wanted = set(preselect or [])
+
+        # Three columns, not one. Thirty channels down a single column left
+        # two thirds of the box empty and still needed scrolling.
+        per_row = 3
+        index = 0
+
+        def cell(target, var, text):
+            nonlocal index
+            if on_change is not None:
+                var.trace_add("write", lambda *_a: on_change())
+            ttk.Checkbutton(inner, variable=var, text=text).grid(
+                row=index // per_row, column=index % per_row,
+                sticky="w", padx=(0, 18), pady=1)
+            entries.append((target, var))
+            index += 1
+
+        if include_default:
+            var = tk.BooleanVar(value=None in wanted)
+            cell(None, var, self.global_channel_label())
+
+        for name in self.all_channel_names():
+            var = tk.BooleanVar(value=name in wanted)
+            cell(name, var, self.channel_picker_label(name))
+
+        def ticked():
+            return [target for target, var in entries if var.get()]
+
+        def set_all(state):
+            for _target, var in entries:
+                var.set(state)
+
+        return ticked, set_all
+
+    def open_bulk_fuel_window(self, preselect=None):
+        """The fuel window: date ranges, the fallback percent, and the whole
+        table of what is set, for one channel or twenty.
+
+        preselect ticks one channel on the way in, so the bar's own
+        "Set Fuel" button lands on the channel it was pointed at.
+        """
+        existing = getattr(self, "_bulk_fuel_window", None)
         if existing is not None:
             try:
                 if existing.winfo_exists():
-                    existing.lift()
-                    return
+                    existing.destroy()
             except Exception:
                 pass
 
         win = tk.Toplevel(self.root)
-        self._fuel_window = win
-        win.title("Fuel Surcharge by Ship Date")
-        win.geometry("820x600")
+        self._bulk_fuel_window = win
+        win.title("Fuel Setup")
+        win.geometry(f"{scaled(900)}x{scaled(760)}")
         win.transient(self.root)
+        try:
+            win.configure(bg=self.MILKTEA["BG"])
+        except Exception:
+            pass
 
-        top = ttk.Frame(win)
-        top.pack(fill="x", padx=12, pady=(12, 4))
+        # Packed to the bottom BEFORE anything else, so a long list of ranges
+        # cannot push the button off the window -- which is exactly what it
+        # did at 700px tall.
+        actions = ttk.Frame(win)
+        actions.pack(side="bottom", fill="x", padx=12, pady=(4, 12))
+        ttk.Button(actions, text="Close", width=10,
+                   command=win.destroy).pack(side="right", padx=4)
+        ttk.Button(actions, text="💾 Save", width=14,
+                   command=self.save_global_fuel_percent).pack(side="left",
+                                                               padx=4)
 
-        ttk.Label(top, text="Default Fuel %").pack(side="left")
-        ttk.Entry(top, textvariable=self.fuel_percent,
-                  width=9).pack(side="left", padx=(4, 0))
+        # The global default, as a plain field. It used to be a row in the tick
+        # list called "(All channels with no setting of their own)", which
+        # read like a channel and was not one.
+        globals_row = ttk.Frame(win)
+        globals_row.pack(fill="x", padx=14, pady=(12, 6))
+        ttk.Label(globals_row, text="Default Fuel %").pack(side="left")
+        ttk.Entry(globals_row, textvariable=self.fuel_percent,
+                  width=9).pack(side="left", padx=6)
+        # Its Save is on the bottom action row, not tucked in beside the box
+        # where it read as part of the field.
 
-        # Set ranges. From/To spanning one week or less produces a single range,
-        # so this covers both the one-off and the whole-year case.
-        setter = ttk.Frame(win)
-        setter.pack(fill="x", padx=12, pady=6)
+        setter = ttk.LabelFrame(win, text="New Fuel Range")
+        setter.pack(fill="x", padx=12, pady=(0, 6))
 
-        self.fuel_bulk_start_var = tk.StringVar()
-        self.fuel_bulk_end_var = tk.StringVar()
-        self.fuel_bulk_pct_var = tk.StringVar()
+        line = ttk.Frame(setter)
+        line.pack(fill="x", padx=10, pady=(9, 9))
 
-        ttk.Label(setter, text="From").pack(side="left")
-        ttk.Entry(setter, textvariable=self.fuel_bulk_start_var,
+        self.bulk_fuel_start_var = tk.StringVar()
+        self.bulk_fuel_end_var = tk.StringVar()
+        self.bulk_fuel_pct_var = tk.StringVar()
+
+        ttk.Label(line, text="From").pack(side="left")
+        ttk.Entry(line, textvariable=self.bulk_fuel_start_var,
                   width=13).pack(side="left", padx=(4, 2))
-        ttk.Button(setter, text="\U0001F4C5", width=3,
-                   command=lambda: self.pick_date_into(
-                       self.fuel_bulk_start_var, win)).pack(side="left")
+        ttk.Button(line, text="\U0001F4C5", width=3,
+                   command=lambda: self.pick_fuel_start_date(win)
+                   ).pack(side="left")
 
-        ttk.Label(setter, text="To").pack(side="left", padx=(12, 0))
-        ttk.Entry(setter, textvariable=self.fuel_bulk_end_var,
+        ttk.Label(line, text="To").pack(side="left", padx=(12, 0))
+        ttk.Entry(line, textvariable=self.bulk_fuel_end_var,
                   width=13).pack(side="left", padx=(4, 2))
-        ttk.Button(setter, text="\U0001F4C5", width=3,
+        ttk.Button(line, text="\U0001F4C5", width=3,
                    command=lambda: self.pick_date_into(
-                       self.fuel_bulk_end_var, win)).pack(side="left")
+                       self.bulk_fuel_end_var, win)).pack(side="left")
 
-        ttk.Label(setter, text="Fuel %").pack(side="left", padx=(12, 0))
-        ttk.Entry(setter, textvariable=self.fuel_bulk_pct_var,
+        ttk.Label(line, text="Fuel %").pack(side="left", padx=(12, 0))
+        ttk.Entry(line, textvariable=self.bulk_fuel_pct_var,
                   width=9).pack(side="left", padx=4)
 
-        ttk.Button(setter, text="Add Weekly Ranges",
-                   command=self.generate_weekly_fuel_rows).pack(side="left", padx=8)
+        # Same action as the button at the bottom, put where the typing ends:
+        # adding a second range should not mean hunting for a button in a
+        # different corner of the window.
+        self._bulk_fuel_ticked = lambda: []
+        ttk.Button(line, text="➕ Add Range",
+                   command=lambda: self.apply_bulk_fuel(
+                       self._bulk_fuel_ticked())).pack(side="left", padx=(12, 0))
 
-        tree_wrap = ttk.Frame(win)
-        tree_wrap.pack(fill="both", expand=True, padx=12, pady=6)
+        self.bulk_fuel_status = tk.StringVar(value="")
+        ttk.Label(win, textvariable=self.bulk_fuel_status,
+                  font=ui_font(9)).pack(
+            anchor="w", padx=14, pady=(0, 4))
 
-        self.fuel_schedule_tree = ttk.Treeview(
-            tree_wrap, columns=("START", "END", "PCT"), show="headings")
+        # No per-channel fallback row. The window already has one "default
+        # fuel %" at the top -- the global one -- and a second box with the
+        # same name underneath was two answers to "what is used outside the
+        # ranges". apply_bulk_fuel_fallback is still here for the values
+        # already stored against channels.
 
-        for key, title, width in [("START", "Start Date", 220),
-                                  ("END", "End Date", 220),
-                                  ("PCT", "Fuel %", 120)]:
-            self.fuel_schedule_tree.heading(key, text=title)
-            self.fuel_schedule_tree.column(key, width=width, anchor="center")
+        # Not expanding. Two boxes both taking the leftover height left the
+        # ranges table short by exactly the height of its own button row, so
+        # Select All / Select None / Delete Ticked were sliced in half and
+        # looked like three blank rectangles.
+        picker = ttk.LabelFrame(win, text="Select Channels")
+        picker.pack(fill="x", expand=False, padx=12, pady=(0, 6))
 
-        fuel_scroll = ttk.Scrollbar(tree_wrap, orient="vertical",
-                                    command=self.fuel_schedule_tree.yview)
-        self.fuel_schedule_tree.configure(yscrollcommand=fuel_scroll.set)
+        tick_row = ttk.Frame(picker)
+        tick_row.pack(fill="x", padx=12, pady=(8, 4))
 
-        fuel_scroll.pack(side="right", fill="y")
-        self.fuel_schedule_tree.pack(side="left", fill="both", expand=True)
+        ticked, set_all = self._channel_check_list(
+            picker, include_default=False, height=150, preselect=[preselect])
+        self._bulk_fuel_ticked = ticked
 
-        # Double-click a row to correct just that week's %.
-        self.fuel_schedule_tree.bind("<Double-1>", self.edit_fuel_schedule_percent)
+        ttk.Button(tick_row, text="Select All", width=14,
+                   command=lambda: set_all(True)).pack(side="left")
+        ttk.Button(tick_row, text="Deselect All", width=14,
+                   command=lambda: set_all(False)).pack(side="left", padx=6)
 
-        actions = ttk.Frame(win)
-        actions.pack(fill="x", padx=12, pady=(4, 12))
+        # What is already set, in this same window. Applying used to change
+        # nothing visible here -- the ranges were written and the only way to
+        # see them was to close this and open the single-channel editor.
+        current = ttk.LabelFrame(win, text="Fuel Schedule in Effect")
+        current.pack(fill="both", expand=True, padx=12, pady=(0, 6))
 
-        ttk.Button(actions, text="Delete Selected",
-                   command=self.delete_fuel_schedule_row).pack(side="left", padx=4)
-        ttk.Button(actions, text="Clear All",
-                   command=self.clear_fuel_schedule).pack(side="left", padx=4)
-        ttk.Button(actions, text="Save Schedule",
-                   command=self.save_fuel_schedule).pack(side="right", padx=4)
+        # Packed from the bottom first: the row of buttons keeps its height
+        # whatever the table does.
+        row_actions = ttk.Frame(current)
+        row_actions.pack(side="bottom", fill="x", padx=10, pady=(0, 8))
 
-        self.refresh_fuel_schedule_tree()
+        tree_wrap = ttk.Frame(current)
+        tree_wrap.pack(fill="both", expand=True, padx=10, pady=(8, 4))
 
-    def refresh_fuel_schedule_tree(self):
-        """Redraw the fuel schedule table from self.fuel_schedule."""
-        tree = getattr(self, "fuel_schedule_tree", None)
+        self.bulk_fuel_tree = ttk.Treeview(
+            tree_wrap,
+            columns=("SEL", "CHANNEL", "START", "END", "PCT", "FALLBACK"),
+            show="headings", height=7)
+        for key, title, width in [("SEL", " ", 34),
+                                  ("CHANNEL", "Channel", 210),
+                                  ("START", "Start Date", 105),
+                                  ("END", "End Date", 105),
+                                  ("PCT", "Fuel %", 70),
+                                  ("FALLBACK", "Default %", 90)]:
+            self.bulk_fuel_tree.heading(key, text=title)
+            self.bulk_fuel_tree.column(
+                key, width=width, anchor="w" if key == "CHANNEL" else "center")
 
-        if tree is not None:
-            try:
-                tree.delete(*tree.get_children())
+        bar = ttk.Scrollbar(tree_wrap, orient="vertical",
+                            command=self.bulk_fuel_tree.yview)
+        self.bulk_fuel_tree.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        self.bulk_fuel_tree.pack(side="left", fill="both", expand=True)
 
-                for window in self.fuel_schedule:
-                    tree.insert("", "end", values=(
-                        window["start"],
-                        window["end"],
-                        f"{window['percent']}",
-                    ))
-            except Exception:
-                # Window was closed; the schedule itself is unaffected.
-                self.fuel_schedule_tree = None
+        # A Treeview cannot hold real widgets, so the tick is a character in
+        # the first column and clicking it toggles. Ctrl-click selection is
+        # lost the moment focus moves; a tick is not.
+        self.bulk_fuel_tree.bind("<Button-1>", self.toggle_bulk_fuel_tick)
+        self.bulk_fuel_tree.bind("<Double-1>", self.edit_bulk_fuel_row)
 
-        self.update_fuel_schedule_summary()
+        ttk.Button(row_actions, text="Select All", width=14,
+                   command=lambda: self.set_bulk_fuel_ticks(True)).pack(side="left")
+        ttk.Button(row_actions, text="Deselect All", width=14,
+                   command=lambda: self.set_bulk_fuel_ticks(False)).pack(
+            side="left", padx=6)
+        ttk.Button(row_actions, text="Delete Ticked",
+                   command=self.delete_bulk_fuel_rows).pack(side="left", padx=6)
+        ttk.Label(row_actions, font=ui_font(8),
+                  text="Double-click a row to change its dates and percent."
+                  ).pack(side="left", padx=(10, 0))
 
-    def generate_weekly_fuel_rows(self):
-        """Expand From/To into one 7-day range per week."""
-        from datetime import timedelta as _timedelta
+        # No second Apply button down here. It did the same thing as ➕ Add
+        # Range, and since Add Range empties the fields, pressing this one
+        # afterwards produced "Enter a readable From and To date first" on a
+        # form that had just worked.
+        self.refresh_bulk_fuel_tree()
 
-        start = parse_schedule_date(self.fuel_bulk_start_var.get())
-        end = parse_schedule_date(self.fuel_bulk_end_var.get())
-
-        if start is None or end is None:
-            messagebox.showerror("Cannot generate",
-                                 "Enter a readable From and To date first.")
-            return
-
-        if end < start:
-            messagebox.showerror("Cannot generate",
-                                 "To date is before From date.")
-            return
-
-        percent_text = self.fuel_bulk_pct_var.get().strip()
-
-        generated = []
-        cursor = start
-
-        while cursor <= end:
-            week_end = min(cursor + _timedelta(days=6), end)
-            generated.append({
-                "start": cursor.isoformat(),
-                "end": week_end.isoformat(),
-                "percent": percent_text,
-            })
-            cursor = week_end + _timedelta(days=1)
-
-        merged, problems = normalize_fuel_schedule(
-            list(self.fuel_schedule) + generated)
-
-        added = len(merged) - len(self.fuel_schedule)
-
-        if added <= 0:
+    def save_global_fuel_percent(self):
+        raw = normalize_number_text(self.fuel_percent.get())
+        try:
+            float(raw)
+        except (ValueError, TypeError):
             messagebox.showerror(
-                "Nothing generated",
-                "\n".join(problems or ["Check the Fuel % value."]))
+                self._channel_ui("Not a valid value", "數值不正確"),
+                self._channel_ui("Fuel % must be a number.",
+                                 "燃油 % 必須是數字。"),
+                parent=getattr(self, "_bulk_fuel_window", self.root))
+            return
+        self.fuel_percent.set(raw)
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}",
+                                 parent=getattr(self, "_bulk_fuel_window",
+                                                self.root))
+            return
+        try:
+            self.refresh_fuel_channel_summary()
+        except Exception:
+            pass
+        status = getattr(self, "bulk_fuel_status", None)
+        if status is not None:
+            status.set(self._channel_ui(f"Default fuel set to {raw}%.",
+                                        f"預設燃油已設為 {raw}%。"))
+
+    def refresh_bulk_fuel_tree(self):
+        """Every range currently stored, default first, one row per range."""
+        tree = getattr(self, "bulk_fuel_tree", None)
+        if tree is None:
+            return
+        try:
+            tree.delete(*tree.get_children())
+        except Exception:
+            self.bulk_fuel_tree = None
             return
 
-        self.fuel_schedule = merged
-        self.refresh_fuel_schedule_tree()
+        # A global schedule from an older setup still drives pricing for every
+        # channel without one of its own, so it is listed -- hiding it would
+        # leave ranges that decide the fuel and appear nowhere.
+        global_label = self._channel_ui("Default", "預設")
+        rows = []
+        if getattr(self, "fuel_schedule", []):
+            rows.append((global_label, None))
+        rows += [(self.channel_picker_label(n), n)
+                 for n in self.all_channel_names()]
 
-        self.fuel_bulk_start_var.set("")
-        self.fuel_bulk_end_var.set("")
-        self.fuel_bulk_pct_var.set("")
+        for label, name in rows:
+            if name is None:
+                schedule = list(getattr(self, "fuel_schedule", []) or [])
+                fallback = str(self.fuel_percent.get()).strip()
+            else:
+                schedule = list((self.channel_fuel_schedules or {}).get(name) or [])
+                fallback = str((self.channel_fuel_percents or {}).get(name, "")).strip()
 
-        message = f"Added {added} weekly range(s)."
-        if problems:
-            message += "\n\nWarnings:\n" + "\n".join(problems)
+            for window in schedule:
+                tree.insert("", "end", values=(
+                    self.TICK_OFF, label, window["start"], window["end"],
+                    f"{float(window['percent']):g}%",
+                    f"{float(fallback):g}%" if fallback else "—"))
 
-        self.set_status(message)
-    def edit_fuel_schedule_percent(self, event=None):
-        """Double-click a row to correct just that week's Fuel %."""
-        selected = self.fuel_schedule_tree.selection()
+            # A channel with only a fallback still gets a line: otherwise the
+            # one number deciding its fuel would be invisible here.
+            if not schedule and fallback:
+                tree.insert("", "end", values=(
+                    self.TICK_OFF, label, "—", "—", "—",
+                    f"{float(fallback):g}%"))
 
-        if not selected:
+    TICK_ON = "\u2611"
+    TICK_OFF = "\u2610"
+
+    def toggle_bulk_fuel_tick(self, event=None):
+        tree = getattr(self, "bulk_fuel_tree", None)
+        if tree is None or event is None:
             return
-
-        values = self.fuel_schedule_tree.item(selected[0], "values")
-
-        if not values:
+        if tree.identify_region(event.x, event.y) != "cell":
             return
+        if tree.identify_column(event.x) != "#1":
+            return
+        item = tree.identify_row(event.y)
+        if not item:
+            return
+        values = list(tree.item(item, "values"))
+        values[0] = self.TICK_OFF if values[0] == self.TICK_ON else self.TICK_ON
+        tree.item(item, values=tuple(values))
+        return "break"
 
-        row_start, row_end = str(values[0]), str(values[1])
+    def set_bulk_fuel_ticks(self, on):
+        tree = getattr(self, "bulk_fuel_tree", None)
+        if tree is None:
+            return
+        for item in tree.get_children():
+            values = list(tree.item(item, "values"))
+            values[0] = self.TICK_ON if on else self.TICK_OFF
+            tree.item(item, values=tuple(values))
 
-        win = tk.Toplevel(self._fuel_window)
-        win.title("Edit Fuel %")
-        win.transient(self._fuel_window)
+    def _bulk_fuel_channel_for(self, label):
+        """Picker label -> channel name. None means the global schedule."""
+        if str(label) == self._channel_ui("Default", "預設"):
+            return None
+        for name in self.all_channel_names():
+            if self.channel_picker_label(name) == label:
+                return name
+        return label
+
+    def edit_bulk_fuel_row(self, event=None):
+        """Change one range's dates or percent without deleting and retyping."""
+        tree = getattr(self, "bulk_fuel_tree", None)
+        if tree is None:
+            return
+        item = tree.identify_row(event.y) if event is not None else None
+        if not item:
+            return
+        values = tree.item(item, "values")
+        if not values or str(values[2]) == "\u2014":
+            return          # the fallback-only line has no range to edit
+
+        name = self._bulk_fuel_channel_for(str(values[1]))
+        old_span = (str(values[2]), str(values[3]))
+
+        win = tk.Toplevel(self._bulk_fuel_window)
+        win.title(str(values[1]))
+        win.transient(self._bulk_fuel_window)
         win.resizable(False, False)
         win.grab_set()
 
-        ttk.Label(win, text=f"{row_start}  ~  {row_end}").pack(padx=14, pady=(14, 4))
+        body = ttk.Frame(win)
+        body.pack(padx=14, pady=(14, 6))
 
-        pct_var = tk.StringVar(value=str(values[2]))
-        entry = ttk.Entry(win, textvariable=pct_var, width=12)
-        entry.pack(padx=14, pady=4)
-        entry.focus_set()
+        fields = [("start", self._channel_ui("Start Date", "開始日期"), values[2]),
+                  ("end", self._channel_ui("End Date", "結束日期"), values[3]),
+                  ("percent", self._channel_ui("Fuel %", "燃油 %"), values[4])]
+        vars_by_key = {}
+        for row, (key, label, value) in enumerate(fields):
+            ttk.Label(body, text=label).grid(row=row, column=0, sticky="w",
+                                             padx=(0, 10), pady=4)
+            var = tk.StringVar(value=str(value))
+            vars_by_key[key] = var
+            ttk.Entry(body, textvariable=var, width=16).grid(
+                row=row, column=1, pady=4)
+            if key in ("start", "end"):
+                ttk.Button(body, text="\U0001F4C5", width=3,
+                           command=lambda v=var: self.pick_date_into(v, win)
+                           ).grid(row=row, column=2, padx=(6, 0))
 
         def apply_value():
-            try:
-                new_percent = float(pct_var.get().replace("%", "").strip())
-            except (ValueError, TypeError):
-                messagebox.showerror("Invalid", "Fuel % must be a number.")
+            source = (getattr(self, "fuel_schedule", []) if name is None
+                      else self.channel_fuel_schedules.get(name) or [])
+            kept = [w for w in (source or [])
+                    if (w["start"], w["end"]) != old_span]
+            merged, problems = normalize_fuel_schedule(kept + [{
+                "start": vars_by_key["start"].get(),
+                "end": vars_by_key["end"].get(),
+                "percent": vars_by_key["percent"].get()}])
+            if len(merged) <= len(kept):
+                messagebox.showerror(
+                    "Cannot save",
+                    "\n".join(problems or ["Check the dates and the percent."]),
+                    parent=win)
                 return
-
-            for window in self.fuel_schedule:
-                if window["start"] == row_start and window["end"] == row_end:
-                    window["percent"] = new_percent
-
+            if name is None:
+                self.fuel_schedule = merged
+            else:
+                self.channel_fuel_schedules[name] = merged
+            try:
+                self.save_config()
+            except Exception as e:
+                messagebox.showerror("Save failed",
+                                     f"Could not save config: {e}", parent=win)
+                return
             win.destroy()
-            self.refresh_fuel_schedule_tree()
+            self.refresh_bulk_fuel_tree()
+            try:
+                self.refresh_fuel_channel_summary()
+            except Exception:
+                pass
+            if problems:
+                messagebox.showwarning("Saved with warnings",
+                                       "\n".join(problems),
+                                       parent=self._bulk_fuel_window)
 
         buttons = ttk.Frame(win)
-        buttons.pack(padx=14, pady=(6, 14))
+        buttons.pack(padx=14, pady=(4, 14))
         ttk.Button(buttons, text="OK", width=10,
                    command=apply_value).pack(side="left", padx=4)
         ttk.Button(buttons, text="Cancel", width=10,
                    command=win.destroy).pack(side="left", padx=4)
-
         win.bind("<Return>", lambda e: apply_value())
 
-    def delete_fuel_schedule_row(self):
-        selected = self.fuel_schedule_tree.selection()
+    def delete_bulk_fuel_rows(self):
+        tree = getattr(self, "bulk_fuel_tree", None)
+        if tree is None:
+            return
 
+        ticked = [item for item in tree.get_children()
+                  if tree.item(item, "values")
+                  and tree.item(item, "values")[0] == self.TICK_ON]
+        if not ticked:
+            messagebox.showwarning(
+                "Delete",
+                self._channel_ui("Tick the rows to remove first.",
+                                 "請先勾選要刪除的列。"),
+                parent=getattr(self, "_bulk_fuel_window", self.root))
+            return
+
+        drop = {}
+        fallbacks = set()
+        for item in ticked:
+            values = tree.item(item, "values")
+            name = self._bulk_fuel_channel_for(str(values[1]))
+            if str(values[2]) == "\u2014":
+                fallbacks.add(name)     # the fallback-only line
+                continue
+            drop.setdefault(name, set()).add((str(values[2]), str(values[3])))
+
+        for name, spans in drop.items():
+            if name is None:
+                self.fuel_schedule = [w for w in (self.fuel_schedule or [])
+                                      if (w["start"], w["end"]) not in spans]
+                continue
+            kept = [w for w in (self.channel_fuel_schedules.get(name) or [])
+                    if (w["start"], w["end"]) not in spans]
+            if kept:
+                self.channel_fuel_schedules[name] = kept
+            else:
+                self.channel_fuel_schedules.pop(name, None)
+
+        for name in fallbacks:
+            if name is None:
+                continue        # the global % has its own field, not a delete
+            self.channel_fuel_percents.pop(name, None)
+
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}",
+                                 parent=getattr(self, "_bulk_fuel_window",
+                                                self.root))
+            return
+
+        self.refresh_bulk_fuel_tree()
+        for refresh in ("refresh_bulk_fuel_tree",
+                        "update_fuel_schedule_summary",
+                        "refresh_fuel_channel_summary"):
+            try:
+                getattr(self, refresh)()
+            except Exception:
+                pass
+
+    def apply_bulk_fuel(self, targets):
+        """Write the From/To/Fuel % in the bulk window to every ticked target."""
+        parent = getattr(self, "_bulk_fuel_window", self.root)
+
+        if not targets:
+            messagebox.showwarning(
+                "Nothing ticked",
+                self._channel_ui("Tick at least one channel first.",
+                                 "請先勾選至少一條渠道。"),
+                parent=parent)
+            return
+
+        start = parse_schedule_date(self.bulk_fuel_start_var.get())
+        end = parse_schedule_date(self.bulk_fuel_end_var.get())
+
+        if start is None or end is None:
+            messagebox.showerror("Cannot apply",
+                                 "Enter a readable From and To date first.",
+                                 parent=parent)
+            return
+
+        if end < start:
+            messagebox.showerror("Cannot apply",
+                                 "To date is before From date.", parent=parent)
+            return
+
+        percent_text = normalize_number_text(self.bulk_fuel_pct_var.get())
+        try:
+            percent_value = float(percent_text)
+        except (ValueError, TypeError):
+            messagebox.showerror("Cannot apply", "Fuel % must be a number.",
+                                 parent=parent)
+            return
+
+        # One range covering From ~ To. Splitting it into weeks would only
+        # repeat the same percentage seven days at a time.
+        generated = [{"start": start.isoformat(),
+                      "end": end.isoformat(),
+                      "percent": percent_value}]
+
+        problems = []
+        done = []
+
+        for target in targets:
+            current = list(self.channel_fuel_schedules.get(target) or [])
+
+            merged, issues = normalize_fuel_schedule(
+                current + [dict(row) for row in generated])
+
+            label = target
+            problems.extend(f"{label}: {text}" for text in issues)
+
+            self.channel_fuel_schedules[target] = merged
+
+            done.append(label)
+
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}",
+                                 parent=parent)
+            return
+
+        # Anything already on screen has to move with the data.
+        for refresh in ("refresh_bulk_fuel_tree",
+                        "update_fuel_schedule_summary",
+                        "refresh_fuel_channel_summary"):
+            try:
+                getattr(self, refresh)()
+            except Exception:
+                pass
+
+        span = f"{start.isoformat()} ~ {end.isoformat()}"
+
+        self.set_status(
+            f"Fuel applied to {len(done)} channel(s): {span} @ {percent_value}%")
+
+        # The fields empty and the list below fills in, so the next range is
+        # typed straight after this one. A modal on every range would make
+        # entering a season's worth of fuel a dialog-clicking exercise.
+        self.bulk_fuel_start_var.set("")
+        self.bulk_fuel_end_var.set("")
+        self.bulk_fuel_pct_var.set("")
+
+        line_note = self._channel_ui(
+            f"Added {span} @ {percent_value}% to {len(done)} channel(s).",
+            f"已新增 {span} @ {percent_value}% 到 {len(done)} 條渠道。")
+        status = getattr(self, "bulk_fuel_status", None)
+        if status is not None:
+            status.set(line_note)
+
+        if problems:
+            messagebox.showwarning(
+                "Applied with warnings",
+                line_note + "\n\nWarnings:\n" + "\n".join(problems),
+                parent=parent)
+
+    # =========================================================
+    # DEMAND SURCHARGE -- two lists of dated rates, plus the mapping
+    # =========================================================
+    @staticmethod
+    def demand_config_default():
+        return {
+            # Each row carries its own dates AND its own amounts, so there is
+            # nothing to match up between two screens.
+            "special_rows": [],     # {start, end, GROUP, AHS, LPS, OVR}
+            "service_rows": [],     # {start, end, <service group>: amount}
+            "service_groups": {},   # {service or channel name: service group}
+
+            # Explicit yes/no per channel for the service-level surcharge.
+            # Absent means "work it out from the name", which is what the
+            # built-in channels rely on.
+            # Off until switched on. A tab full of dates nobody has filled in
+            # should not put a charge on the report.
+            "enabled": False,
+
+            # The columns of tab 2, and the only source of them. Add,
+            # rename and delete them on the mapping tab.
+            "service_group_names": [],
+        }
+
+    DEMAND_KINDS = {
+        "special": ("special_rows", DEMAND_SPECIAL_FLAGS),
+        "service": ("service_rows", DEMAND_SERVICE_GROUPS),
+    }
+
+    def _toggle_demand_enabled(self, event=None):
+        self.demand_config["enabled"] = (
+            str(self.demand_enabled_var.get()).strip() in ("On", "開啟"))
+        self.refresh_demand_all()
+
+    def _refresh_demand_state(self):
+        combo = getattr(self, "demand_enabled_combo", None)
+        if combo is None:
+            return
+        zh = self._ui_language_code == "zh"
+        combo["values"] = ["關閉", "開啟"] if zh else ["Off", "On"]
+        on = bool(self.demand_config.get("enabled", False))
+        self.demand_enabled_var.set(
+            ("開啟" if on else "關閉") if zh else ("On" if on else "Off"))
+
+    def demand_in_use(self):
+        """Is the demand surcharge switched on AND actually set up?
+
+        Off, or configured with nothing, it must not add a column at all --
+        an empty "Demand Surcharge" column on every report says the charge
+        exists and came to zero, which is a different claim from "not in
+        season".
+        """
+        if not self.demand_config.get("enabled", False):
+            return False
+        return bool(self.demand_rows("special") or self.demand_rows("service"))
+
+    def demand_rows(self, kind):
+        key, _fields = self.DEMAND_KINDS[kind]
+        return self.demand_config.get(key) or []
+
+    def set_demand_rows(self, kind, rows):
+        key, _fields = self.DEMAND_KINDS[kind]
+        self.demand_config[key] = rows
+
+    def demand_fields(self, kind):
+        _key, fields = self.DEMAND_KINDS[kind]
+        # The service groups are UPS's four rows, but only until UPS prints a
+        # fifth. Read them from the settings when they are there, so a new
+        # group -- international, a contract-specific split -- is a line in
+        # the JSON rather than an edit to this file.
+        if kind == "service":
+            # The settings are the only source. There is no built-in list any
+            # more: a shipped default meant the tool had an opinion about
+            # UPS's structure that could not be edited or removed.
+            return [str(g).strip().upper()
+                    for g in (self.demand_config.get("service_group_names")
+                              or []) if str(g).strip()]
+        return fields
+
+    def demand_amount_text(self, value):
+        try:
+            return f"{float(value):.2f}"
+        except (TypeError, ValueError):
+            return "0.00"
+
+    def _build_demand_tab(self, parent=None):
+        main = ttk.Frame(parent if parent is not None else self.tab_demand)
+        main.pack(fill="both", expand=True, padx=14, pady=(4, 6))
+
+        head = ttk.Frame(main)
+        head.pack(fill="x")
+        ttk.Label(head, text="Demand Surcharge",
+                  font=ui_font(15, "bold")).pack(side="left")
+
+        # Off by default. Everything on this page is dated, and a schedule
+        # entered in August for a season starting in October must not start
+        # charging the moment it is typed.
+        # Far right, away from the title. Beside it, the switch read as part
+        # of the heading rather than a control.
+        self.demand_enabled_var = tk.StringVar()
+        self.demand_enabled_combo = ttk.Combobox(
+            head, textvariable=self.demand_enabled_var, width=10,
+            state="readonly", values=["Off", "On"])
+        self.demand_enabled_combo.pack(side="right")
+        ttk.Label(head, text="Apply to repricing").pack(side="right",
+                                                        padx=(0, 8))
+        self.demand_enabled_combo.bind("<<ComboboxSelected>>",
+                                       self._toggle_demand_enabled)
+
+        inner = ttk.Notebook(main)
+        inner.pack(fill="both", expand=True)
+
+        self.tab_demand_special = ttk.Frame(inner)
+        self.tab_demand_service = ttk.Frame(inner)
+        self.tab_demand_groups = ttk.Frame(inner)
+        self.tab_demand_map = ttk.Frame(inner)
+
+        inner.add(self.tab_demand_special, text="① Package Surcharges")
+        inner.add(self.tab_demand_service, text="② Service Level Rates")
+        inner.add(self.tab_demand_groups, text="③ Service Categories")
+        inner.add(self.tab_demand_map, text="④ Channel Mapping")
+
+        self.demand_trees = {}
+
+        # English here, Chinese from the language table -- these two notes were
+        # written straight in Chinese, so the English interface had two Chinese
+        # sentences in the middle of it.
+        self._build_demand_rate_pane(
+            "special", self.tab_demand_special,
+            "One charge per package: OVR first, then LPS, then AHS. "
+            "Residential and commercial alike.")
+        self._build_demand_rate_pane(
+            "service", self.tab_demand_service,
+            "A per-package charge by service category. It is a separate charge "
+            "from the package surcharges and is added to them. The effective "
+            "dates usually differ, which is why they are two tables.")
+        self._build_demand_group_pane()
+        self._build_demand_map_pane()
+
+        save_row = ttk.Frame(main)
+        save_row.pack(fill="x", pady=(8, 0))
+        ttk.Button(save_row, text="Export Rate Template",
+                   command=self.export_demand_template).pack(side="left")
+        ttk.Button(save_row, text="Import Rates",
+                   command=self.import_demand_template).pack(side="left", padx=6)
+        ttk.Button(save_row, text="Save Demand Setup",
+                   command=self.save_demand_setup).pack(side="right")
+
+        self.refresh_demand_all()
+
+    def _demand_tree(self, parent, columns, height=9, multi=False):
+        wrap = ttk.Frame(parent)
+        wrap.pack(fill="both", expand=True, padx=10, pady=(8, 4))
+
+        tree = ttk.Treeview(wrap, columns=[c[0] for c in columns],
+                            show="headings", height=height,
+                            selectmode="extended" if multi else "browse")
+        for key, title, width in columns:
+            tree.heading(key, text=title)
+            tree.column(key, width=width,
+                        anchor="w" if width >= 200 else "center")
+
+        bar = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        tree.pack(side="left", fill="both", expand=True)
+        return tree
+
+    def _demand_edit_dialog(self, title, fields, on_ok, combo_values=None,
+                            date_keys=()):
+        """One dialog for one whole row: the dates and every amount together.
+
+        date_keys get a calendar button, so a period is entered in one place
+        instead of typing dates on one screen and amounts on another.
+        """
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.transient(self.root)
+        win.resizable(False, False)
+        win.grab_set()
+
+        body = ttk.Frame(win)
+        body.pack(padx=14, pady=(14, 6))
+
+        vars_by_key = {}
+        for row, (key, label, value) in enumerate(fields):
+            ttk.Label(body, text=label).grid(row=row, column=0, sticky="w",
+                                             padx=(0, 10), pady=4)
+            var = tk.StringVar(value=str(value))
+            vars_by_key[key] = var
+            choices = (combo_values or {}).get(key)
+            if choices:
+                ttk.Combobox(body, textvariable=var, values=list(choices),
+                             state="readonly", width=26).grid(
+                    row=row, column=1, sticky="ew", pady=4)
+            else:
+                ttk.Entry(body, textvariable=var, width=28).grid(
+                    row=row, column=1, sticky="ew", pady=4)
+            if key in date_keys:
+                ttk.Button(body, text="\U0001F4C5", width=3,
+                           command=lambda v=var: self.pick_date_into(v, win)
+                           ).grid(row=row, column=2, padx=(6, 0), pady=4)
+
+        def apply_value():
+            if on_ok({k: v.get() for k, v in vars_by_key.items()}):
+                win.destroy()
+
+        buttons = ttk.Frame(win)
+        buttons.pack(padx=14, pady=(4, 14))
+        ttk.Button(buttons, text="OK", width=10,
+                   command=apply_value).pack(side="left", padx=4)
+        ttk.Button(buttons, text="Cancel", width=10,
+                   command=win.destroy).pack(side="left", padx=4)
+        win.bind("<Return>", lambda e: apply_value())
+
+    def refresh_demand_all(self):
+        for kind in self.DEMAND_KINDS:
+            try:
+                self.refresh_demand_rate_tree(kind)
+            except Exception:
+                pass
+        for fn in (self.refresh_demand_group_tree,
+                   self.refresh_demand_map_tree,
+                   self._refresh_demand_state):
+            try:
+                fn()
+            except Exception:
+                pass
+
+    # ── ① and ② : one pane, built twice ──────────────────────
+    def _build_demand_rate_pane(self, kind, pane, note):
+        ttk.Label(pane, font=ui_font(9), text=note
+                  ).pack(anchor="w", padx=10, pady=(8, 0))
+        ttk.Label(pane, font=ui_font(9),
+                  text="One row is one date range and its amounts. A ship date in no row is not charged. Double-click a row to edit it."
+                  ).pack(anchor="w", padx=10, pady=(0, 0))
+
+        columns = [("START", "Start Date", 140), ("END", "End Date", 140)]
+        columns += [(field, demand_field_label(field), 160)
+                    for field in self.demand_fields(kind)]
+        self.demand_trees[kind] = self._demand_tree(pane, columns)
+        self.demand_trees[kind].bind(
+            "<Double-1>", lambda e, k=kind: self.edit_demand_rate_row(k))
+
+        btn = ttk.Frame(pane)
+        btn.pack(fill="x", padx=10, pady=(0, 8))
+        ttk.Button(btn, text="+ Add Period",
+                   command=lambda k=kind: self.add_demand_rate_row(k)
+                   ).pack(side="left")
+        ttk.Button(btn, text="Delete Selected",
+                   command=lambda k=kind: self.delete_demand_rate_row(k)
+                   ).pack(side="left", padx=6)
+
+    def refresh_demand_rate_tree(self, kind):
+        tree = self.demand_trees.get(kind)
+        if tree is None:
+            return
+
+        # Rebuild the columns, not just the rows. A Treeview fixes its columns
+        # at construction, so adding a group left the new rate with nowhere to
+        # show and the table silently one column short.
+        wanted = ["START", "END"] + list(self.demand_fields(kind))
+        if list(tree["columns"]) != wanted:
+            tree["columns"] = wanted
+            tree.heading("START", text=self._channel_ui("Start Date",
+                                                        "開始日期"))
+            tree.heading("END", text=self._channel_ui("End Date", "結束日期"))
+            tree.column("START", width=scaled(120), anchor="center")
+            tree.column("END", width=scaled(120), anchor="center")
+            for field in self.demand_fields(kind):
+                tree.heading(field, text=demand_field_label(field))
+                tree.column(field, width=scaled(150),
+                            anchor="w" if field == "GROUP" else "center")
+
+        tree.delete(*tree.get_children())
+        for row in self.demand_rows(kind):
+            cells = []
+            for field in self.demand_fields(kind):
+                if field == "GROUP":
+                    # A name, not money. Formatted as an amount it showed
+                    # "0.00", which reads as a rate of zero.
+                    raw = str(row.get(field, "") or "").strip()
+                    cells.append(raw or self._channel_ui("All", "全部"))
+                else:
+                    cells.append(self.demand_amount_text(row.get(field, 0)))
+            tree.insert("", "end", values=(row["start"], row["end"], *cells))
+
+    def _demand_row_dialog(self, kind, existing, title):
+        fields = [("start", self._channel_ui("Start Date", "開始日期"),
+                   existing.get("start", "")),
+                  ("end", self._channel_ui("End Date", "結束日期"),
+                   existing.get("end", ""))]
+        fields += [(field, demand_field_label(field), existing.get(field, ""))
+                   for field in self.demand_fields(kind)]
+
+        def on_ok(entered):
+            candidate = {"start": entered["start"], "end": entered["end"]}
+            for field in self.demand_fields(kind):
+                value = entered[field]
+                if field == "GROUP":
+                    text = str(value).strip()
+                    if text in (self._channel_ui("All", "全部"),
+                                "All", "全部"):
+                        text = ""
+                    value = text
+                candidate[field] = value
+
+            # Group counts as part of the key: two rows can share a date
+            # range when one is scoped to a service group and the other is not.
+            kept = [row for row in self.demand_rows(kind)
+                    if not (row["start"] == existing.get("start")
+                            and row["end"] == existing.get("end")
+                            and str(row.get("GROUP", "")).upper()
+                            == str(existing.get("GROUP", "")).upper())]
+
+            rows, problems = normalize_demand_rows(
+                kept + [candidate], self.demand_fields(kind))
+
+            if len(rows) <= len(kept):
+                messagebox.showerror(
+                    "Cannot save",
+                    "\n".join(problems or ["Check the dates and the amounts."]))
+                return False
+
+            self.set_demand_rows(kind, rows)
+            self.refresh_demand_rate_tree(kind)
+            if problems:
+                messagebox.showwarning("Saved with warnings", "\n".join(problems))
+            return True
+
+        # GROUP is a choice, not free text. Blank stays first because
+        # "applies to every service" is the normal case.
+        combos = {}
+        if "GROUP" in self.demand_fields(kind):
+            # The same categories as tab 2. Two parallel lists meant naming
+            # every category twice and keeping them in step by hand.
+            combos["GROUP"] = [self._channel_ui("All", "全部")] \
+                + self.demand_group_list()
+        self._demand_edit_dialog(title, fields, on_ok,
+                                 date_keys=("start", "end"),
+                                 combo_values=combos or None)
+
+    def add_demand_rate_row(self, kind):
+        self._demand_row_dialog(
+            kind, {}, self._channel_ui("Add Period", "新增期間"))
+
+    def edit_demand_rate_row(self, kind):
+        tree = self.demand_trees.get(kind)
+        selected = tree.selection() if tree else None
+        if not selected:
+            return
+        values = tree.item(selected[0], "values")
+        existing = {"start": str(values[0]), "end": str(values[1])}
+        for index, field in enumerate(self.demand_fields(kind)):
+            existing[field] = values[index + 2]
+        self._demand_row_dialog(
+            kind, existing, f"{existing['start']}  ~  {existing['end']}")
+
+    def delete_demand_rate_row(self, kind):
+        tree = self.demand_trees.get(kind)
+        selected = tree.selection() if tree else None
         if not selected:
             messagebox.showwarning("Delete", "Select a row first.")
             return
+        drop = {(str(tree.item(item, "values")[0]),
+                 str(tree.item(item, "values")[1])) for item in selected}
+        self.set_demand_rows(kind, [
+            row for row in self.demand_rows(kind)
+            if (row["start"], row["end"]) not in drop])
+        self.refresh_demand_rate_tree(kind)
 
-        drop = set()
-        for item in selected:
-            values = self.fuel_schedule_tree.item(item, "values")
-            if values:
-                drop.add((str(values[0]), str(values[1])))
+    # ── ③ service group mapping ──────────────────────────────
+    def _build_demand_group_pane(self):
+        """The groups themselves. Their own page, because naming a group and
+        deciding which channels are in it are two different jobs -- doing both
+        on one screen meant a row of buttons that each acted on a different
+        thing."""
+        pane = self.tab_demand_groups
 
-        self.fuel_schedule = [
-            window for window in self.fuel_schedule
-            if (window["start"], window["end"]) not in drop
-        ]
+        ttk.Label(pane, font=ui_font(9),
+                  text="Categories defined here become the rate columns under Service Level Rates. None are pre-defined."
+                  ).pack(anchor="w", padx=10, pady=(8, 0))
+        ttk.Label(pane, font=ui_font(9),
+                  text="Renaming preserves existing rates and channel assignments. Deleting removes the column from every period."
+                  ).pack(anchor="w", padx=10, pady=(0, 4))
 
-        self.refresh_fuel_schedule_tree()
+        self.demand_group_tree = self._demand_tree(
+            pane, [("GROUP", "Category", 300),
+                   ("COUNT", "Channel Count", 140),
+                   ("RATES", "Periods Priced", 160),
+                   ("PKG", "Package Rows", 140)])
 
-    def clear_fuel_schedule(self):
-        if not self.fuel_schedule:
+        btn = ttk.Frame(pane)
+        btn.pack(fill="x", padx=10, pady=(0, 8))
+        ttk.Button(btn, text="Add Category", width=14,
+                   command=self.add_demand_group).pack(side="left")
+        ttk.Button(btn, text="Rename Category", width=16,
+                   command=self.rename_demand_group).pack(side="left", padx=6)
+        ttk.Button(btn, text="Delete Category", width=16,
+                   command=self.delete_demand_group).pack(side="left")
+
+    def refresh_demand_group_tree(self):
+        tree = getattr(self, "demand_group_tree", None)
+        if tree is None:
+            return
+        tree.delete(*tree.get_children())
+        mapping = self.demand_config.get("service_groups", {}) or {}
+        rows = self.demand_rows("service")
+        for name in self.demand_group_list():
+            count = sum(1 for g in mapping.values()
+                        if str(g).strip().upper() == name)
+            priced = sum(1 for r in rows
+                         if self.to_amount(r.get(name, 0)) > 0)
+            pkg = sum(1 for r in self.demand_rows("special")
+                       if str(r.get("GROUP", "")).strip().upper() == name)
+            tree.insert("", "end", values=(
+                name,
+                "%d" % count,
+                "%d / %d" % (priced, len(rows)),
+                "%d" % pkg))
+
+    def _build_demand_map_pane(self):
+        pane = self.tab_demand_map
+
+        ttk.Label(pane, font=ui_font(9),
+                  text="Assign each service or channel to a category. Unassigned channels are not subject to the service level surcharge."
+                  ).pack(anchor="w", padx=10, pady=(8, 0))
+        ttk.Label(pane, font=ui_font(9),
+                  text="Select a category above, select the rows, then apply. Double-click a row to edit it individually."
+                  ).pack(anchor="w", padx=10, pady=(0, 4))
+
+        gbar = ttk.Frame(pane)
+        gbar.pack(fill="x", padx=10, pady=(4, 0))
+        ttk.Label(gbar, text="Category").pack(side="left")
+        self.demand_group_var = tk.StringVar()
+        self.demand_group_combo = ttk.Combobox(
+            gbar, textvariable=self.demand_group_var, width=26,
+            state="readonly", values=[])
+        self.demand_group_combo.pack(side="left", padx=6)
+        # Beside the dropdown they act on, not stranded at the foot of the
+        # page: "assign to category" means nothing without the category in
+        # view. Plain English text so apply_ui_language can retranslate them
+        # -- _channel_ui picks a language once, at build time, and a button
+        # built before the switch stayed in the wrong one.
+        ttk.Button(gbar, text="Assign", width=10,
+                   command=self.assign_demand_group).pack(side="left")
+        ttk.Button(gbar, text="Unassign", width=10,
+                   command=self.clear_demand_map_row).pack(side="left",
+                                                           padx=6)
+        # A button, not a clickable column heading: nothing about a heading
+        # says it can be pressed.
+        ttk.Button(gbar, text="Select All", width=12,
+                   command=self._demand_map_tick_all).pack(side="left")
+
+        # A tick column, because ttk has no checkbox in a table and
+        # ctrl-clicking rows is not something anyone should have to know.
+        self.demand_map_ticked = set()
+        self.demand_map_tree = self._demand_tree(
+            pane, [("TICK", " ", 44),
+                   ("NAME", "Service / Channel", 300),
+                   ("GROUP", "Category", 240),
+                   ("KIND", "Default or Custom", 150)],
+            multi=True)
+        self.demand_map_tree.bind("<Button-1>", self._demand_map_click)
+        self.demand_map_tree.bind("<Double-1>", self.edit_demand_map_row)
+        self.demand_map_tree.heading("TICK", text="")
+
+
+    def scan_invoice_zones(self):
+        """Read the loaded billing file and report the zones each service used.
+
+        The zone a channel runs on is a fact about the invoice, not something
+        to look up in a rate guide: international services use their own zone
+        numbering, and which numbers appear depends on where the account
+        actually ships. So this reads them rather than assuming.
+        """
+        path = str(self.billing_path.get()).strip()
+        if not path or not os.path.exists(path):
+            messagebox.showwarning(
+                self._channel_ui("No billing file", "尚未選擇帳單檔案"),
+                self._channel_ui("Pick a billing file on Import Files first.",
+                                 "請先在「匯入檔案」選一個帳單檔案。"))
             return
 
+        SERVICE_COL, ZONE_COL = 45, 33
+        patterns = self.custom_service_patterns() + BUILT_IN_SERVICE_PATTERNS
+
+        found = {}
+        try:
+            reader = pd.read_csv(path, header=None, dtype=str,
+                                 chunksize=50000, on_bad_lines="skip",
+                                 encoding_errors="ignore")
+            for chunk in reader:
+                if chunk.shape[1] <= SERVICE_COL:
+                    continue
+                for _i, row in chunk.iterrows():
+                    text = str(row.iloc[SERVICE_COL] or "").strip().lower()
+                    if not text:
+                        continue
+                    service = next((name for pat, name in patterns
+                                    if pat in text), None)
+                    if not service:
+                        continue
+                    zone = str(row.iloc[ZONE_COL] or "").strip()
+                    if zone.endswith(".0"):
+                        zone = zone[:-2]
+                    zone = zone.lstrip("0") or ""
+                    if zone:
+                        found.setdefault(service, set()).add(zone)
+        except Exception as e:
+            messagebox.showerror(
+                self._channel_ui("Could not read the billing file",
+                                 "讀不到帳單檔案"), str(e))
+            return
+
+        if not found:
+            messagebox.showinfo(
+                self._channel_ui("No zones found", "找不到 Zone"),
+                self._channel_ui(
+                    "No recognised service with a zone in that file.",
+                    "這個檔案裡沒有帶 Zone 的已知服務。"))
+            return
+
+        standard = {str(z) for z in BASE_RATE_TEMPLATE_ZONES}
+        lines = []
+        for service in sorted(found):
+            zones = sort_zone_keys(found[service])
+            mark = "" if set(zones) <= standard else "  ←"
+            lines.append(f"{service}: {', '.join(zones)}{mark}")
+
+        self._scanned_zones = {k: sort_zone_keys(v) for k, v in found.items()}
+
+        apply_it = messagebox.askyesno(
+            self._channel_ui("Zones in this invoice", "這張帳單用到的 Zone"),
+            "\n".join(lines) + "\n\n" + self._channel_ui(
+                "Write the non-standard ones into those channels?",
+                "把非標準的那幾條寫進對應渠道的 Zone 欄位嗎？"))
+        if not apply_it:
+            return
+
+        written = []
+        for service, zones in self._scanned_zones.items():
+            if set(zones) <= standard:
+                continue        # standard set: leaving it blank means exactly this
+            entries = [(k, c) for k, c in
+                       (getattr(self, "custom_service_registry", {}) or {}).items()
+                       if isinstance(c, dict)
+                       and str(c.get("name", "")).strip() == service]
+            if entries:
+                for key, cfg in entries:
+                    cfg["zones"] = ", ".join(zones)
+                    self.custom_service_registry[key] = cfg
+            else:
+                if not hasattr(self, "builtin_service_zones"):
+                    self.builtin_service_zones = {}
+                self.builtin_service_zones[service] = ", ".join(zones)
+            written.append(f"{service}: {', '.join(zones)}")
+
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}")
+            return
+
+        for refresh in ("load_custom_service_registry",
+                        "render_accessorial_tables"):
+            try:
+                getattr(self, refresh)()
+            except Exception:
+                pass
+
+        self.confirm(self._channel_ui("Zones written", "已寫入 Zone"),
+                     "\n".join(written) if written else self._channel_ui(
+                         "Every service used the standard zones.",
+                         "所有服務用的都是標準 Zone。"))
+
+    def demand_map_names(self):
+        return self.all_channel_names()
+
+    def _demand_map_click(self, event):
+        """A click in the tick column toggles that row."""
+        tree = self.demand_map_tree
+        if tree.identify_region(event.x, event.y) != "cell":
+            return None
+        if tree.identify_column(event.x) != "#1":
+            return None
+        item = tree.identify_row(event.y)
+        if not item:
+            return None
+        name = str(tree.item(item, "values")[1])
+        if name in self.demand_map_ticked:
+            self.demand_map_ticked.discard(name)
+        else:
+            self.demand_map_ticked.add(name)
+        self.refresh_demand_map_tree()
+        return "break"
+
+    def _demand_map_tick_all(self):
+        names = set(self.demand_map_names())
+        if self.demand_map_ticked >= names:
+            self.demand_map_ticked = set()
+        else:
+            self.demand_map_ticked = names
+        self.refresh_demand_map_tree()
+
+    def demand_map_chosen(self):
+        """Ticked rows, or the highlighted ones when nothing is ticked."""
+        if self.demand_map_ticked:
+            return sorted(self.demand_map_ticked)
+        tree = getattr(self, "demand_map_tree", None)
+        if tree is None:
+            return []
+        return [str(tree.item(i, "values")[1]) for i in tree.selection()]
+
+    def refresh_demand_map_tree(self):
+        tree = getattr(self, "demand_map_tree", None)
+        if tree is None:
+            return
+        tree.delete(*tree.get_children())
+
+        combo = getattr(self, "demand_group_combo", None)
+        groups = self.demand_group_list()
+        if combo is not None:
+            combo["values"] = groups
+            if self.demand_group_var.get() not in groups:
+                self.demand_group_var.set(groups[0] if groups else "")
+
+        mapping = self.demand_config.get("service_groups", {}) or {}
+        builtin = set(BUILT_IN_SERVICE_CHOICES)
+
+        # Unassigned first. A blank group means one thing now -- this channel
+        # takes no service-level surcharge -- because nothing is inferred any
+        # more, so there is no second meaning to disambiguate.
+        rows = []
+        for name in self.demand_map_names():
+            group = str(mapping.get(name, "")).strip().upper()
+            rows.append((not group, name, group,
+                         self._channel_ui("Default channel", "預設渠道")
+                         if name in builtin
+                         else self._channel_ui("Custom channel", "自訂渠道")))
+
+        rows.sort(key=lambda r: (not r[0], r[1]))
+        for blank, name, group, kind in rows:
+            tree.insert("", "end",
+                        values=("☑" if name in self.demand_map_ticked else "☐",
+                                name,
+                                group or self._channel_ui("Unassigned", "未指定"),
+                                kind),
+                        tags=("blank",) if blank else ())
+
+        try:
+            tree.tag_configure("blank", foreground="#6B5B4B")
+        except tk.TclError:
+            pass
+
+    def edit_demand_map_row(self, event=None):
+        tree = self.demand_map_tree
+        selected = tree.selection()
+        if not selected:
+            return
+        # Column 0 is the tick box, so the name is at 1 and the category at 2.
+        name = str(tree.item(selected[0], "values")[1])
+        current = str(tree.item(selected[0], "values")[2])
+
+        def on_ok(entered):
+            # The dropdown shows UPS's wording; the config stores the key.
+            # Without this the label went in verbatim and matched nothing.
+            typed = str(entered["GROUP"]).strip()
+            group = ""
+            for key in self.demand_group_list():
+                if typed.upper() == key:
+                    group = key
+                    break
+            _blank = ("", "UNASSIGNED", "未指定")
+            if not group and typed.upper() not in _blank \
+                    and typed not in _blank:
+                group = typed.upper()
+            if not group:
+                self.demand_config.setdefault("service_groups", {})[name] = ""
+            else:
+                self.demand_config.setdefault("service_groups", {})[name] = group
+            self.refresh_demand_map_tree()
+            return True
+
+        self._demand_edit_dialog(
+            name, [("GROUP", "Demand Service Group",
+                    demand_field_label(current) if current else current)],
+            on_ok,
+            combo_values={"GROUP": [self._channel_ui("Unassigned", "未指定")]
+                          + self.demand_group_list()})
+
+    def demand_group_list(self):
+        return [str(g).strip().upper()
+                for g in (self.demand_config.get("service_group_names") or [])
+                if str(g).strip()]
+
+    def _set_demand_groups(self, names):
+        self.demand_config["service_group_names"] = names
+        combo = getattr(self, "demand_group_combo", None)
+        if combo is not None:
+            combo["values"] = names
+            if self.demand_group_var.get() not in names:
+                self.demand_group_var.set(names[0] if names else "")
+        self.refresh_demand_all()
+
+    def add_demand_group(self):
+        zh = self._ui_language_code == "zh"
+        name = simpledialog.askstring(
+            "新增群組" if zh else "New group",
+            "群組名稱：" if zh else "Group name:", parent=self.root)
+        if not name or not name.strip():
+            return
+        name = name.strip().upper()
+        names = self.demand_group_list()
+        if name in names:
+            return
+        names.append(name)
+        # Every period gains the column, at 0 until you fill it in.
+        for row in self.demand_rows("service"):
+            row.setdefault(name, 0.0)
+        self._set_demand_groups(names)
+
+    def rename_demand_group(self):
+        zh = self._ui_language_code == "zh"
+        old = self._picked_demand_group()
+        if not old:
+            return
+        new = simpledialog.askstring(
+            "改名" if zh else "Rename group",
+            "新名稱：" if zh else "New name:", initialvalue=old,
+            parent=self.root)
+        if not new or not new.strip():
+            return
+        new = new.strip().upper()
+        if new == old or new in self.demand_group_list():
+            return
+        # Carry the rates and the channel mapping across, or a rename would
+        # quietly zero every amount filed under the old name.
+        for row in self.demand_rows("service"):
+            if old in row:
+                row[new] = row.pop(old)
+        for row in self.demand_rows("special"):
+            if str(row.get("GROUP", "")).strip().upper() == old:
+                row["GROUP"] = new
+        mapping = self.demand_config.setdefault("service_groups", {})
+        for channel, group in list(mapping.items()):
+            if str(group).strip().upper() == old:
+                mapping[channel] = new
+        self._set_demand_groups(
+            [new if g == old else g for g in self.demand_group_list()])
+
+    def delete_demand_group(self):
+        zh = self._ui_language_code == "zh"
+        name = self._picked_demand_group()
+        if not name:
+            return
+        using = [c for c, g in
+                 (self.demand_config.get("service_groups", {}) or {}).items()
+                 if str(g).strip().upper() == name]
         if not messagebox.askyesno(
-                "Clear All",
-                f"Remove all {len(self.fuel_schedule)} range(s)?\n\n"
-                "Every shipment then uses the global Fuel %."):
+                "確認" if zh else "Confirm",
+                (("要刪除群組「%s」嗎？\n\n每一段期間裡這一組的金額會一起刪掉，"
+                  "目前歸在這組的 %d 個渠道會變成未歸類（不加收）。" if zh else
+                  "Delete the group \"%s\"?\n\nIts amount goes from every "
+                  "period, and the %d channel(s) in it stop being charged."))
+                % (name, len(using))):
+            return
+        for row in self.demand_rows("service"):
+            row.pop(name, None)
+        # Tab 1 rows scoped to this category would otherwise point at a
+        # category that no longer exists, and quietly never match again.
+        self.set_demand_rows(
+            "special",
+            [r for r in self.demand_rows("special")
+             if str(r.get("GROUP", "")).strip().upper() != name])
+        mapping = self.demand_config.setdefault("service_groups", {})
+        for channel in using:
+            mapping[channel] = ""
+        self._set_demand_groups(
+            [g for g in self.demand_group_list() if g != name])
+
+    def _picked_demand_group(self):
+        """The group selected on tab 3, falling back to tab 4's dropdown."""
+        tree = getattr(self, "demand_group_tree", None)
+        if tree is not None and tree.selection():
+            return str(tree.item(tree.selection()[0], "values")[0]).strip().upper()
+        var = getattr(self, "demand_group_var", None)
+        return str(var.get()).strip().upper() if var is not None else ""
+
+    def assign_demand_group(self):
+        """Put every ticked channel into the category chosen above."""
+        group = str(self.demand_group_var.get()).strip().upper()
+        picked = self.demand_map_chosen()
+        if not group or not picked:
+            return
+        mapping = self.demand_config.setdefault("service_groups", {})
+        for name in picked:
+            mapping[name] = group
+        # Clear the ticks: leaving them set made the next Assign land on rows
+        # the reader had stopped thinking about.
+        self.demand_map_ticked = set()
+        self.refresh_demand_all()
+
+    def clear_demand_map_row(self):
+        """Take the ticked channels out of every category."""
+        for name in self.demand_map_chosen():
+            self.demand_config.get("service_groups", {}).pop(name, None)
+        self.demand_map_ticked = set()
+        self.refresh_demand_all()
+
+    # ── import / export ──────────────────────────────────────
+    DEMAND_SHEETS = {
+        "special": "AHS LPS OVR",
+        "service": "Service Rates",
+        "mapping": "Service Group Mapping",
+    }
+
+    def export_demand_template(self):
+        """One workbook, three sheets, in the same shape the importer reads
+        back. Dates and amounts sit on the same row, so a period can be added
+        in Excel without cross-referencing anything."""
+        from openpyxl import Workbook
+
+        name, folder = self.export_name_for("demand", "Demand_Surcharge_Template.xlsx")
+        path = filedialog.asksaveasfilename(
+            initialfile=name, initialdir=folder or ".",
+            defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")])
+        if not path:
             return
 
-        self.fuel_schedule = []
-        self.refresh_fuel_schedule_tree()
+        wb = Workbook()
+        first = True
 
-    def save_fuel_schedule(self):
-        self.fuel_schedule, problems = normalize_fuel_schedule(self.fuel_schedule)
-        self.refresh_fuel_schedule_tree()
+        for kind in ("special", "service"):
+            if first:
+                ws = wb.active
+                ws.title = self.DEMAND_SHEETS[kind]
+                first = False
+            else:
+                ws = wb.create_sheet(self.DEMAND_SHEETS[kind])
+            fields = self.demand_fields(kind)
+            ws.append(["Start Date", "End Date"] + fields)
+            for row in self.demand_rows(kind):
+                ws.append([row["start"], row["end"]]
+                          + [float(row.get(field, 0) or 0) for field in fields])
+
+        ws = wb.create_sheet(self.DEMAND_SHEETS["mapping"])
+        ws.append(["Service / Channel", "Demand Service Group"])
+        overrides = self.demand_config.get("service_groups", {}) or {}
+        for service in self.demand_map_names():
+            ws.append([service, str(overrides.get(service, "")).strip().upper()])
+
+        try:
+            wb.save(path)
+        except Exception as e:
+            self.report_failed(str(e), self._channel_ui("Export failed",
+                                                        "匯出失敗"))
+            return
+
+        self.remember_import("demand", path)
+        self.report_ok(f"Demand template exported: {os.path.basename(path)}")
+
+    def import_demand_template(self):
+        """Read back a demand workbook. Sheets are read by NAME, and a sheet
+        that is not in the file is left alone rather than blanked -- importing
+        a file that only carries this year's rates must not wipe the service
+        group mapping."""
+        path = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xls")])
+        if not path:
+            return
+
+        def sheet(key):
+            try:
+                return pd.read_excel(path, sheet_name=self.DEMAND_SHEETS[key]).fillna("")
+            except Exception:
+                return None
+
+        loaded = []
+        problems = []
+
+        for kind in ("special", "service"):
+            df = sheet(kind)
+            if df is None or "Start Date" not in df.columns:
+                continue
+            fields = self.demand_fields(kind)
+            raw = []
+            for _, r in df.iterrows():
+                if str(r.get("Start Date", "")).strip() == "":
+                    continue
+                entry = {"start": r.get("Start Date", ""),
+                         "end": r.get("End Date", "")}
+                for field in fields:
+                    entry[field] = r.get(field, 0)
+                raw.append(entry)
+            rows, issues = normalize_demand_rows(raw, fields)
+            self.set_demand_rows(kind, rows)
+            problems.extend(f"{self.DEMAND_SHEETS[kind]}: {text}" for text in issues)
+            loaded.append(f"{self.DEMAND_SHEETS[kind]}: {len(rows)}")
+
+        df = sheet("mapping")
+        if df is not None and "Service / Channel" in df.columns:
+            table = {}
+            for _, r in df.iterrows():
+                service = str(r.get("Service / Channel", "")).strip()
+                if not service:
+                    continue
+                group = str(r.get("Demand Service Group", "")).strip().upper()
+                if group in ("", "(NONE)", "NONE"):
+                    continue        # blank = fall back to the built-in table
+                if group not in DEMAND_SERVICE_GROUPS:
+                    problems.append(f"{service}: unknown service group {group}")
+                    continue
+                table[service] = group
+            self.demand_config["service_groups"] = table
+            loaded.append(f"{self.DEMAND_SHEETS['mapping']}: {len(table)}")
+
+        if not loaded:
+            messagebox.showerror(
+                "Import failed",
+                self._channel_ui(
+                    "No readable demand sheet in that file. Export a template "
+                    "first and fill it in.",
+                    "這個檔案裡沒有讀得懂的 demand 工作表。"
+                    "請先匯出模板再填。"))
+            return
+
+        self.remember_import("demand", path)
+        self.refresh_demand_all()
+
+        try:
+            self.save_config()
+        except Exception as e:
+            messagebox.showerror("Save failed", f"Could not save config: {e}")
+            return
+
+        message = "\n".join(loaded)
+        if problems:
+            messagebox.showwarning("Imported with warnings",
+                                   message + "\n\nWarnings:\n" + "\n".join(problems))
+        else:
+            self.confirm("Demand rates imported", message)
+
+    # ── save ─────────────────────────────────────────────────
+    def save_demand_setup(self):
+        problems = []
+        for kind in ("special", "service"):
+            rows, issues = normalize_demand_rows(
+                self.demand_rows(kind), self.demand_fields(kind))
+            self.set_demand_rows(kind, rows)
+            problems.extend(issues)
+
+        self.refresh_demand_all()
 
         try:
             self.save_config()
@@ -1884,10 +11531,12 @@ class UPSRepricingTool:
             return
 
         if problems:
-            messagebox.showwarning(
-                "Fuel schedule saved with warnings", "\n".join(problems))
+            messagebox.showwarning("Saved with warnings", "\n".join(problems))
         else:
-            self.set_status(f"Fuel schedule saved. Ranges: {len(self.fuel_schedule)}")
+            self.set_status(
+                f"Demand setup saved. Rows: {len(self.demand_rows('special'))} + "
+                f"{len(self.demand_rows('service'))}")
+
     def export_dynamic_surcharge_template(self):
         """Export dynamic surcharge registry as template"""
         
@@ -1933,8 +11582,14 @@ class UPSRepricingTool:
     }
 ]
 
-        pd.DataFrame(rows).to_excel(path, index=False)
-        self.set_status(f"Custom surcharge list exported:\n{path}")
+        try:
+            pd.DataFrame(rows).to_excel(path, index=False)
+        except Exception as e:
+            self.report_failed(self._channel_ui(
+                f"Custom surcharge list export failed: {e}",
+                f"自訂附加費清單匯出失敗：{e}"))
+            return
+        self.report_ok(f"Custom surcharge list exported:\n{path}")
     def import_dynamic_surcharge_template(self):
         """Import dynamic surcharge registry from template"""
         
@@ -2002,157 +11657,7 @@ class UPSRepricingTool:
     # =========================================================
     # TAB 6: SURCHARGE CODE LINKS
     # =========================================================
-    def _build_surcharge_codes_tab(self):
-        """
-        Allow users to link multiple AS codes to existing surcharges.
-        """
 
-        main = ttk.Frame(self.tab_surcharge_codes)
-        main.pack(fill="both", expand=True, padx=12, pady=12)
-
-        title = ttk.Label(main, text="Charge Code Mapping", font=("Segoe UI", 13, "bold"))
-        title.pack(anchor="w", pady=(0, 10))
-
-        desc = ttk.Label(main, text="Map UPS charge codes to the correct surcharge type used in the report.\nThis allows the system to automatically identify invoice charges and assign them to the correct surcharge category for repricing and audit reporting.")
-        desc.pack(anchor="w", pady=(0, 12))
-
-        self.surcharge_code_tree = ttk.Treeview(
-            main,
-            columns=("AS_CODE", "SURCHARGE_NAME", "DESCRIPTION"),
-            show="headings",
-            height=15
-        )
-
-        cols = [
-            ("AS_CODE", "AS Code (UPS)", 150),
-            ("SURCHARGE_NAME", "Links To System Surcharge", 350),
-            ("DESCRIPTION", "Notes", 300),
-        ]
-
-        for key, title_text, width in cols:
-            self.surcharge_code_tree.heading(key, text=title_text)
-            self.surcharge_code_tree.column(key, width=width)
-
-        self.surcharge_code_tree.pack(fill="both", expand=True, pady=10)
-
-        btn_row = ttk.Frame(main)
-        btn_row.pack(fill="x", pady=10)
-
-        ttk.Button(btn_row, text="+ Add Mapping", command=self.open_surcharge_code_popup).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Delete Selected", command=self.delete_surcharge_code).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Save Mapping", command=self.save_surcharge_codes).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Load Mapping", command=self.load_surcharge_codes).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Export List", command=self.export_surcharge_code_template).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="Import List", command=self.import_surcharge_code_template).pack(side="left", padx=4)
-
-    def open_surcharge_code_popup(self):
-        """Add new code → surcharge link"""
-        
-        popup = tk.Toplevel(self.root)
-        popup.title("Add Charge Code Mapping")
-        popup.geometry("600x280")
-
-        container = ttk.Frame(popup)
-        container.pack(fill="both", expand=True, padx=16, pady=16)
-
-        ttk.Label(container, text="UPS AS Code").grid(row=0, column=0, sticky="w", pady=8)
-        code_entry = ttk.Entry(container, width=35)
-        code_entry.grid(row=0, column=1, padx=8, pady=8)
-
-        ttk.Label(container, text="Maps To").grid(row=1, column=0, sticky="w", pady=8)
-
-        surcharge_list = []
-        
-        for key in self.accessorial_rate_table.keys():
-            if isinstance(key, str):
-                surcharge_list.append(key)
-
-        for as_code, cfg in self.dynamic_surcharge_mapping.items():
-            name = cfg.get("name", "").strip()
-            if name and name not in surcharge_list:
-                surcharge_list.append(name)
-
-        surcharge_list = sorted(list(set(surcharge_list)))
-
-        surcharge_var = tk.StringVar(value="Remote Area - AK" if "Remote Area - AK" in surcharge_list else (surcharge_list[0] if surcharge_list else ""))
-        surcharge_combo = ttk.Combobox(
-            container,
-            textvariable=surcharge_var,
-            values=surcharge_list,
-            state="readonly",
-            width=32
-        )
-        surcharge_combo.grid(row=1, column=1, padx=8, pady=8)
-
-        ttk.Label(container, text="Description / Notes (optional)").grid(row=2, column=0, sticky="w", pady=8)
-        description_entry = ttk.Entry(container, width=35)
-        description_entry.grid(row=2, column=1, padx=8, pady=8)
-
-        def save_popup():
-            as_code = code_entry.get().strip().upper()
-            surcharge_name = surcharge_var.get().strip()
-            description = description_entry.get().strip()
-
-            if as_code == "":
-                messagebox.showerror("Error", "AS Code cannot be empty")
-                return
-
-            if surcharge_name == "":
-                messagebox.showerror("Error", "Surcharge name cannot be empty")
-                return
-
-            self.surcharge_code_tree.insert("", "end", values=(
-                as_code,
-                surcharge_name,
-                description
-            ))
-
-            try:
-                self.save_surcharge_codes()
-            except Exception as e:
-                print("Auto save surcharge codes failed:", e)
-
-            popup.destroy()
-
-        ttk.Button(container, text="Save Link", command=save_popup).grid(row=3, column=0, columnspan=2, pady=20)
-
-    def delete_surcharge_code(self):
-        """Delete selected code link"""
-        selected = self.surcharge_code_tree.selection()
-        for item in selected:
-            self.surcharge_code_tree.delete(item)
-        try:
-            self.save_surcharge_codes()
-        except Exception as e:
-            print("Auto save failed:", e)
-
-    def save_surcharge_codes(self):
-        """Save all surcharge code links to memory"""
-        
-        self.dynamic_surcharge_code_map = {}
-
-        for item in self.surcharge_code_tree.get_children():
-            vals = self.surcharge_code_tree.item(item, "values")
-            if not vals or len(vals) < 2:
-                continue
-
-            as_code = str(vals[0]).strip().upper()
-            surcharge_name = str(vals[1]).strip()
-
-            if as_code == "" or surcharge_name == "":
-                continue
-
-            self.dynamic_surcharge_code_map[as_code] = {
-                "surcharge": surcharge_name,
-                "description": str(vals[2]).strip() if len(vals) > 2 else ""
-            }
-
-        try:
-            self.save_config()
-        except Exception as e:
-            print("Auto save config failed:", e)
-
-        self.set_status(f"Charge code mapping saved.\nTotal links: {len(self.dynamic_surcharge_code_map)}")
     def load_surcharge_codes(self):
         """Load surcharge code links from memory"""
         
@@ -2165,118 +11670,9 @@ class UPSRepricingTool:
                 cfg.get("description", "")
             ))
 
-    def export_surcharge_code_template(self):
-        """Export surcharge code template"""
-        
-        path = filedialog.asksaveasfilename(
-            initialfile=self.export_name_for("code_links", "Surcharge_Code_Links_Template.xlsx")[0],
-            initialdir=self.export_name_for("code_links", "Surcharge_Code_Links_Template.xlsx")[1] or ".",
-            defaultextension=".xlsx",
-            filetypes=[("Excel", "*.xlsx")]
-        )
-
-        if not path:
-            return
-
-        rows = []
-
-        for as_code, cfg in self.dynamic_surcharge_code_map.items():
-            rows.append({
-                "AS Code": as_code,
-                "Surcharge Name": cfg.get("surcharge", ""),
-                "Description": cfg.get("description", "")
-            })
-
-        if not rows:
-            rows = [
-                {"AS Code": "RAK", "Surcharge Name": "Remote Area - AK", "Description": "Alaska remote area surcharge variant 1"},
-                {"AS Code": "RAS", "Surcharge Name": "Remote Area - AK", "Description": "Alaska remote area surcharge variant 2"},
-                {"AS Code": "RSK", "Surcharge Name": "Remote Area - AK", "Description": "Alaska remote area surcharge variant 3"},
-            ]
-
-        pd.DataFrame(rows).to_excel(path, index=False)
-        self.set_status(f"Charge code mapping exported:\n{path}")
-    def import_surcharge_code_template(self):
-        """Import surcharge code template"""
-        
-        path = filedialog.askopenfilename(filetypes=[("Excel", "*.xlsx *.xls")])
-
-        if not path:
-            return
-        self.remember_import("code_links", path)
-
-        try:
-            df = pd.read_excel(path).fillna("")
-
-            self.dynamic_surcharge_code_map = {}
-            self.surcharge_code_tree.delete(*self.surcharge_code_tree.get_children())
-
-            for _, row in df.iterrows():
-                as_code = str(row.get("AS Code", "")).strip().upper()
-
-                if as_code == "":
-                    continue
-
-                surcharge_name = str(row.get("Surcharge Name", "")).strip()
-
-                cfg = {
-                    "surcharge": surcharge_name,
-                    "description": str(row.get("Description", "")).strip()
-                }
-
-                self.dynamic_surcharge_code_map[as_code] = cfg
-
-                self.surcharge_code_tree.insert("", "end", values=(
-                    as_code,
-                    surcharge_name,
-                    cfg["description"]
-                ))
-
-            try:
-                self.save_config()
-            except Exception as e:
-                print("Auto save config failed:", e)
-
-            self.confirm("Import complete",
-                         f"Surcharge code links imported and saved.\n\n"
-                         f"{os.path.basename(path)}\n"
-                         f"Total links: {len(self.dynamic_surcharge_code_map)}")
-        except Exception as e:
-            messagebox.showerror("Import Failed", f"Error: {e}")
-
     # =========================================================
     # TAB 7: RUN / PREVIEW
     # =========================================================
-    def _build_run_tab(self):
-        frm = ttk.Frame(self.tab_run)
-        frm.pack(fill="both", expand=True, padx=10, pady=10)
-
-        ctk.CTkButton(frm, text="🚚 Generate Reprice Report", fg_color="#c98b47", hover_color="#b7792f", corner_radius=12, height=42, font=("Segoe UI", 13, "bold"), command=self.run_repricing).pack(anchor="w", pady=12)
-
-        self.status_var = tk.StringVar(value="System Ready")
-        ttk.Label(frm, textvariable=self.status_var).pack(anchor="w")
-
-        cols = ["Tracking", "Zone", "Shipment Type", "Entered Weight", "Billed Weight", "Dim Weight",
-                "Billable Weight", "Length", "Width", "Height", "CAL Base Rate",
-                "Shipping Charge Correction Ground Undeliverable Return",
-                "Residential Adjustment", "Commercial Adjustment", "Direct Delivery Only",
-                "Shipping Charge Correction Large Package Surcharge",
-                "CAL Fuel", "Residential",
-                "DAS Commercial", "DAS Residential", "DAS Extended Commercial", "DAS Extended Residential",
-                "Remote Area Commercial", "Remote Area Residential", "Remote Area - AK", "Remote Area - HI",
-                "Additional Handling Surcharge - Weight",
-                "Additional Handling Surcharge - Dimension",
-                "Additional Handling Surcharge - Packaging", "Large Package Surcharge", "Over Maximum Size Surcharge",
-                "Undeliverable Return", "Address Correction",
-                "Declared Value", "Return To Sender", "2nd Mile Road Base", "Signature", "Adult Signature", "Package Protection", "CAL Total", "UPS Invoice Total"]
-
-        self.preview = ttk.Treeview(frm, columns=cols, show="headings", height=20)
-
-        for c in cols:
-            self.preview.heading(c, text=c)
-            self.preview.column(c, width=135)
-
-        self.preview.pack(fill="both", expand=True)
 
 
     # =========================================================
@@ -2317,8 +11713,9 @@ class UPSRepricingTool:
     }
 
     # Merge the master ACC Codes table in. The ACC table is authoritative where
-    # the two disagree (e.g. ISW = Intercept Service Web), so the Code Lookup
-    # tab shows the same wording as the audit output.
+    # the two disagree, so the Code Lookup tab shows the same wording as the
+    # audit output. ISW used to be the example of a disagreement; both tables
+    # now read "Return To Sender - Web Request", which is what UPS prints.
     UPS_CODE_REFERENCE.update(UPS_ACC_CODE_REFERENCE)
 
     def _build_code_lookup_tab(self):
@@ -2328,14 +11725,14 @@ class UPSRepricingTool:
         ttk.Label(
             frm,
             text="🔎 UPS Charge Code Lookup",
-            font=("Segoe UI", 13, "bold")
+            font=ui_font(13, "bold")
         ).pack(anchor="w", pady=(0, 4))
         ttk.Label(
             frm,
             text="Reference of what each charge code means. "
                  "Click 'Scan Loaded Invoice' to list the codes that actually "
                  "appear in the imported raw invoice.",
-            font=("Segoe UI", 9)
+            font=ui_font(9)
         ).pack(anchor="w", pady=(0, 8))
 
         btn_row = ttk.Frame(frm)
@@ -2344,6 +11741,35 @@ class UPSRepricingTool:
                    command=self.scan_invoice_codes).pack(side="left", padx=4)
         ttk.Button(btn_row, text="Show Full Reference",
                    command=self.show_code_reference).pack(side="left", padx=4)
+
+        # Search and filter. Forty-plus codes in one scrolling list means the
+        # answer to "is XYZ in here" was to scroll and hope; and after a scan
+        # there was no way to ask "just the ones this invoice actually used".
+        ttk.Label(btn_row, text="Search").pack(side="left", padx=(18, 4))
+        self.code_search_var = tk.StringVar()
+        search_entry = ttk.Entry(btn_row, textvariable=self.code_search_var,
+                                 width=26)
+        search_entry.pack(side="left")
+        self.code_search_var.trace_add(
+            "write", lambda *a: self.refresh_code_tree())
+        ttk.Button(btn_row, text="Clear",
+                   command=lambda: self.code_search_var.set("")).pack(
+            side="left", padx=4)
+
+        ttk.Label(btn_row, text="Show").pack(side="left", padx=(18, 4))
+        self.code_filter_var = tk.StringVar(value=self.CODE_FILTER_ALL)
+        code_filter = ttk.Combobox(
+            btn_row, textvariable=self.code_filter_var, state="readonly",
+            width=22,
+            values=[self.CODE_FILTER_ALL, self.CODE_FILTER_INVOICE,
+                    self.CODE_FILTER_UNKNOWN])
+        code_filter.pack(side="left")
+        code_filter.bind("<<ComboboxSelected>>",
+                         lambda e: self.refresh_code_tree())
+
+        self.code_count_var = tk.StringVar(value="")
+        ttk.Label(btn_row, textvariable=self.code_count_var,
+                  foreground="#555").pack(side="left", padx=10)
 
         cols = ("Code", "Surcharge / Meaning", "In Invoice", "Count")
         self.code_tree = ttk.Treeview(frm, columns=cols, show="headings",
@@ -2355,15 +11781,49 @@ class UPSRepricingTool:
                 anchor="w" if c == "Surcharge / Meaning" else "center")
         self.code_tree.pack(fill="both", expand=True, pady=6)
 
+        self.code_rows = []
         self.show_code_reference()
+
+    CODE_FILTER_ALL = "All codes"
+    CODE_FILTER_INVOICE = "In this invoice only"
+    CODE_FILTER_UNKNOWN = "Unknown codes only"
+
+    def refresh_code_tree(self):
+        """Redraw the code table from self.code_rows through the filters."""
+        tree = getattr(self, "code_tree", None)
+        if tree is None:
+            return
+        try:
+            tree.delete(*tree.get_children())
+        except Exception:
+            return
+
+        needle = str(getattr(self, "code_search_var", tk.StringVar()).get()).strip().lower()
+        mode = str(getattr(self, "code_filter_var", tk.StringVar()).get()).strip()
+
+        shown = 0
+        for code, meaning, in_invoice, count in getattr(self, "code_rows", []):
+            if mode == self.CODE_FILTER_INVOICE and not in_invoice:
+                continue
+            if mode == self.CODE_FILTER_UNKNOWN and "UNKNOWN" not in str(meaning):
+                continue
+            # Code and meaning both: you may know the code and want the name,
+            # or know the name and want the code.
+            if needle and needle not in f"{code} {meaning}".lower():
+                continue
+            tree.insert("", "end", values=(code, meaning, in_invoice, count))
+            shown += 1
+
+        total = len(getattr(self, "code_rows", []))
+        if hasattr(self, "code_count_var"):
+            self.code_count_var.set(
+                f"{shown} / {total}" if shown != total else f"{total}")
 
     def show_code_reference(self):
         """Populate the table with the full built-in code reference."""
-        self.code_tree.delete(*self.code_tree.get_children())
-        for code in sorted(self.UPS_CODE_REFERENCE):
-            meaning = self.UPS_CODE_REFERENCE[code]
-            self.code_tree.insert("", "end",
-                                  values=(code, meaning, "", ""))
+        self.code_rows = [(code, self.UPS_CODE_REFERENCE[code], "", "")
+                          for code in sorted(self.UPS_CODE_REFERENCE)]
+        self.refresh_code_tree()
 
     def scan_invoice_codes(self):
         """Read the loaded raw invoice and list which codes appear, with the
@@ -2392,7 +11852,6 @@ class UPSRepricingTool:
                 if code and code.lower() not in ("nan", "charge description code"):
                     seen[code][desc] += 1
 
-            self.code_tree.delete(*self.code_tree.get_children())
             if not seen:
                 self.set_status("No charge codes found in the invoice.")
                 return
@@ -2407,6 +11866,7 @@ class UPSRepricingTool:
             unknown_codes = [c for c in sorted(seen) if c not in known_now]
             known_codes = [c for c in sorted(seen) if c in known_now]
 
+            rows = []
             for code in unknown_codes + known_codes:
                 total = sum(seen[code].values())
                 invoice_desc = seen[code].most_common(1)[0][0]
@@ -2415,9 +11875,18 @@ class UPSRepricingTool:
                 else:
                     meaning = self.UPS_CODE_REFERENCE.get(
                         code, invoice_desc or "(unknown)")
-                self.code_tree.insert(
-                    "", "end",
-                    values=(code, meaning, "Yes", total))
+                rows.append((code, meaning, "Yes", total))
+
+            # The reference codes this invoice did NOT use stay on the list,
+            # blank in the In Invoice column. Dropping them turned a scan into
+            # a one-way trip: you could no longer look up a code that happened
+            # not to appear without reloading the whole reference.
+            for code in sorted(self.UPS_CODE_REFERENCE):
+                if code not in seen:
+                    rows.append((code, self.UPS_CODE_REFERENCE[code], "", ""))
+
+            self.code_rows = rows
+            self.refresh_code_tree()
 
             if unknown_codes:
                 self.status_var.set(
@@ -2446,40 +11915,96 @@ class UPSRepricingTool:
     # =========================================================
     def _pick_billing(self):
         path = filedialog.askopenfilename(filetypes=[("Excel/CSV", "*.xlsx *.xls *.csv")])
-        if path:
-            self.billing_path.set(path)
+        if not path:
+            return
+        self.billing_path.set(path)
 
-    def _pick_config(self):
-        path = filedialog.asksaveasfilename(initialfile=DEFAULT_CONFIG_PATH, defaultextension=".json", filetypes=[("JSON", "*.json")])
-        if path:
-            self.config_path.set(path)
+        # File it now. The raw rows are useful on their own -- a tracking
+        # lookup, a correction three weeks from now needing its original
+        # shipment -- and none of that waits on a rate table or a successful
+        # run. Picking the file is enough.
+        try:
+            invoices, rows = self.remember_invoice_file(path)
+            if rows:
+                self.status_var.set(
+                    ("已存入帳單歷史：%s（%s 列）" if self._ui_language_code == "zh"
+                     else "Filed in the invoice history: %s (%s rows)")
+                    % (", ".join(invoices), f"{rows:,}"))
+                try:
+                    self.refresh_history_summary()
+                except Exception:
+                    pass
+        except Exception as e:
+            # Never block the pick. The run files it again anyway.
+            print("History store on pick skipped:", e)
+
 
     # =========================================================
     # TEMPLATE FUNCTIONS
     # =========================================================
-    def export_base_rate_template(self):
-        service = self.base_rate_service.get()
-        path = filedialog.asksaveasfilename(initialfile=f"{service}_Base_Rate_template.xlsx", defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")])
-        if not path:
-            return
+    @staticmethod
+    def canonical_rate_service_name(value):
+        """Keep Service equal to the UPS original service name.
 
+        Older templates/status text sometimes appended ``(Residential)`` or
+        ``(Commercial)`` to the Service value.  Residential classification now
+        lives only in the dedicated Residential column, so strip those legacy
+        suffixes during export/import to prevent duplicate or missed lookups.
+        """
+        name = str(value or "").strip()
+        name = re.sub(r"\s*\((?:Residential|Commercial)\)\s*$", "", name,
+                      flags=re.IGNORECASE)
+        return name.strip()
+
+    def base_rate_template_zones(self, service, residential=None):
+        """Zone columns for a base rate template.
+
+        A channel that declares its zones gets exactly those and nothing else.
+        It used to get the standard 2-8 / 44-46 set plus its declared ones, so
+        a channel that only runs on zone 108 exported a sheet of eleven
+        columns it can never use, all of them zero, with the one real column
+        hidden at the far right.
+
+        Declare nothing and the standard set is still what you get.
+        """
+        declared = sort_zone_keys(self.custom_service_zones(service, residential))
+        if not declared and residential is not None:
+            # The zones are filtered by Commercial / Residential. A channel
+            # registered under one type only, exported as the other, came out
+            # with an empty set and therefore the full standard sheet -- the
+            # declared zone silently replaced by eleven it does not run.
+            # Union across variants instead: the lane is the lane.
+            declared = sort_zone_keys(self.custom_service_zones(service))
+        if declared:
+            return declared
+        # Nothing declared: if this service already has a rate table, use the
+        # zones it was loaded with rather than the domestic default.
+        loaded = self.zones_from_rate_table(service, residential)
+        if loaded:
+            return [str(z) for z in loaded]
+        return [str(z) for z in BASE_RATE_TEMPLATE_ZONES]
+
+    def write_base_rate_template(self, service, path, residential=None):
+        service = self.canonical_rate_service_name(service)
+        is_residential = self.custom_service_is_residential(service) if residential is None else bool(residential)
         rows = [{"Service": service, "Weight": weight} for weight in range(1, 151)]
-        for z in [2, 3, 4, 5, 6, 7, 8, 44, 45, 46]:
+        zones = self.base_rate_template_zones(service, is_residential)
+        for z in zones:
             for row in rows:
                 row[f"Zone {z}"] = 0
 
-        pd.DataFrame(rows).to_excel(path, index=False)
-        self.set_status(f"{service} Base Rate template exported:\n{path}")
-    def import_base_rate_template(self):
-        # Allow selecting multiple base rate files at once (e.g. Commercial +
-        # Residential). Tables are MERGED, not overwritten, so reclassification
-        # (RES <-> COM) can look up both services.
-        paths = filedialog.askopenfilenames(filetypes=[("Excel", "*.xlsx *.xls")])
-        if not paths:
-            return
-        self._load_base_rate_files(paths, quiet=False)
+        with pd.ExcelWriter(path, engine="openpyxl") as writer:
+            pd.DataFrame(rows).to_excel(writer, sheet_name="Base Rates", index=False)
+            pd.DataFrame([{
+                "Service": service,
+                "Channel Type": "Residential" if is_residential else "Commercial",
+                "Built By": APP_BUILD,
+            }]).to_excel(writer, sheet_name="_ChannelInfo", index=False)
+            writer.book["_ChannelInfo"].sheet_state = "hidden"
+        return zones
 
-    def _load_base_rate_files(self, paths, quiet=False):
+
+    def _load_base_rate_files(self, paths, quiet=False, channel_override=None):
         """Shared by the Import button and the startup reload. Rate tables are
         DataFrames, too big for the config file, so the config remembers the
         FILE PATHS and reloads them -- otherwise every session starts with no
@@ -2491,7 +12016,28 @@ class UPSRepricingTool:
             all_dfs = []
             imported_services = []
             for path in paths:
-                df = pd.read_excel(path).fillna("")
+                # Closed explicitly. pd.ExcelFile keeps the file handle open
+                # for as long as the object lives, and this one was never
+                # closed -- so every base rate file imported this session
+                # stayed locked, and Windows refused to overwrite or delete it
+                # ("the file is open in Python") until the tool was shut down.
+                # Reading both sheets off the same open book also stops the
+                # file being opened three times.
+                with pd.ExcelFile(path) as book:
+                    rate_sheet = ("Base Rates" if "Base Rates" in book.sheet_names
+                                  else book.sheet_names[0])
+                    df = pd.read_excel(book, sheet_name=rate_sheet).fillna("")
+
+                    hidden_service = None
+                    hidden_residential = None
+                    if "_ChannelInfo" in book.sheet_names:
+                        try:
+                            info = pd.read_excel(book, sheet_name="_ChannelInfo").fillna("")
+                            if not info.empty:
+                                hidden_service = str(info.iloc[0].get("Service", "")).strip()
+                                hidden_residential = str(info.iloc[0].get("Channel Type", "")).strip().lower() == "residential"
+                        except Exception:
+                            pass
 
                 required = ["Service", "Weight"]
                 missing = [c for c in required if c not in df.columns]
@@ -2499,11 +12045,50 @@ class UPSRepricingTool:
                     raise Exception(
                         f"Base rate file missing column(s): {missing}\nFile: {path}")
 
-                # Merge: each service name becomes/updates a table entry.
-                for service_name, sub_df in df.groupby("Service"):
-                    key = str(service_name).strip()
-                    self.rate_tables[key] = sub_df.copy()
-                    imported_services.append(key)
+                if channel_override is not None:
+                    forced_service, forced_residential = channel_override
+                    df["Service"] = self.canonical_rate_service_name(forced_service)
+                    df["Residential"] = "YES" if forced_residential else "NO"
+                else:
+                    if hidden_service:
+                        df["Service"] = self.canonical_rate_service_name(hidden_service)
+                    if "Residential" not in df.columns:
+                        # Was: default the whole file to NO. A legacy template
+                        # whose Service column literally says "Ground
+                        # Residential" then imported under key
+                        # ("Ground Residential", False), while every lookup for
+                        # a residential shipment asks for True -- so the table
+                        # was present and never found, and 433 rows of one
+                        # invoice came out with base rate 0. The service name is
+                        # evidence about the flag, so use it.
+                        df["Residential"] = df["Service"].map(
+                            lambda s: "YES" if residential_flag_from_service_name(
+                                s, default=hidden_residential) else "NO")
+                # Residential is an internal import key. New channel templates
+                # keep it in a hidden metadata sheet instead of showing YES/NO.
+                df["Service"] = df["Service"].map(self.canonical_rate_service_name)
+
+                # Blank cells inside an existing Residential column are the same
+                # trap one row at a time, so they fall back to the name too.
+                _res_raw = df["Residential"].astype(str).str.strip()
+                _res_yes = _res_raw.str.upper().isin(["YES", "Y", "TRUE", "1", "是"])
+                _res_blank = _res_raw.eq("") | _res_raw.str.lower().eq("nan")
+                df["_RES_BOOL"] = [
+                    residential_flag_from_service_name(svc, default=flag) if blank else flag
+                    for svc, flag, blank in zip(df["Service"], _res_yes, _res_blank)
+                ]
+                # Same UPS Service may legally have separate Commercial and Residential tables.
+                for (service_name, residential), sub_df in df.groupby(["Service", "_RES_BOOL"]):
+                    service_name = str(service_name).strip()
+                    key = (service_name, bool(residential))
+                    self.rate_tables[key] = sub_df.drop(columns=["_RES_BOOL"], errors="ignore").copy()
+                    # The channel name, the way every other screen writes it
+                    # -- the dialog names what was loaded, and "Ground
+                    # Commercial" is that name, not "Ground | Residential: NO".
+                    imported_services.append(
+                        self.channel_surcharge_label(service_name,
+                                                     bool(residential)))
+                df = df.drop(columns=["_RES_BOOL"], errors="ignore")
 
                 all_dfs.append(df)
 
@@ -2515,26 +12100,58 @@ class UPSRepricingTool:
             new_df = pd.concat(all_dfs, ignore_index=True)
             if isinstance(getattr(self, "last_base_rate_df", None), pd.DataFrame) \
                     and not self.last_base_rate_df.empty:
-                newly = set(new_df["Service"].astype(str).str.strip())
-                kept = self.last_base_rate_df[
-                    ~self.last_base_rate_df["Service"].astype(str).str.strip().isin(newly)
-                ]
+                if "Residential" not in new_df.columns:
+                    new_df["Residential"] = "NO"
+                if "Residential" not in self.last_base_rate_df.columns:
+                    self.last_base_rate_df["Residential"] = "NO"
+                newly = set(zip(new_df["Service"].astype(str).str.strip(),
+                                new_df["Residential"].astype(str).str.strip().str.upper()))
+                _old_keys = list(zip(self.last_base_rate_df["Service"].astype(str).str.strip(),
+                                     self.last_base_rate_df["Residential"].astype(str).str.strip().str.upper()))
+                kept = self.last_base_rate_df[[k not in newly for k in _old_keys]]
                 self.last_base_rate_df = pd.concat([kept, new_df], ignore_index=True)
             else:
                 self.last_base_rate_df = new_df
 
             self._populate_rate_preview(self.last_base_rate_df.head(500))
 
-            cached = ", ".join(sorted(set(self.rate_tables.keys())))
-            self.base_rate_paths = [str(p) for p in paths]
-            _msg = (f"Base rates imported and merged.\n\n"
-                    f"Newly loaded: {', '.join(sorted(set(imported_services)))}\n"
-                    f"All cached services: {cached}")
+            # The Rate Table column of the Custom Services window is live
+            # state, so refresh it whenever the loaded tables change.
+            try:
+                self.load_custom_service_registry()
+            except Exception as e:
+                print("Custom service status refresh failed:", e)
+
+            cached = ", ".join(sorted(f"{k[0]} | Residential: {'YES' if k[1] else 'NO'}" if isinstance(k, tuple) else str(k) for k in self.rate_tables.keys()))
+            # Added to what is already loaded, not swapped for it. The rate
+            # TABLES have always merged across imports, but this list was
+            # replaced by whichever file went in last -- so Save Settings
+            # remembered that one file, and the next session came back with
+            # only its lanes. Import Commercial, then Residential, and
+            # Commercial was gone the next morning.
+            _previous = [str(_p) for _p in (getattr(self, "base_rate_paths", None) or [])]
+            _incoming = [str(_p) for _p in paths]
+            self.base_rate_paths = _previous + [
+                _p for _p in _incoming if _p not in _previous]
+            # One line. The dialog used to list every newly loaded service and
+            # then every service in the cache, which is four lines to say
+            # "it worked" -- the full list is on the Channels tab.
+            _loaded = sorted(set(imported_services))
+            # Named, not counted: "1 service" does not say whether the file
+            # that just went in was the Commercial table or the Residential
+            # one. A long list is cut off rather than filling the dialog.
+            _shown = _loaded[:6]
+            _rest = len(_loaded) - len(_shown)
+            _msg = self._channel_ui(
+                "Base rates imported: " + ", ".join(_shown)
+                + (f" and {_rest} more" if _rest else ""),
+                "基本運費已匯入：" + "、".join(_shown)
+                + (f" 等 {len(_loaded)} 個渠道" if _rest else ""))
             if quiet:
-                self.set_status(_msg.replace("\n", "  "))
+                self.set_status(f"{_msg}  {cached}")
             else:
                 self.save_config()
-                self.confirm("Import complete", _msg)
+                self.report_ok(_msg)
 
         except Exception as e:
             if quiet:
@@ -2543,17 +12160,160 @@ class UPSRepricingTool:
                 messagebox.showerror("Base rate import failed",
                                      f"Base rate import failed\n\nError: {e}")
 
-    def export_billing_sample(self):
-        path = filedialog.asksaveasfilename(initialfile="UPS_Billing_Sample.xlsx", defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")])
-        if not path:
-            return
-
-        df = pd.DataFrame([{"Tracking Number": "1ZTEST0001", "Zone": 4, "Entered Weight": 10, "Billed Weight": 15, "Package Dimensions": "20 x 12 x 10", "Charge Description Code": "FRT", "Charge Description": "Ground", "Net Amount": 0}])
-        df.to_excel(path, index=False)
-        self.set_status(f"Billing sample exported:\n{path}")
     # =========================================================
     # CONFIG (Thread-Safe)
     # =========================================================
+    # The sign-in URL the browser lands on carries a nonce and a state that
+    # are minted per attempt and rejected on reuse, so it cannot be stored.
+    # billing.ups.com issues a fresh one on arrival; that is the only address
+    # worth keeping.
+    UPS_BILLING_CENTER = "https://billing.ups.com/"
+
+    def open_billing_center(self):
+        """Open the UPS Billing Center, tracking number on the clipboard.
+
+        Whatever is in the tracking box goes to the clipboard on the way out.
+        The Billing Center has no per-invoice deep link that survives sign-in,
+        so a paste is the most that can be handed over -- but it beats
+        retyping an 18-character number off a second screen.
+        """
+        # The tracking box lives on the history tab. Called from the first
+        # page it may not exist yet, and an empty clipboard is fine there --
+        # there is nothing to look up before a file has been imported.
+        tracking = ""
+        try:
+            tracking = str(getattr(self, "history_tracking_var").get()
+                           or "").strip()
+        except Exception:
+            tracking = ""
+        if tracking:
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(tracking)
+                self.set_status(
+                    f"Opening UPS Billing Center -- {tracking} copied to "
+                    f"clipboard")
+            except Exception:
+                self.set_status("Opening UPS Billing Center")
+        else:
+            self.set_status("Opening UPS Billing Center")
+        self.open_url(self.UPS_BILLING_CENTER)
+
+    @staticmethod
+    def column_letter_to_index(letter):
+        """'A' -> 0, 'AW' -> 48. Returns None for anything unusable."""
+        letter = str(letter or "").strip().upper()
+        if not letter or not letter.isalpha():
+            return None
+        idx = 0
+        for ch in letter:
+            idx = idx * 26 + (ord(ch) - 64)
+        return idx - 1
+
+    def declared_value_col_index(self):
+        idx = self.column_letter_to_index(self.dv_column.get())
+        return 48 if idx is None else idx
+
+    def reset_declared_value_tiers(self):
+        """Put the Declared Value boxes back to the account's rate card."""
+        for _name, _value in self.DV_DEFAULTS.items():
+            getattr(self, _name).set(_value)
+        self._refresh_dv_example()
+        self.set_status("Declared Value tiers reset")
+
+    def _refresh_dv_example(self):
+        """Price two sample declarations under whatever is typed right now."""
+        try:
+            bits = []
+            for _v in (120, 264, 400):
+                _q = self.quote_declared_value(_v)
+                bits.append("$%d -> %s" % (
+                    _v, "--" if _q is None else ("$%.2f" % _q)))
+            self.dv_example.set(
+                self._channel_ui(
+                    "Charged on the whole declared value once the free limit "
+                    "is passed, first step included.   " + "   ".join(bits),
+                    "超過免收上限後全額計費（含第一個級距），不足一級進位。　"
+                    + "　".join(bits)))
+        except Exception:
+            self.dv_example.set("")
+
+    def quote_declared_value(self, value):
+        """Published Declared Value charge for a declared amount.
+
+        Returns None when the parcel declared nothing or the tiers are not
+        configured, so the caller can decide what to do rather than being
+        handed a 0.00 that looks like a priced answer.
+
+        UPS charges for the whole declared amount once the free limit is
+        passed, first unit included -- a $950 declaration is 10 units, not 9.
+        """
+        value = self.to_amount(value)
+        if value <= 0:
+            return None
+        free = self.to_amount(self.dv_free_limit.get())
+        unit = self.to_amount(self.dv_unit.get())
+        rate = self.to_amount(self.dv_unit_rate.get())
+        floor = self.to_amount(self.dv_min_charge.get())
+        if unit <= 0 or rate <= 0:
+            return None
+        if value <= free:
+            return 0.0
+        units = math.ceil(round(value / unit, 6))
+        return round(max(floor, units * rate), 2)
+
+    # ---- mouse wheel over scrollable panels ----------------------------
+    _SELF_SCROLLING = ("Treeview", "Text", "Listbox", "TCombobox", "Spinbox")
+
+    def _bind_mousewheel(self, canvas):
+        """Let the wheel scroll `canvas` from anywhere inside it.
+
+        Binding the wheel to the canvas alone only works while the pointer is
+        over bare background. Everything placed in the canvas -- frames,
+        labels, entries -- is a window in its own right and takes the event
+        first, so a page full of widgets looked like it could not scroll at
+        all while an empty one scrolled fine.
+
+        So the binding goes on the whole application and the handler decides:
+        it scrolls only when the widget under the pointer is this canvas or
+        sits inside it, and it leaves widgets that scroll themselves alone.
+        add="+" because each panel installs its own handler and the last one
+        would otherwise replace the rest.
+        """
+        def _inside(widget):
+            while widget is not None:
+                if widget is canvas:
+                    return True
+                widget = getattr(widget, "master", None)
+            return False
+
+        def _wheel(event):
+            try:
+                if not canvas.winfo_exists():
+                    return None
+                under = canvas.winfo_containing(*canvas.winfo_pointerxy())
+            except Exception:
+                return None
+            if under is None or not _inside(under):
+                return None
+            try:
+                if under.winfo_class() in self._SELF_SCROLLING:
+                    return None
+            except Exception:
+                pass
+            num = getattr(event, "num", None)
+            if num == 4:
+                step = -1
+            elif num == 5:
+                step = 1
+            else:
+                step = -1 if getattr(event, "delta", 0) > 0 else 1
+            canvas.yview_scroll(step, "units")
+            return "break"
+
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            canvas.bind_all(seq, _wheel, add="+")
+
     def open_url(self, url):
         try:
             webbrowser.open(url)
@@ -2570,6 +12330,23 @@ class UPSRepricingTool:
         if path:
             self.last_import_paths[kind] = str(path)
 
+    def template_file_name(self, *parts):
+        """A template filename that says what is in it.
+
+        UPS_<what>_<channel>.xlsx. The accessorials template went out as
+        UPS_ACC_TEMPLATE_V4.xlsx whatever it held, so a folder of them was
+        four files with the same name and a number in brackets. No date: the
+        name says which channel it is, and a dated name never overwrites the
+        one it replaces.
+        """
+        safe = []
+        for part in parts:
+            text = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "_",
+                          str(part or "").strip()).strip("_")
+            if text:
+                safe.append(text)
+        return "UPS_" + "_".join(safe) + ".xlsx"
+
     def export_name_for(self, kind, fallback):
         p = getattr(self, "last_import_paths", {}).get(kind, "")
         if not p:
@@ -2577,6 +12354,73 @@ class UPSRepricingTool:
         raw = str(p).replace("\\", "/")
         name = os.path.basename(raw)
         return (name or fallback), (os.path.dirname(raw) or "")
+
+    def save_default_dim_factor(self):
+        """Check the number, then write it. A blank or a zero would divide
+        every parcel by nothing, so it is refused rather than stored."""
+        raw = normalize_number_text(self.default_dim_factor.get())
+        try:
+            value = float(raw)
+        except (ValueError, TypeError):
+            value = 0.0
+        if value <= 0:
+            self.report_failed(self._channel_ui(
+                "The default DIM factor must be a number above 0.",
+                "預設材積除數必須是大於 0 的數字。"))
+            return
+        self.default_dim_factor.set(f"{value:g}")
+        try:
+            self.save_config()
+        except Exception:
+            return
+        self.report_ok(self._channel_ui(
+            f"Default DIM factor saved: {value:g}",
+            f"預設材積除數已儲存：{value:g}"))
+
+    def save_settings_now(self):
+        """Save config from a button press, and say whether it worked.
+
+        Explicit, not silent: a silent save skips writing when another window
+        has touched the file, and reports nothing when it fails -- both would
+        make this button say "saved" when nothing was.
+        """
+        try:
+            self.save_config()
+        except (IOError, OSError):
+            # save_config already showed the reason for a file error; a second
+            # dialog saying the same thing is noise.
+            return
+        except Exception as e:
+            # Anything else -- a value that will not serialise, a widget that
+            # has gone -- used to be swallowed here, so the button looked like
+            # it did nothing at all.
+            traceback.print_exc()
+            self.report_failed(self._channel_ui(
+                f"Settings not saved: {e}", f"設定儲存失敗：{e}"))
+            return
+        self.report_ok(self._channel_ui("Settings saved.", "設定已儲存。"))
+
+    def report_ok(self, text, title=None):
+        """Said out loud: an explicit import, export or save gets a dialog.
+
+        The status line alone left a save that worked and a click that missed
+        the button looking exactly the same. Automatic saves -- the ones that
+        follow every small edit -- still go to the status line only, or every
+        keystroke would raise a modal.
+        """
+        self.confirm(title or self._channel_ui("Done", "完成"), text)
+
+    def report_failed(self, text, title=None):
+        """The other half: a failed import, export or save says so."""
+        try:
+            self.set_status(str(text).replace("\n", "  "))
+        except Exception:
+            pass
+        try:
+            messagebox.showerror(
+                title or self._channel_ui("Failed", "失敗"), str(text))
+        except Exception:
+            pass
 
     def confirm(self, title, text):
         """Imports DO get a dialog. Everything else goes to the status line.
@@ -2660,10 +12504,13 @@ class UPSRepricingTool:
                     "Lead Shipment Number": 13,
                     "Charge Classification Code": 43,
                     "Charge Description Code": 44,
-                    "Charge Description": 45}
+                    "Charge Description": 45,
+                    # UPS's own note on the line: what the audit fee was
+                    # worked out from, why a credit was given and who asked.
+                    "FS": 174, "FT": 175, "FU": 176}
 
     @classmethod
-    def read_billing_file(cls, path):
+    def read_billing_file(cls, path, owner=None):
         """Returns (frame, has_header).
 
         UPS ships these as .csv as often as .xlsx, AND the CSV often has no
@@ -2677,7 +12524,12 @@ class UPSRepricingTool:
                 if p.endswith((".csv", ".txt"))
                 else (lambda h: pd.read_excel(path, header=h, dtype=object)))
 
-        df = read(0)
+        # Through the locked-file reader when there is an app to ask: the
+        # invoice is often still open in Excel while it is being checked.
+        if owner is not None:
+            df = owner.read_locked_friendly(path, lambda _p: read(0))
+        else:
+            df = read(0)
         names = {str(c).strip().lower() for c in df.columns}
         if "tracking number" in names and "net amount" in names:
             return df, True
@@ -2689,7 +12541,7 @@ class UPSRepricingTool:
         every layer (SHP + RTN + ADJ) because a correction layer is real
         money too. Also returns the account-level rows, which carry no
         tracking number and therefore no revenue."""
-        raw, has_header = self.read_billing_file(invoice_path)
+        raw, has_header = self.read_billing_file(invoice_path, owner=self)
 
         # By header name when the file has one, by fixed position when it
         # does not. Position alone breaks if a column is added or dropped;
@@ -2720,6 +12572,33 @@ class UPSRepricingTool:
         code_c = col("Charge Description Code", required=False)
         desc_c = col("Charge Description", required=False)
 
+        def _join_notes(a, b, c, mask):
+            """The three note columns joined, one string per masked row."""
+            out = []
+            frames = [x for x in (a, b, c) if x is not None]
+            if not frames:
+                return ["" for _ in range(int(mask.sum()))]
+            # fillna BEFORE astype: under the str dtype astype(str) leaves a
+            # real NaN alone, so the value reaching strip() is a float and the
+            # whole report dies with "'float' object has no attribute 'strip'".
+            picked = [f[mask].fillna("").astype(str).tolist() for f in frames]
+            for parts in zip(*picked):
+                seen = []
+                for t in parts:
+                    t = "" if t is None else str(t).strip()
+                    if t and t.lower() not in ("nan", "none", "<na>") \
+                            and t not in seen:
+                        seen.append(t)
+                out.append(" ".join(seen))
+            return out
+
+        # UPS's own explanation of the line. On the audit fee it states the
+        # package count and correction amount the fee was worked out from; on
+        # a goodwill credit it names the reason and who asked for it.
+        note_a = col("FS", required=False)
+        note_b = col("FT", required=False)
+        note_c = col("FU", required=False)
+
         # A missing tracking number can arrive as NaN, pd.NA, "nan" or
         # "None" depending on the pandas string dtype in play. Left as NA it
         # survives the mask AND is then silently dropped by groupby, so its
@@ -2737,6 +12616,20 @@ class UPSRepricingTool:
             InvDate=("InvDate", "first"))
         account_total = float(df[~has]["Net"].sum())
 
+        # Notes keyed by tracking, for the rows that DO carry one. The four
+        # goodwill credits on one invoice are exactly the lines whose reason
+        # matters most, and they were coming out blank because they take a
+        # different path below.
+        _note_by_tracking = {}
+        try:
+            _all_notes = _join_notes(note_a, note_b, note_c,
+                                     pd.Series([True] * len(key)).values)
+            for _t, _n in zip(key.tolist(), _all_notes):
+                if _t and _n and _t not in _note_by_tracking:
+                    _note_by_tracking[_t] = _n
+        except Exception:
+            _note_by_tracking = {}
+
         # Account-level rows, itemised. They carry no tracking number and
         # therefore no revenue, so they are pure cost on the statement.
         _m = ~has.values
@@ -2746,11 +12639,12 @@ class UPSRepricingTool:
             "Charge Description": desc_c[_m].astype(str),
             "Charge Description Code": code_c[_m].astype(str),
             "Charge Classification": cls_c[_m].astype(str),
+            "UPS Note": _join_notes(note_a, note_b, note_c, _m),
             "Amount": net[_m].round(2),
         }) if bool(_m.any()) else pd.DataFrame(
             columns=["Tracking", "Charge Description",
                      "Charge Description Code", "Charge Classification",
-                     "Amount"])
+                     "UPS Note", "Amount"])
 
         # Charge codes this build has no rate for. Same membership test the
         # repricing run uses, so the two agree.
@@ -2784,7 +12678,2177 @@ class UPSRepricingTool:
             raise ValueError(
                 f"Cost does not reconcile to the invoice: {_check:,.2f} "
                 "unaccounted for. Refusing to report a profit from it.")
-        return by, account_total, account_rows, unknown_rows
+        return by, account_total, account_rows, unknown_rows, _note_by_tracking
+
+    def _build_history_tab(self):
+        """Past invoices, kept so a correction can be read against what it
+        corrects. Import old files here; every report run files its own."""
+        page = ttk.Frame(self.tab_history)
+        page.pack(fill="both", expand=True, padx=12, pady=10)
+
+        row = ttk.Frame(page)
+        row.pack(fill="x")
+        ttk.Button(row, text="Import Past Invoices", width=22,
+                   command=self.import_history_files).pack(side="left")
+        ttk.Button(row, text="Refresh", width=12,
+                   command=self.refresh_history_summary).pack(side="left",
+                                                              padx=6)
+        ttk.Button(row, text="Stored Invoices", width=18,
+                   command=self.open_history_invoices_window).pack(side="left",
+                                                                   padx=4)
+
+        self.history_summary_var = tk.StringVar(value="")
+        ttk.Label(page, textvariable=self.history_summary_var,
+                  font=ui_font(9)).pack(anchor="w",
+                                                          pady=(8, 4))
+
+        find = ttk.LabelFrame(page, text="Find a Tracking")
+        find.pack(fill="x", pady=(4, 6))
+        find_row = ttk.Frame(find)
+        find_row.pack(fill="x", padx=10, pady=8)
+        ttk.Label(find_row, text="Tracking").pack(side="left", padx=(0, 6))
+        self.history_tracking_var = tk.StringVar()
+        _find_entry = ttk.Entry(find_row, textvariable=self.history_tracking_var,
+                                width=30)
+        _find_entry.pack(side="left")
+        _find_entry.bind("<Return>", lambda e: self.search_history())
+        ttk.Button(find_row, text="Search", width=10,
+                   command=self.search_history).pack(side="left", padx=6)
+        ttk.Button(find_row, text="Rating Breakdown", width=20,
+                   command=self.open_explain_window).pack(side="left", padx=4)
+
+        wrap = ttk.Frame(page)
+        wrap.pack(fill="both", expand=True)
+
+        # Headings are matched against the translation table by their text,
+        # so a heading that reads the same as some other tab's label gets that
+        # label's translation -- which is how "Zone" came back as "Zones".
+        # These titles are the history tab's own.
+        # UPS's own field names, exactly as the billing file uses them, so a
+        # column here and a column in the invoice are the same thing under the
+        # same name. Made-up shorthand ("Charge Layer", "Adjustment") meant
+        # reading two vocabularies at once.
+        columns = [("invoice_number", "Invoice Number", 145),
+                   ("invoice_date", "Invoice Date", 95),
+                   ("ship_date", "Transaction Date", 110),
+                   ("layer", "Charge Category Code", 145),
+                   ("detail", "Charge Category Detail Code", 190),
+                   ("as_code", "Charge Description Code", 165),
+                   ("description", "Charge Description", 300),
+                   ("zone", "Zone", 60),
+                   ("entered_weight", "Entered Weight", 105),
+                   ("billed_weight", "Billed Weight", 100),
+                   ("dims_c", "Package Dimensions", 160),
+                   ("dims_a", "Detail Keyed Dimensions", 175),
+                   ("net_amount", "Net Amount", 100)]
+        self.history_columns = [c for c, _t, _w in columns]
+        self.history_tree = ttk.Treeview(
+            wrap, columns=self.history_columns, show="headings", height=16)
+        # Striped, and reversals in red -- a correction is a pair of lines
+        # that differ by their sign, and picking that out of thirteen columns
+        # is the whole reason for looking a tracking up. Colours come from the
+        # palette: they were three fixed browns, so on Slate or Graphite the
+        # table stayed the colour of a different theme.
+        self.paint_history_rows()
+        for key, title, width in columns:
+            anchor = "e" if key == "net_amount" else "w"
+            self.history_tree.heading(key, text=title, anchor=anchor)
+            # The description column absorbs the extra width when the window
+            # is widened; the rest keep theirs. A table where every column is
+            # fixed leaves a grey strip on the right of a maximised window,
+            # and one where every column stretches turns Zone into a field
+            # four inches wide.
+            self.history_tree.column(key, width=width, anchor=anchor,
+                                     minwidth=scaled(50),
+                                     stretch=(key == "description"))
+        y = ttk.Scrollbar(wrap, orient="vertical",
+                          command=self.history_tree.yview)
+        x = ttk.Scrollbar(wrap, orient="horizontal",
+                          command=self.history_tree.xview)
+        self.history_tree.configure(yscrollcommand=y.set, xscrollcommand=x.set)
+        y.pack(side="right", fill="y")
+        x.pack(side="bottom", fill="x")
+        self.history_tree.pack(side="left", fill="both", expand=True)
+
+        # The history file holds one row per billing line, and summary() runs
+        # four COUNTs over all of them, two of them DISTINCT. On the first
+        # launch after the indexes were added it also builds them. All of that
+        # used to run here, inside __init__, which is before mainloop()
+        # starts: Tk draws nothing until then, so the tool sat there with no
+        # window at all and looked like it would not open.
+        self.history_summary_var.set(self._channel_ui(
+            "Reading history ...", "正在讀取歷史庫 ..."))
+        self.root.after(300, self.refresh_history_summary)
+
+    def paint_history_rows(self):
+        """Row colours for the theme in force. Safe to call any time."""
+        tree = getattr(self, "history_tree", None)
+        if tree is None:
+            return
+        palette = getattr(self, "MILKTEA", {}) or {}
+        try:
+            tree.tag_configure("even", background=palette.get("PANEL",
+                                                              "#efe3cc"))
+            tree.tag_configure("odd", background=palette.get("STRIPE",
+                                                             "#e3d3b4"))
+            tree.tag_configure("credit", foreground=palette.get("NEGATIVE",
+                                                                "#8c2f2f"))
+        except Exception:
+            pass
+
+    # ---- rate lookups for the breakdown window -------------------------
+    # The engine has its own lookups inside a run. These ask the same
+    # questions from outside it, so the breakdown can show where each figure
+    # came from without re-running the whole report.
+
+    def quote_base_rate(self, service, zone, weight):
+        """One base rate out of the loaded table. None when it is not there.
+
+        The engine has its own lookup inside the run; this is the same
+        question asked from outside it, for the breakdown window.
+        """
+        tables = getattr(self, "rate_tables", {}) or {}
+        residential = residential_flag_from_service_name(service)
+        frame = tables.get((service, residential))
+        if frame is None:
+            frame = tables.get((service, not residential)) or tables.get(service)
+        if frame is None or getattr(frame, "empty", True):
+            return None
+        column = None
+        for col in frame.columns:
+            text = str(col).strip().replace("Zone", "").strip()
+            if text.lstrip("0") == str(zone).strip().lstrip("0"):
+                column = col
+                break
+        if column is None or "Weight" not in frame.columns:
+            return None
+        weights = pd.to_numeric(frame["Weight"], errors="coerce")
+        want = math.ceil(float(weight))
+        exact = frame[weights == want]
+        if exact.empty:
+            heavier = frame[weights >= want]
+            exact = heavier.iloc[[0]] if not heavier.empty else frame.iloc[[-1]]
+        try:
+            return round(float(exact.iloc[0][column]), 2)
+        except (TypeError, ValueError):
+            return None
+
+    def quote_surcharge(self, fee, service, zone):
+        """One surcharge rate for a zone, or None when the row is missing."""
+        table = getattr(self, "accessorial_rate_table", {}) or {}
+        # No silent fall back to the Ground schedule. accessorial_lookup in the
+        # run does not do it for a built-in channel, so doing it here made the
+        # breakdown show a surcharge the report had priced at 0 -- an air
+        # parcel quoted the Ground rate.
+        entry = table.get((fee, service))
+        if isinstance(entry, dict):
+            value = entry.get(str(zone).strip().lstrip("0"))
+            return None if value is None else round(float(value), 2)
+        if isinstance(entry, (int, float)):
+            return round(float(entry), 2)
+        return None
+
+    def explain_tracking(self, tracking):
+        """The rating of one parcel, written out.
+
+        Between a dump of every configured threshold and a chatty narration,
+        this is the middle: the charges as they were billed, what the
+        correction changed, and the billable weight calculation with its
+        arithmetic. Business wording, aligned figures, no settings that did
+        not apply.
+        """
+        zh = self._ui_language_code == "zh"
+        rows = self.history().rows_for_tracking(tracking)
+        if not rows:
+            return [("查無此單號，請先匯入該筆所屬的帳單。" if zh else
+                     "Tracking not found. Import the invoice it appears on.")]
+
+        def number(value, default=0.0):
+            try:
+                return float(str(value).strip())
+            except (TypeError, ValueError):
+                return default
+
+        def cash(value):
+            """$1.35 / -$1.35 -- the sign outside the dollar, as a ledger has
+            it, so a credit is visible at the left edge of the figure."""
+            amount = number(value)
+            return ("-${:,.2f}".format(abs(amount)) if amount < 0
+                    else "${:,.2f}".format(amount))
+
+        def pad(text, width):
+            """Left-align to a DISPLAY width, not a character count.
+
+            A CJK glyph occupies two columns in the monospace font this window
+            uses but counts as one character, so "%-52s" left the subtotal two
+            columns adrift of the amounts above it.
+            """
+            text = str(text)
+            used = sum(2 if unicodedata.east_asian_width(c) in "WF" else 1
+                       for c in text)
+            return text + " " * max(width - used, 0)
+
+        def rpad(text, width):
+            """Right-align to a display width."""
+            text = str(text)
+            used = sum(2 if unicodedata.east_asian_width(c) in "WF" else 1
+                       for c in text)
+            return " " * max(width - used, 0) + text
+
+        def dims_of(text):
+            """Dimensions, or None when UPS did not give any.
+
+            "1.0x  1.0x  1.0" is UPS's placeholder for a row that carries no
+            measurements -- 3,158 of them in one set of invoices, 9 percent of
+            every dimension value. Read literally it becomes a one-inch box,
+            and the breakdown then reports a re-measure "from 1x1x1", which
+            never happened.
+            """
+            parts = [p for p in str(text or "").replace("x", " ").split() if p]
+            try:
+                got = sorted((float(p) for p in parts[:3]), reverse=True)
+            except ValueError:
+                return None
+            if len(got) != 3 or got[0] <= 0:
+                return None
+            if got == [1.0, 1.0, 1.0]:
+                return None
+            return got
+
+        # ---- the engine's own record for this tracking ----
+        # Nothing below re-derives a figure the repricing run already produced.
+        # This used to be a five-line detector that only knew the word
+        # "Ground", so every air parcel was explained as Ground Commercial and
+        # priced off the Ground table at a zone that table does not contain --
+        # 7 of 38 trackings in one test invoice. Zone direction, billable
+        # weight and the fuel percent drifted the same way. A second engine
+        # cannot be kept in step with the first; it can only be removed.
+        by_layer = (getattr(self, "reprice_explain", {}) or {}).get(
+            str(tracking).strip(), {})
+        if not by_layer:
+            return [(("這筆不在最近一次重算的結果裡，因此無法說明它的金額。\n\n"
+                      "請先對包含這筆單號的帳單執行「開始重算」，再回來查詢。\n"
+                      "（說明只複述重算算出來的數字，不會自行推算，"
+                      "否則兩邊會對不上。）") if zh else
+                     ("This tracking is not in the last repricing run, so "
+                      "there is nothing to explain yet.\n\nRun the repricing "
+                      "on the invoice that contains it, then look it up "
+                      "again.\n(The explanation only restates what the run "
+                      "computed. It does not work the figures out a second "
+                      "time -- that is how the two stopped agreeing.)"))]
+
+        # An ADJ layer describes the correction; otherwise the shipment layer.
+        eng = (by_layer.get("ADJ") or by_layer.get("SHP")
+               or by_layer.get("RTN") or list(by_layer.values())[0])
+
+        service = eng["service"]
+
+        by_invoice = {}
+        for row in rows:
+            by_invoice.setdefault(row.get("invoice_number"), []).append(row)
+        invoices = sorted(by_invoice, key=lambda k: str(
+            by_invoice[k][0].get("invoice_date") or ""))
+
+        out = [f"{tracking}", ""]
+        line = out.append
+
+        for invoice in invoices:
+            group = by_invoice[invoice]
+            date = str(group[0].get("invoice_date") or "")
+            is_adj = any(str(r.get("layer")).upper() == "ADJ" for r in group)
+            # UPS stamps 000 on an accessorial-only row. Stripped, that is an
+            # empty string, and it printed as a bare "Zone" with nothing after
+            # it -- as if the field had failed rather than never applied.
+            zones = sorted({z for z in (str(r.get("zone") or "").lstrip("0")
+                                        for r in group) if z})
+
+            heading = (("帳單調整" if is_adj else "原始出貨") if zh
+                       else ("Adjustment" if is_adj else "Original shipment"))
+            zone_part = (("　Zone " + "、".join(zones)) if zh
+                         else ("   Zone " + ", ".join(zones))) if zones else ""
+            line(("%s　%s（%s）　%s%s" % (
+                heading, invoice, date, service, zone_part))
+                if zh else
+                ("%s   Invoice %s (%s)   %s%s" % (
+                    heading, invoice, date, service, zone_part)))
+
+            for row in group:
+                amount = number(row.get("net_amount"))
+                if abs(amount) < 0.005:
+                    continue
+                # No zone column -- the heading names it -- and wide enough
+                # for the longest wording UPS uses (70 chars). Truncating cut
+                # off the useful half: "Addl. Handling longest..." does not
+                # say which side.
+                what = str(row.get("description") or row.get("as_code") or "")
+                line("    %s %s" % (pad(what, 72), rpad(cash(amount), 12)))
+            line("    %s %s"
+                 % (pad("小計" if zh else "Subtotal", 72),
+                    rpad(cash(sum(number(r.get("net_amount"))
+                                  for r in group)), 12)))
+            line("")
+
+        # Same scope as the report row: the invoice that was repriced, not
+        # every invoice this tracking ever appeared on. A correction whose
+        # original shipment sits in an earlier period was being compared
+        # against both invoices added together.
+        run_invoice = str(eng.get("invoice") or "").strip() or invoices[-1]
+        scope = [r for r in rows
+                 if str(r.get("invoice_number") or "").strip() == run_invoice]
+        if not scope:
+            scope = rows
+
+        # Say which invoice this is about. The listing above shows every
+        # invoice the tracking appears on, so on a tracking that spans three
+        # weeks it was not obvious which one the figures below belong to --
+        # and repricing an older invoice while newer ones sit in the history
+        # is exactly when that matters.
+        others = [n for n in invoices if n != run_invoice]
+        if others:
+            line("")
+            line(("以下是 %s 這張的重算結果。本單號也出現在 %s，"
+                  "那幾張要另外重算。" if zh else
+                  "What follows is the repricing of %s. This tracking also "
+                  "appears on %s, which are repriced separately.")
+                 % (run_invoice,
+                    ("、".join(others) if zh else ", ".join(others))))
+
+        # ---- what the correction changed ----
+        # From the RUN, not from the whole history. Reprice an old invoice
+        # while the history holds later ones and scanning every row pulled a
+        # later correction's dimensions and weights into the explanation of an
+        # older run -- the breakdown then described a re-measure that this run
+        # never saw. eng already carries what the run itself worked with.
+        def eng_dims(key):
+            v = eng.get(key)
+            if not v:
+                return None
+            got = sorted((self.to_amount(x) for x in v), reverse=True)
+            if len(got) != 3 or got[0] <= 0 or got == [1.0, 1.0, 1.0]:
+                return None
+            return got
+
+        entered = self.to_amount(eng.get("entered_weight"))
+        billed = self.to_amount(eng.get("billed_weight"))
+        # On an ADJ, entered and billed are frequently both 0 -- the weight
+        # lives on the matching SHP/RTN and the engine resolved it there.
+        # Re-deriving the explanation from the two zeros described a 9 lb
+        # parcel as a 1 lb one while the money was correctly rated at 9.
+        scale_weight = self.to_amount(eng.get("actual_weight")) or max(
+            entered, billed)
+        dims_c = eng_dims("dims_c")
+        dims_a = eng_dims("dims_a")
+
+        # Zones likewise: only the invoice that was repriced.
+        all_zones = sorted({str(r.get("zone") or "").lstrip("0")
+                            for r in scope if str(r.get("zone") or "").strip()})
+
+        def original_zone():
+            """The zone this parcel WAS rated at, straight from the run.
+
+            The engine already decided this, from the original shipment rather
+            than from the zone stamps on the correction's own rows -- UPS
+            writes those backwards. zone_known is False when nothing
+            authoritative could answer, and then no direction is named here
+            either.
+            """
+            return eng["zone_a"] if eng.get("zone_known") else ""
+
+        changes = []
+        if dims_a and dims_c and dims_a != dims_c:
+            changes.append(("尺寸由 %g×%g×%g 修正為 %g×%g×%g" if zh else
+                            "Dimensions corrected from %g x %g x %g to "
+                            "%g x %g x %g")
+                           % (dims_a[0], dims_a[1], dims_a[2],
+                              dims_c[0], dims_c[1], dims_c[2]))
+        if entered and billed and abs(billed - entered) > 0.01:
+            changes.append(("重量由申報 %g 磅修正為 %g 磅" if zh else
+                            "Weight corrected from %g lb declared to %g lb")
+                           % (entered, billed))
+        # Driven by what the run decided, not by "this tracking mentions two
+        # zones". A return-to-sender leg carries its own zone, and reading the
+        # raw set announced a zone correction on a parcel whose only actual
+        # correction never left the zone it shipped on.
+        engine_zone_a = eng.get("zone_a") or ""
+        engine_zone_c = eng.get("zone_c") or eng.get("zone") or ""
+        if engine_zone_a and engine_zone_c and engine_zone_a != engine_zone_c:
+            original = engine_zone_a
+            other = [engine_zone_c]
+            if original and other:
+                changes.append(("Zone 由 %s 修正為 %s；運費與附加費依新 Zone "
+                                "重新計價，差額即本次調整金額" if zh else
+                                "Zone corrected from %s to %s; freight and "
+                                "surcharges are re-rated on the new zone and "
+                                "the difference is this adjustment")
+                               % (original, other[0]))
+            else:
+                # Unreachable in practice now that the branch above is gated on
+                # the engine's own two zones, but kept: when a direction cannot
+                # be named, say what is missing and what fixes it.
+                changes.append(("本筆涉及 Zone %s，但原始出貨不在已匯入的帳單中，"
+                                "無法判斷是由哪個 Zone 改為哪個；請匯入原始出貨"
+                                "所屬的帳單後再查。" if zh else
+                                "Zones involved: %s. The original shipment is "
+                                "not in any imported invoice, so which zone it "
+                                "moved from cannot be determined -- import the "
+                                "invoice it was billed on.")
+                               % ("、".join(all_zones) if zh
+                                  else ", ".join(all_zones)))
+        if changes:
+            line("調整內容" if zh else "What the adjustment changed")
+            for item in changes:
+                line("    " + item)
+            line("")
+
+        # ---- a fee with no parcel behind it ----
+        # An Address Correction, a Reschedule Delivery, a standalone label fee:
+        # UPS bills these on their own, with no dimensions, no weight and zone
+        # 000, because there is no movement being priced. The parcel narrative
+        # below has nothing to say about them, and running it anyway produced a
+        # billable-weight section reporting "no dimensions on the invoice" --
+        # which reads as a fault in the data when in fact nothing is missing.
+        parcel = dims_c or dims_a
+        final = (by_layer or {}).get("_final") or {}
+
+        fee_only = (not parcel
+                    and not self.to_amount(eng.get("base_a"))
+                    and not self.to_amount(eng.get("base_c")))
+
+        # ---- what this parcel earned over its whole life ----
+        # One week's figure can be wildly misleading: a correction that lands
+        # three weeks after the shipment shows as a loss that week while the
+        # parcel itself was profitable. In one set of invoices, 36 trackings
+        # had a period totalling -$9,631.91 between them and a lifetime total
+        # of +$864.09.
+        #
+        # A function because a fee-only row returns before the end of this
+        # method, and so never showed its running total at all -- an Address
+        # Correction is exactly the kind of charge whose parcel was profitable
+        # the week before.
+        def emit_running_total():
+            try:
+                life = self.history().lifetime_for(tracking)
+            except Exception:
+                life = []
+
+            # Reprice whatever is missing, here and now. The rows are in the
+            # history and the engine is in this process; telling the reader to go
+            # and re-run an invoice the tool could price itself was work handed
+            # back for no reason. Anything that genuinely cannot be priced comes
+            # back with a reason, and that reason is what gets printed.
+            backfilled = set()
+            refused = {}
+            gaps = [str(e.get("invoice_number") or "") for e in life
+                    if e.get("cal_total") is None]
+            if gaps:
+                for number_ in gaps:
+                    try:
+                        done, why = self.backfill_reprice(number_, tracking)
+                    except Exception as e:
+                        done, why = False, str(e)
+                    if done:
+                        backfilled.add(number_)
+                    else:
+                        refused[number_] = why
+                if backfilled:
+                    try:
+                        life = self.history().lifetime_for(tracking)
+                    except Exception:
+                        pass
+
+            showed_lifetime = len(life) > 1
+            if showed_lifetime:
+                line("")
+                line("單號累計" if zh else "Running total for this tracking")
+                line("    %s %s %s %s"
+                     % (pad("帳單號" if zh else "Invoice", 20),
+                        pad("日期" if zh else "Date", 12),
+                        rpad("UPS 實收" if zh else "Cost (UPS)", 12),
+                        rpad("本工具重算" if zh else "Billed", 12)))
+                ups_life = cal_life = 0.0
+                missing = []
+                for entry in life:
+                    number_ = str(entry.get("invoice_number", ""))
+                    u = self.to_amount(entry.get("ups_total"))
+                    c = entry.get("cal_total")
+                    ups_life += u
+                    if c is None:
+                        missing.append(number_)
+                        cal_txt = "無法補算" if zh else "cannot price"
+                    else:
+                        c = self.to_amount(c)
+                        cal_life += c
+                        cal_txt = cash(c)
+                        if number_ in backfilled:
+                            # Said plainly: this figure was produced a moment ago
+                            # off today's rate tables, not by the run that
+                            # originally handled that invoice. Base rates are
+                            # settings, not history, so an invoice repriced now
+                            # is priced at what the tables say now.
+                            cal_txt += "＊" if zh else "*"
+                    line("    %s %s %s %s"
+                         % (pad(number_, 20),
+                            pad(str(entry.get("invoice_date") or ""), 12),
+                            rpad(cash(u), 12), rpad(cal_txt, 12)))
+                line("    %s %s %s"
+                     % (pad(("合計" if zh else "Total"), 33),
+                        rpad(cash(round(ups_life, 2)), 12),
+                        rpad(cash(round(cal_life, 2)) if not missing
+                             else ("不完整" if zh else "not complete"), 12)))
+                if backfilled:
+                    line(("    ＊剛才依現行費率表補算（燃油依出貨日）。" if zh else
+                          "    * repriced just now against the current rate "
+                          "tables (fuel by ship date)."))
+                if missing:
+                    for number_ in missing:
+                        why = refused.get(number_, "")
+                        line(("    %s 無法補算：%s" if zh else
+                              "    %s could not be priced: %s")
+                             % (number_, why or ("原因不明" if zh
+                                                 else "reason unknown")))
+                    line(("    因此累計不完整。" if zh else
+                          "    The running total is incomplete because of it."))
+                else:
+                    # Show the subtraction. A bare figure did not say which way
+                    # round it was, and the sentence that used to follow called
+                    # the same number "a difference in rates" -- two readings of
+                    # one number, one line apart.
+                    margin = round(cal_life - ups_life, 2)
+                    pct = (" （%.1f%%）" % (margin / ups_life * 100)) if zh else (
+                        " (%.1f%%)" % (margin / ups_life * 100))
+                    line(("    累計毛利　應收 %s － 成本 %s ＝ %s%s" if zh else
+                          "    Margin so far   billed %s - cost %s = %s%s")
+                         % (cash(round(cal_life, 2)), cash(round(ups_life, 2)),
+                            cash(margin), pct if abs(ups_life) > 0.005 else ""))
+
+            return showed_lifetime
+
+        if fee_only:
+            charges = {k: v for k, v in (final.get("charges") or {}).items()
+                       if k not in ("Base Rate", "CAL Base Rate",
+                                    "Fuel Surcharge")}
+            ups_all = round(sum(number(r.get("net_amount")) for r in scope), 2)
+            cal_total = round(self.to_amount(
+                final.get("total", eng.get("cal_total", 0))), 2)
+            cal_fuel = round(self.to_amount(
+                final.get("fuel", eng.get("cal_fuel", 0))), 2)
+
+            line("這一筆只有費用，沒有運送" if zh else "A fee, not a shipment")
+            line(("    UPS 單獨收取此費用，沒有尺寸、重量或 Zone 可言，"
+                  "因此不做運費重算。" if zh else
+                  "    UPS bills this on its own. There is no parcel to "
+                  "measure, so there is no freight to reprice."))
+            line("")
+            line("重算計價" if zh else "Repriced charge")
+            for name, amount in sorted(charges.items()):
+                line("    %-44s %s" % (name, cash(amount)))
+            line(("    Fuel Surcharge　%.2f%%　%s" if zh else
+                  "    Fuel Surcharge   %.2f%%   %s")
+                 % (self.to_amount(eng.get("fuel_pct")) * 100, cash(cal_fuel)))
+            line(("    合計　%s" if zh else "    Total        %s")
+                 % cash(cal_total))
+            line("")
+            line("與 UPS 帳單對照" if zh else "Against the UPS invoice")
+            line(("    本工具重算（報表 Total）　%s" if zh else
+                  "    Repriced (the report's Total)   %s") % cash(cal_total))
+            line(("    UPS 帳單 %s　%s" if zh else "    UPS invoice %s   %s")
+                 % (run_invoice, cash(ups_all)))
+            line(("    差異　　　　%s" if zh else "    Difference    %s")
+                 % cash(round(cal_total - ups_all, 2)))
+            # The parcel behind the fee is the whole point of looking one of
+            # these up: a $17 Address Correction on a shipment that earned $40
+            # is a different conversation from the same fee on a $6 one.
+            emit_running_total()
+            return out
+
+        rules = eng.get("rules") or self.channel_rules(service)
+        divisor = eng.get("dim_factor") or 1
+
+        # Rated, but with no dimensions on the invoice. A return leg is the
+        # usual case: it is real transport with a weight and a base rate, but
+        # UPS does not re-state the box on those rows. Everything below is
+        # about the box, so it has nothing to work with -- and unpacking a
+        # missing `parcel` was what threw "cannot unpack non-iterable
+        # NoneType object" instead of saying so.
+        if not parcel:
+            line("計費重量計算" if zh else "Billable weight")
+            line(("    帳單這幾行沒有尺寸，所以無法算材積。計費重量取帳單重量 "
+                  "%g 磅。" if zh else
+                  "    These lines carry no dimensions, so there is no "
+                  "dimensional weight to work out. The billable weight is the "
+                  "invoiced %g lb.") % max(scale_weight, entered, billed))
+            line(("    退回段通常就是這樣：貨真的跑了一趟，但 UPS 不會在那幾行"
+                  "重寫一次箱子的尺寸。" if zh else
+                  "    A return leg normally looks like this: the parcel did "
+                  "travel, but UPS does not restate the box on those rows."))
+            line("")
+            line("重算計價" if zh else "Repriced charge")
+            for name, amount in sorted((final.get("charges") or {}).items()):
+                line("    %s %s" % (pad(name, 44), rpad(cash(amount), 12)))
+            line(("    Fuel Surcharge　%.2f%%　%s" if zh else
+                  "    Fuel Surcharge   %.2f%%   %s")
+                 % (self.to_amount(eng.get("fuel_pct")) * 100,
+                    cash(self.to_amount(final.get("fuel", 0)))))
+            line(("    合計　%s" if zh else "    Total        %s")
+                 % cash(self.to_amount(final.get("total", 0))))
+            line("")
+            line("與 UPS 帳單對照" if zh else "Against the UPS invoice")
+            line(("    本工具重算（報表 Total）　%s" if zh else
+                  "    Repriced (the report's Total)   %s")
+                 % cash(self.to_amount(final.get("total", 0))))
+            line(("    UPS 帳單 %s　%s" if zh else "    UPS invoice %s   %s")
+                 % (run_invoice,
+                    cash(round(sum(number(r.get("net_amount"))
+                                   for r in scope), 2))))
+            # The parcel behind the fee is the whole point of looking one of
+            # these up: a $17 Address Correction on a shipment that earned $40
+            # is a different conversation from the same fee on a $6 one.
+            emit_running_total()
+            return out
+
+        line("計費重量計算" if zh else "Billable weight")
+
+        longest, second, third = parcel
+        cubic = longest * second * third
+        lg = longest + 2 * (second + third)
+        dim_weight = round(cubic / divisor, 2)
+        dim_a_weight = (round(dims_a[0] * dims_a[1] * dims_a[2] / divisor, 2)
+                        if dims_a else 0.0)
+
+        line(("    材積　%g×%g×%g = %g 立方吋 ÷ %g = %g 磅" if zh else
+              "    Dimensional   %g x %g x %g = %g cu in / %g = %g lb")
+             % (longest, second, third, cubic, divisor, dim_weight))
+
+        lps, ahs = [], []
+        if longest >= rules.get("oversize_longest_side", 0) > 0:
+            lps.append(("最長邊 %g" if zh else "longest side %g") % longest)
+        if cubic >= rules.get("oversize_cubic_inches", 0) > 0:
+            lps.append(("材積 %g" if zh else "cubic %g") % cubic)
+        if lg >= rules.get("oversize_length_girth", 0) > 0:
+            lps.append(("長加圍 %g" if zh else "length+girth %g") % lg)
+        # The engine assesses AHS-Weight on the SCALE weight, never on UPS's
+        # billed weight, which can be dim-inflated or a surcharge minimum.
+        # Testing `billed` here made the explanation name a trigger the rating
+        # never fired -- and stay silent on an ADJ, where billed is 0.
+        if scale_weight >= rules.get("ahs_weight_threshold", 0) > 0:
+            ahs.append(("重量 %g" if zh else "weight %g") % scale_weight)
+        if longest >= rules.get("ahs_longest_side", 0) > 0:
+            ahs.append(("最長邊 %g" if zh else "longest side %g") % longest)
+        if second >= rules.get("ahs_second_side", 0) > 0:
+            ahs.append(("第二長邊 %g" if zh else "second side %g") % second)
+        if cubic >= rules.get("ahs_cubic_inches", 0) > 0:
+            ahs.append(("材積 %g" if zh else "cubic %g") % cubic)
+        if lg >= rules.get("ahs_lg_limit", 0) > 0:
+            ahs.append(("長加圍 %g" if zh else "length+girth %g") % lg)
+
+        # Two lines, not one. Four triggers plus the minimum ran past the
+        # width of the window and the tail was simply lost.
+        if lps:
+            floor = rules.get("oversize_min_billable_weight", 0)
+            line(("    判定　大型包裹，不另計 AHS" if zh else
+                  "    Classified   Large Package; AHS is not charged as well"))
+            line(("        超過門檻：%s" if zh else
+                  "        over the limit: %s")
+                 % ("、".join(lps) if zh else ", ".join(lps)))
+            line(("        最低計費重量 %g 磅" if zh else
+                  "        minimum billable weight %g lb") % floor)
+        elif ahs:
+            floor = rules.get("ahs_min_billable_weight", 0)
+            line(("    判定　適用 AHS" if zh else
+                  "    Classified   Additional Handling"))
+            line(("        超過門檻：%s" if zh else
+                  "        over the limit: %s")
+                 % ("、".join(ahs) if zh else ", ".join(ahs)))
+            line(("        最低計費重量 %g 磅" if zh else
+                  "        minimum billable weight %g lb") % floor)
+        else:
+            floor = 1
+            line("    判定　未達 AHS 與大型包裹門檻" if zh else
+                 "    Classified   under every AHS and Large Package limit")
+
+        # The engine's own figure, not a second calculation of it.
+        #
+        # UPS's billed weight is NOT an input here. It is the number this run
+        # exists to check, and feeding it into the max() made the explanation
+        # circular: whenever UPS billed above our floor the "calculation"
+        # simply restated UPS's answer and any disagreement became invisible.
+        # It is printed on its own line below, as a comparison.
+        billable = eng.get("billable_weight") or math.ceil(
+            max(scale_weight, dim_weight, floor))
+        # Print the weight the rating actually used. Printing `entered` here
+        # showed "actual 0" beside a billable weight derived from something
+        # else entirely, and there was no way to tell from the report which
+        # number the money came from.
+        if floor > 0:
+            line(("    計費重量　實際 %g、材積 %g、下限 %g，取大值進位 = %d 磅"
+                  if zh else
+                  "    Billable      ceil(max(actual %g, dimensional %g, "
+                  "min %g)) = %d lb")
+                 % (scale_weight, dim_weight, floor, billable))
+        else:
+            line(("    計費重量　實際 %g、材積 %g，取大值進位 = %d 磅"
+                  if zh else
+                  "    Billable      ceil(max(actual %g, dimensional %g)) "
+                  "= %d lb")
+                 % (scale_weight, dim_weight, billable))
+        if billed > 0:
+            _gap = billable - billed
+            line(("    對照　　　UPS 計費重量 %g 磅（差 %+g）" if zh else
+                  "    Compare       UPS billed weight %g lb (%+g)")
+                 % (billed, _gap))
+        line("")
+
+        # ---- and then the money ----
+        # Each side of a correction is classified on its OWN dimensions. A
+        # parcel can be a Large Package before the correction and an ordinary
+        # AHS parcel after it -- which is a surcharge being cancelled and a
+        # different one charged, not one surcharge changing value. Comparing
+        # only the corrected classification hides that entirely.
+        rules_for_side = rules
+
+        def classify(dims, weight_hint):
+            """(kind, floor, billable, fee key) for one parcel."""
+            if not dims:
+                return None
+            long_, sec, third = dims
+            cu = long_ * sec * third
+            girth = long_ + 2 * (sec + third)
+            dim_w = round(cu / divisor, 2)
+            is_lps = (long_ >= rules_for_side.get("oversize_longest_side", 0) > 0
+                      or cu >= rules_for_side.get("oversize_cubic_inches", 0) > 0
+                      or girth >= rules_for_side.get("oversize_length_girth", 0) > 0
+                      or weight_hint >= rules_for_side.get("oversize_actual_weight", 0) > 0)
+            is_ahs = (weight_hint >= rules_for_side.get("ahs_weight_threshold", 0) > 0
+                      or long_ >= rules_for_side.get("ahs_longest_side", 0) > 0
+                      or sec >= rules_for_side.get("ahs_second_side", 0) > 0
+                      or cu >= rules_for_side.get("ahs_cubic_inches", 0) > 0
+                      or girth >= rules_for_side.get("ahs_lg_limit", 0) > 0)
+            # WHICH rule fired, not just that one did. Five things can make a
+            # parcel AHS and the explanation used to name length+girth every
+            # time -- so a parcel caught by its longest side was described as
+            # being over a girth limit it was comfortably under.
+            def reasons(pairs):
+                out = []
+                for label_zh, label_en, value, key in pairs:
+                    limit = self.to_amount(rules_for_side.get(key, 0))
+                    if limit > 0 and value >= limit:
+                        out.append(((label_zh if zh else label_en), value, limit))
+                return out
+
+            lps_why = reasons([
+                ("最長邊", "longest side", long_, "oversize_longest_side"),
+                ("材積", "cubic inches", cu, "oversize_cubic_inches"),
+                ("長加圍", "length+girth", girth, "oversize_length_girth"),
+                ("實際重量", "actual weight", weight_hint, "oversize_actual_weight"),
+            ])
+            ahs_why = reasons([
+                ("重量", "weight", weight_hint, "ahs_weight_threshold"),
+                ("最長邊", "longest side", long_, "ahs_longest_side"),
+                ("第二長邊", "second side", sec, "ahs_second_side"),
+                ("材積", "cubic inches", cu, "ahs_cubic_inches"),
+                ("長加圍", "length+girth", girth, "ahs_lg_limit"),
+            ])
+
+            if is_lps:
+                kind, fee = "LPS", "Large Package"
+                min_w = rules_for_side.get("oversize_min_billable_weight", 0)
+                why = lps_why
+            elif is_ahs:
+                kind, fee = "AHS", "AHS Dimension"
+                min_w = rules_for_side.get("ahs_min_billable_weight", 0)
+                why = ahs_why
+            else:
+                # 下限 0：這件不吃 AHS 也不吃 LPS，沒有最低計費重量。
+                # 原本寫 1，那是為了讓 ceil(max(...)) 不會變 0 的保底值，
+                # 但它會被說明文字印成「下限 1」，看起來像某個設定值。
+                kind, fee, min_w, why = "", None, 0, []
+            return {"kind": kind, "fee": fee, "floor": min_w, "why": why,
+                    "dims": dims, "girth": girth, "cubic": cu,
+                    "dim_weight": dim_w,
+                    "billable": math.ceil(max(weight_hint, dim_w, min_w))}
+
+        # Straight from the run: no re-picking a "current" zone out of a
+        # string-sorted list, which put zone 5 after zone 44.
+        zone_now = eng["zone_c"] or eng["zone"] or ""
+        zone_before = original_zone() or None
+        zone_c = zone_now or "?"
+        zone_b = zone_before or zone_c
+
+        is_correction = any(str(r.get("layer")).upper() == "ADJ" for r in rows)
+        # Is the shipment this correction belongs to on the SAME invoice?
+        # If it is, the correction is not a credit against anything: the
+        # original was never invoiced on its own, and the two layers net out
+        # inside this period's total. Calling the delta a refund there sent
+        # people looking for a credit that does not exist.
+        origin_in_scope = any(
+            str(r.get("layer")).upper() in ("SHP", "RTN") for r in scope)
+        side_c = classify(dims_c or dims_a, scale_weight)
+        side_b = classify(dims_a, scale_weight) if (
+            is_correction and dims_a and dims_c and dims_a != dims_c) else None
+
+        # The engine already rated each leg. classify() re-derives the billable
+        # weight only so the explanation can stand alone; where the engine has
+        # spoken, its figure wins -- otherwise the sentence and the invoice
+        # line disagree, and the sentence is the part people read.
+        _eng_billable = {"c": self.to_amount(eng.get("billable_c")),
+                         "b": self.to_amount(eng.get("billable_a"))}
+        for _key, _side in (("c", side_c), ("b", side_b)):
+            if _side and _eng_billable[_key] > 0:
+                _side["billable"] = int(math.ceil(_eng_billable[_key]))
+
+        def kind_text(side):
+            if not side:
+                return ""
+            if side["kind"] == "LPS":
+                return ("大型包裹，最低 %g 磅" if zh
+                        else "Large Package, min billable %g lb") % side["floor"]
+            if side["kind"] == "AHS":
+                return ("AHS，最低 %g 磅" if zh
+                        else "AHS, min billable %g lb") % side["floor"]
+            # "未達門檻" left the reader asking which limit. Name the outcome
+            # instead; 結果說明 below already lists the numbers.
+            return ("一般包裹，無加成" if zh
+                    else "ordinary parcel, no surcharge")
+
+        # The rate the run actually applied. Needed before the sides are
+        # printed now that each one carries its own fuel line.
+        fuel_fraction = eng.get("fuel_pct") or 0.0
+
+        # The invoice the parcel was originally shipped on, so a missing base
+        # rate can name the file that would supply it instead of leaving the
+        # reader to work out which one is meant.
+        origin_invoice = origin_date = ""
+        for row in rows:
+            if str(row.get("layer")).upper() in ("SHP", "RTN"):
+                origin_invoice = str(row.get("invoice_number") or "").strip()
+                origin_date = str(row.get("invoice_date") or "").strip()
+                break
+
+        # Printed once, not once per side.
+        skip_base_explained = []
+
+        def show_side(side, zone_value, tag, base=None, fee_amount=None):
+            # base / fee_amount come from the run. quote_base_rate and
+            # quote_surcharge are only the fallback for a side the run did not
+            # produce a figure for, and they are the last remnants of the
+            # second engine -- keep them out of the normal path.
+            if base is None:
+                base = self.quote_base_rate(service, zone_value,
+                                            side["billable"])
+            if fee_amount is None and side["fee"]:
+                fee_amount = self.quote_surcharge(side["fee"], service,
+                                                  zone_value)
+            line(("    %s　%g×%g×%g　Zone %s　計費重量 %d 磅（%s）" if zh else
+                  "    %s   %g x %g x %g   zone %s   billable %d lb (%s)")
+                 % (tag, side["dims"][0], side["dims"][1], side["dims"][2],
+                    zone_value, side["billable"], kind_text(side)))
+            if base is None:
+                line(("        Base Rate　合約表查無 Zone %s %d 磅" if zh else
+                      "        Base Rate   no rate for zone %s at %d lb")
+                     % (zone_value, side["billable"]))
+            else:
+                line("        Base Rate　%s" % cash(base) if zh
+                     else "        Base Rate   %s" % cash(base))
+                # A bare $0.00 reads as "the freight is free", and the
+                # surcharge priced right underneath it makes that look
+                # inconsistent. Say what is missing, why the surcharge was
+                # unaffected, and which invoice would fill the gap.
+                if (abs(base) < 0.005 and eng.get("skip_base")
+                        and not skip_base_explained):
+                    skip_base_explained.append(True)
+                    line(("            這裡沒有算運費，不是運費為 0。" if zh else
+                          "            No freight was worked out here. It is "
+                          "not a charge of zero."))
+                    line(("            這次重算的是 %s，那張帳單上這筆只有附加費"
+                          "的更正，運費行的重量是 0。" if zh else
+                          "            The invoice repriced was %s, and this "
+                          "tracking's rows on it correct a surcharge only -- "
+                          "the freight row carries no weight.")
+                         % run_invoice)
+                    line((("            原始出貨在 %s，一起重算才有運費。"
+                           if zh else
+                           "            The original shipment is on invoice "
+                           "%s. Reprice that one too.")
+                           % origin_invoice) if origin_invoice else
+                         ("            原始出貨未匯入。" if zh else
+                          "            The original shipment has not been "
+                          "imported."))
+                    if side.get("fee"):
+                        line(("            附加費只看 Zone，不受影響。" if zh
+                              else "            The surcharge is priced on "
+                              "zone alone, so it is unaffected."))
+            if side["fee"]:
+                label = self.fee_display_name(side["fee"])
+                if fee_amount is None:
+                    line(("        %s　合約表查無此費率" if zh else
+                          "        %s   no rate in the table") % label)
+                else:
+                    line("        %s　%s" % (label, cash(fee_amount)) if zh
+                         else "        %s   %s" % (label, cash(fee_amount)))
+            # Each side totals itself, out loud. The comparison further down
+            # needs the ORIGINAL side's total, and it used to appear there with
+            # nothing above it to derive it from -- the reader saw $19.32 and
+            # $6.08 here and $30.17 at the bottom with no bridge between them.
+            sub = round((base or 0.0) + (fee_amount or 0.0), 2)
+            side_fuel = round(sub * fuel_fraction, 2)
+            total = round(sub + side_fuel, 2)
+            line(("        小計　%s　＋ Fuel %.2f%% %s　＝ %s" if zh else
+                  "        Subtotal %s + Fuel %.2f%% %s = %s")
+                 % (cash(sub), fuel_fraction * 100, cash(side_fuel),
+                    cash(total)))
+            return (base or 0.0), (fee_amount or 0.0), total
+
+        line("重算計價" if zh else "Repriced charge")
+
+        # Did UPS adjust the freight at all? A correction that only moves a
+        # surcharge leaves the freight alone, and so does the reprice.
+        freight_net = round(sum(number(r.get("net_amount")) for r in rows
+                                if str(r.get("layer")).upper() == "ADJ"
+                                and str(r.get("ar")).upper() == "FRT"), 2)
+
+        charge_lines = {}
+        total_b = total_c = 0.0
+        if side_b:
+            base_b, fee_b, total_b = show_side(
+                side_b, zone_b, "原始" if zh else "Original",
+                base=eng.get("base_a"))
+            base_c, fee_c, total_c = show_side(
+                side_c, zone_c, "修正後" if zh else "Corrected",
+                base=eng.get("base_c"))
+            line("    " + ("差額" if zh else "Difference"))
+            # Always the real difference. Forcing it to 0 whenever UPS left
+            # the freight alone made the breakdown disagree with the report,
+            # which carried the difference regardless -- a cent of base rate
+            # that appeared in Total and nowhere else.
+            charge_lines["base"] = round(base_c - base_b, 2)
+            line(("        Base Rate　%s － %s = %s" if zh else
+                  "        Base Rate   %s - %s = %s")
+                 % (cash(base_c), cash(base_b), cash(charge_lines["base"])))
+            if is_correction and abs(freight_net) < 0.005 \
+                    and abs(charge_lines["base"]) >= 0.005:
+                line(("            UPS 這次沒有調整運費，這 %s 是本工具依新的"
+                      "計費重量重算出來的差額。" if zh else
+                      "            UPS did not adjust the freight; this %s is "
+                      "this tool re-rating it on the new billable weight.")
+                     % cash(charge_lines["base"]))
+
+            if side_b["fee"] == side_c["fee"] and side_c["fee"]:
+                label = self.fee_display_name(side_c["fee"])
+                charge_lines[label] = round(fee_c - fee_b, 2)
+                line(("        %s　%s － %s = %s" if zh else
+                      "        %s   %s - %s = %s")
+                     % (label, cash(fee_c), cash(fee_b),
+                        cash(charge_lines[label])))
+            else:
+                if side_b["fee"]:
+                    label_b = self.fee_display_name(side_b["fee"])
+                    charge_lines[label_b] = round(-fee_b, 2)
+                    line(("        %s　取消，全數退回 %s" if zh else
+                          "        %s   cancelled, refunded %s")
+                         % (label_b, cash(-fee_b)))
+                if side_c["fee"]:
+                    label_c = self.fee_display_name(side_c["fee"])
+                    charge_lines[label_c] = round(fee_c, 2)
+                    line(("        %s　改收 %s" if zh else
+                          "        %s   charged instead %s")
+                         % (label_c, cash(fee_c)))
+        else:
+            base_c, fee_c, total_c = show_side(
+                side_c, zone_c, "計價" if zh else "Rated",
+                base=eng.get("base_c"))
+            base_b = fee_b = 0.0
+            charge_lines["base"] = base_c
+            if side_c["fee"]:
+                charge_lines[self.fee_display_name(side_c["fee"])] = fee_c
+
+        subtotal = round(sum(charge_lines.values()), 2)
+
+        if side_b:
+            # The adjustment is the difference of the two totals, each of them
+            # printed above. Charging fuel on the difference instead landed a
+            # penny away from what the two sides imply -- the rounding happens
+            # in a different place -- and then nothing added up.
+            fuel_b = round(total_b - (base_b + fee_b), 2)
+            fuel_c = round(total_c - (base_c + fee_c), 2)
+            fuel = round(fuel_c - fuel_b, 2)
+            repriced = round(total_c - total_b, 2)
+            line(("        Fuel Surcharge　%s － %s = %s" if zh else
+                  "        Fuel Surcharge   %s - %s = %s")
+                 % (cash(fuel_c), cash(fuel_b), cash(fuel)))
+            line(("        合計　%s － %s = %s" if zh else
+                  "        Total    %s - %s = %s")
+                 % (cash(total_c), cash(total_b), cash(repriced)))
+        else:
+            fuel = round(total_c - subtotal, 2)
+            repriced = round(total_c, 2)
+            line(("    Fuel Surcharge　計費基數 %s × %.2f%% = %s" if zh else
+                  "    Fuel Surcharge   %s x %.2f%% = %s")
+                 % (cash(subtotal), fuel_fraction * 100, cash(fuel)))
+            line(("    合計　%s" if zh else "    Total        %s")
+                 % cash(repriced))
+        line("")
+
+        # ---- why that figure, in words ----
+        explanation_start = len(out)
+        line("結果說明" if zh else "Why it comes out this way")
+        if side_b and side_b["kind"] != side_c["kind"]:
+            # Named from the sides themselves. This was hardcoded to Large
+            # Package and its length+girth limit, so an AHS parcel dropping
+            # below the AHS limit was described as a Large Package over a
+            # threshold it had never been near -- "girth 106, over the Large
+            # Package limit of 130".
+            def kind_name(kind):
+                if kind == "LPS":
+                    return "大型包裹" if zh else "a Large Package"
+                if kind == "AHS":
+                    return "需要額外處理（AHS）" if zh else "an AHS parcel"
+                return "一般包裹" if zh else "an ordinary parcel"
+
+            # The threshold that decides the classification, and whether each
+            # side is over or under it. Both sentences used to be written for
+            # a downgrade -- "over the limit" then "under the limit" -- so a
+            # parcel that went the other way was described backwards: girth 5
+            # "over" 105, then 121 "under" it.
+            def because(side):
+                """The rules that actually fired, in the parcel's own numbers."""
+                why = side.get("why") or []
+                if not why:
+                    return "沒有任何一項超過門檻" if zh else "nothing was over a limit"
+                parts = ["%s %g（門檻 %g）" % (n, v, lim) if zh
+                         else "%s %g (limit %g)" % (n, v, lim)
+                         for n, v, lim in why]
+                return ("、".join(parts) if zh else ", ".join(parts))
+
+            line(("    這件原本算%s：%s。" if zh else
+                  "    It was %s: %s.")
+                 % (kind_name(side_b["kind"]), because(side_b)))
+            line(("    重新丈量後改判為%s：%s。" if zh else
+                  "    Re-measured it becomes %s: %s.")
+                 % (kind_name(side_c["kind"]), because(side_c)))
+            if side_b["fee"] and side_c["fee"]:
+                line(("    所以 %s 全額退回，改收 %s，兩者相差 %s。" if zh else
+                      "    So %s is refunded in full and %s is charged "
+                      "instead, a difference of %s.")
+                     % (self.fee_display_name(side_b["fee"]),
+                        self.fee_display_name(side_c["fee"]),
+                        cash(round(fee_c - fee_b, 2))))
+            elif side_b["fee"]:
+                line(("    所以 %s 全額退回 %s，沒有改收別的附加費。" if zh else
+                      "    So %s is refunded in full, %s, with no surcharge "
+                      "charged in its place.")
+                     % (self.fee_display_name(side_b["fee"]),
+                        cash(round(-fee_b, 2))))
+            elif side_c["fee"]:
+                line(("    原本沒有這類附加費，現在改收 %s %s。" if zh else
+                      "    There was no such surcharge before; %s is now "
+                      "charged, %s.")
+                     % (self.fee_display_name(side_c["fee"]), cash(fee_c)))
+            if side_b["billable"] != side_c["billable"]:
+                # Up or down, and which floor did it. "Drops ... the floor no
+                # longer applies" was only ever true of a downgrade.
+                up = side_c["billable"] > side_b["billable"]
+                if up:
+                    why = (("%g 磅的下限開始適用" if zh else
+                            "the %g lb minimum now applies")
+                           % self.to_amount(side_c["floor"]))
+                else:
+                    why = (("%g 磅的下限不再適用" if zh else
+                            "the %g lb minimum no longer applies")
+                           % self.to_amount(side_b["floor"]))
+                line(("    計費重量也從 %d 磅%s %d 磅（%s）。" if zh else
+                      "    The billable weight also %s from %d lb to %d lb -- "
+                      "%s.")
+                     % ((side_b["billable"],
+                         "升為" if up else "降為",
+                         side_c["billable"], why) if zh else
+                        ("rises" if up else "drops",
+                         side_b["billable"], side_c["billable"], why)))
+            else:
+                # The Large Package floor is gone but the billable weight did
+                # not move, because UPS's billed weight WAS that floor. The
+                # freight keeps being charged on a minimum that no longer
+                # applies while UPS's freight adjustment is zero -- a refund
+                # that did not happen.
+                own_weight = math.ceil(max(scale_weight, side_c["dim_weight"],
+                                           side_c["floor"]))
+                # Fires for any minimum UPS kept, not only the Large Package
+                # one. The rating now follows UPS's weight rather than
+                # re-rating the parcel underneath it, so this note is the only
+                # place the gap is visible at all -- without it a correction
+                # where UPS refunded the surcharge and kept charging freight
+                # on the withdrawn measurement reads as a clean, quiet row.
+                if own_weight < side_c["billable"] and abs(freight_net) < 0.005:
+                    if (side_b["kind"] == "LPS"
+                            and abs(billed - side_b["floor"]) < 0.51):
+                        line(("    但計費重量沒有跟著降：UPS 仍以 %d 磅計費，"
+                              "而 %g 磅正是大型包裹的最低計費重量。" if zh else
+                              "    The billable weight did not follow: UPS "
+                              "still charges on %d lb, and %g lb is precisely "
+                              "the Large Package minimum.")
+                             % (side_c["billable"], side_b["floor"]))
+                    else:
+                        line(("    但計費重量沒有跟著降：UPS 仍以 %d 磅計費。"
+                              if zh else
+                              "    The billable weight did not follow: UPS "
+                              "still charges on %d lb.")
+                             % side_c["billable"])
+                    if side_c["floor"] > 0:
+                        line(("    若不套下限，此件計費重量為 %d 磅"
+                              "（申報 %g、材積 %g，取大值；下限 %g）。" if zh
+                              else "    With that minimum gone, this parcel's "
+                              "own figures give max(declared %g, dimensional "
+                              "%g, minimum %g) = %d lb.")
+                             % (own_weight, scale_weight,
+                                side_c["dim_weight"], side_c["floor"]))
+                    else:
+                        line(("    若不套下限，此件計費重量為 %d 磅"
+                              "（申報 %g、材積 %g，取大值）。" if zh
+                              else "    With that minimum gone, this parcel's "
+                              "own figures give max(declared %g, dimensional "
+                              "%g) = %d lb.")
+                             % (own_weight, scale_weight, side_c["dim_weight"]))
+
+                    # What the un-refunded freight is worth, so the note can
+                    # be acted on instead of merely noticed.
+                    _at_charged = self.quote_base_rate(
+                        service, zone_now, side_c["billable"])
+                    _at_own = self.quote_base_rate(
+                        service, zone_now, own_weight)
+                    if None not in (_at_charged, _at_own):
+                        line(("    兩者的運費差 %s（%d 磅 %s，%d 磅 %s）。"
+                              if zh else
+                              "    That gap is worth %s in freight (%d lb at "
+                              "%s against %d lb at %s).")
+                             % ((cash(round(_at_charged - _at_own, 2)),
+                                 side_c["billable"], cash(_at_charged),
+                                 own_weight, cash(_at_own)) if zh else
+                                (cash(round(_at_charged - _at_own, 2)),
+                                 side_c["billable"], cash(_at_charged),
+                                 own_weight, cash(_at_own))))
+                    line(("    UPS 只退附加費，運費沒退，這一段未退。本工具與 "
+                          "UPS 邏輯一致，以下限 %d 磅為計費重量，"
+                          "以免帳面出現負利潤。" % side_c["billable"] if zh else
+                          "    UPS's freight adjustment here is $0.00: the "
+                          "surcharge came off, the freight is still rated on "
+                          "the measurement that was withdrawn, and that part "
+                          "was never refunded. This tool follows UPS's "
+                          "billable weight so the margin does not go negative "
+                          "on something nobody can recover."))
+        elif zone_before and zone_before != zone_now:
+            # UPS rates the zone change on the ORIGINAL weight and the weight
+            # change on the NEW zone -- its gross proves it: 41.22 - 23.65 =
+            # 17.57 is zone 5 at 28 lb. The other order totals the same but
+            # matches no row on the invoice.
+            old_w = (side_b or side_c)["billable"]
+            new_w = side_c["billable"]
+            at_old_zone_old_w = self.quote_base_rate(service, zone_before, old_w)
+            at_new_zone_old_w = self.quote_base_rate(service, zone_now, old_w)
+
+            # The invoice rows these two steps correspond to, so each figure
+            # can be read straight off the statement above.
+            def adj_net(detail_code):
+                total = sum(number(r.get("net_amount")) for r in rows
+                            if str(r.get("layer")).upper() == "ADJ"
+                            and str(r.get("detail")).upper() == detail_code
+                            and str(r.get("ar")).upper() == "FRT")
+                return round(total, 2) if total else None
+
+            zone_row = adj_net("ZONE")
+            scc_row = adj_net("SCC")
+
+            if None not in (at_old_zone_old_w, at_new_zone_old_w):
+                zone_effect = round(at_new_zone_old_w - at_old_zone_old_w, 2)
+                weight_effect = round(
+                    charge_lines.get("base", 0) - zone_effect, 2)
+                line(("    Base Rate %s，由兩件事構成，順序與帳單上的兩行相同："
+                      if zh else
+                      "    Base Rate %s, from two things, in the order the "
+                      "invoice did them:")
+                     % cash(charge_lines.get("base", 0)))
+                line(("        Zone 由 %s 改為 %s（以原本的 %d 磅計）："
+                      "%s → %s，影響 %s" if zh else
+                      "        zone %s to %s (at the original %d lb): %s "
+                      "becomes %s, worth %s")
+                     % (zone_before, zone_now, old_w,
+                        cash(at_old_zone_old_w), cash(at_new_zone_old_w),
+                        cash(zone_effect)))
+                if zone_row is not None:
+                    line(("            對應帳單 ZONE ADJUSTMENT　%s" if zh else
+                          "            invoice line ZONE ADJUSTMENT   %s")
+                         % cash(zone_row))
+                line(("        計費重量 %d → %d 磅（在新的 Zone %s 下）：影響 %s"
+                      if zh else
+                      "        billable weight %d to %d lb (on the new zone "
+                      "%s): worth %s")
+                     % (old_w, new_w, zone_now, cash(weight_effect)))
+                if scc_row is not None:
+                    line(("            對應帳單 Shipping Charge Correction　%s"
+                          if zh else
+                          "            invoice line Shipping Charge "
+                          "Correction   %s") % cash(scc_row))
+            if side_c["fee"]:
+                label = self.fee_display_name(side_c["fee"])
+                line(("    %s %s：屬於上面的 Zone 那一步，尺寸改變不影響它"
+                      "（兩組尺寸都超過 AHS 門檻，只有費率隨 Zone 變）。"
+                      if zh else
+                      "    %s %s: part of the zone step above. The re-measure "
+                      "does not touch it -- both sets of dimensions are over "
+                      "the AHS limit, so only the rate moved.")
+                     % (label, cash(charge_lines.get(label, 0))))
+        if repriced < 0 and origin_in_scope:
+            line(("    合計是負數，因為此為修正前後的差額，非退費。原始那筆也在"
+                  "這期帳單裡，兩筆會互相沖銷，實收看下面總額。" if zh else
+                  "    The total is negative because it is the difference "
+                  "between the two measurements, not a refund: the original "
+                  "charge is on this same invoice, so the two net out. What "
+                  "is actually invoiced is the total below."))
+        elif repriced < 0:
+            line(("    合計為負數，代表這一筆是退費 %s，會從當期應收中扣除。" if zh
+                  else "    The total is negative: this is a credit of %s and "
+                       "comes off the amount invoiced.") % cash(abs(repriced)))
+        if len(out) == explanation_start + 1 and side_b:
+            # A plain re-measure: same classification, same zone, only the
+            # numbers moved. Saying "nothing was corrected" here was simply
+            # false -- the section above had just priced the correction.
+            bits = []
+            if dims_a and dims_c and dims_a != dims_c:
+                bits.append(("尺寸" if zh else "the dimensions"))
+            if side_b["billable"] != side_c["billable"]:
+                bits.append(("計費重量" if zh else "the billable weight"))
+            line(("    UPS 重新丈量了這件包裹，%s 變了，Zone 沒變，"
+                  "也沒有換附加費種類。" if zh else
+                  "    UPS re-measured this parcel. %s changed; the zone did "
+                  "not, and no surcharge changed type.")
+                 % ("、".join(bits) if zh else " and ".join(bits))
+                 if bits else
+                 ("    UPS 重新計價了這件包裹，Zone 與附加費種類都沒變。" if zh
+                  else "    UPS re-rated this parcel. Neither the zone nor any "
+                  "surcharge type changed."))
+            if side_b["billable"] != side_c["billable"]:
+                line(("    計費重量 %d → %d 磅，運費因此 %s。" if zh else
+                      "    Billable weight %d to %d lb, so the freight moves "
+                      "by %s.")
+                     % (side_b["billable"], side_c["billable"],
+                        cash(charge_lines.get("base", 0))))
+            line(("    加上燃油後，這次調整是 %s。" if zh else
+                  "    With fuel on top, this adjustment comes to %s.")
+                 % cash(repriced))
+
+        if len(out) == explanation_start + 1:
+            # An ordinary shipment with nothing corrected: say that, rather
+            # than leaving a heading with nothing under it.
+            line(("    一般出貨，沒有調整；金額即 Base Rate 加附加費再加燃油。"
+                  if zh else
+                  "    An ordinary shipment with nothing corrected: the total "
+                  "is the base rate plus surcharges plus fuel."))
+        line("")
+
+        # ---- and how it sits against what UPS billed ----
+        # `repriced` is the ADJUSTMENT; cal_total is what the parcel finally
+        # costs. Show both, so the same tracking has one reconcilable story.
+        # cal_total comes from the run, so it cannot drift from the report.
+        ups_all = round(sum(number(r.get("net_amount")) for r in scope), 2)
+        # DIN is a return leg, not a correction. UPS files it under ADJ, so
+        # counting the layer put a whole second journey into "this adjustment"
+        # -- $26.20 of transport measured against $0.29 of re-rate.
+        ups_adj = round(sum(number(r.get("net_amount")) for r in scope
+                            if str(r.get("layer")).upper() == "ADJ"
+                            and str(r.get("detail")).upper() != "DIN"), 2)
+        ups_origin = round(ups_all - ups_adj, 2)
+
+        # The report's own figure for this tracking, merged across layers.
+        # Everything above narrates the base rate and the one size-driven
+        # surcharge; a parcel's other charges (Residential, DAS, Signature,
+        # Address Correction ...) never enter that story but are certainly in
+        # the report, so the two totals part company unless the merged row is
+        # what gets quoted here. `final` was resolved above.
+        cal_total = final.get("total")
+        if cal_total is None:
+            cal_total = eng.get("cal_total")
+        if cal_total in (None, 0) and not side_b:
+            cal_total = repriced
+        cal_total = round(self.to_amount(cal_total), 2)
+
+        # Charges the breakdown above did not account for. Naming them is the
+        # difference between "the two numbers disagree" and "here is the gap".
+        narrated = {"CAL Base Rate", "Base Rate", "Fuel Surcharge"}
+        for _side in (side_b, side_c):
+            if _side and _side.get("fee"):
+                narrated.add(self.fee_display_name(_side["fee"]))
+        other = {k: v for k, v in (final.get("charges") or {}).items()
+                 if k not in narrated}
+
+        # Buffered, not printed here. The window used to run
+        # adjustment -> total -> adjustment -> total, and a reader following
+        # one figure had to keep changing scope. This block is lifted out and
+        # re-appended after the line-by-line arithmetic, so the whole window
+        # reads adjustment first, then total, each exactly once.
+        _totals_from = len(out)
+        line("與 UPS 帳單對照" if zh else "Against the UPS invoice")
+        if side_b:
+            line(("    上面重算的部分　修正後 %s － 原始 %s ＝ %s" if zh else
+                  "    The part repriced above   corrected %s - original %s "
+                  "= %s")
+                 % (cash(total_c), cash(total_b), cash(repriced)))
+        if other:
+            line(("    本單其他費用（未列入上面的重算）：" if zh else
+                  "    Other charges on this parcel, not part of the "
+                  "breakdown above:"))
+            for name, amount in sorted(other.items()):
+                note = CHARGE_PLAIN_NOTES.get(name, ("", ""))[0 if zh else 1]
+                line("        %-44s %s%s"
+                     % (name, cash(amount),
+                        ("　← " + note) if note else ""))
+        # Show the arithmetic. The report's Total used to arrive with the other
+        # charges listed but never added up, so the two could not be tied
+        # together by eye -- which is the only reason to print them.
+        report_fuel = round(self.to_amount(final.get("fuel", 0)), 2)
+        report_base = round(cal_total - report_fuel, 2)
+        if final.get("charges"):
+            line(("    費用合計 %s ＋ Fuel %s ＝ %s" if zh else
+                  "    Charges %s + fuel %s = %s")
+                 % (cash(report_base), cash(report_fuel), cash(cal_total)))
+        line(("    本工具重算（報表 Total）　%s" if zh else
+              "    Repriced (the report's Total)   %s") % cash(cal_total))
+        line(("    UPS 帳單 %s　%s" if zh else "    UPS invoice %s   %s")
+             % (run_invoice, cash(ups_all)))
+        line(("    差異　　　　%s" if zh else "    Difference    %s")
+             % cash(round(cal_total - ups_all, 2)))
+        ups_total = ups_all
+
+        # Held back and printed with the other adjustment-scope figures.
+        _adj_aside = None
+        if side_b:
+            _adj_aside = ("    （單看本次調整：本工具 %s，UPS %s，差 %s）"
+                          if zh else
+                          "    (This adjustment on its own: repriced %s "
+                          "against UPS %s, a difference of %s.)") % (
+                cash(repriced), cash(ups_adj),
+                cash(round(repriced - ups_adj, 2)))
+
+        _totals_block = out[_totals_from:]
+        del out[_totals_from:]
+
+        # ---- both sides' arithmetic, line by line ----
+        # A difference of a cent or two is not worth arguing with, but it IS
+        # worth being able to see. Printing only the two totals left the
+        # reader to work out where the gap came from.
+        line("")
+        line("算式對照" if zh else "The arithmetic, both sides")
+
+        ups_lines = [(str(r.get("description") or r.get("as_code") or ""),
+                      number(r.get("net_amount")))
+                     for r in scope
+                     if str(r.get("layer")).upper() == "ADJ"
+                     and str(r.get("detail")).upper() != "DIN"
+                     and abs(number(r.get("net_amount"))) >= 0.005] if side_b else [
+                     (str(r.get("description") or r.get("as_code") or ""),
+                      number(r.get("net_amount")))
+                     for r in scope
+                     if abs(number(r.get("net_amount"))) >= 0.005]
+
+        # Say what the subtotal covers. Unlabelled, this "=" sat a few lines
+        # above a differently-scoped one and the two read as contradicting
+        # each other.
+        _sum_label = (("＝ 本次調整" if zh else "= this adjustment")
+                      if side_b else ("＝" if zh else "="))
+        line("    UPS：" if zh else "    UPS:")
+        for name, amount in ups_lines:
+            line("        %s %s" % (pad(name, 72), rpad(cash(amount), 11)))
+        line("        %s %s" % (pad(_sum_label, 72),
+                                rpad(cash(round(sum(a for _, a in ups_lines), 2)), 11)))
+
+        line("    本工具：" if zh else "    This tool:")
+        mine = [(k, v) for k, v in charge_lines.items() if abs(v) >= 0.005]
+        for key, amount in mine:
+            label = "Base Rate" if key == "base" else key
+            line("        %s %s" % (pad(label, 72), rpad(cash(amount), 11)))
+        line("        %s %s" % (pad("Fuel Surcharge", 72),
+                                rpad(cash(fuel), 11)))
+        line("        %s %s" % (pad(_sum_label, 72),
+                                rpad(cash(repriced), 11)))
+
+        # Closes the adjustment scope; the buffered total-scope block follows.
+        if _adj_aside:
+            line(_adj_aside)
+        line("")
+        out.extend(_totals_block)
+
+        showed_lifetime = emit_running_total()
+
+        # ---- anything the run could not answer, and what fixes it ----
+        # These already went into _rate_issues.xlsx, where nobody looking at one
+        # tracking would find them. A gap in the answer is worth more than the
+        # answer when it is the reason the answer looks wrong.
+        # Not every diagnostic is a problem. Some record that something WORKED
+        # -- "Zone correction: freight originally zone 8 (now 5)" is the run
+        # saying it resolved the zone, which the breakdown has already spelled
+        # out above. Listing it under a heading that says "needs attention"
+        # tells the reader to go and fix a thing that is not broken, and buries
+        # the entries that are.
+        informational = ("Zone correction:",)
+
+        # A lane with no rate table produces one fact and several restatements
+        # of it: no table, so no zone column, so no ACC rate, so no DIM factor.
+        # This window showed all of them -- five English engine lines above the
+        # one sentence in Chinese that actually says what to do -- and the top
+        # line named a Ground table the row was never priced on. The plain
+        # sentence for eng["unsupported"] below covers the whole set, so the
+        # raw bucket entries are dropped for these rows rather than repeated.
+        _skip_raw_diagnostics = bool(eng.get("unsupported"))
+
+        issues = []
+        for bucket in (getattr(self, "lane_diagnostics", None) or [],
+                       getattr(self, "acc_rate_diagnostics", None) or [],
+                       getattr(self, "base_rate_diagnostics", None) or []):
+            if _skip_raw_diagnostics:
+                break
+            for entry in bucket:
+                if f"[{tracking}]" not in str(entry):
+                    continue
+                text = str(entry).split("]", 1)[-1].strip()
+                if text.startswith(informational):
+                    continue
+                issues.append(text)
+
+        # Freight missing because the parcel is heavier than the rate table
+        # goes. The row still shows surcharges and fuel, so the Total looks
+        # plausible -- one came out at $2,369 with no freight in it.
+        _bw = self.to_amount(eng.get("billable_weight"))
+        _top = self.to_amount(eng.get("rate_table_top"))
+        if _top and _bw > _top and not self.to_amount(eng.get("base_c")):
+            issues.append(
+                ("計費重量 %g 磅超過「%s」費率表的上限 %g 磅，所以這一列"
+                 "沒有算運費 —— Total 少了運費，只有附加費和燃油。"
+                 "超過 %g 磅 UPS 是用百磅費率（Hundredweight）計價，"
+                 "要匯入那張表，或這筆手動計價。"
+                 if zh else
+                 "Billable weight %g lb is past the top of the \"%s\" rate "
+                 "table (%g lb), so no freight was priced on this row -- the "
+                 "Total holds surcharges and fuel only. Over %g lb UPS rates "
+                 "on a hundredweight card: load that table, or price this "
+                 "parcel by hand.")
+                % (_bw, service, _top, _top))
+
+        if (eng.get("return_leg")
+                and eng.get("return_ups_weight")
+                and eng.get("billable_weight")
+                and abs(self.to_amount(eng["return_ups_weight"])
+                        - self.to_amount(eng["billable_weight"])) > 0.51):
+            issues.append(
+                ("退回那一段，UPS 用 %g 磅算，但這件更正後是 %g 磅。"
+                 "UPS 沒把更正套到回程。本工具兩段都用 %g 磅。"
+                 if zh else
+                 "UPS charged the return leg on %g lb. After the correction "
+                 "this parcel is %g lb. UPS did not apply the correction to "
+                 "the return. This tool uses %g lb for both legs.")
+                % (self.to_amount(eng["return_ups_weight"]),
+                   self.to_amount(eng["billable_weight"]),
+                   self.to_amount(eng["billable_weight"])))
+
+        if not eng.get("zone_known") and len(all_zones) > 1:
+            issues.append(
+                "找不到這件的原始出貨，所以 Zone 的變化沒有算進去。"
+                "把原始出貨那張帳單匯進來，再重算一次就會有。" if zh else
+                "The original shipment is not here, so the zone change was "
+                "not priced. Import the invoice it was on and run the "
+                "repricing again.")
+
+        if eng.get("unsupported"):
+            issues.append(
+                "此 Zone 與通路沒有費率表，所以沒有計價。"
+                "到 Channels 頁補上 Zone，或匯入該通路的費率表。" if zh else
+                "There is no rate table for this zone and channel, so this "
+                "row was not priced. Add the zone on the Channels tab, or "
+                "import that channel's rate table.")
+
+        # UPS charging far less than the contract table says is not a billing
+        # error -- it is the table. A published rate card imported in place of
+        # the negotiated one shows up exactly like this, and it quietly skews
+        # every row on that channel.
+        if ups_total and repriced and repriced > 0:
+            ratio = ups_total / repriced
+            if 0 < ratio < 0.75:
+                issues.append(
+                    ("UPS 只收了重算金額的 %.0f%%，差太多。"
+                     "「%s」的費率表可能匯成公告價，不是你的折後價。"
+                     if zh else
+                     "UPS billed only %.0f%% of the repriced amount -- too big a "
+                     "gap. The rate table for \"%s\" may be a published card "
+                     "rather than your negotiated one.")
+                    % (ratio * 100, service))
+
+        if issues:
+            line("")
+            line("可能要看一下" if zh else "Worth checking")
+            for item in dict.fromkeys(issues):
+                line("    " + item)
+        elif not showed_lifetime:
+            # Not printed under the lifetime ledger: there the same gap IS the
+            # margin, and calling it a rate difference contradicts that.
+            line(("    差異來自合約費率與 UPS 帳面費率不同，計算方式相同。"
+                  if zh else
+                  "    That gap is the contract rates against UPS's own; the "
+                  "calculation is the same."))
+        return out
+
+    TRACKING_MAX_LEN = 40
+
+    def clean_tracking(self, raw):
+        """A tracking number out of whatever landed in the box, or "".
+
+        The field is a paste target, so it receives whatever was on the
+        clipboard -- a sentence out of the breakdown window, a whole cell, a
+        line with a label in front of it. Anything that cannot be a tracking
+        number is rejected here, before it reaches the database or the window
+        builder, rather than being carried further as if it were one.
+        """
+        text = str(raw or "").strip().strip("\"'\u3000")
+        # Strip a leading label people paste along with the value.
+        if ":" in text or "：" in text:
+            text = text.replace("：", ":").rsplit(":", 1)[-1].strip()
+        text = "".join(text.split())
+        if not text or len(text) > self.TRACKING_MAX_LEN:
+            return ""
+        if not re.fullmatch(r"[A-Za-z0-9]{8,%d}" % self.TRACKING_MAX_LEN, text):
+            return ""
+        return text.upper()
+
+    def _bad_tracking_message(self):
+        return self._channel_ui(
+            "That does not look like a tracking number. Paste just the "
+            "number, e.g. 1ZXXXXXXXXXXXXXXXX.",
+            "這看起來不是單號。請只貼單號本身，例如 1ZXXXXXXXXXXXXXXXX。")
+
+    def open_explain_window(self, tracking=None):
+        raw = tracking if tracking else self.history_tracking_var.get()
+        if not str(raw or "").strip():
+            self.report_failed(self._channel_ui(
+                "Type a tracking number first.", "請先輸入單號。"))
+            return
+        tracking = self.clean_tracking(raw)
+        if not tracking:
+            self.report_failed(self._bad_tracking_message())
+            return
+        try:
+            lines = self.explain_tracking(tracking)
+        except Exception as e:
+            traceback.print_exc()
+            self.report_failed(str(e))
+            return
+
+        try:
+            self._show_explain_window(tracking, lines)
+        except Exception as e:
+            # Building the window is not worth taking the program down for.
+            # Everything above this point was already guarded; this part was
+            # not, so one unexpected value closed the whole tool and the user
+            # lost an unsaved run with it.
+            traceback.print_exc()
+            self.report_failed(str(e))
+
+    def _show_explain_window(self, tracking, lines):
+        win = tk.Toplevel(self.root)
+        win.title("Rating Breakdown")
+        win.geometry(f"{scaled(820)}x{scaled(640)}")
+        win.transient(self.root)
+        try:
+            win.configure(bg=self.MILKTEA["BG"])
+        except Exception:
+            pass
+
+        # A tk.Text keeps the system white whatever the ttk theme is doing,
+        # so this window came out as a white sheet inside a coloured frame.
+        palette = getattr(self, "MILKTEA", {}) or {}
+        text = tk.Text(win, wrap="none", font=mono_font(10),
+                       background=palette.get("PANEL", "#dbc6a4"),
+                       foreground=palette.get("TEXT", "#3b2f23"),
+                       insertbackground=palette.get("TEXT", "#3b2f23"),
+                       selectbackground=palette.get("SELECT", "#e3c79a"),
+                       selectforeground=palette.get("TEXT", "#3b2f23"),
+                       relief="flat", borderwidth=0,
+                       padx=10, pady=8)
+        bar = ttk.Scrollbar(win, orient="vertical", command=text.yview)
+        xbar = ttk.Scrollbar(win, orient="horizontal", command=text.xview)
+        text.configure(yscrollcommand=bar.set, xscrollcommand=xbar.set)
+        bar.pack(side="right", fill="y")
+        xbar.pack(side="bottom", fill="x")
+        text.pack(fill="both", expand=True, padx=12, pady=(12, 6))
+
+        # Three weights of text: the tracking, the section headings, and the
+        # figures. Credits are the one thing worth picking out by colour --
+        # every correction is read by looking for what came back.
+        text.tag_configure("tracking", font=mono_font(12, "bold"),
+                           foreground=palette.get("TITLE", "#7a4f24"))
+        text.tag_configure("heading", font=mono_font(10, "bold"),
+                           foreground=palette.get("TITLE", "#7a4f24"))
+        text.tag_configure("credit", foreground=palette.get("NEGATIVE",
+                                                            "#8c2f2f"))
+
+        import re as _re
+        for index, row in enumerate(lines):
+            tag = ()
+            if index == 0:
+                tag = ("tracking",)
+            elif row and not row.startswith(" ") and not row.startswith("　"):
+                tag = ("heading",)
+            elif _re.search(r"-\d[\d,]*\.\d\d", row):
+                tag = ("credit",)
+            text.insert("end", row + "\n", tag)
+        text.configure(state="disabled")
+
+        ttk.Button(win, text="Close", width=10,
+                   command=win.destroy).pack(anchor="e", padx=12, pady=(0, 10))
+
+    def open_history_invoices_window(self):
+        """What is actually stored, and a way to take one back out.
+
+        The tab reported "18 invoices, 93,863 rows" and nothing else, so there
+        was no way to see WHICH invoices those were -- or to undo an import
+        that replaced a full invoice with a partial extract of it.
+        """
+        zh = self._ui_language_code == "zh"
+        win = tk.Toplevel(self.root)
+        win.title("已存帳單" if zh else "Stored Invoices")
+        win.geometry(f"{scaled(760)}x{scaled(460)}")
+        win.transient(self.root)
+        try:
+            win.configure(bg=self.MILKTEA["BG"])
+        except Exception:
+            pass
+
+        cols = ("invoice", "date", "rows", "trackings", "source", "imported")
+        heads = (("帳單號", "帳單日期", "列數", "Tracking", "來源檔", "匯入時間")
+                 if zh else
+                 ("Invoice", "Date", "Rows", "Trackings", "Source", "Imported"))
+        widths = (150, 90, 70, 80, 200, 140)
+
+        wrap = ttk.Frame(win)
+        wrap.pack(fill="both", expand=True, padx=12, pady=(12, 6))
+        tree = ttk.Treeview(wrap, columns=cols, show="headings",
+                            selectmode="extended")
+        for c, h, w in zip(cols, heads, widths):
+            tree.heading(c, text=h)
+            tree.column(c, width=scaled(w),
+                        anchor="e" if c in ("rows", "trackings") else "w")
+        bar = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        tree.pack(fill="both", expand=True)
+
+        status = ttk.Label(win, text="")
+        status.pack(anchor="w", padx=14)
+
+        def reload_rows():
+            tree.delete(*tree.get_children())
+            try:
+                entries = self.history().invoice_list()
+            except Exception as e:
+                status.config(text=str(e))
+                return
+            for number, date, rows_n, trk, source, stamped in entries:
+                tree.insert("", "end", values=(
+                    number, date or "", f"{rows_n:,}", f"{trk:,}",
+                    os.path.basename(str(source or "")), stamped or ""))
+            status.config(text=(f"共 {len(entries)} 張帳單" if zh
+                                else f"{len(entries)} invoice(s)"))
+
+        def forget_selected():
+            picked = [tree.item(i, "values")[0] for i in tree.selection()]
+            if not picked:
+                status.config(text=("先選一張帳單。" if zh
+                                    else "Select an invoice first."))
+                return
+            if not messagebox.askyesno(
+                    "確認" if zh else "Confirm",
+                    (("要把這 %d 張帳單從歷史中刪除嗎？\n\n%s\n\n"
+                      "刪掉之後，這些帳單裡的原始出貨就找不到了，"
+                      "對應的更正會無法判斷 Zone 變化。") if zh else
+                     ("Remove these %d invoice(s) from the history?\n\n%s\n\n"
+                      "Their original shipments will no longer be findable, so "
+                      "corrections against them cannot resolve a zone change."))
+                    % (len(picked), "\n".join(picked))):
+                return
+            gone = 0
+            for number in picked:
+                try:
+                    gone += self.history().forget_invoice(number)
+                except Exception as e:
+                    status.config(text=str(e))
+                    return
+            reload_rows()
+            self.refresh_history_summary()
+            status.config(text=(f"已刪除 {gone:,} 列。" if zh
+                                else f"{gone:,} row(s) removed."))
+
+        bar_row = ttk.Frame(win)
+        bar_row.pack(fill="x", padx=12, pady=(4, 10))
+        ttk.Button(bar_row, text="重新整理" if zh else "Refresh", width=12,
+                   command=reload_rows).pack(side="left")
+        ttk.Button(bar_row,
+                   text="刪除選取的帳單" if zh else "Remove Selected",
+                   width=20, command=forget_selected).pack(side="left", padx=6)
+        ttk.Button(bar_row, text="關閉" if zh else "Close", width=10,
+                   command=win.destroy).pack(side="right")
+
+
+        reload_rows()
+
+    def refresh_history_summary(self):
+        if not hasattr(self, "history_summary_var"):
+            return
+        try:
+            info = self.history().summary()
+        except Exception as e:
+            self.history_summary_var.set(str(e))
+            return
+        if not info["rows"]:
+            self.history_summary_var.set(self._channel_ui(
+                "Nothing stored yet. Import past invoices, or run a report -- "
+                "every run files its own invoice here.",
+                "目前是空的。可以先匯入歷史帳單；之後每跑一次報表，"
+                "那張帳單也會自動存進來。"))
+            return
+        self.history_summary_var.set(self._channel_ui(
+            f"{info['invoices']} invoice(s), {info['rows']:,} row(s), "
+            f"{info['trackings']:,} tracking(s)   {info['from']} ~ {info['to']}",
+            f"已存 {info['invoices']} 張帳單、{info['rows']:,} 列、"
+            f"{info['trackings']:,} 個 tracking　{info['from']} ~ {info['to']}"))
+
+    def import_history_files(self):
+        paths = filedialog.askopenfilenames(
+            title="Past UPS invoices",
+            filetypes=[("Invoice", "*.csv *.xlsx *.xlsm"), ("All", "*.*")])
+        if not paths:
+            return
+        stored, total = [], 0
+        for path in paths:
+            invoices, rows = self.remember_invoice_file(path)
+            total += rows
+            stored += invoices
+        self.refresh_history_summary()
+        if total:
+            self.report_ok(self._channel_ui(
+                f"{len(stored)} invoice(s), {total:,} row(s) stored.",
+                f"已存入 {len(stored)} 張帳單、{total:,} 列。"))
+        else:
+            self.report_failed(self._channel_ui(
+                "Nothing was stored -- check these are UPS billing files.",
+                "沒有存入任何資料，請確認這些是 UPS 原始帳單檔案。"))
+
+    def search_history(self):
+        tree = getattr(self, "history_tree", None)
+        if tree is None:
+            return
+        raw = str(self.history_tracking_var.get()).strip()
+        tree.delete(*tree.get_children())
+        if not raw:
+            return
+        tracking = self.clean_tracking(raw)
+        if not tracking:
+            self.set_status(self._bad_tracking_message())
+            return
+        try:
+            rows = self.history().rows_for_tracking(tracking)
+        except Exception as e:
+            self.report_failed(str(e))
+            return
+        for index, row in enumerate(rows):
+            tags = ["even" if index % 2 == 0 else "odd"]
+            try:
+                if float(row.get("net_amount") or 0) < 0:
+                    tags.append("credit")
+            except (TypeError, ValueError):
+                pass
+            tree.insert("", "end", tags=tuple(tags),
+                        values=[row.get(c, "") for c in self.history_columns])
+        invoices = sorted({r.get("invoice_number", "") for r in rows})
+        self.set_status(self._channel_ui(
+            f"{tracking}: {len(rows)} row(s) across {len(invoices)} invoice(s)",
+            f"{tracking}：{len(rows)} 列，橫跨 {len(invoices)} 張帳單"))
+
+    # =========================================================
+    # INVOICE HISTORY -- storing, searching, explaining
+    # =========================================================
+
+    def history_zone_for(self, tracking, exclude_invoice=None):
+        """The zone this parcel was originally rated at, from past invoices.
+
+        Never fatal: no history file, or an unreadable one, simply means the
+        engine carries on the way it did before.
+        """
+        try:
+            return self.history().original_zone(tracking, exclude_invoice)
+        except Exception as e:
+            print("History zone lookup failed:", e)
+            return None
+
+    def history_service_for(self, tracking, exclude_invoice=None):
+        """The channel this parcel was originally shipped on, from past invoices.
+
+        An SCC row reads "Shipping Charge Correction Ground" -- no RES/COM
+        word anywhere in it -- so normalize_service() classifies it Commercial.
+        shp_rtn_service closes that when the shipment sits in the SAME invoice,
+        but a correction usually lands a week later, in its own file, and then
+        nothing in the run knows the parcel went to a house: it is repriced off
+        the commercial table and its Residential Surcharge is simply absent.
+
+        The history already stores the original description. Read it, rather
+        than inferring the channel from whichever accessorial codes the ADJ
+        happens to carry -- an ADJ whose only accessorial is FTP carries no
+        residential signal at all and the inference silently declines.
+
+        Returns "Ground Residential" / "Ground Commercial", or None when the
+        history has nothing to say. Ground only: anything else returns None and
+        the caller behaves exactly as before. Never fatal.
+        """
+        try:
+            rows = self.history().original_shipment_rows(
+                tracking, exclude_invoice)
+        except Exception as e:
+            print("History service lookup failed:", e)
+            return None
+
+        for row in rows:
+            if str(row.get("ar") or "").strip().upper() != "FRT":
+                continue
+            text = str(row.get("description") or "").strip().lower()
+            # A correction stored in history is not evidence about itself.
+            if text.startswith("shipping charge correction"):
+                continue
+            if not text.startswith("ground"):
+                continue
+            if "residential" in text:
+                return "Ground Residential"
+            return "Ground Commercial"
+        return None
+
+    # ---- base rates inside the settings file ---------------------------
+    # The config used to remember only WHERE the rate workbooks were. Move a
+    # file, rename a folder, hand the settings to a colleague without the
+    # spreadsheets, and the rates were gone. The tables themselves live in the
+    # settings now; the paths stay too, so a corrected workbook still wins on
+    # the next launch.
+
+    def rate_tables_for_config(self):
+        """rate_tables -> something json.dump can write."""
+        out = []
+        for key, frame in (getattr(self, "rate_tables", {}) or {}).items():
+            if frame is None or getattr(frame, "empty", True):
+                continue
+            if isinstance(key, tuple) and len(key) == 2:
+                service, residential = str(key[0]), bool(key[1])
+            else:
+                service, residential = str(key), None
+            columns = [str(c) for c in frame.columns]
+            rows = []
+            for record in frame.itertuples(index=False, name=None):
+                row = []
+                for value in record:
+                    if value is None or (isinstance(value, float)
+                                         and pd.isna(value)):
+                        row.append("")
+                    elif isinstance(value, (int, float)):
+                        row.append(round(float(value), 4))
+                    else:
+                        row.append(str(value))
+                rows.append(row)
+            out.append({"service": service, "residential": residential,
+                        "columns": columns, "rows": rows})
+        return out
+
+    def restore_rate_tables(self, stored):
+        """The other direction. Returns how many tables came back."""
+        restored = 0
+        for entry in (stored or []):
+            try:
+                columns = [str(c) for c in entry.get("columns", [])]
+                rows = entry.get("rows", [])
+                if not columns or not rows:
+                    continue
+                frame = pd.DataFrame(rows, columns=columns)
+                service = str(entry.get("service", "")).strip()
+                residential = entry.get("residential")
+                key = (service if residential is None
+                       else (service, bool(residential)))
+                self.rate_tables[key] = frame
+                restored += 1
+            except Exception as e:
+                print("Could not restore a rate table:", e)
+        return restored
+
+    def history(self):
+        """The invoice history store, opened once."""
+        if self._history is None:
+            self._history = InvoiceHistory()
+        return self._history
+
+    def remember_invoice_file(self, path, frame=None):
+        """Put an invoice into the history. Never fatal: a report must still
+        be produced when the history file cannot be written."""
+        try:
+            if frame is None:
+                frame, _has_header = self.read_billing_file(path, owner=self)
+            try:
+                _dv_col = self.declared_value_col_index()
+            except Exception:
+                _dv_col = 48
+            return self.history().store_frame(frame, source_file=path,
+                                              declared_value_col=_dv_col)
+        except Exception as e:
+            print("History store failed:", e)
+            return [], 0
+
+    def locate_invoice_file(self, invoice_number):
+        """The raw file this invoice came from, if it can still be found.
+
+        The full path is only recorded for invoices filed since this tool
+        started keeping it. Everything imported before that has the file NAME
+        and nothing else -- so look for that name in the folders this session
+        already knows about, rather than declaring the invoice unpriceable
+        while the file sits next to the one currently loaded.
+
+        Read-only, and the file has to still be the invoice it claims to be:
+        the caller filters on the invoice number regardless.
+        """
+        history = self.history()
+        try:
+            path = history.source_path_for(invoice_number)
+        except Exception:
+            path = ""
+        if path and os.path.exists(path):
+            return path
+
+        try:
+            name = os.path.basename(str(
+                history.source_file_for(invoice_number) or "").replace(
+                    "\\", "/"))
+        except Exception:
+            name = ""
+        if not name:
+            return ""
+
+        folders = []
+        for candidate in (self.billing_path.get(), path,
+                          getattr(self, "last_report_path", "")):
+            folder = os.path.dirname(str(candidate or "").replace("\\", "/"))
+            if folder and folder not in folders:
+                folders.append(folder)
+        # Where other invoices were read from -- the usual case is a folder of
+        # weekly files, one of which is still selected.
+        try:
+            with history._connect() as db:
+                for (other,) in db.execute(
+                        "SELECT DISTINCT source_path FROM invoice_rows "
+                        "WHERE source_path IS NOT NULL AND source_path <> ''"):
+                    folder = os.path.dirname(str(other).replace("\\", "/"))
+                    if folder and folder not in folders:
+                        folders.append(folder)
+        except Exception:
+            pass
+
+        for folder in folders:
+            candidate = os.path.join(folder, name)
+            if os.path.exists(candidate):
+                return candidate
+        return ""
+
+    def backfill_reprice(self, invoice_number, tracking=None):
+        """Reprice an invoice that is already in the history.
+
+        The same engine, the same code path -- driven from the stored rows
+        instead of a file the user has to go and find again. "Not repriced
+        yet" was never an answer the tool could not work out for itself: the
+        invoice is right there.
+
+        Returns (True, "") or (False, reason). Nothing about the run currently
+        on screen is disturbed: the explain map, the run totals, the
+        diagnostics and the report path all go back exactly as they were, so
+        a backfill triggered while reading one parcel's breakdown cannot
+        rewrite the breakdown being read.
+        """
+        invoice_number = str(invoice_number or "").strip()
+        if not invoice_number:
+            return False, "no invoice number"
+
+        if not getattr(self, "rate_tables", None):
+            return False, ("尚未匯入基本運費表" if self._ui_language_code == "zh"
+                           else "no base rate table imported")
+
+        try:
+            dv_col = self.declared_value_col_index()
+        except Exception:
+            dv_col = 48
+
+        # The original file first when it can still be found: it carries every
+        # column, including the ones the history does not keep. Filtered to
+        # this invoice, because a raw file often holds several and the figure
+        # being filed is per invoice.
+        frame = None
+        blocked = set()
+        source = ""
+        try:
+            path = self.locate_invoice_file(invoice_number)
+            if path:
+                raw, _has_header = self.read_billing_file(path, owner=self)
+                raw = raw.fillna("")
+                if raw.shape[1] > 5:
+                    match = raw[raw.iloc[:, 5].astype(str).str.strip()
+                                == invoice_number]
+                    if len(match):
+                        frame = match.reset_index(drop=True)
+                        source = os.path.basename(path)
+        except Exception as e:
+            print("Backfill: original file unusable:", e)
+
+        if frame is None:
+            frame, blocked = self.history().frame_for_invoice(
+                invoice_number, declared_value_col=dv_col)
+            source = "history"
+            if frame is None:
+                return False, ("history 裡沒有這張帳單的明細"
+                               if self._ui_language_code == "zh"
+                               else "no rows filed for this invoice")
+            # One parcel's missing Declared Value is not a reason to leave the
+            # other four hundred on the invoice unpriced. The parcels that
+            # cannot be priced honestly are held back by name, below.
+            if tracking and str(tracking).strip() in blocked:
+                return False, (("這筆的 Declared Value 沒有存進 history，"
+                                "補算會少算這筆費用；要重新匯入原始檔"
+                                if self._ui_language_code == "zh" else
+                                "its declared value was never filed, so the "
+                                "charge would be priced at 0 -- re-import the "
+                                "raw file"))
+
+        keep = {name: getattr(self, name, None) for name in (
+            "reprice_explain", "last_run_totals", "last_run_lines",
+            "last_report_path", "base_rate_diagnostics",
+            "acc_rate_diagnostics", "lane_diagnostics",
+            "_last_report_notes", "last_run_missing_tables")}
+        try:
+            status = self.status_var.get()
+        except Exception:
+            status = None
+
+        self._quiet_scratch_dir = ""
+        try:
+            self.run_repricing(source_frame=frame, quiet=True,
+                               invoice_hint=[invoice_number])
+            missing = list(getattr(self, "last_run_missing_tables", []) or [])
+            totals = dict(getattr(self, "last_run_totals", None) or {})
+            lines = list(getattr(self, "last_run_lines", None) or [])
+        except Exception as e:
+            self._restore_run_state(keep, status)
+            self._clear_scratch()
+            return False, str(e)
+
+        try:
+            if missing:
+                # Base rate 0 filed as this invoice's figure is worse than no
+                # figure: it reads as a real number in the running total and
+                # nothing on screen says it is not one.
+                return False, (("缺 %s 的費率表，補算出來的運費會是 0"
+                                if self._ui_language_code == "zh" else
+                                "no rate table for %s -- freight would come "
+                                "out at 0") % "、".join(missing))
+            if not lines:
+                return False, ("補算沒有產出任何單號"
+                               if self._ui_language_code == "zh"
+                               else "the run produced no rows")
+
+            keepable = [(t, v) for t, v in lines
+                        if str(t).strip() not in blocked]
+            if not keepable:
+                return False, ("這張帳單的 Declared Value 沒有存進 history"
+                               if self._ui_language_code == "zh"
+                               else "declared values were never filed")
+
+            # The invoice-level figure only when the whole invoice was priced.
+            # Held back parcels would make it read as a complete total that is
+            # short by however many of them there are.
+            if not blocked:
+                self.history().record_run(
+                    invoice_number, totals.get("trackings", 0),
+                    totals.get("cal_total", 0.0),
+                    totals.get("ups_total", 0.0), "")
+            self.history().record_lines(invoice_number, keepable)
+            lines = keepable
+        finally:
+            self._restore_run_state(keep, status)
+            self._clear_scratch()
+
+        print(f"Backfill: {invoice_number} repriced from {source}, "
+              f"{len(lines)} tracking(s)."
+              + (f" {len(blocked)} held back for a missing declared value."
+                 if blocked else ""))
+        try:
+            self.refresh_history_summary()
+        except Exception:
+            pass
+        return True, ""
+
+    def _clear_scratch(self):
+        """Remove the workbook a backfill had to write to get its totals."""
+        folder = str(getattr(self, "_quiet_scratch_dir", "") or "")
+        self._quiet_scratch_dir = ""
+        if folder:
+            try:
+                shutil.rmtree(folder, ignore_errors=True)
+            except Exception:
+                pass
+
+    def _restore_run_state(self, keep, status=None):
+        """Put back what a backfill run overwrote."""
+        for name, value in keep.items():
+            try:
+                setattr(self, name, value)
+            except Exception:
+                pass
+        if status is not None:
+            try:
+                self.status_var.set(status)
+            except Exception:
+                pass
+
+    def read_locked_friendly(self, path, reader):
+        """Read a file that Windows may have locked, and explain it if not.
+
+        Excel keeps an open workbook locked, and OneDrive does the same while
+        it syncs, so a report that was just produced and is still on screen
+        cannot be read back -- which arrives as a bare
+        "PermissionError: [Errno 13]" naming a path and nothing else.
+
+        First try a copy: a lock that only forbids writing still allows the
+        bytes to be copied, and that covers the common case of the workbook
+        being open. If even that is refused, say which file and why in words.
+        """
+        try:
+            return reader(path)
+        except PermissionError:
+            pass
+
+        import shutil
+        import tempfile
+
+        temp_dir = tempfile.mkdtemp(prefix="ups_read_")
+        temp_path = os.path.join(temp_dir, os.path.basename(str(path)) or "copy")
+        try:
+            shutil.copy2(path, temp_path)
+            return reader(temp_path)
+        except Exception:
+            raise ValueError(self._channel_ui(
+                "Cannot open this file -- it is locked by another program:\n\n"
+                f"{path}\n\n"
+                "Close it in Excel (or wait for OneDrive to finish syncing) "
+                "and try again.",
+                "這個檔案被其他程式鎖住，讀不進來：\n\n"
+                f"{path}\n\n"
+                "請先在 Excel 關閉它（或等 OneDrive 同步完成）再試一次。"))
+        finally:
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
 
     def _build_profit_report(self, src_path, invoice_path):
         """Emits the weekly statement layout already in use:
@@ -2797,9 +14861,12 @@ class UPSRepricingTool:
         One sheet per invoice number found, plus the Overview across them.
         Margin is a fraction so Excel's % format shows it directly."""
         if str(src_path).lower().endswith((".csv", ".txt")):
-            book = {"Shipment Detail": pd.read_csv(src_path, low_memory=False)}
+            book = self.read_locked_friendly(
+                src_path,
+                lambda p: {"Shipment Detail": pd.read_csv(p, low_memory=False)})
         else:
-            book = pd.read_excel(src_path, sheet_name=None)
+            book = self.read_locked_friendly(
+                src_path, lambda p: pd.read_excel(p, sheet_name=None))
         sheet = next((n for n in book if n.strip().lower() == "shipment detail"),
                      None)
         if sheet is None:
@@ -2813,7 +14880,7 @@ class UPSRepricingTool:
                 raise ValueError(f"That sheet has no \"{need}\" column.")
 
         (cost_by, account_total, account_rows,
-         unknown_rows) = self.ups_cost_by_tracking(invoice_path)
+         unknown_rows, _notes_for) = self.ups_cost_by_tracking(invoice_path)
 
         fin["Tracking"] = fin["Tracking"].astype(str).str.strip()
         fin["_sell"] = pd.to_numeric(fin["Total"], errors="coerce").fillna(0)
@@ -2932,30 +14999,34 @@ class UPSRepricingTool:
                     "Type": "account charge (no tracking)",
                     "Charge Description": _r["Charge Description"],
                     "Code": _r["Charge Description Code"],
+                    "UPS Note": _r.get("UPS Note", ""),
                     "Amount": _r["Amount"]})
             for t in _no_cost:
                 _other.append({
                     "Tracking": t, "Type": "billed to client, not on invoice",
                     "Charge Description": "", "Code": "",
+                    "UPS Note": _notes_for.get(t, ""),
                     "Amount": round(float(
                         fin[fin["Tracking"] == t]["_sell"].sum()), 2)})
             for t in _not_billed:
                 _other.append({
                     "Tracking": t, "Type": "on invoice, not billed to client",
                     "Charge Description": "", "Code": "",
+                    "UPS Note": _notes_for.get(t, ""),
                     "Amount": round(float(cost_by.loc[t, "Net"]), 2)})
             if _other:
                 pd.DataFrame(_other)[["Tracking", "Type", "Charge Description",
-                                      "Code", "Amount"]].to_excel(
+                                      "Code", "UPS Note", "Amount"]].to_excel(
                     w, sheet_name="Account Charges", index=False)
             if not unknown_rows.empty:
                 unknown_rows.to_excel(w, sheet_name="Unknown Codes",
                                       index=False)
 
         # Margin as a real percentage, money to 2dp
+        wbk = None
         try:
             from openpyxl import load_workbook as _lw
-            wbk = _lw(out)
+            wbk = _lw(out)   # closed in the finally below
             for ws in wbk.worksheets:
                 _hrow = 1
                 heads = [c.value for c in ws[_hrow]]
@@ -2976,6 +15047,12 @@ class UPSRepricingTool:
             wbk.save(out)
         except Exception as e:
             print("Statement formatting skipped:", e)
+        finally:
+            if wbk is not None:
+                try:
+                    wbk.close()
+                except Exception:
+                    pass
 
         self.confirm(
             "Weekly statement",
@@ -3015,6 +15092,7 @@ class UPSRepricingTool:
             cfg = {
                 "global_rules": {
                     "dim_factor": self.dim_factor.get(),
+                    "default_dim_factor": self.default_dim_factor.get(),
                     "fuel_percent": self.fuel_percent.get(),
                     "use_oversize_longest": self.use_oversize_longest.get(),
                     "use_oversize_weight": self.use_oversize_weight.get(),
@@ -3025,6 +15103,11 @@ class UPSRepricingTool:
                     "oversize_cubic_inches": self.oversize_cubic_inches.get(),
                     "oversize_length_girth": self.oversize_length_girth.get(),
                     "oversize_min_billable_weight": self.oversize_min_billable_weight.get(),
+                    "use_ahs_weight": self.use_ahs_weight.get(),
+                    "use_ahs_longest": self.use_ahs_longest.get(),
+                    "use_ahs_second": self.use_ahs_second.get(),
+                    "use_ahs_cubic": self.use_ahs_cubic.get(),
+                    "use_ahs_lg": self.use_ahs_lg.get(),
                     "ahs_weight_threshold": self.ahs_weight_threshold.get(),
                     "ahs_longest_side": self.ahs_longest_side.get(),
                     "ahs_second_side": self.ahs_second_side.get(),
@@ -3041,8 +15124,22 @@ class UPSRepricingTool:
                 "last_report_path": getattr(self, "last_report_path", ""),
                 "base_rate_service": self.base_rate_service.get(),
                 "base_rate_paths": list(getattr(self, "base_rate_paths", [])),
+                # The rates themselves, not just where they were read from.
+                "base_rate_tables": self.rate_tables_for_config(),
                 "accessorial_rate_table": serializable_table,
                 "fuel_schedule": self.fuel_schedule,
+                "channel_fuel_schedules": getattr(self, "channel_fuel_schedules", {}),
+                "channel_fuel_percents": getattr(self, "channel_fuel_percents", {}),
+                "demand_config": getattr(self, "demand_config", {}),
+                "channel_rule_overrides": getattr(self, "channel_rule_overrides", {}),
+                "channel_dim_factors": getattr(self, "channel_dim_factors", {}),
+                "builtin_service_zones": getattr(self, "builtin_service_zones", {}),
+                "builtin_service_disabled": sorted(
+                    getattr(self, "builtin_service_disabled", set())),
+                "ui_theme": getattr(self, "theme_name", "Brown Gold"),
+                "ui_tz": UI_TZ,
+                "ui_brand": UI_BRAND,
+                "custom_service_registry": getattr(self, "custom_service_registry", {}),
                 "dynamic_surcharge_mapping": self.dynamic_surcharge_mapping,
                 "dynamic_surcharge_code_map": self.dynamic_surcharge_code_map,
                 "ahs_lps_code_registry": self.ahs_lps_code_registry,
@@ -3061,11 +15158,33 @@ class UPSRepricingTool:
                     "ovr_fee": self.ovr_fee.get(),
                     "signature_fee": self.signature_fee.get(),
                     "package_protection_fee": self.package_protection_fee.get(),
-                    "declared_value_markup": self.declared_value_markup.get(),
+                    "dv_column": self.dv_column.get(),
+                    "dv_free_limit": self.dv_free_limit.get(),
+                    "dv_min_charge": self.dv_min_charge.get(),
+                    "dv_unit": self.dv_unit.get(),
+                    "dv_unit_rate": self.dv_unit_rate.get(),
                 }
             }
 
             path = self.config_path.get().strip() or default_config_path()
+
+            # A second copy of the tool left open from earlier holds the config
+            # as it was when IT started. Its auto-save on close then writes
+            # that stale copy back over everything done since -- an import
+            # that worked, was confirmed, and is simply gone the next time you
+            # look. Only refuse the automatic saves; an explicit Save Settings
+            # is the user saying "mine wins".
+            if silent:
+                try:
+                    on_disk = os.path.getmtime(path) if os.path.exists(path) else 0.0
+                except OSError:
+                    on_disk = 0.0
+                seen = getattr(self, "_config_seen_mtime", None)
+                if seen is not None and on_disk > seen + 0.001:
+                    print("Auto-save skipped: the settings file was changed by "
+                          "another window since this one loaded it.")
+                    return
+
             try:
                 with open(path, "w", encoding="utf-8") as f:
                     json.dump(cfg, f, ensure_ascii=False, indent=2)
@@ -3075,6 +15194,11 @@ class UPSRepricingTool:
                     return
                 messagebox.showerror("Save Failed", f"Unable to save settings:\n\n{e}")
                 raise
+
+            try:
+                self._config_seen_mtime = os.path.getmtime(path)
+            except OSError:
+                self._config_seen_mtime = None
 
             self.set_status("Settings saved.")
     def load_config(self, silent=False):
@@ -3086,6 +15210,11 @@ class UPSRepricingTool:
                     return
                 messagebox.showerror("Error", "Settings file not found.")
                 return
+
+            try:
+                self._config_seen_mtime = os.path.getmtime(path)
+            except OSError:
+                self._config_seen_mtime = None
 
             try:
                 with open(path, "r", encoding="utf-8") as f:
@@ -3125,20 +15254,187 @@ class UPSRepricingTool:
 
             self.dynamic_surcharge_code_map = cfg.get("dynamic_surcharge_code_map", {})
 
+            # Registered channels. Normalized on the way in so a hand-edited
+            # config cannot feed raw strings to the engine.
+            # "name" and "residential" used to be dropped here. The key is
+            # "<name>|||R" / "<name>|||C", so the name survived by accident,
+            # but the flag did not: every channel came back Commercial after
+            # Load Settings, and the next save rewrote its key as |||C -- so a
+            # Residential channel disappeared for good, and a name registered
+            # as both types lost one of the two.
+            _svc_reg = cfg.get("custom_service_registry", {}) or {}
+            _restored_services = {}
+            for svc_name, svc_cfg in _svc_reg.items():
+                svc_cfg = svc_cfg or {}
+                raw_key = str(svc_name).strip()
+                if not raw_key:
+                    continue
+                display = (str(svc_cfg.get("name", "")).strip()
+                           or raw_key.split("|||", 1)[0].strip())
+                if not display:
+                    continue
+                if "residential" in svc_cfg:
+                    residential = bool(svc_cfg.get("residential"))
+                else:
+                    # Older configs stored the flag only in the key.
+                    residential = raw_key.upper().endswith("|||R")
+                _restored_services[self.custom_service_key(display, residential)] = {
+                    "name": display,
+                    "patterns": normalize_service_pattern_list(
+                        svc_cfg.get("patterns", "")) or [display],
+                    "zones": normalize_service_zone_list(
+                        svc_cfg.get("zones", "")),
+                    "residential": residential,
+                    "enabled": bool(svc_cfg.get("enabled", True)),
+                    "dim_factor": str(svc_cfg.get("dim_factor", "") or "").strip(),
+                    "rules": {
+                        str(k): str(v).strip()
+                        for k, v in (svc_cfg.get("rules", {}) or {}).items()
+                        if str(v).strip() != ""
+                    },
+                }
+            self.custom_service_registry = _restored_services
+
             restored_fuel_schedule, fuel_problems = normalize_fuel_schedule(
                 cfg.get("fuel_schedule", []) or []
             )
             self.fuel_schedule = restored_fuel_schedule
+
+            # Per-channel fuel, normalised the same way as the global one so a
+            # hand-edited config cannot feed raw strings to the engine.
+            self.channel_fuel_schedules = {}
+            for _cname, _rows in (cfg.get("channel_fuel_schedules", {}) or {}).items():
+                _clean, _probs = normalize_fuel_schedule(_rows or [])
+                if _clean:
+                    self.channel_fuel_schedules[str(_cname).strip()] = _clean
+                if _probs:
+                    print(f"Fuel schedule warnings for {_cname}:", _probs)
+            self.channel_fuel_percents = {
+                str(k).strip(): str(v).strip()
+                for k, v in (cfg.get("channel_fuel_percents", {}) or {}).items()
+                if str(v).strip() != ""
+            }
             if fuel_problems:
                 print("Fuel schedule warnings on load:", fuel_problems)
+
+            try:
+                self.normalize_acc_table()
+                self.align_channel_zone_rates()
+                _moved = self.expand_shared_rates_to_channels()
+                if _moved:
+                    print(f"Shared ACC rates expanded to channels: {_moved} row(s)")
+            except Exception as e:
+                print("ACC table normalise failed:", e)
+
+            self.channel_rule_overrides = {
+                str(k).strip(): dict(v or {})
+                for k, v in (cfg.get("channel_rule_overrides", {}) or {}).items()
+                if str(k).strip()
+            }
+            # (A per-channel override of 15 was rewritten to 40 here too, for
+            # the same wrong reason. See the note in load_settings: 15 is the
+            # contracted AHS minimum, so an override is taken as written.)
+            _tz = str(cfg.get("ui_tz") or "").strip()
+            if _tz in TZ_LABELS:
+                global UI_TZ
+                UI_TZ = _tz
+                try:
+                    self.ui_tz.set(_tz)
+                except Exception:
+                    pass
+
+            _theme = str(cfg.get("ui_theme") or "").strip()
+            # Renamed palettes keep working: a settings file written before
+            # the rename names the old one.
+            _brand = str(cfg.get("ui_brand") or "").strip()
+            if _brand in BRANDS and _brand != UI_BRAND:
+                try:
+                    self.ui_brand.set(_brand)
+                    self.change_ui_brand()
+                except Exception as _e:
+                    print("Brand from settings skipped:", _e)
+
+            _theme = {"UPS": "Brown Gold", "Amber": "Brown Gold"}.get(
+                _theme, _theme)
+            if _theme in self.UI_THEMES:
+                self.apply_theme(_theme)
+                try:
+                    self.refresh_theme_choices()
+                except Exception:
+                    pass
+
+            self.builtin_service_disabled = {
+                str(n).strip()
+                for n in (cfg.get("builtin_service_disabled", []) or [])
+                if str(n).strip()
+            }
+
+            self.builtin_service_zones = {
+                str(k).strip(): str(v).strip()
+                for k, v in (cfg.get("builtin_service_zones", {}) or {}).items()
+                if str(k).strip() and str(v).strip()
+            }
+            # A service the settings say nothing about takes the contract
+            # band. Anything already stored is left exactly as it is.
+            for _svc, _zones in default_builtin_zone_text().items():
+                self.builtin_service_zones.setdefault(_svc, _zones)
+
+            self.channel_dim_factors = {
+                str(k).strip(): str(v).strip()
+                for k, v in (cfg.get("channel_dim_factors", {}) or {}).items()
+                if str(k).strip() and str(v).strip()
+            }
+
+            # Demand surcharge, normalised on the way in for the same reason.
+            _demand = self.demand_config_default()
+            _saved = cfg.get("demand_config", {}) or {}
+            for _key in _demand:
+                if _key in _saved:
+                    _demand[_key] = _saved[_key]
+
+            # Settings written before dates and amounts were put on one row
+            # kept a period list plus a rate table keyed by period name. Fold
+            # them together rather than dropping last season's rates.
+            for _kind, _plist, _rtable in (
+                    ("special", "periods_special", "special_rates"),
+                    ("service", "periods_service", "service_rates")):
+                _key, _fields = self.DEMAND_KINDS[_kind]
+                if _demand.get(_key) or not _saved.get(_plist):
+                    continue
+                _folded = []
+                for _period in _saved.get(_plist) or []:
+                    _rates = (_saved.get(_rtable, {}) or {}).get(
+                        _period.get("name"), {}) or {}
+                    _row = {"start": _period.get("start"),
+                            "end": _period.get("end")}
+                    for _field in _fields:
+                        _row[_field] = _rates.get(_field, 0)
+                    _folded.append(_row)
+                _demand[_key] = _folded
+
+            # Assign FIRST: demand_fields() reads service_group_names out of
+            # demand_config, so normalising against the hardcoded four dropped
+            # every column the settings had added.
+            self.demand_config = _demand
+            for _kind in ("special", "service"):
+                _key, _ = self.DEMAND_KINDS[_kind]
+                _demand[_key], _dprobs = normalize_demand_rows(
+                    _demand.get(_key) or [], self.demand_fields(_kind))
+                if _dprobs:
+                    print(f"Demand warnings on load ({_kind}):", _dprobs)
+            self.demand_config = _demand
+            try:
+                self.refresh_demand_all()
+            except Exception:
+                pass
 
             # load_config is triggered by the "Load Settings" button, i.e. AFTER
             # the Rules tab was built, so the table has to be redrawn here or the
             # restored ranges stay invisible.
             try:
-                self.refresh_fuel_schedule_tree()
+                self.refresh_bulk_fuel_tree()
             except Exception as e:
-                print("Fuel schedule table refresh failed:", e)
+                print("Fuel table refresh failed:", e)
 
             saved_registry = cfg.get("ahs_lps_code_registry", {}) or {}
             merged_registry = {
@@ -3150,12 +15446,18 @@ class UPSRepricingTool:
 
             for key, var in {
                 "dim_factor": self.dim_factor,
+                "default_dim_factor": self.default_dim_factor,
                 "fuel_percent": self.fuel_percent,
                 "oversize_longest_side": self.oversize_longest_side,
                 "oversize_actual_weight": self.oversize_actual_weight,
                 "oversize_cubic_inches": self.oversize_cubic_inches,
                 "oversize_length_girth": self.oversize_length_girth,
                 "oversize_min_billable_weight": self.oversize_min_billable_weight,
+                "use_ahs_weight": self.use_ahs_weight,
+                "use_ahs_longest": self.use_ahs_longest,
+                "use_ahs_second": self.use_ahs_second,
+                "use_ahs_cubic": self.use_ahs_cubic,
+                "use_ahs_lg": self.use_ahs_lg,
                 "ahs_weight_threshold": self.ahs_weight_threshold,
                 "ahs_longest_side": self.ahs_longest_side,
                 "ahs_second_side": self.ahs_second_side,
@@ -3165,6 +15467,15 @@ class UPSRepricingTool:
             }.items():
                 if key in rules:
                     var.set(rules[key])
+
+            # A saved AHS minimum billable weight of 15 used to be rewritten to
+            # 40 here on the assumption that 15 was a stale pre-v83 default.
+            # It is not: 15 lb is THIS ACCOUNT'S contracted AHS minimum (UPS
+            # bills the published 40 lb tariff minimum; the contract is what the
+            # CAL side has to rate on). Rewriting it inflated the billable
+            # weight of every AHS parcel by up to 25 lb -- silently, on load,
+            # every time the settings file was opened. The configured value is
+            # now used as saved.
 
             for key, var in {
                 "residential_fee": self.residential_fee,
@@ -3180,7 +15491,11 @@ class UPSRepricingTool:
                 "oversize_fee": self.oversize_fee,
                 "signature_fee": self.signature_fee,
                 "package_protection_fee": self.package_protection_fee,
-                "declared_value_markup": self.declared_value_markup,
+                "dv_column": self.dv_column,
+                "dv_free_limit": self.dv_free_limit,
+                "dv_min_charge": self.dv_min_charge,
+                "dv_unit": self.dv_unit,
+                "dv_unit_rate": self.dv_unit_rate,
             }.items():
                 if key in accessorials:
                     var.set(accessorials[key])
@@ -3192,6 +15507,12 @@ class UPSRepricingTool:
                     self.load_dynamic_surcharge_registry()
             except Exception as e:
                 print("Dynamic surcharge UI rebuild failed:", e)
+
+            try:
+                self.load_custom_service_registry()
+                self.refresh_service_dropdown()
+            except Exception as e:
+                print("Custom service UI rebuild failed:", e)
 
             try:
                 if hasattr(self, "ahs_lps_code_tree"):
@@ -3219,28 +15540,239 @@ class UPSRepricingTool:
             _lr = str(cfg.get("last_report_path") or "")
             self.last_report_path = _lr if _lr and os.path.exists(_lr) else ""
 
-            _svc = cfg.get("base_rate_service")
-            if _svc:
-                self.base_rate_service.set(_svc)
+            # base_rate_service is no longer restored: with the picker gone,
+            # a value saved by an older version would keep deciding how
+            # unrecognised lines are priced with nowhere to see or change it.
+            # It stays Ground Commercial, which is what the code fell back to
+            # anyway when the saved service had no rate table.
             _ovr = (cfg.get("accessorial_charges") or {}).get("ovr_fee")
             if _ovr is not None:
                 self.ovr_fee.set(str(_ovr))
 
             # Reload the base rate workbooks this config was saved with, so a
             # session starts ready to rate instead of with an empty table.
-            _paths = [p for p in (cfg.get("base_rate_paths") or [])
-                      if p and os.path.exists(p)]
+            #
+            # The config remembers FILE PATHS, not the rates themselves. A file
+            # that has been moved, renamed or deleted since the last session
+            # used to be dropped from this list without a word, so the settings
+            # were saved, the settings were loaded, and the rates were simply
+            # not there. Say which file is missing -- that is the one thing
+            # that makes it fixable.
+            # The copy kept in the settings comes back first, so the tool is
+            # ready to rate even if every workbook has been moved. The files
+            # are read after it when they are still there -- a workbook that
+            # was corrected since the last save should win.
+            _embedded = self.restore_rate_tables(cfg.get("base_rate_tables"))
+
+            _saved_paths = [str(p).strip()
+                            for p in (cfg.get("base_rate_paths") or [])
+                            if str(p).strip()]
+            _paths = [p for p in _saved_paths if os.path.exists(p)]
+            _missing = [p for p in _saved_paths if p not in _paths]
             self.base_rate_paths = _paths
+            _reload_error = ""
             if _paths:
                 try:
                     self._load_base_rate_files(_paths, quiet=True)
                 except Exception as e:
+                    _reload_error = str(e)
                     self.set_status(f"Base rate reload failed: {e}")
+
+            if _missing and _embedded:
+                # Nothing is broken: the workbook has moved but its rates were
+                # saved with the settings, so say it in the status line rather
+                # than stopping the user with a dialog.
+                self.set_status(self._channel_ui(
+                    f"{_embedded} rate table(s) restored from settings; "
+                    f"{len(_missing)} workbook(s) are no longer at their "
+                    f"saved location.",
+                    f"已從設定檔還原 {_embedded} 份費率表；"
+                    f"有 {len(_missing)} 個檔案已不在原本的位置。"))
+                _missing = []
+
+            if _missing or _reload_error:
+                _lines = []
+                if _missing:
+                    _lines.append(self._channel_ui(
+                        "These base rate files are no longer where they were "
+                        "when the settings were saved, so their rates were "
+                        "not loaded:",
+                        "以下基本運費檔案已經不在儲存設定時的位置，"
+                        "所以費率沒有載入："))
+                    _lines += _missing
+                    _lines.append(self._channel_ui(
+                        "Import them again from their current location.",
+                        "請從現在的位置重新匯入一次。"))
+                if _reload_error:
+                    _lines.append(self._channel_ui(
+                        f"Reload failed: {_reload_error}",
+                        f"重新載入失敗：{_reload_error}"))
+                try:
+                    messagebox.showwarning(
+                        self._channel_ui("Base rates not loaded",
+                                         "基本運費未載入"),
+                        "\n".join(_lines))
+                except Exception:
+                    pass
+
+            # After the global rules are restored, not before: seeding earlier
+            # copied the built-in 300 instead of the saved divisor.
+            try:
+                _seeded = self.seed_channel_dim_factors()
+                if _seeded:
+                    print(f"DIM factor copied to {_seeded} channel(s).")
+            except Exception as e:
+                print("DIM seeding failed:", e)
 
             self.set_status("Settings loaded."
                             + (f"  Base rates reloaded from {len(_paths)} file(s)."
                                if _paths else ""))
 
+
+    # =========================================================
+    # EXPORT ONE CHANNEL'S ZONE SURCHARGE TEMPLATE
+    # =========================================================
+    def standard_zone_channel_labels(self):
+        """Shipment types rated on the standard 2-8 / 44-46 zones.
+
+        What the Ground template covers. A lane with its own zones is not in
+        here; it has its own file.
+        """
+        standard = {str(z) for z in BASE_RATE_TEMPLATE_ZONES}
+        pairs = list(self.built_in_channel_variants())
+        for name, cfg in self.custom_service_entries(enabled_only=False):
+            pairs.append((name, bool(cfg.get("residential", False))))
+        labels = []
+        for name, residential in pairs:
+            label = self.channel_surcharge_label(name, residential)
+            if label in labels:
+                continue
+            if {str(z) for z in self.zones_in_force(name, residential)} != standard:
+                continue
+            labels.append(label)
+        return labels
+
+    @staticmethod
+    def fee_display_name(fee):
+        """UPS's wording for a fee row. The key is unchanged underneath."""
+        name = str(fee or "").strip()
+        return FEE_TYPE_DISPLAY_NAMES.get(name, name)
+
+    @staticmethod
+    def fee_key_from_display(text):
+        """The other direction, for anything read back off a sheet."""
+        name = str(text or "").strip()
+        return FEE_TYPE_KEYS_BY_DISPLAY.get(name, name)
+
+    def flat_surcharge_fee_types(self):
+        """Every fee charged as one amount: the built-in list plus the
+        billable custom codes. Both templates read this, so the Ground file
+        and a single channel's file cannot end up with different fee rows.
+        """
+        fees = list(ACC_FLAT_FEE_TYPES)
+        for _as_code, cfg in (self.dynamic_surcharge_mapping or {}).items():
+            if normalize_ar_code(cfg.get("ar", "")) not in BILLABLE_AR_CODES:
+                continue
+            name = str(cfg.get("name", "")).strip()
+            if name and name not in fees:
+                fees.append(name)
+        return fees
+
+    def export_channel_zone_template(self):
+        """One file, one channel: its zone rates AND its flat charges.
+
+        The main template carries the standard 2-8 / 44-46 lanes. A channel
+        that runs on 53, or on three-digit zones, needs its own columns, so it
+        gets its own file -- and its own flat charges with it, or DAS and
+        Signature for that lane would have nowhere to be entered.
+
+        Same two sheets as the main template, so the one Import button reads
+        both without being told which kind of file it is.
+        """
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+
+        label = str(getattr(self, "acc_filter_var", tk.StringVar()).get()).strip()
+        if not label or label == self.ACC_FILTER_FLAT:
+            messagebox.showwarning(
+                self._channel_ui("No channel selected", "尚未選擇渠道"),
+                self._channel_ui(
+                    "Pick the channel in the Channel list above first.",
+                    "請先在上面的「渠道」清單選一條渠道。"))
+            return
+
+        zones = [str(z) for z in self.surcharge_zones_for_label(label)]
+        if not zones:
+            messagebox.showwarning(
+                self._channel_ui("No zones", "沒有 Zone"),
+                self._channel_ui(f"{label} has no zones to write.",
+                                 f"{label} 沒有可寫入的 Zone。"))
+            return
+
+        default_name = self.template_file_name("Accessorials", label, "Zones")
+        path = filedialog.asksaveasfilename(
+            initialfile=default_name,
+            initialdir=self.export_name_for("acc", "")[1] or ".",
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx")])
+        if not path:
+            return
+
+        wb = None
+        try:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "AHS_LPS"
+
+            headers = ["Fee Type", "Shipment Type"] + [
+                f"Zone {z}" for z in zones]
+            for c, h in enumerate(headers, start=1):
+                cell = ws.cell(row=1, column=c, value=h)
+                cell.font = Font(bold=True)
+
+            for r, fee in enumerate(ACC_ZONE_FEE_TYPES, start=2):
+                ws.cell(row=r, column=1, value=self.fee_display_name(fee))
+                ws.cell(row=r, column=2, value=label)
+                existing = self.accessorial_rate_table.get((fee, label))
+                if not isinstance(existing, dict):
+                    continue
+                for c, z in enumerate(zones, start=3):
+                    if z in existing:
+                        ws.cell(row=r, column=c,
+                                value=self.to_amount(existing[z]))
+
+            ws_flat = wb.create_sheet("FLAT_CHARGES")
+            for c, h in enumerate(["Fee Type", "Shipment Type", "Amount"],
+                                  start=1):
+                cell = ws_flat.cell(row=1, column=c, value=h)
+                cell.font = Font(bold=True)
+
+            for r, fee in enumerate(self.flat_surcharge_fee_types(), start=2):
+                value = self.accessorial_rate_table.get((fee, label))
+                ws_flat.cell(row=r, column=1, value=self.fee_display_name(fee))
+                ws_flat.cell(row=r, column=2, value=label)
+                ws_flat.cell(row=r, column=3,
+                             value=self.to_amount(value)
+                             if isinstance(value, (int, float)) else 0)
+
+            for sheet in (ws, ws_flat):
+                for col in sheet.columns:
+                    sheet.column_dimensions[col[0].column_letter].width = 28
+
+            wb.save(path)
+            self.report_ok(self._channel_ui(
+                f"{label} zone template exported:\n{path}",
+                f"{label} 的 Zone 模板已匯出：\n{path}"))
+        except Exception as e:
+            self.report_failed(self._channel_ui(
+                f"Channel zone template export failed: {e}",
+                f"其他渠道模板匯出失敗：{e}"))
+        finally:
+            if wb:
+                try:
+                    wb.close()
+                except Exception:
+                    pass
 
     # =========================================================
     # EXPORT ACCESSORIAL CHARGES TEMPLATE (v2.4 - CLEANED)
@@ -3251,8 +15783,8 @@ class UPSRepricingTool:
         from openpyxl.styles import Font
 
         path = filedialog.asksaveasfilename(
-            initialfile=self.export_name_for("acc", "UPS_ACC_TEMPLATE_V4.xlsx")[0],
-            initialdir=self.export_name_for("acc", "UPS_ACC_TEMPLATE_V4.xlsx")[1] or ".",
+            initialfile=self.template_file_name("Accessorials", "Ground"),
+            initialdir=self.export_name_for("acc", "")[1] or ".",
             defaultextension=".xlsx",
             filetypes=[("Excel", "*.xlsx")]
         )
@@ -3268,80 +15800,82 @@ class UPSRepricingTool:
 
             ws1 = wb.create_sheet("AHS_LPS")
 
-            headers1 = ["Fee Type", "Shipment Type", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6", "Zone 7", "Zone 8", "Zone 44", "Zone 45", "Zone 46"]
+            acc_fee_types = list(ACC_ZONE_FEE_TYPES)
+
+            # Every shipment type that runs the standard 2-8 / 44-46, not
+            # Ground alone: AHS and Large Package are priced by zone on every
+            # lane, so a Ground-only sheet left no way to enter them.
+            #
+            # A lane with its own zones (Standard on 53, the Worldwide
+            # services on three-digit zones) is not here: it would be eleven
+            # columns it can never be charged on. Those get their own file
+            # from Export Channel Zone Template, on that channel's zones.
+            standard_zones = {str(z) for z in BASE_RATE_TEMPLATE_ZONES}
+            channel_zones = [(_label, standard_zones)
+                             for _label in self.standard_zone_channel_labels()]
+
+            zone_cols = [str(z) for z in BASE_RATE_TEMPLATE_ZONES]
+
+            headers1 = ["Fee Type", "Shipment Type"] + [
+                f"Zone {z}" for z in zone_cols]
 
             for c, h in enumerate(headers1, start=1):
                 cell = ws1.cell(row=1, column=c, value=h)
                 cell.font = Font(bold=True)
 
-            rows1 = [
-                ["AHS Weight", "Ground Commercial"],
-                ["AHS Weight", "Ground Residential"],
-                ["AHS Dimension", "Ground Commercial"],
-                ["AHS Dimension", "Ground Residential"],
-                ["AHS Packaging", "Ground Commercial"],
-                ["AHS Packaging", "Ground Residential"],
-                ["Large Package", "Ground Commercial"],
-                ["Large Package", "Ground Residential"],
-            ]
+            rows1 = [(_fee, _label, _zones)
+                     for _fee in acc_fee_types
+                     for _label, _zones in channel_zones]
 
-            for r, row in enumerate(rows1, start=2):
-                for c, val in enumerate(row, start=1):
-                    ws1.cell(row=r, column=c, value=val)
+            for r, (_fee, _label, _zones) in enumerate(rows1, start=2):
+                ws1.cell(row=r, column=1, value=self.fee_display_name(_fee))
+                ws1.cell(row=r, column=2, value=_label)
+                # Carry the loaded rates, so the exported sheet shows what is
+                # actually in effect instead of a blank form that quietly
+                # replaces it on the way back in.
+                existing = self.accessorial_rate_table.get((_fee, _label))
+                if not isinstance(existing, dict):
+                    existing = {}
+                for c, _z in enumerate(zone_cols, start=3):
+                    if _z not in _zones or _z not in existing:
+                        continue
+                    ws1.cell(row=r, column=c,
+                             value=self.to_amount(existing[_z]))
 
             ws3 = wb.create_sheet("FLAT_CHARGES")
 
+            # Back to the original two columns. Channel rates live in the
+            # channel's own surcharge template, so there is nothing for a
+            # Shipment Type column here to hold. Import still accepts the
+            # column, so files exported by v23-v29 keep working.
+            # Shipment Type is back in this sheet: flat charges belong to a
+            # channel like everything else now, so a sheet without it could
+            # only describe rates that no longer exist.
+            # No Shipment Type column. A flat charge on the standard lanes is
+            # one amount -- DAS Commercial and DAS Residential are already two
+            # different fees -- so repeating all 28 of them against every
+            # standard channel was 28 x 20 rows saying the same number. One
+            # row per fee; the import writes it to every standard-zone
+            # channel. A lane with its own zones is untouched by this file.
             headers3 = ["Fee Type", "Amount"]
 
             for c, h in enumerate(headers3, start=1):
                 cell = ws3.cell(row=1, column=c, value=h)
                 cell.font = Font(bold=True)
 
-            rows3 = [
-                ["DAS Commercial", 0],
-                ["DAS Residential", 0],
-                ["DAS Extended Commercial", 0],
-                ["DAS Extended Residential", 0],
-                ["Remote Area Commercial", 0],
-                ["Remote Area Residential", 0],
-                ["Remote Area - AK", 0],
-                ["Remote Area - HI", 0],
-                ["Residential Surcharge", 0],
-                ["Return To Sender", 0],
-                ["Reroute", 0],
-                ["Reschedule Delivery", 0],
-                ["Returns Electronic Label", 0],
-                ["Returns Print Label", 0],
-                ["Signature", 0],
-                ["Adult Signature", 0],
-                ["Package Protection", 0],
-                ["Address Correction", 0],
-                ["Direct Delivery Only", 0],
-                ["Over Maximum Size Surcharge", 0],
-                ["Declared Value Markup %", 0],
-            ]
+            _flat_labels = [_label for _label, _zones in channel_zones]
 
-            added_dynamic = set()
-            
-            for as_code, cfg in self.dynamic_surcharge_mapping.items():
-                ar_value = normalize_ar_code(cfg.get("ar", ""))
-                
-                if ar_value not in BILLABLE_AR_CODES:
-                    continue
-                
-                surcharge_name = str(cfg.get("name", "")).strip()
-
-                if surcharge_name == "" or surcharge_name in added_dynamic:
-                    continue
-
-                already_exists = any(str(existing[0]).strip() == surcharge_name for existing in rows3)
-
-                if not already_exists:
-                    rows3.append([
-                        surcharge_name,
-                        self.to_amount(self.accessorial_rate_table.get(surcharge_name, 0))
-                    ])
-                    added_dynamic.add(surcharge_name)
+            rows3 = []
+            for _fee in self.flat_surcharge_fee_types():
+                _value = None
+                for _label in _flat_labels:
+                    _stored = self.accessorial_rate_table.get((_fee, _label))
+                    if isinstance(_stored, (int, float)):
+                        _value = _stored
+                        break
+                rows3.append([self.fee_display_name(_fee),
+                              self.to_amount(_value)
+                              if _value is not None else 0])
 
             for r, row in enumerate(rows3, start=2):
                 for c, val in enumerate(row, start=1):
@@ -3353,9 +15887,13 @@ class UPSRepricingTool:
 
             wb.save(path)
 
-            self.set_status(f"Surcharge rates exported:\n{path}")
+            self.report_ok(self._channel_ui(
+                f"Surcharge rates exported:\n{path}",
+                f"附加費模板已匯出：\n{path}"))
         except Exception as e:
-            messagebox.showerror("Surcharge rates export failed", f"Error: {str(e)}")
+            self.report_failed(self._channel_ui(
+                f"Surcharge rates export failed: {e}",
+                f"附加費模板匯出失敗：{e}"))
         finally:
             if wb:
                 try:
@@ -3432,32 +15970,94 @@ class UPSRepricingTool:
 
                     return headers, data_rows
 
+                # A per-channel surcharge file has "Surcharge Rates" and a
+                # hidden _ChannelInfo, no AHS_LPS. Reaching for the wrong
+                # import button is easy and the file says which channel it is,
+                # so take it rather than refusing it.
+                if ("AHS_LPS" not in sheet_names
+                        and "_ChannelInfo" in sheet_names):
+                    info = wb_import["_ChannelInfo"]
+                    _svc = str(info.cell(row=2, column=1).value or "").strip()
+                    _kind = str(info.cell(row=2, column=2).value or "").strip()
+                    _sheet = next((sh for sh in sheet_names
+                                   if sh != "_ChannelInfo"), None)
+                    if _svc and _sheet:
+                        _rows = [tuple(c.value for c in r)
+                                 for r in wb_import[_sheet].iter_rows()]
+                        _label = self.channel_surcharge_label(
+                            _svc, _kind.lower() == "residential")
+                        _n, _blank = self.apply_channel_surcharge_rows(
+                            _rows, _label)
+                        self.render_accessorial_tables()
+                        try:
+                            self.save_config()
+                        except Exception as e:
+                            print("Auto save after channel ACC import:", e)
+                        self.confirm(
+                            "Surcharge rates imported",
+                            f"{_label}\n\n{os.path.basename(path)}\n\n"
+                            f"{_n} rate row(s) loaded"
+                            + (f", {_blank} left blank" if _blank else ""))
+                        return
+
                 if "AHS_LPS" not in sheet_names:
                     raise Exception("Missing required sheet: AHS_LPS")
 
-                headers_ahs, rows_ahs = read_sheet_rows("AHS_LPS")
-
-                for col in ["Fee Type", "Shipment Type"]:
-                    if col not in headers_ahs:
-                        raise Exception(f"AHS_LPS missing required column: {col}")
-
-                for row in rows_ahs:
-                    fee_type = str(row.get("Fee Type", "")).strip()
-                    shipment_type = str(row.get("Shipment Type", "")).strip()
-
-                    if fee_type == "" or shipment_type == "":
+                # AHS_LPS plus every per-channel sheet. Any sheet carrying
+                # Fee Type + Shipment Type is a zone rate sheet, so a template
+                # written before channels had their own sheets still imports
+                # exactly as it did.
+                for _sheet in sheet_names:
+                    if _sheet == "FLAT_CHARGES":
                         continue
 
-                    lookup_key = (fee_type, shipment_type)
-                    self.accessorial_rate_table[lookup_key] = {}
+                    headers_ahs, rows_ahs = read_sheet_rows(_sheet)
 
-                    for col in headers_ahs:
-                        col_name = str(col).strip()
-                        if col_name.startswith("Zone"):
-                            zone_key = col_name.replace("Zone", "").strip()
+                    if ("Fee Type" not in headers_ahs
+                            or "Shipment Type" not in headers_ahs):
+                        if _sheet == "AHS_LPS":
+                            raise Exception(
+                                "AHS_LPS missing required column: Fee Type "
+                                "/ Shipment Type")
+                        continue
+
+                    zone_cols_ahs = [c for c in headers_ahs
+                                     if str(c).strip().startswith("Zone")]
+
+                    for row in rows_ahs:
+                        fee_type = self.fee_key_from_display(
+                            row.get("Fee Type", ""))
+                        shipment_type = str(row.get("Shipment Type", "")).strip()
+
+                        if fee_type == "" or shipment_type == "":
+                            continue
+
+                        # A row with every zone cell empty is an untouched
+                        # placeholder, not a rate of 0. Importing it would
+                        # register an all-zero table -- and since a channel's
+                        # own row now beats the Ground schedule, that would
+                        # replace working rates with nothing. Left absent, the
+                        # lookup falls back and the issue list names it.
+                        if all(row.get(c) is None
+                               or str(row.get(c)).strip() == ""
+                               for c in zone_cols_ahs):
+                            continue
+
+                        lookup_key = (fee_type, shipment_type)
+                        self.accessorial_rate_table[lookup_key] = {}
+
+                        for col in zone_cols_ahs:
+                            raw_zone = row.get(col, "")
+                            # A blank cell on a shared column is "this lane
+                            # does not run that zone", not a rate of 0. The
+                            # sheet now carries every shipment type, so the
+                            # columns are the union of what the lanes run.
+                            if raw_zone is None or str(raw_zone).strip() == "":
+                                continue
+                            zone_key = str(col).strip().replace("Zone", "").strip()
                             self.accessorial_rate_table[lookup_key][zone_key] = self.to_amount(
-                                row.get(col, 0),
-                                f"AHS_LPS | {fee_type} | {shipment_type} | {zone_key}"
+                                raw_zone,
+                                f"{_sheet} | {fee_type} | {shipment_type} | {zone_key}"
                             )
 
                 if "FLAT_CHARGES" not in sheet_names:
@@ -3470,13 +16070,40 @@ class UPSRepricingTool:
                         raise Exception(f"FLAT_CHARGES missing required column: {col}")
 
                 for row in rows_flat:
-                    fee_type = str(row.get("Fee Type", "")).strip()
+                    fee_type = self.fee_key_from_display(
+                        row.get("Fee Type", ""))
 
                     if fee_type == "":
                         continue
 
-                    amount = self.to_amount(row.get("Amount", 0), f"FLAT_CHARGES | {fee_type}")
-                    self.accessorial_rate_table[fee_type] = amount
+                    # Shipment Type is optional: a template written before it
+                    # existed has no such column, and every row is the default.
+                    channel = (str(row.get("Shipment Type", "") or "").strip()
+                               if "Shipment Type" in headers_flat else "")
+                    raw_amount = row.get("Amount", 0)
+                    blank = raw_amount is None or str(raw_amount).strip() == ""
+
+                    if channel != "" and blank:
+                        # Untouched channel row -- leave the key out so this
+                        # channel keeps using the default rate. Same reasoning
+                        # as the AHS_LPS sheet above.
+                        continue
+
+                    amount = self.to_amount(
+                        raw_amount,
+                        f"FLAT_CHARGES | {fee_type}"
+                        + (f" | {channel}" if channel else ""))
+
+                    if channel:
+                        self.accessorial_rate_table[(fee_type, channel)] = amount
+                    else:
+                        # No Shipment Type: the Ground template writes flat
+                        # charges once, so the row is the rate for every
+                        # standard-zone lane. Channels with their own zones
+                        # keep what their own file gave them.
+                        for _label in (self.standard_zone_channel_labels()
+                                       or self.channel_rate_labels()):
+                            self.accessorial_rate_table[(fee_type, _label)] = amount
 
             gc.collect()
 
@@ -3517,6 +16144,32 @@ class UPSRepricingTool:
             self.save_dynamic_surcharge_registry()
         except Exception as e:
             print("Auto save after deleting surcharge failed:", e)
+
+    def _seed_acc_rate_shape(self, fee_name, shape):
+        """Create empty rate entries for a new surcharge, in the chosen shape.
+
+        FLAT is a single number; BY ZONE is one number per zone the channel
+        declares. The shape decides how the lookup reads it later, so it has
+        to be right from the start rather than inferred from whatever the
+        first import happened to contain.
+        """
+        table = getattr(self, "accessorial_rate_table", None)
+        if table is None:
+            return
+        for channel in self.all_channel_names():
+            key = (fee_name, channel)
+            if key in table:
+                continue
+            if str(shape).strip().upper() == "BY ZONE":
+                zones = sorted(self.custom_service_zones(channel) or [],
+                               key=lambda z: (len(str(z)), str(z)))
+                table[key] = ({str(z): 0.0 for z in zones}
+                              if zones else {"2": 0.0})
+            else:
+                table[key] = 0.0
+        # No re-render here: render_accessorial_tables rebuilds the table from
+        # the on-screen widgets, which do not have the new rows yet, so it
+        # threw away everything just seeded.
 
     def save_dynamic_surcharge_registry(self):
         """Save dynamic surcharge mapping to memory + config"""
@@ -3560,9 +16213,12 @@ class UPSRepricingTool:
         try:
             self.save_config()
         except Exception as e:
-            print("Auto save config after dynamic surcharge registry failed:", e)
+            self.report_failed(self._channel_ui(
+                f"Custom surcharges not saved: {e}",
+                f"自訂附加費儲存失敗：{e}"))
+            return
 
-        self.set_status(f"Custom surcharges saved.\nTotal surcharges: {len(self.dynamic_surcharge_mapping)}")
+        self.report_ok(f"Custom surcharges saved.\nTotal surcharges: {len(self.dynamic_surcharge_mapping)}")
     def load_dynamic_surcharge_registry(self):
         """Restore dynamic surcharge mapping from memory"""
 
@@ -3600,39 +16256,128 @@ class UPSRepricingTool:
 
         popup = tk.Toplevel(self.root)
         popup.title("Add Custom Surcharge")
-        popup.geometry("620x320")
+        # Width was 790 for the third column of hints. Height 380, not 350:
+        # the FRT / FSC note is now a row of its own.
+        popup.geometry(f"{scaled(980)}x{scaled(400)}")
 
         fields = {}
 
         container = ttk.Frame(popup)
         container.pack(fill="both", expand=True, padx=16, pady=16)
 
-        # AS Code / Surcharge Name stay free text; AR is a fixed vocabulary
-        # from the invoice's Charge Classification column, so it is a dropdown
-        # (a typo like "AAC" used to save silently and then never price).
-        for idx, label in enumerate(["AS Code", "Surcharge Name"]):
-            row_i = 0 if label == "AS Code" else 2
+        # AR before AS: that is the order they sit in on the invoice (columns
+        # 43 and 44) and the order you read them in -- AR says what kind of
+        # charge it is, AS says which one.
+        #
+        # AR is a picker because it is a closed set of five codes UPS defines,
+        # and free text there only ever bought the chance to type one that
+        # cannot exist. AS Code stays typed: UPS adds new ones, so it is
+        # checked against the imported invoices instead.
+        ttk.Label(container, text="AR").grid(row=0, column=0, sticky="w",
+                                             pady=8)
+        ar_var = tk.StringVar()
+        ar_combo = ttk.Combobox(
+            container, textvariable=ar_var, state="readonly", width=27,
+            values=list(BILLABLE_AR_CODES))
+        ar_combo.current(0)
+        ar_combo.grid(row=0, column=1, padx=8, pady=8)
+
+        # The meaning beside the field, not inside it: a dropdown whose items
+        # are "ACC - Accessorial surcharge" is a dropdown you cannot skim.
+        ar_meaning = ttk.Label(container, font=ui_font(8))
+        ar_meaning.grid(row=0, column=3, sticky="w", padx=6)
+
+        def sync_ar_meaning(_event=None):
+            ar_meaning.config(text=AR_CODE_DESCRIPTIONS.get(
+                normalize_ar_code(ar_var.get()), ""))
+
+        sync_ar_meaning()
+        ar_combo.bind("<<ComboboxSelected>>", sync_ar_meaning, add="+")
+
+        class _ARField:
+            """Enough of an Entry that the code below is unchanged."""
+
+            @staticmethod
+            def get():
+                return ar_var.get()
+
+            @staticmethod
+            def bind(*_a, **_k):
+                return None
+
+        fields["AR"] = _ARField
+
+        for label, row_i in (("AS Code", 1), ("Surcharge Name", 2)):
             ttk.Label(container, text=label).grid(row=row_i, column=0, sticky="w", pady=8)
             entry = ttk.Entry(container, width=30)
             entry.grid(row=row_i, column=1, padx=8, pady=8)
             fields[label] = entry
 
-        ttk.Label(container, text="AR").grid(row=1, column=0, sticky="w", pady=8)
-        ar_var = tk.StringVar(value=AR_DROPDOWN_CHOICES[0])
-        ar_combo = ttk.Combobox(
-            container, textvariable=ar_var,
-            values=AR_DROPDOWN_CHOICES,
-            state="readonly", width=40)
-        ar_combo.grid(row=1, column=1, padx=8, pady=8)
-        ttk.Label(container, text="FRT / FSC are computed by the tool",
-                  font=("Segoe UI", 8)).grid(row=1, column=2, sticky="w", padx=6)
+        ttk.Label(container, text=" / ".join(BILLABLE_AR_CODES),
+                  font=ui_font(8)).grid(row=0, column=2, sticky="w", padx=6)
 
-        ttk.Label(container, text="Type").grid(row=3, column=0, sticky="w", pady=8)
-        type_var = tk.StringVar(value=DYNAMIC_TYPE_CHOICES[0])
-        type_combo = ttk.Combobox(container, textvariable=type_var,
-                                  values=DYNAMIC_TYPE_CHOICES,
-                                  state="readonly", width=40)
-        type_combo.grid(row=3, column=1, padx=8, pady=8)
+        # Check what you typed against the invoices already imported. A code
+        # that matches nothing saves without complaint and then prices at 0
+        # forever, and there is no way to tell from looking at the row.
+        match_var = tk.StringVar(value="")
+        ttk.Label(container, textvariable=match_var, font=ui_font(8)
+                  ).grid(row=1, column=2, sticky="w", padx=6)
+
+        def check_code(_event=None):
+            ar = normalize_ar_code(fields["AR"].get())
+            code = fields["AS Code"].get().strip().upper()
+            if not ar or not code:
+                match_var.set("")
+                return
+            try:
+                found = self.history().rows_for_code(ar, code)
+            except Exception:
+                match_var.set("")
+                return
+            if not found["rows"]:
+                match_var.set(
+                    "帳單歷史裡沒有這個代碼" if self._ui_language_code == "zh"
+                    else "no rows with this code in the history")
+                return
+            match_var.set(
+                ("帳單歷史 %d 張、%d 行，$%.2f：%s" if self._ui_language_code == "zh"
+                 else "%d invoice(s), %d row(s), $%.2f: %s")
+                % (found["invoices"], found["rows"], found["total"],
+                   found["description"][:44]))
+            # Offer UPS's own wording as the column name, rather than making
+            # one up that then has to be matched by hand.
+            if found["description"] and not fields["Surcharge Name"].get().strip():
+                fields["Surcharge Name"].insert(0, found["description"])
+
+        ar_combo.bind("<<ComboboxSelected>>", check_code)
+        fields["AS Code"].bind("<FocusOut>", check_code)
+        fields["AS Code"].bind("<KeyRelease>", check_code)
+
+        # What the rate LOOKS like, which is what you have to decide when
+        # adding one. REPRICE / COPY INVOICE / REPORT ONLY answered a
+        # different question -- how to price it -- and the answer for a
+        # surcharge you are adding a rate for is always REPRICE.
+        ttk.Label(container, text="Rate Shape").grid(row=3, column=0,
+                                                    sticky="w", pady=8)
+        shape_var = tk.StringVar(value=ACC_SHAPE_CHOICES[0])
+        shape_combo = ttk.Combobox(container, textvariable=shape_var,
+                                   values=ACC_SHAPE_CHOICES,
+                                   state="readonly", width=27)
+        shape_combo.grid(row=3, column=1, padx=8, pady=8)
+        shape_hint = ttk.Label(container, font=ui_font(8),
+                               text=ACC_SHAPE_DESCRIPTIONS.get(
+                                   shape_var.get(), ""))
+        shape_hint.grid(row=3, column=2, sticky="w", padx=6)
+
+        def sync_type_hint(_event=None):
+            shape_hint.config(text=ACC_SHAPE_DESCRIPTIONS.get(
+                shape_var.get(), ""))
+
+        shape_combo.bind("<<ComboboxSelected>>", sync_type_hint)
+
+        # The pricing mode is no longer asked: adding a surcharge here means
+        # you intend to give it a rate.
+        type_var = tk.StringVar(value="REPRICE")
 
         ttk.Label(container, text="Fuel Eligible").grid(row=4, column=0, sticky="w", pady=8)
         fuel_var = tk.StringVar(value="YES")
@@ -3646,11 +16391,22 @@ class UPSRepricingTool:
 
         def save_popup():
             as_code = fields["AS Code"].get().strip().upper()
-            ar_value = normalize_ar_code(ar_var.get())
+            ar_value = normalize_ar_code(fields["AR"].get())
             name = fields["Surcharge Name"].get().strip()
 
             if as_code == "":
                 messagebox.showwarning("Missing AS Code", "AS Code cannot be blank.")
+                return
+            if ar_value not in BILLABLE_AR_CODES:
+                # The dropdown used to make this unreachable. Typed in, a
+                # wrong code saves happily and then matches no invoice row --
+                # the surcharge would simply never price, with nothing said.
+                messagebox.showwarning(
+                    "Bad AR code",
+                    f"AR must be one of: {', '.join(BILLABLE_AR_CODES)}.\n\n"
+                    f"FRT and FSC are computed by the tool, and MSC is an "
+                    f"account-level adjustment, so none of them can be used "
+                    f"here.")
                 return
             if name == "":
                 messagebox.showwarning(
@@ -3658,6 +16414,27 @@ class UPSRepricingTool:
                     "A custom surcharge needs a Surcharge Name -- that name is the\n"
                     "report column and the key used to look up its rate.")
                 return
+
+            # Matches nothing in the history? Say so and let it through --
+            # a code can be real and simply not have appeared yet -- but do
+            # not let it save silently, because a typo looks identical to a
+            # surcharge that is genuinely new.
+            try:
+                found = self.history().rows_for_code(ar_value, as_code)
+            except Exception:
+                found = {"rows": 0, "invoices": 0}
+            if not found["rows"]:
+                if not messagebox.askyesno(
+                        "沒有對應的帳單行" if self._ui_language_code == "zh"
+                        else "No matching invoice rows",
+                        ("匯入過的帳單裡，沒有任何一行是 AR=%s、AS=%s。\n\n"
+                         "可能是打錯，也可能這個代碼還沒出現過。\n"
+                         "還是要新增嗎？" if self._ui_language_code == "zh" else
+                         "No row in any imported invoice has AR=%s and "
+                         "AS=%s.\n\nThat is either a typo or a code that has "
+                         "not appeared yet.\n\nAdd it anyway?")
+                        % (ar_value, as_code)):
+                    return
 
             existing = {
                 str(self.dynamic_surcharge_tree.item(i, "values")[0]).strip().upper()
@@ -3677,17 +16454,120 @@ class UPSRepricingTool:
                 self.save_dynamic_surcharge_registry()
             except Exception as e:
                 print("Auto registry save from popup failed:", e)
+
+            # Seed the rate rows in the shape that was chosen, for every
+            # channel. Without this the surcharge exists with nowhere to type
+            # its rate, and quietly prices at 0 until somebody notices.
+            try:
+                self._seed_acc_rate_shape(name, shape_var.get())
+            except Exception as e:
+                print("Rate row seeding failed:", e)
             popup.destroy()
 
-        ttk.Button(container, text="Save", command=save_popup).grid(row=6, column=0, columnspan=2, pady=16)
+        # The AR slot beside the field lists the accepted codes, so the
+        # meanings and the FRT / FSC note live down here on one line.
+        ttk.Label(container, font=ui_font(8), foreground="#555",
+                  justify="left",
+                  text="  ".join(f"{c} = {AR_CODE_DESCRIPTIONS[c]}"
+                                 for c in BILLABLE_AR_CODES)
+                       + "\nFRT / FSC are computed by the tool, so they "
+                         "cannot be used as AR."
+                  ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
+        ttk.Button(container, text="Save", command=save_popup).grid(row=7, column=0, columnspan=2, pady=16)
+
+
+    def acc_codes_for_fee_type(self, fee_type):
+        """ACC template row name -> the UPS charge code(s) that feed it.
+
+        The issue list previously named only the rate row ("Returns 3 UPS
+        Pickup Attempts"), which is not what you search for in an invoice --
+        the charge code is. Registered custom surcharges are resolved from the
+        live registries; the built-in rows come from FEE_TYPE_ACC_CODES, which
+        mirrors the dispatch chain in run_repricing.
+
+        Label only. If this ever drifts from the chain the wording of a
+        diagnostic is wrong, no amount is.
+        """
+        name = str(fee_type or "").strip()
+        if name == "":
+            return []
+
+        codes = set(FEE_TYPE_ACC_CODES.get(name, ()))
+
+        for as_code, cfg in (getattr(self, "dynamic_surcharge_mapping", {})
+                             or {}).items():
+            if isinstance(cfg, dict) and str(cfg.get("name", "")).strip() == name:
+                codes.add(str(as_code).strip().upper())
+
+        for as_code, cfg in (getattr(self, "dynamic_surcharge_code_map", {})
+                             or {}).items():
+            if isinstance(cfg, dict) and str(cfg.get("surcharge", "")).strip() == name:
+                codes.add(str(as_code).strip().upper())
+
+        # Registry charge types read "AHS - Weight"; the lookup key is
+        # "AHS Weight".
+        for as_code, cfg in (getattr(self, "ahs_lps_code_registry", {})
+                             or {}).items():
+            if not isinstance(cfg, dict):
+                continue
+            charge_type = str(cfg.get("charge_type", "")).strip()
+            if charge_type.replace(" - ", " ") == name:
+                codes.add(str(as_code).strip().upper())
+
+        codes.discard("")
+        return sorted(codes)
 
     # =========================================================
     # RUN REPRICING - v2.7 FULL IMPLEMENTATION
     # =========================================================
-    def run_repricing(self):
+    def confirm_before_repricing(self):
+        """Name what is missing before the run, not only in the issue file.
+
+        Everything here is recoverable by importing a table -- the point is to
+        say so while it still costs one click, instead of after a report full
+        of NOT RATED rows.
+        """
+        problems = []
+
+        if not str(self.billing_path.get()).strip():
+            problems.append(self._channel_ui(
+                "No billing file selected.", "尚未選擇帳單檔案。"))
+
+        missing = []
+        for name, cfg in self.custom_service_entries(enabled_only=True):
+            if not self.service_has_rate_table(
+                    name, bool(cfg.get("residential", False))):
+                missing.append(name)
+        if missing:
+            problems.append(self._channel_ui(
+                "No base rate table: " + ", ".join(sorted(set(missing))[:6]),
+                "沒有基本運費表：" + "、".join(sorted(set(missing))[:6])))
+
+        if not (getattr(self, "channel_fuel_schedules", {}) or {}) \
+                and not getattr(self, "fuel_schedule", []):
+            problems.append(self._channel_ui(
+                f"No fuel date ranges — every shipment uses "
+                f"{self.fuel_percent.get()}%.",
+                f"沒有燃油日期區間，全部使用 {self.fuel_percent.get()}%。"))
+
+        if not problems:
+            return True
+
+        return messagebox.askyesno(
+            self._channel_ui("Before generating", "產生前確認"),
+            self._channel_ui(
+                "\n".join(problems) + "\n\nGenerate the report anyway?",
+                "\n".join(problems) + "\n\n仍要產生報表嗎？"))
+
+    def run_repricing(self, source_frame=None, quiet=False, invoice_hint=None):
         """
         v2.7 Repricing Logic - v7 PATCH APPLIED
+
+        source_frame / quiet / invoice_hint drive a backfill: the same engine,
+        the same code path, over an invoice already in the history rather than
+        a file on disk. Nothing is asked, no workbook is kept, and a failure
+        is raised instead of shown -- the caller is not a person at a button.
 
         THREE CRITICAL FIXES:
         1. DDO: REMOVE else: ddo_charge = 0 (DELETE IT)
@@ -3695,14 +16575,63 @@ class UPSRepricingTool:
         3. Final assignment: NO conditional > 0 check
         """
 
+        if not quiet and not self.confirm_before_repricing():
+            return
+
+        # File the invoice FIRST. The raw rows do not depend on a single rate
+        # table, but this used to run at the very end -- four thousand lines
+        # later -- so an invoice whose repricing failed (a weight past the end
+        # of the table, a channel with no rates) never reached the history at
+        # all, and next month's corrections had nothing to be read against.
+        _inv0 = []
+        try:
+            if quiet:
+                # Came out of the history; putting it back would only rewrite
+                # the rows it was just read from.
+                _inv0, _rows0 = list(invoice_hint or []), 0
+            else:
+                _inv0, _rows0 = self.remember_invoice_file(
+                    self.billing_path.get())
+            if _rows0:
+                print(f"History: {_rows0} row(s) from "
+                      f"{', '.join(_inv0)} filed.")
+                try:
+                    self.refresh_history_summary()
+                except Exception:
+                    pass
+        except Exception as _hist_err:
+            print("History store failed:", _hist_err)
+
         self.preview.delete(*self.preview.get_children())
         self.base_rate_diagnostics = []
+        # Same failure mode as base_rate_diagnostics, one level down: a
+        # surcharge the invoice actually carried, priced at 0 because the ACC
+        # rate row is not there. Collected here so it lands in the
+        # _rate_issues.xlsx beside the report instead of vanishing.
+        self.acc_rate_diagnostics = []
+        # Rows the engine decided not to rate at all (unsupported zone,
+        # international lane, hundredweight, channel registered but no rates
+        # loaded) and rows whose service name was guessed. Both were written
+        # into row_result["Notes"] -- a column the report stopped carrying in
+        # v14 -- so the reason existed and nobody could ever see it.
+        self.lane_diagnostics = []
+        # What the explain window narrates: {tracking: {layer: {...}}}, filled
+        # in as each layer is rated. Cleared here so a stale record from a
+        # previous run can never be presented as this run's answer -- an
+        # explanation that quietly describes a different invoice is worse than
+        # no explanation.
+        self.reprice_explain = {}
+        # Cleared per run, or a previous run's verdict would be read as this
+        # one's -- and a backfill decides whether to file its figure on it.
+        self.last_run_missing_tables = []
+        # One "no DIM factor" line per service, not per parcel.
+        _dim_default_noted = set()
 
         try:
 
             billing_file = self.billing_path.get().strip()
 
-            if not billing_file:
+            if not billing_file and source_frame is None:
                 raise Exception(
                     "Please select a billing file first."
                 )
@@ -3722,18 +16651,19 @@ class UPSRepricingTool:
             # LOAD BILLING DATA
             # =====================================================
 
-            if billing_file.lower().endswith(".csv"):
-                df = pd.read_csv(
-                    billing_file,
-                    dtype=str,
-                    low_memory=False
-                )
+            # Through the header-aware reader. A UPS CSV usually has NO
+            # header row, and a plain read_csv turns its first shipment line
+            # into the column names -- so one parcel, with its freight and its
+            # surcharges, was silently missing from every report built from a
+            # headerless file. read_billing_file detects that and keeps the
+            # row. It also survives the file being open in Excel.
+            if source_frame is not None:
+                # Already positional -- it was rebuilt from the history in the
+                # shape the file had. No header question to answer.
+                df, _billing_has_header = source_frame.copy(), False
             else:
-                df = pd.read_excel(
-                    billing_file,
-                    dtype=str
-                )
-
+                df, _billing_has_header = self.read_billing_file(billing_file,
+                                                                 owner=self)
             df = df.fillna("")
 
             # ---- Validate the billing file looks like a UPS raw invoice ----
@@ -3790,6 +16720,10 @@ class UPSRepricingTool:
             AR_COL = 43
             AS_COL = 44
             AT_COL = 45
+            # AW: the declared value the shipper put on the parcel. The
+            # engine had no access to it, so Declared Value could only be
+            # passed through from what UPS charged -- never checked.
+            AW_COL = self.declared_value_col_index()
             INCENTIVE_COL = 51
             BA_COL = 52
             AA_COL = 222
@@ -3810,6 +16744,21 @@ class UPSRepricingTool:
                     s = s[:-2]
                 s = s.lstrip("0") or "0"
                 return s
+
+            def parse_dim_raw(value):
+                """照字面解析,不丟掉 1x1x1。只給報表那三欄顯示用 ——
+                計價一律走 parse_dim,那邊把 1x1x1 當成沒量到是對的。"""
+                t = re.sub(r"\s+", "", str(value or "")).upper()
+                t = t.replace("*", "X").replace("×", "X")
+                if "X" not in t:
+                    return (0.0, 0.0, 0.0)
+                try:
+                    nums = [float(x) for x in t.split("X") if x != ""]
+                except ValueError:
+                    return (0.0, 0.0, 0.0)
+                if len(nums) < 3 or max(nums[:3]) <= 0:
+                    return (0.0, 0.0, 0.0)
+                return tuple(sorted(nums[:3], reverse=True))
 
             def parse_dim(value):
                 """Parse dimension string"""
@@ -3832,6 +16781,12 @@ class UPSRepricingTool:
 
                         if len(nums) >= 3:
                             nums = sorted(nums[:3], reverse=True)
+                            # UPS's placeholder for "no measurements given",
+                            # not a one-inch box. Read literally it becomes a
+                            # real set of dimensions and the run reports a
+                            # re-measure that never happened.
+                            if nums[:3] == [1.0, 1.0, 1.0]:
+                                return (0.0, 0.0, 0.0)
                             return (round(nums[0], 2), round(nums[1], 2), round(nums[2], 2))
 
                     nums = re.findall(r"\d+\.?\d*", s)
@@ -3848,7 +16803,13 @@ class UPSRepricingTool:
             def cubic(dims):
                 return float(dims[0]) * float(dims[1]) * float(dims[2])
 
-            _SERVICE_PATTERNS = [
+            # Registered channels are checked FIRST, so a custom entry can both
+            # add a new channel and override a built-in classification. Within
+            # the custom block the longest pattern wins (see
+            # custom_service_patterns).
+            _CUSTOM_SERVICE_PATTERNS = self.custom_service_patterns()
+
+            _SERVICE_PATTERNS = _CUSTOM_SERVICE_PATTERNS + [
                     ("surepost", "SurePost"),
                     # Shipping Charge Correction (SCC) descriptions: match the
                     # residential variant BEFORE the bare "ground" so it isn't
@@ -3873,9 +16834,26 @@ class UPSRepricingTool:
                     ("ground return to sender", "Ground Commercial"),
                     ("zone adjustment ground residential", "Ground Residential"),
                     ("zone adjustment ground", "Ground Commercial"),
-                    ("shipping charge correction", "Ground Commercial"),
+                    # CLB = Not Previously Billed: freight UPS failed to invoice
+                    # at the time and is now charging. Real transportation, so
+                    # it DOES need a service and a base rate (unlike ADC, which
+                    # ACCESSORIAL_ADJ_DETAIL_CODES keeps out of classification).
+                    # The res/com variants already matched via the generic
+                    # "ground residential" / "ground commercial" rules further
+                    # down; the one that mattered is the BARE form, which
+                    # matched nothing at all -- "ground" on its own is not a
+                    # rule -- and so fell through to whatever the Import Files
+                    # dropdown happened to show. Same trap the SCC and returns
+                    # blocks above were written to close.
+                    ("not previously billed ground residential", "Ground Residential"),
+                    ("not previously billed ground commercial", "Ground Commercial"),
+                    ("not previously billed ground undeliverable return residential", "Ground Residential"),
+                    ("not previously billed ground undeliverable return", "Ground Commercial"),
+                    ("not previously billed ground return to sender residential", "Ground Residential"),
+                    ("not previously billed ground return to sender", "Ground Commercial"),
+                    ("not previously billed surepost", "SurePost"),
+                    ("not previously billed ground", "Ground Commercial"),
                     ("ground residential", "Ground Residential"),
-                    ("residential", "Ground Residential"),
                     ("ground commercial", "Ground Commercial"),
                     ("standard to canada", "Standard"),
                     ("3 day", "3 Day Select"),
@@ -3890,6 +16868,23 @@ class UPSRepricingTool:
                     ("worldwide expedited", "Worldwide Expedited"),
                     ("worldwide economy", "Worldwide Economy"),
                     ("standard", "Standard"),
+                    # Bare SCC fallback, below the named services: UPS writes
+                    # an air correction as "Shipping Charge Correction Next Day
+                    # Air" with no channel word, and above the list every one
+                    # came out Ground Commercial. The specific "... ground ..."
+                    # rules above are untouched.
+                    # Reclassification wording, no channel word in it. The
+                    # residential twin already matched via the bare rule at the
+                    # bottom; the commercial one matched nothing at all and
+                    # fell through to whatever the Import Files dropdown showed.
+                    ("commercial adjustment", "Ground Commercial"),
+                    ("shipping charge correction", "Ground Commercial"),
+                    # Last, and it has to be: the "no channel word at all"
+                    # fallback for wording like "Residential Adjustment".
+                    # normalize_service returns on the FIRST match, so above the
+                    # air services every "Next Day Air Residential" classified
+                    # as Ground Residential and came out with Base Rate 0.
+                    ("residential", "Ground Residential"),
             ]
 
             def service_is_recognised(text_value):
@@ -3912,7 +16907,7 @@ class UPSRepricingTool:
 
                 return self.base_rate_service.get()
 
-            def lookup_base_rate(service, zone, billable_weight, tracking=""):
+            def lookup_base_rate(service, zone, billable_weight, tracking="", residential=None):
                 """
                 v2.6 Base Rate lookup:
                 1. CEILING weight
@@ -3925,20 +16920,132 @@ class UPSRepricingTool:
                         self.base_rate_diagnostics.append(msg)
                         return 0.0, msg
 
-                    if service not in self.rate_tables:
-                        service = self.base_rate_service.get()
+                    service = str(service).strip()
+                    if residential is None:
+                        residential = residential_flag_from_service_name(service)
+                    residential = bool(residential)
 
-                    if service not in self.rate_tables:
-                        msg = f"[{tracking}] No rate table for service: {service}"
+                    # Ordered resolution. Anything other than an exact hit is
+                    # recorded, so a substitution can never be invisible.
+                    #
+                    # Why this is not just `key in tables`: the flag and the
+                    # name are two sources for one fact and they disagree in
+                    # normal use. A legacy template keyed ("Ground
+                    # Residential", False) while the shipment asks for True;
+                    # and freight_for derives the flag from the invoice's AS
+                    # codes, so a shipment described "Ground Commercial" that
+                    # carries a Residential Adjustment asks for ("Ground
+                    # Commercial", True) -- a key that cannot exist by design.
+                    # Both used to fall straight through to 0.
+                    canonical = self.canonical_rate_service_name(service) or service
+                    explicit = service_name_states_channel_type(canonical)
+                    neutral = neutral_service_name(canonical)
+                    fallback = str(self.base_rate_service.get()).strip()
+
+                    # The name the table WOULD have if it agreed with the flag.
+                    # The flag comes from the accessorial codes UPS actually
+                    # billed, so it decides which channel's rates apply; the
+                    # description only decides the label. Ordering matters: put
+                    # the flag's name above the description's name, or a
+                    # residential shipment described "Ground Commercial" quietly
+                    # gets commercial rates -- the same under-pricing this whole
+                    # resolver exists to stop.
+                    if explicit:
+                        flag_name = sibling_service_name(canonical) \
+                            if residential_flag_from_service_name(canonical) != residential \
+                            else canonical
+                    else:
+                        flag_name = (f"{neutral} Residential" if residential
+                                     else f"{neutral} Commercial")
+
+                    attempts = [
+                        (canonical, residential),      # exact
+                        (flag_name, residential),      # billed channel type wins
+                        (neutral, residential),        # table named without a suffix
+                        (flag_name, not residential),  # right sheet, flag column wrong
+                        (canonical, not residential),  # legacy: flag defaulted to NO
+                        (neutral, not residential),
+                    ]
+                    if fallback and (neutral_service_name(fallback).lower()
+                                     == neutral_service_name(canonical).lower()):
+                        # Same channel type only. Pricing a residential shipment
+                        # off the commercial sheet because the dropdown happens
+                        # to point there would be a wrong number presented as a
+                        # right one; returning 0 and saying so out loud is the
+                        # safer failure.
+                        #
+                        # Same BASE SERVICE only, for the same reason one level
+                        # up. A Standard-to-Canada parcel has no Standard table,
+                        # and this line used to hand it the Ground sheet the
+                        # dropdown pointed at -- which then failed on zone 53
+                        # anyway, so nothing was rated, but the run still
+                        # reported "described as Standard but rated with Ground
+                        # Commercial" for a rate that was never applied. When
+                        # the description is unrecognised, normalize_service has
+                        # already returned this same dropdown value, so canonical
+                        # == fallback and the exact attempt above covers it; the
+                        # only case this guard removes is a real service being
+                        # priced off another service's card.
+                        attempts.append((fallback, residential))
+
+                    df_rate = None
+                    # Held, not appended. Choosing a table is not the same as
+                    # pricing off it: every path below this loop can still
+                    # return 0 -- missing zone column, weight past the top of
+                    # the card -- and "rated with X" printed next to a row
+                    # whose freight came out 0 sends you looking for a
+                    # substitution that never happened. Released only on the
+                    # one path that returns a real amount.
+                    pending_substitution_note = ""
+                    for cand_name, cand_flag in attempts:
+                        cand_name = str(cand_name or "").strip()
+                        if not cand_name:
+                            continue
+                        if (cand_name, bool(cand_flag)) in self.rate_tables:
+                            df_rate = self.rate_tables[(cand_name, bool(cand_flag))].copy()
+                        elif cand_name in self.rate_tables:  # legacy string key
+                            df_rate = self.rate_tables[cand_name].copy()
+                        else:
+                            continue
+                        # A different flag on the same name is bookkeeping -- same
+                        # sheet, same rates, nothing to report. A different NAME
+                        # means different rates were used than the invoice
+                        # description implies.
+                        #
+                        # But a plain Residential <-> Commercial swap on the SAME
+                        # base service is not an anomaly: it IS the RADJ /
+                        # Commercial Adjustment reclassification doing its job.
+                        # Reporting it flagged all 31 RADJ trackings of one
+                        # invoice as if something were wrong, which is exactly how
+                        # a warning becomes noise people learn to ignore. Only a
+                        # swap to a genuinely different service (Ground ->
+                        # SurePost, say) is worth recording.
+                        if (cand_name != canonical
+                                and neutral_service_name(cand_name).lower()
+                                != neutral_service_name(canonical).lower()):
+                            pending_substitution_note = (
+                                f"[{tracking}] described as {canonical} but rated "
+                                f"with {cand_name}")
+                        service = cand_name
+                        break
+
+                    if df_rate is None:
+                        msg = (f"[{tracking}] No rate table for service: {canonical} "
+                               f"({'Residential' if residential else 'Commercial'})")
                         self.base_rate_diagnostics.append(msg)
                         return 0.0, msg
-
-                    df_rate = self.rate_tables[service].copy()
                     zone_col = f"Zone {normalize_zone(zone)}"
 
                     if zone_col not in df_rate.columns:
                         msg = f"[{tracking}] Missing rate column: {zone_col}"
-                        self.base_rate_diagnostics.append(msg)
+                        # Zone 0 is not a missing rate table. UPS stamps 000
+                        # on an accessorial-only layer -- an Address
+                        # Correction, a Reschedule fee -- because there is no
+                        # movement to rate. Reporting it as a problem filled
+                        # the issues file with rows that are working exactly
+                        # as intended, and buried the ones that are not.
+                        if normalize_zone(zone) not in ("", "0"):
+                            self.base_rate_diagnostics.append(msg)
                         return 0.0, msg
 
                     try:
@@ -3953,14 +17060,48 @@ class UPSRepricingTool:
                     match = df_rate[df_rate["Weight_NUM"].astype(int) == weight_used]
 
                     if match.empty:
-                        msg = (
-                            f"[{tracking}] Weight Not Found in Base Rate Template: "
-                            f"service={service}, zone={zone_col}, weight={weight_used}"
-                        )
-                        self.base_rate_diagnostics.append(msg)
+                        # Past the end of the table is a different problem from
+                        # a gap in the middle, and by far the more dangerous
+                        # one: UPS rates these on a hundredweight card the
+                        # table does not contain, so the freight silently came
+                        # out 0 while the surcharges and fuel priced normally.
+                        # The row then looked complete -- one parcel showed a
+                        # Total of $2,369 with no freight in it at all.
+                        try:
+                            _top = int(df_rate["Weight_NUM"].max())
+                        except Exception:
+                            _top = 0
+                        # Remembered for the breakdown window, which otherwise
+                        # has no way to tell a zero freight from a zero rate.
+                        self._last_rate_table_top = _top
+                        if _top and weight_used > _top:
+                            msg = (
+                                f"[{tracking}] OVER RATE TABLE: billable weight "
+                                f"{weight_used} lb is past the top of the "
+                                f"{service} table ({_top} lb), so NO FREIGHT "
+                                f"was priced. Over {_top} lb UPS rates on a "
+                                f"hundredweight card -- load that table, or "
+                                f"price this parcel by hand."
+                            )
+                        else:
+                            msg = (
+                                f"[{tracking}] Weight Not Found in Base Rate "
+                                f"Template: service={service}, zone={zone_col}, "
+                                f"weight={weight_used}"
+                            )
+                        # A lookup at weight 0 is not a gap in the rate table.
+                        # It is the "original" leg of an adjustment that carries
+                        # no entered weight (a Not Previously Billed shipment has
+                        # none by definition), and it correctly contributes 0.
+                        # Reporting it as a missing weight buried the real
+                        # problems in noise once these notes became visible.
+                        if weight_used > 0:
+                            self.base_rate_diagnostics.append(msg)
                         return 0.0, msg
 
                     value = match.iloc[0].get(zone_col, 0)
+                    if pending_substitution_note:
+                        self.base_rate_diagnostics.append(pending_substitution_note)
                     return self.to_amount(value), ""
 
                 except (KeyError, ValueError, TypeError) as rate_error:
@@ -3968,13 +17109,73 @@ class UPSRepricingTool:
                     self.base_rate_diagnostics.append(msg)
                     return 0.0, msg
 
+            # Zones the ACC tables can be keyed by: the standard set plus
+            # every zone a channel declares. Anything else buckets into "7+"
+            # (represented by 8), as before for zones 9, 10, ...
+            #
+            # Built-ins go through the same loop as registered channels.
+            # custom_service_zones() resolves either by name, but this was fed
+            # custom_service_names() alone -- so Next Day Air, 2nd Day Air,
+            # 3 Day Select and NDA Saver were all looked up on zone 8.
+            _acc_zone_passthrough = {"2", "3", "4", "5", "6", "7", "8",
+                                     "44", "45", "46"}
+            for _acc_zone_svc in (list(BUILT_IN_SERVICE_CHOICES)
+                                  + list(self.custom_service_names(
+                                      enabled_only=False))):
+                _acc_zone_passthrough |= set(
+                    sort_zone_keys(self.custom_service_zones(_acc_zone_svc)))
+
             def normalize_zone_lookup(zone):
                 z = str(zone).strip()
                 if z.endswith(".0"):
                     z = z[:-2]
-                if z in ["2", "3", "4", "5", "6", "7", "8", "44", "45", "46"]:
+                if z in _acc_zone_passthrough:
                     return z
                 return "8"
+
+            def _note_acc_issue(fee_type, shipment_type, zone_key, reason):
+                """Record a surcharge that could not be priced from the ACC
+                table.
+
+                Every caller of accessorial_lookup is already gated on the
+                invoice actually carrying that charge, so an entry here is
+                never hypothetical: UPS billed it, the report shows 0 for it,
+                and the Total looks plausible anyway. Same class of silent
+                under-pricing as a missing base rate table, so it travels the
+                same way -- into _rate_issues.xlsx with the tracking number.
+
+                `tracking` is the enclosing run_repricing loop variable; the
+                guard covers the case of a call made before the loop starts.
+                """
+                try:
+                    trk = tracking
+                except NameError:
+                    trk = ""
+                codes = self.acc_codes_for_fee_type(fee_type)
+                label = (f"{'/'.join(codes)} {fee_type}" if codes
+                         else str(fee_type))
+                # normalize_zone_lookup buckets anything the ACC tables are not
+                # keyed by into 8, so a Canada parcel on zone 53 reported
+                # "zone 8" -- a zone that appears nowhere on its invoice. The
+                # lookup really did use 8 and the message has to keep saying
+                # so, or the fix it points at is the wrong one; but the invoice
+                # zone has to be visible next to it, or the row cannot be found.
+                zone_shown = str(zone_key)
+                try:
+                    # The equality is the proof that this key came from this
+                    # row's zone. Accessorials on a return leg are looked up on
+                    # their own zone, and naming the outbound one there would
+                    # be a wrong number stated confidently -- so annotate only
+                    # when the bucketing is reproducible from the loop's zone.
+                    _invoice_zone = normalize_zone(zone)
+                    if (_invoice_zone and _invoice_zone != str(zone_key)
+                            and normalize_zone_lookup(zone) == str(zone_key)):
+                        zone_shown = f"{zone_key}, invoice zone {_invoice_zone}"
+                except Exception:
+                    pass
+                self.acc_rate_diagnostics.append(
+                    f"[{trk}] {reason}: {label} "
+                    f"[{shipment_type} / zone {zone_shown}]")
 
             def accessorial_lookup(fee_type, shipment_type, zone):
                 table = getattr(self, "accessorial_rate_table", {})
@@ -3991,23 +17192,106 @@ class UPSRepricingTool:
                     if fee_type not in table and legacy in table:
                         fee_type = legacy
 
-                if fee_type in table and isinstance(table[fee_type], (int, float)):
-                    return self.to_amount(table[fee_type])
+                # A custom channel keeps its own name for base transportation.
+                # Its accessorials are its own too when the ACC table has a row
+                # for them -- Express AHS / Large Package is not priced like
+                # Ground. Only when the channel has no row of its own does it
+                # fall back to the residential / commercial Ground schedule,
+                # which is what every existing setup will do.
+                channel = str(shipment_type).strip()
+                _is_custom = channel in self.custom_service_names(
+                    enabled_only=False)
+                # Built-in services get the same treatment as custom channels
+                # here: v75 let their surcharge templates be exported and
+                # imported, and those rows are stored as
+                # "<service> Commercial" / "<service> Residential". Without
+                # this they would be written, shown on screen, and never read.
+                # Only the *candidates* widen -- a service with no row of its
+                # own still falls through to the same default as before.
+                if channel:
+                    # Which side of the channel's Commercial / Residential pair
+                    # this shipment is on. Same rule the base rate lookup uses:
+                    # the invoice's own residential / commercial codes decide,
+                    # and the channel's registered type is the tiebreak.
+                    try:
+                        _res_seen, _com_seen = res_code_seen, com_code_seen
+                    except NameError:
+                        _res_seen = _com_seen = False
 
+                    if _res_seen and not _com_seen:
+                        is_res = True
+                    elif _com_seen and not _res_seen:
+                        is_res = False
+                    else:
+                        is_res = (self.custom_service_is_residential(
+                            channel,
+                            default=("residential" in channel.lower()))
+                            if _is_custom
+                            else residential_flag_from_service_name(channel))
+
+                    variant = "Residential" if is_res else "Commercial"
+
+                    # Variant row first, then the bare channel name (what v24
+                    # templates wrote), then the Ground schedule.
+                    for cand in (self.channel_surcharge_label(channel, is_res),
+                                 channel):
+                        if (fee_type, cand) in table:
+                            shipment_type = cand
+                            break
+                    else:
+                        # Only a registered channel falls back to the Ground
+                        # schedule. A built-in service without its own row
+                        # keeps its name and goes on to the default handling
+                        # below, exactly as it did before.
+                        if _is_custom:
+                            shipment_type = ("Ground Residential" if is_res
+                                             else "Ground Commercial")
+
+                # A channel row -- zone table or flat amount -- outranks the
+                # default. The flat branch used to sit above this and return
+                # first, so a per-channel DAS or Signature rate could never be
+                # reached no matter what the table held.
                 lookup_key = (fee_type, shipment_type)
 
-                if lookup_key in table and isinstance(table[lookup_key], dict):
-                    return self.to_amount(table[lookup_key].get(zone_key, 0))
+                # No fallback to a rate stored without a shipment type: every
+                # rate belongs to a channel now. A fee this channel has no row
+                # for costs 0, and says so in the issue list -- which is the
+                # only place that 0 is visible, so it is always reported.
+                if lookup_key in table:
+                    entry = table[lookup_key]
+                    if isinstance(entry, dict):
+                        if zone_key in entry:
+                            amt = self.to_amount(entry[zone_key])
+                            if amt == 0:
+                                _note_acc_issue(fee_type, shipment_type,
+                                                zone_key, "ACC rate is 0")
+                            return amt
+                        _note_acc_issue(fee_type, shipment_type, zone_key,
+                                        "channel has no rate for this zone")
+                        return 0.0
 
-                if fee_type in table and isinstance(table[fee_type], dict):
-                    return self.to_amount(table[fee_type].get(zone_key, 0))
+                    amt = self.to_amount(entry)
+                    if amt == 0:
+                        _note_acc_issue(fee_type, shipment_type, zone_key,
+                                        "ACC rate is 0")
+                    return amt
 
+                _note_acc_issue(fee_type, shipment_type, zone_key,
+                                "this channel has no rate for this surcharge")
                 return 0.0
 
             # =====================================================
             # LOAD RAW INVOICE
             # =====================================================
-            if billing_file.lower().endswith(".csv"):
+            # Everything below rates off raw_df, NOT off the df read at the
+            # top -- the two are separate reads of the same file. A backfill
+            # supplies the rows, so it has to land here as well; feeding only
+            # the first read left the rating loop still reading whatever file
+            # the path happened to point at, and an invoice repriced from the
+            # history came out as the invoice on screen.
+            if source_frame is not None:
+                raw_df = source_frame.astype(str).fillna("")
+            elif billing_file.lower().endswith(".csv"):
                 raw_df = pd.read_csv(billing_file, header=None,
                                      dtype=str, low_memory=False).fillna("")
             else:
@@ -4017,9 +17301,23 @@ class UPSRepricingTool:
             if raw_df.empty:
                 raise Exception("Billing file is empty.")
 
+            # 場景的進度第一段:讀原始列
+            self._wp_start(len(raw_df), "Reading invoice rows")
+
             shipment_groups = {}
             account_rows = []
             unknown_rows = []
+            # AR=ACC codes the tool deliberately does not reprice (NPF / SCF).
+            # Collected so the money UPS charged is reported rather than just
+            # missing from the recalculation.
+            not_repriced_rows = []
+            # AR=ACC/BRK/GOV codes that fall through the whole dispatch chain
+            # while still counting as "known" (they are in
+            # UPS_ACC_CODE_REFERENCE, so the unknown-code check skips them).
+            # Nothing prices them and nothing reported them -- the money simply
+            # left the audit. Seven reference codes are in this state today:
+            # AFW, AHV, ART, LCC, LWC, LWR, REP.
+            acc_unpriced_rows = []
             warning_rows = []
 
             ups_invoice_total = 0.0
@@ -4028,6 +17326,8 @@ class UPSRepricingTool:
             # GROUP RAW SHIPMENT ROWS FIRST
             # =====================================================
             for row_index, row in raw_df.iterrows():
+
+                self._wp_pulse()
 
                 tracking = str(safe_get(row, TRACKING_COL, "")).strip()
 
@@ -4073,7 +17373,9 @@ class UPSRepricingTool:
             # CONSOLIDATE + REPRICE
             # =====================================================
             preview_cols = [
-                "Tracking", "Layer", "Zone", "Shipment Type", "Entered Weight", "Billed Weight", "Dim Weight",
+                "Tracking", "Layer",
+                "Shipment Reference Number 1", "Shipment Reference Number 2",
+                "Zone", "Shipment Type", "Entered Weight", "Billed Weight", "Dim Weight",
                 "Billable Weight", "Length", "Width", "Height", "CAL Base Rate",
                 "Shipping Charge Correction Ground Undeliverable Return",
                 "Residential Adjustment", "Commercial Adjustment", "Direct Delivery Only",
@@ -4085,8 +17387,22 @@ class UPSRepricingTool:
                 "Additional Handling Surcharge - Dimension",
                 "Additional Handling Surcharge - Packaging", "Large Package Surcharge", "Over Maximum Size Surcharge",
                 "Undeliverable Return", "Address Correction",
-                "Declared Value", "Return To Sender", "2nd Mile Road Base", "Signature", "Adult Signature", "Package Protection", "CAL Total", "UPS Invoice Total"
+                "Declared Value",
+                "Return To Sender", "2nd Mile Road Base", "Signature", "Adult Signature", "Package Protection",
+                "CAL Total", "UPS Invoice Total"
             ]
+
+            # Only when the demand surcharge is switched on and set up. Added
+            # unconditionally it put two empty columns on every report, which
+            # reads as "charged, came to zero" rather than "not in season".
+            _demand_on = self.demand_in_use()
+            if _demand_on:
+                _tail_cols = ["CAL Total", "UPS Invoice Total"]
+                preview_cols = (
+                    [c for c in preview_cols if c not in _tail_cols]
+                    + ["CAL Demand AHS", "CAL Demand LPS",
+                       "CAL Demand OVR", "CAL Demand Service"]
+                    + _tail_cols)
 
             # Custom ACC surcharges become real columns, inserted just before
             # the totals so CAL Total / UPS Invoice Total stay rightmost.
@@ -4110,10 +17426,11 @@ class UPSRepricingTool:
             #   SHP/RTN in the same invoice reuses this A directly instead of
             #   recomputing from the ADJ row's own HR/AA.
             # =====================================================
-            try:
-                _pp_dim_factor = float(self.dim_factor.get())
-            except (ValueError, TypeError):
-                _pp_dim_factor = 300.0
+            # Same default as the main loop. It used to fall back to the old
+            # global 300 while the main loop fell back to 139, so a channel
+            # with no divisor of its own was measured two different ways in
+            # one run.
+            _pp_dim_factor = self.default_dim_divisor()
             try:
                 _pp_ahs_min = float(self.ahs_min_billable_weight.get())
             except (ValueError, TypeError):
@@ -4133,6 +17450,11 @@ class UPSRepricingTool:
             # instead of defaulting to Commercial. SCC only corrects the amount;
             # it does not change the service.
             shp_rtn_service = {}
+            # Per-tracking SHP/RTN zone. When the original shipment sits in
+            # THIS invoice it is the authority on the zone the parcel WAS rated
+            # at -- the same role the history plays for a prior period, and
+            # better evidence than UPS's stamps, which can be swapped outright.
+            shp_rtn_zone = {}
             for (pp_tracking, pp_layer), pp_rows in shipment_groups.items():
                 if pp_layer not in ("SHP", "RTN"):
                     continue
@@ -4177,11 +17499,16 @@ class UPSRepricingTool:
                     dimA = sorted(pp_ag, key=cubic, reverse=True)[0]
                 else:
                     dimA = (0.0, 0.0, 0.0)
-                dwA = round(cubic(dimA) / _pp_dim_factor, 2) if _pp_dim_factor > 0 else 0.0
+                # Same per-channel divisor as the main loop: the pre-pass
+                # computes the A-side freight an ADJ later reuses, so it has
+                # to measure the parcel the same way.
+                _pp_svc_factor = self.channel_dim_factor(pp_service,
+                                                         default=_pp_dim_factor)
+                dwA = round(cubic(dimA) / _pp_svc_factor, 2) if _pp_svc_factor > 0 else 0.0
                 # No dimensions at all -> use billed weight as the A weight
                 pp_weight = pp_entered if cubic(dimA) > 0 else max(pp_billed, pp_entered)
                 bwA = math.ceil(max(pp_weight, dwA, 0.0))
-                baseA, _ = lookup_base_rate(pp_service, pp_zone, bwA, pp_tracking)
+                baseA, _ = lookup_base_rate(pp_service, pp_zone, bwA, pp_tracking, residential=("residential" in str(pp_service).lower()))
                 # Accumulate across SHP and RTN of the same tracking
                 shp_rtn_freight_A[pp_tracking] = shp_rtn_freight_A.get(pp_tracking, 0.0) + baseA
 
@@ -4205,7 +17532,17 @@ class UPSRepricingTool:
                 if not prev_svc or "RESIDENTIAL" in str(pp_service).upper():
                     shp_rtn_service[pp_tracking] = pp_service
 
+                # First real zone wins: SHP is scanned before RTN, and a return
+                # leg can be rated on a different zone than the outbound.
+                if pp_zone not in ("", "0") and pp_tracking not in shp_rtn_zone:
+                    shp_rtn_zone[pp_tracking] = pp_zone
+
+            # 第二段:逐組計價,這才是大頭
+            self._wp_start(len(shipment_groups), "Pricing shipments")
+
             for (tracking, layer), rows in shipment_groups.items():
+
+                self._wp_pulse()
 
                 row_result = {col: 0 for col in preview_cols}
                 row_result["Tracking"] = tracking
@@ -4218,6 +17555,7 @@ class UPSRepricingTool:
 
                 ag_dims = []
                 hr_dims = []
+                raw_dims = []      # 只給顯示,含 1x1x1
 
                 max_entered_weight = 0.0
                 max_billed_weight = 0.0
@@ -4226,9 +17564,30 @@ class UPSRepricingTool:
                 billed_weight_type = None
                 zone = ""
                 zone_din = ""          # zone seen only on DIN rows
+                # A prior-period correction can carry TWO zones: the reversal
+                # sits on the zone the parcel WAS rated at, the re-charge on
+                # the zone it is now. Both are on the invoice; the engine used
+                # to keep only the first one it met, so a zone change priced
+                # its own reversal at the new zone and cancelled to nothing.
+                # Per charge family: the freight lines and the additional
+                # handling lines of one correction can move in opposite
+                # directions, and they do -- on the parcel this was written
+                # for, freight was reversed at zone 7 and re-charged at 6
+                # while its AH was reversed at 6 and re-charged at 7. One
+                # bucket for the whole layer cannot express that.
+                adj_credit_zones = {"frt": set(), "ahs": set(), "lps": set()}
+                adj_charge_zones = {"frt": set(), "ahs": set(), "lps": set()}
                 shipment_type = ""
                 shipment_description = ""
                 _layer_has_freight = False
+                _layer_frt_clb = 0
+                _layer_frt_other = 0
+                # This layer's own freight movement. Read by the minimum
+                # sanitizer below: a correction where UPS moved the freight by
+                # nothing is a correction where UPS kept rating on the old
+                # weight, and the cost side stays there whatever the corrected
+                # dimensions say.
+                _layer_frt_net = 0.0
 
                 # Shipment-level static info
                 for row in rows:
@@ -4265,10 +17624,38 @@ class UPSRepricingTool:
                     ai = str(safe_get(row, AI_COL, "")).strip().upper()
                     aj = str(safe_get(row, AJ_COL, "")).strip().upper()
 
+                    # A DIN leg is a SECOND movement with its own zone, not
+                    # evidence of a zone correction. The plain zone scan skips
+                    # it; these family sets did not, so out on 6 / back on 5
+                    # read as a 6 -> 5 correction.
+                    _row_zone = normalize_zone(safe_get(row, ZONE_COL, ""))
+                    if aj == "DIN":
+                        _row_zone = ""
+                    if _row_zone not in ("", "0"):
+                        _fam = None
+                        if as_code in ("AHW", "AHG", "AHL", "AHD", "AHB",
+                                       "AHS", "AHV", "AHC", "AHP"):
+                            _fam = "ahs"
+                        elif as_code in ("LPS", "LPR", "LCT", "LCR", "LCC",
+                                         "LWC", "LWR"):
+                            _fam = "lps"
+                        elif ar == "FRT":
+                            _fam = "frt"
+                        if _fam:
+                            _row_ba = self.to_amount(safe_get(row, BA_COL, 0))
+                            if _row_ba < -0.001:
+                                adj_credit_zones[_fam].add(_row_zone)
+                            elif _row_ba > 0.001:
+                                adj_charge_zones[_fam].add(_row_zone)
+
                     # WEIGHT: whole-group nonzero max. Adjustment rows
                     # (RES/COM) can legitimately carry the weight basis (e.g.
                     # a Residential Adjustment row holds AC), so we do not
                     # restrict capture to 003 freight rows.
+                    if ar == "FRT":
+                        _layer_frt_net += self.to_amount(
+                            safe_get(row, BA_COL, 0))
+
                     entered_w = self.to_amount(safe_get(row, ENTERED_WEIGHT_COL, 0))
                     billed_w = self.to_amount(safe_get(row, BILLED_WEIGHT_COL, 0))
 
@@ -4309,14 +17696,16 @@ class UPSRepricingTool:
                         _id = safe_get(row, INVOICE_DATE_COL, "")
                         if str(_id).strip():
                             row_result["Invoice Date"] = _id
-                    if not row_result.get("Ref1"):
-                        rv = safe_get(row, REF1_COL, "")
-                        if str(rv).strip():
-                            row_result["Ref1"] = str(rv).strip()
-                    if not row_result.get("Ref2"):
-                        rv2 = safe_get(row, REF2_COL, "")
-                        if str(rv2).strip():
-                            row_result["Ref2"] = str(rv2).strip()
+                    # First non-blank across the tracking's rows. These were
+                    # read into "Ref1"/"Ref2" and never reached any report
+                    # layout; named properly, they are columns now.
+                    for _key, _col in (
+                            ("Shipment Reference Number 1", REF1_COL),
+                            ("Shipment Reference Number 2", REF2_COL)):
+                        if not row_result.get(_key):
+                            _rv = str(safe_get(row, _col, "")).strip()
+                            if _rv:
+                                row_result[_key] = _rv
 
                     # UPS files several accessorials as AR=FRT with their own
                     # wording -- "Address Correction Ground" is a $6.31 fee,
@@ -4341,13 +17730,26 @@ class UPSRepricingTool:
                         if str(at).strip() and not service_is_recognised(at):
                             service_was_guessed = True
 
-                    # Track whether THIS layer carries a freight line at all. An
-                    # ADJ made up purely of accessorial corrections (e.g. a
-                    # standalone Reschedule Delivery fee) has none, so it never
-                    # re-rated the base/size charges and must not overwrite the
-                    # shipment's values during the final merge.
-                    if ar == "FRT" or as_code == "FRT":
+                    # An ADJ of nothing but accessorial corrections never
+                    # re-rated anything and must not overwrite the shipment at
+                    # merge time. Address Correction is exactly that but UPS
+                    # bills it AR=FRT, so it looked like freight and a layer of
+                    # all-zero recalcs clobbered the real numbers. ADC only --
+                    # DIN is a genuine second leg and does need a base rate.
+                    _adc_fee_row = (ai == "ADJ" and aj == "ADC")
+
+                    if (ar == "FRT" or as_code == "FRT") and not _adc_fee_row:
                         _layer_has_freight = True
+                        # CLB = Not Previously Billed: freight UPS failed to
+                        # invoice at the time. Unlike SCC (which re-rates the
+                        # SAME parcel, so it must REPLACE the original) this is
+                        # a SECOND movement with its own weight and dims, so at
+                        # merge time it has to be ADDED. Distinguished here
+                        # because by merge time all ADJ rows look alike.
+                        if ai == "ADJ" and aj == "CLB":
+                            _layer_frt_clb += 1
+                        else:
+                            _layer_frt_other += 1
 
                     ag = safe_get(row, PACKAGE_DIM_TEXT_COL, "")
                     hr = safe_get(row, HR_DIM_COL, "")
@@ -4358,12 +17760,124 @@ class UPSRepricingTool:
                         ag_dims.append(d_ag)
                     if cubic(d_hr) > 0:
                         hr_dims.append(d_hr)
+                    for _raw in (parse_dim_raw(ag), parse_dim_raw(hr)):
+                        if cubic(_raw) > 0:
+                            raw_dims.append(_raw)
 
 
                 # Nothing but DIN rows in this layer -- use their zone rather
                 # than leaving the layer unzoned and unrated.
                 if zone in ("", "0") and zone_din:
                     zone = zone_din
+
+                # ---- which zone was the ORIGINAL parcel rated at? ----
+                # Two sources only, both evidence rather than inference: this
+                # file's SHP/RTN layer, or the invoice history. A third --
+                # "a zone seen only on a reversal is the old zone" -- was
+                # removed because it reads UPS's stamps, which are backwards.
+                zone_change_note = ""
+                _hist_zone = None
+                if layer == "ADJ":
+                    _hist_zone = self.history_zone_for(
+                        tracking, row_result.get("Invoice Number", ""))
+                    # Same invoice counts too. history_zone_for only reaches
+                    # earlier periods, so a correction sitting right next to its
+                    # own shipment had nothing to go on but UPS's zone stamps --
+                    # see shp_rtn_zone above for why those cannot be trusted.
+                    if not _hist_zone:
+                        _hist_zone = shp_rtn_zone.get(tracking, "")
+
+                # The original shipment is the authority. UPS's own stamps are
+                # not: on 4 of 4 paired AH corrections it put the NEW zone on
+                # the reversal and the OLD zone on the re-charge -- backwards.
+                # With no authority, A and C stay on one zone and the row says
+                # so, rather than guessing a direction from the stamps.
+                if layer == "ADJ":
+                    _seen_zones = set()
+                    for _fam_set in list(adj_credit_zones.values()) + list(
+                            adj_charge_zones.values()):
+                        _seen_zones |= _fam_set
+
+                    if _hist_zone:
+                        _others = {z for z in _seen_zones if z != _hist_zone}
+                        if len(_others) == 1:
+                            zone = sorted(_others)[0]
+                            row_result["Zone"] = zone
+                    elif len(_seen_zones) > 1:
+                        # The correction moved between zones and neither the
+                        # original shipment nor the history is loaded, so which
+                        # way it moved is unknown. Say so instead of picking:
+                        # this is a real gap in the answer and it has a fix the
+                        # user can act on.
+                        self.lane_diagnostics.append(
+                            f"[{tracking}] Zone movement NOT rated -- this "
+                            f"correction spans zones "
+                            f"{', '.join(sort_zone_keys(_seen_zones))} but the "
+                            f"original shipment is not in this file or in the "
+                            f"history, so which zone it came FROM is unknown. "
+                            f"Dimension and weight changes are still repriced; "
+                            f"the zone difference is not. Import the invoice "
+                            f"carrying the original shipment to rate it.")
+
+                def original_zone_for(family):
+                    """The zone THIS family of charges was rated at before.
+
+                    Answered only from the original shipment -- this file's
+                    SHP/RTN layer, or the invoice history. With neither, the
+                    current zone stands and no change is claimed: reading the
+                    direction off the correction's own zone stamps gets it
+                    backwards (see the note above), and a confidently wrong
+                    zone is worse than an absent one.
+                    """
+                    if layer != "ADJ":
+                        return zone
+                    if _hist_zone:
+                        return _hist_zone
+                    return zone
+
+                def current_zone_for(family):
+                    """The zone this family is being charged at NOW.
+
+                    Mirror of original_zone_for. When the original zone is
+                    known, `zone` already holds the corrected one; when it is
+                    not, A and C sit on the same zone so the zone contributes
+                    nothing rather than something invented.
+                    """
+                    if layer != "ADJ":
+                        return zone
+                    return zone
+
+                zone_c_frt = current_zone_for("frt")
+                zone_c_ahs = current_zone_for("ahs")
+                zone_c_lps = current_zone_for("lps")
+                zone_a_frt = original_zone_for("frt")
+                zone_a_ahs = original_zone_for("ahs")
+                zone_a_lps = original_zone_for("lps")
+                zone_a = zone_a_frt
+                # Only families this layer actually carries. original_zone_for
+                # answers for all three from the same source, so listing them
+                # unconditionally put "large package originally zone 8" on a
+                # parcel that has no large package charge -- noise in a note
+                # whose whole job is to be checked by hand.
+                def _family_present(family):
+                    return bool(adj_credit_zones.get(family)
+                                or adj_charge_zones.get(family))
+
+                _moved = {f: z for f, z in (("freight", zone_a_frt),
+                                            ("AH", zone_a_ahs),
+                                            ("large package", zone_a_lps))
+                          if z and z != zone and _family_present(
+                              {"freight": "frt", "AH": "ahs",
+                               "large package": "lps"}[f])}
+                if _moved:
+                    zone_change_note = "; ".join(
+                        f"{name} originally zone {z} (now {zone})"
+                        for name, z in _moved.items())
+                    # In the row's own Notes, NOT in the issues file. A
+                    # resolved zone correction is the run working -- it found
+                    # the original zone and priced both sides -- and listing
+                    # it beside things that need fixing sends you off to check
+                    # something that is not broken.
 
                 if shipment_type == "":
                     shipment_type = self.base_rate_service.get()
@@ -4422,8 +17936,23 @@ class UPSRepricingTool:
                     and max_billed_weight <= 0
                 )
 
-                # Either condition alone suppresses the base rate.
-                adj_skip_base = adj_no_own_dims or adj_no_own_weight
+                # Either condition alone suppresses the base rate -- except
+                # that "no dimensions" alone is not enough. A Shipping Charge
+                # Correction re-basis (billed weight type 8) arrives with no
+                # dimensions at all but with both weights on the row, and it is
+                # rateable as rate(billed) - rate(entered); that is what the
+                # weight-only branch further down exists for. Skipping it here
+                # meant the correction silently came out 0 while UPS had
+                # charged for it (e.g. 1ZXXXXXXXXXXXXXXXX: entered 1, billed 2,
+                # UPS 4.82, tool 0.00).
+                # Both weights present AND different: that is a re-rate with
+                # something to compute. Equal weights carry no correction, so
+                # they keep the old behaviour and stay at 0.
+                adj_has_weight_pair = (
+                    max_entered_weight > 0 and max_billed_weight > 0
+                    and abs(max_billed_weight - max_entered_weight) > 0.001)
+                adj_skip_base = ((adj_no_own_dims and not adj_has_weight_pair)
+                                 or adj_no_own_weight)
 
                 if layer == "ADJ":
                     # ADJ's own rows may carry no dimensions. Fall back to the
@@ -4449,6 +17978,7 @@ class UPSRepricingTool:
                 # ADJ whose own rows carry no weight: reuse the matching
                 # SHP/RTN shipment's entered/billed weight (spec rule, same as
                 # the dimension fallback).
+                _weight_C_inherited = False
                 if layer == "ADJ":
                     fb_ent, fb_bill = shp_rtn_weights.get(
                         tracking, (0.0, 0.0))
@@ -4456,6 +17986,7 @@ class UPSRepricingTool:
                         weight_A = fb_ent if fb_ent > 0 else fb_bill
                     if weight_C <= 0:
                         weight_C = fb_bill if fb_bill > 0 else fb_ent
+                        _weight_C_inherited = weight_C > 0
 
                 # SHP/RTN whose entered weight is 0 (e.g. RTN returns carry the
                 # weight only in the billed column): use the billed weight as
@@ -4471,23 +18002,35 @@ class UPSRepricingTool:
                 length, width, height = selected_dim
                 cubic_inches = cubic(selected_dim)
 
-                try:
-                    dim_factor = float(self.dim_factor.get())
-                except (ValueError, TypeError):
-                    dim_factor = 300.0
+                # Per-channel divisor. shipment_type is final by this point,
+                # so a channel contracted on 166 is not measured with the
+                # account's 300.
+                dim_factor = self.channel_dim_factor(shipment_type)
+
+                # Falling back to the tariff default changes billable weight
+                # on every package of that lane, so it belongs in the issue
+                # file. Once per service -- one line per parcel would bury
+                # everything else.
+                if not self.channel_has_own_dim(shipment_type):
+                    _svc_key = str(shipment_type).strip()
+                    if _svc_key not in _dim_default_noted:
+                        _dim_default_noted.add(_svc_key)
+                        # Bracketed value becomes the Tracking column of the
+                        # issues file, so a bare service name there reads as a
+                        # tracking number that will not be found on the
+                        # invoice. This note is per channel by design, not per
+                        # parcel -- say which.
+                        self.lane_diagnostics.append(
+                            f"[channel: {_svc_key}] No DIM factor set for this "
+                            f"channel, used the default {dim_factor:g}")
 
                 dim_weight = round(cubic_inches / dim_factor, 2) if dim_factor > 0 else 0.0
 
-                # Hoisted: minimum-billable thresholds are needed by the
-                # billed-weight sanitizer below, before the trigger sections.
-                try:
-                    oversize_min_cfg = float(self.oversize_min_billable_weight.get())
-                except (ValueError, TypeError):
-                    oversize_min_cfg = 90.0
-                try:
-                    ahs_min_cfg = float(self.ahs_min_billable_weight.get())
-                except (ValueError, TypeError):
-                    ahs_min_cfg = 15.0
+                # (oversize_min_cfg / ahs_min_cfg were hoisted here for the
+                # billed-weight sanitizer. The sanitizer was later rewritten to
+                # read the per-channel _rules, leaving these two computed and
+                # unread -- and the AHS fallback disagreeing with the UI
+                # default. Removed so nobody tunes a value that has no effect.)
 
                 # =====================================================
                 # FINAL TRACKING WEIGHT (C package, for surcharge triggers)
@@ -4530,51 +18073,102 @@ class UPSRepricingTool:
                 _AHS_FAMILY = {"AHS", "AHW", "AHG", "AHL", "AHV", "AHC",
                                "AHP", "AHD", "AHB"}
 
-                def _minimum_is_genuine(candidate):
-                    if billed_weight_type == 3:
-                        return True
-                    if (oversize_min_cfg > 0
-                            and math.isclose(candidate, oversize_min_cfg, abs_tol=0.01)
-                            and (group_acc_codes & _LPS_FAMILY)):
-                        return True
-                    if (ahs_min_cfg > 0
-                            and math.isclose(candidate, ahs_min_cfg, abs_tol=0.01)
-                            and (group_acc_codes & _AHS_FAMILY)):
-                        return True
-                    return False
-
-                _min_artifacts = (oversize_min_cfg, ahs_min_cfg)
+                # An artifact is recognised by CONDITION, not by value.
+                #
+                # The old test asked whether weight_C equalled one of OUR
+                # configured minimums. That only works when UPS's minimum
+                # happens to equal the contracted one, and it frequently does
+                # not: this account is rated on a 20 lb AHS minimum while UPS
+                # bills the same parcels at 15. When the two differ the test
+                # never matches, UPS's minimum is taken for a real scale
+                # weight, and the parcel is repriced at UPS's floor instead of
+                # the contract's -- silently, because a wrong floor produces
+                # no error anywhere.
+                #
+                # What actually identifies an artifact is independent of whose
+                # minimum it is: the billed weight exceeds every real weight
+                # source (scale AND dimensional), and the group carries a
+                # surcharge that owns a minimum. Billed Weight Type 3 is UPS
+                # stating it outright.
+                # Compared against the ROUNDED-UP dim weight. UPS bills whole
+                # pounds, so a 24.38 lb dim weight is billed as 25 -- against
+                # the raw fraction that reads as 25 > 24.38, "unexplained",
+                # and a perfectly ordinary dimensional weight gets thrown away
+                # as an artifact.
+                # Only an INHERITED weight can be an artifact. When the
+                # correction row states a weight in its own columns, that is
+                # UPS re-basing the shipment onto a re-measured figure -- a
+                # 1 lb declared parcel re-weighed at 70 -- and it is the most
+                # authoritative weight on the invoice, however far it sits
+                # above the declared and dimensional weights. Only when the
+                # ADJ carries no weight of its own and the figure was borrowed
+                # from the matching SHP/RTN can that figure be a minimum baked
+                # into the shipment's billed column.
+                _explained_by = math.ceil(max(_real_weight, dim_weight))
+                _MIN_OWNING_FAMILY = _LPS_FAMILY | _AHS_FAMILY
                 _looks_like_min = (
-                    weight_C > _real_weight
-                    and weight_C > dim_weight
-                    and any(math.isclose(weight_C, _m, abs_tol=0.01)
-                            for _m in _min_artifacts if _m > 0)
+                    _weight_C_inherited
+                    and weight_C > _explained_by + 0.01
+                    and (bool(group_acc_codes & _MIN_OWNING_FAMILY)
+                         or billed_weight_type == 3)
                 )
 
                 # Floor carried forward so the minimum is not lost downstream:
-                # these rows have no dimensions, so large_package_trigger
-                # cannot re-derive it later.
+                # rows without dimensions cannot have any trigger re-derived
+                # later, so the billed figure is the only floor available.
                 minimum_billable_floor = 0.0
+                _discarded_min_artifact = 0.0
 
-                if _looks_like_min and not _minimum_is_genuine(weight_C):
-                    # weight_C is purely a minimum-billable artifact.
-                    weight_C = _real_weight
-                elif _looks_like_min:
+                # UPS does not reverse freight on a downgrade. A parcel rated
+                # as a Large Package and then reclassified as Additional
+                # Handling keeps being charged on the 90 lb Large Package
+                # minimum: the surcharge is refunded, the freight is not, and
+                # across this account's invoices that holds 16 times out of 16
+                # (and 77 of 78 for a surcharge cancelled outright).
+                #
+                # So when UPS left the freight alone, the cost side never came
+                # down, and re-rating the sale on the corrected dimensions
+                # simply prices below cost -- a loss recorded against a parcel
+                # nobody can recover it on. The old weight stays as the floor
+                # while UPS is still charging it. Detected by UPS's own
+                # freight movement, not by matching 90 against a configured
+                # minimum, so it holds whatever minimum UPS applied.
+                _ups_kept_the_weight = (layer == "ADJ"
+                                        and abs(_layer_frt_net) < 0.005)
+
+                if _looks_like_min and _ups_kept_the_weight:
+                    # weight_C is deliberately NOT reset here. The floor below
+                    # only reaches `billable_weight`, and on a correction that
+                    # figure is replaced by freight_for()'s billable_C, which
+                    # is rated from weight_C and never sees the floor. Moving
+                    # the weight into the floor therefore looked right in the
+                    # weight line and changed nothing in the money.
                     minimum_billable_floor = weight_C
+                elif _looks_like_min:
+                    _artifact = weight_C
+                    weight_C = _real_weight
+                    if cubic_inches > 0:
+                        # Dimensions are present and UPS re-rated: the trigger
+                        # sections below re-derive the classification and apply
+                        # THIS contract's minimum. UPS's figure is not carried.
+                        _discarded_min_artifact = _artifact
+                    else:
+                        minimum_billable_floor = _artifact
 
                 actual_weight = max(weight_C, _real_weight)
 
                 minimum_billable = 0.0
 
-                # Large Package trigger
-                try:
-                    oversize_longest = float(self.oversize_longest_side.get())
-                    oversize_cubic = float(self.oversize_cubic_inches.get())
-                    oversize_lg = float(self.oversize_length_girth.get())
-                    oversize_weight = float(self.oversize_actual_weight.get())
-                    oversize_min = float(self.oversize_min_billable_weight.get())
-                except (ValueError, TypeError):
-                    oversize_longest, oversize_cubic, oversize_lg, oversize_weight, oversize_min = 96, 17280, 130, 110, 90
+                # Large Package trigger. Thresholds come from the channel
+                # when it declares its own -- an Express lane can be
+                # contracted on different oversize limits than Ground -- and
+                # from Pricing Rules otherwise.
+                _rules = self.channel_rules(shipment_type)
+                oversize_longest = _rules["oversize_longest_side"]
+                oversize_cubic = _rules["oversize_cubic_inches"]
+                oversize_lg = _rules["oversize_length_girth"]
+                oversize_weight = _rules["oversize_actual_weight"]
+                oversize_min = _rules["oversize_min_billable_weight"]
 
                 length_girth = length + 2 * (width + height)
                 length_girth = round(length_girth, 2)
@@ -4600,15 +18194,15 @@ class UPSRepricingTool:
                 else:
                     _lps_scale_weight = max_billed_weight
 
-                lps_longest_trigger = self.use_oversize_longest.get() and length > oversize_longest
-                lps_cubic_trigger = self.use_oversize_cubic.get() and cubic_inches > oversize_cubic
-                lps_lg_trigger = self.use_oversize_lg.get() and length_girth > float(oversize_lg) and not math.isclose(length_girth, float(oversize_lg), abs_tol=0.01)
+                lps_longest_trigger = _rules["use_oversize_longest"] and length > oversize_longest
+                lps_cubic_trigger = _rules["use_oversize_cubic"] and cubic_inches > oversize_cubic
+                lps_lg_trigger = _rules["use_oversize_lg"] and length_girth > float(oversize_lg) and not math.isclose(length_girth, float(oversize_lg), abs_tol=0.01)
                 # On a type-9 pure ADJ there is no trustworthy scale weight at
                 # all (both columns are dim-driven billing weights), so the
                 # weight path cannot fire -- the size triggers above decide.
                 if pure_adj_layer and billed_weight_type == 9:
                     _lps_scale_weight = 0.0
-                lps_weight_trigger = self.use_oversize_weight.get() and _lps_scale_weight > oversize_weight
+                lps_weight_trigger = _rules["use_oversize_weight"] and _lps_scale_weight > oversize_weight
 
                 large_package_trigger = lps_longest_trigger or lps_cubic_trigger or lps_lg_trigger or lps_weight_trigger
 
@@ -4618,20 +18212,12 @@ class UPSRepricingTool:
                 # =====================================================
                 # AHS TRIGGERS (WEIGHT + DIMENSION + PACKAGING)
                 # =====================================================
-                try:
-                    ahs_weight_threshold = float(self.ahs_weight_threshold.get())
-                    ahs_longest = float(self.ahs_longest_side.get())
-                    ahs_second = float(self.ahs_second_side.get())
-                    ahs_cubic = float(self.ahs_cubic_inches.get())
-                    ahs_lg_limit = float(self.ahs_lg_limit.get())
-                    ahs_min = float(self.ahs_min_billable_weight.get())
-                except (ValueError, TypeError):
-                    ahs_weight_threshold = 50
-                    ahs_longest = 48
-                    ahs_second = 30
-                    ahs_cubic = 10368
-                    ahs_lg_limit = 105
-                    ahs_min = 15
+                ahs_weight_threshold = _rules["ahs_weight_threshold"]
+                ahs_longest = _rules["ahs_longest_side"]
+                ahs_second = _rules["ahs_second_side"]
+                ahs_cubic = _rules["ahs_cubic_inches"]
+                ahs_lg_limit = _rules["ahs_lg_limit"]
+                ahs_min = _rules["ahs_min_billable_weight"]
 
                 # AHS-Weight is assessed on the ACTUAL (scale) weight per UPS
                 # rules -- NOT billable or dimensional weight, and NOT the
@@ -4666,15 +18252,18 @@ class UPSRepricingTool:
                     if _ahs_scale_weight <= 0:
                         _ahs_scale_weight = max_billed_weight
 
+                # Each AHS trigger is switchable, the same way the oversize
+                # ones are, and per channel via _rules.
                 if pure_adj_layer and billed_weight_type == 9:
                     ahs_weight_trigger = False
                 else:
-                    ahs_weight_trigger = _ahs_scale_weight > ahs_weight_threshold
+                    ahs_weight_trigger = (_rules["use_ahs_weight"]
+                                          and _ahs_scale_weight > ahs_weight_threshold)
                 ahs_dimension_trigger = (
-                    (length > ahs_longest) or
-                    (width > ahs_second) or
-                    (cubic_inches > ahs_cubic) or
-                    (length_girth > ahs_lg_limit)
+                    (_rules["use_ahs_longest"] and length > ahs_longest) or
+                    (_rules["use_ahs_second"] and width > ahs_second) or
+                    (_rules["use_ahs_cubic"] and cubic_inches > ahs_cubic) or
+                    (_rules["use_ahs_lg"] and length_girth > ahs_lg_limit)
                 )
                 ahs_packaging_trigger = False
 
@@ -4699,12 +18288,15 @@ class UPSRepricingTool:
                     _a_lps_weight = 0.0
                 else:
                     _a_lps_weight = a_actual_weight
+                # Same channel rules as the C package: the A and C sides of a
+                # correction have to be measured against one yardstick or the
+                # net is meaningless.
                 a_lps_trigger = (
-                    (self.use_oversize_longest.get() and a_len > oversize_longest) or
-                    (self.use_oversize_cubic.get() and a_cubic > oversize_cubic) or
-                    (self.use_oversize_lg.get() and a_length_girth > float(oversize_lg)
+                    (_rules["use_oversize_longest"] and a_len > oversize_longest) or
+                    (_rules["use_oversize_cubic"] and a_cubic > oversize_cubic) or
+                    (_rules["use_oversize_lg"] and a_length_girth > float(oversize_lg)
                      and not math.isclose(a_length_girth, float(oversize_lg), abs_tol=0.01)) or
-                    (self.use_oversize_weight.get() and _a_lps_weight > oversize_weight))
+                    (_rules["use_oversize_weight"] and _a_lps_weight > oversize_weight))
                 # Same rule as the C package: suppress AHS - Weight only for a
                 # pure ADJ governed by type-9 dim weight, so the C - A net is
                 # consistent. (A-package triggers only matter in the pure-ADJ
@@ -4712,10 +18304,13 @@ class UPSRepricingTool:
                 if pure_adj_layer and billed_weight_type == 9:
                     a_ahs_weight_trigger = False
                 else:
-                    a_ahs_weight_trigger = a_actual_weight > ahs_weight_threshold
+                    a_ahs_weight_trigger = (_rules["use_ahs_weight"]
+                                            and a_actual_weight > ahs_weight_threshold)
                 a_ahs_dimension_trigger = (
-                    (a_len > ahs_longest) or (a_wid > ahs_second) or
-                    (a_cubic > ahs_cubic) or (a_length_girth > ahs_lg_limit))
+                    (_rules["use_ahs_longest"] and a_len > ahs_longest) or
+                    (_rules["use_ahs_second"] and a_wid > ahs_second) or
+                    (_rules["use_ahs_cubic"] and a_cubic > ahs_cubic) or
+                    (_rules["use_ahs_lg"] and a_length_girth > ahs_lg_limit))
 
                 # AHS minimum billable weight applies only when the package
                 # is billed on ACTUAL weight. When dimensional weight governs
@@ -4727,8 +18322,77 @@ class UPSRepricingTool:
                 # onto the corrected scale weight. In neither case does UPS
                 # lift the billed weight to the AHS minimum.
                 _ahs_min_applies = (billed_weight_type not in (8, 9))
-                if (ahs_weight_trigger or ahs_dimension_trigger) and _ahs_min_applies:
+
+                # UPS 有沒有把計費重拉到它自己的 AHS - Dimension 下限。
+                #
+                # 為什麼要這一條：UPS 判 AHS - Dimension 之後會把計費重拉高，
+                # 之後就算把附加費沖掉（ADJ/SCC），被拉高的計費重也不會退回
+                # 去。我們對客人照自己合約的下限算，所以只要 UPS 曾經套用過，
+                # 這一單的下限就要成立——否則同一顆箱子我們收的比 UPS 算的還
+                # 低，差額自己吸收。
+                #
+                # 只認一個訊號：帳單上出現過 AHS - Dimension 代碼（被 SCC 沖
+                # 掉的也算數）。這是 UPS 明講「我判了 AHS - Dimension」的直接
+                # 證據。
+                #
+                # 曾經另外加過一條「UPS 計費重高於 max(實重, 材積重) 就算」，
+                # 已移除：計費重被拉高的原因很多（大包裹下限、UPS 重新量測、
+                # 其他附加費），不是只有 AHS。拿 17 期帳單回測，這條單獨判進
+                # 來 637 單，計費重從 5 到 90 散得到處都是，只有 24 單落在
+                # UPS 的 AHS 下限值上，其餘都是誤判；而且其中 533 單的尺寸是
+                # 1x1x1（UPS 沒量到尺寸時的預設值），本來就不該拿來推論。
+                #
+                # 注意界線：這裡看代碼只是為了知道 UPS 做了什麼；附加費本身
+                # 收不收，上面的 trigger 仍然只看尺寸與重量門檻。
+                # 下限的數值一律取工具設定的 ahs_min，不在程式裡寫死磅數。
+                #
+                # 哪些代碼算 AHS - Dimension，去問「代碼查詢」那一頁維護的
+                # registry，不在程式裡另開名單。
+                _ahs_dim_codes = {
+                    _c for _c, _cfg in
+                    getattr(self, "ahs_lps_code_registry", {}).items()
+                    if str(_cfg.get("charge_type", "")).strip()
+                    .upper().replace(" ", "") == "AHS-DIMENSION"
+                }
+                _ups_applied_ahs_floor = bool(_ahs_dim_codes) and any(
+                    str(safe_get(_r, AS_COL, "")).strip().upper() in _ahs_dim_codes
+                    for _r in rows)
+
+                # 兩條路分開判：
+                #   * 工具自己依門檻判定的，維持原本的 type 8/9 排除。
+                #   * UPS 開過 AHS - Dimension 代碼的，不受 type 限制。
+                #
+                # 為什麼要分開：原本的註解說 type 8（SCC 重新定基）和 type 9
+                # （材積重主導）時 UPS 不會把計費重拉到 AHS 下限，所以一併排
+                # 除。拿 17 期帳單回測，這句話不成立——type 08 有 187 單、
+                # type 09 有 150 單的 UPS 計費重高於 max(實重, 材積重)，而且
+                # 型態一致：49x11x3 這種箱子 max 是 12，UPS 一律給 15，正好是
+                # UPS 的 AHS - Dimension 下限值。
+                # 排除掉的剛好是最需要處理的那一批（合計 357 單），所以代碼
+                # 這條路不再受 _ahs_min_applies 限制。
+                if ((ahs_dimension_trigger and _ahs_min_applies)
+                        or _ups_applied_ahs_floor):
                     minimum_billable = max(minimum_billable, ahs_min)
+
+                # UPS 留下來的計費重，要換成「我們合約的下限」。
+                #
+                # 上游偵測到「UPS 沖掉附加費但運費沒退」時，會把 UPS 當初拉高
+                # 的計費重存進 minimum_billable_floor（例如 15，那是 UPS 合約
+                # 的下限）。偵測本身是對的，問題在於它直接沿用 UPS 的數字：
+                # UPS 不退錢，我們照 15 算就等於收得比成本低，差額自己吸收。
+                # 這裡把它抬到我們自己的下限（例如 20）。
+                #
+                # LPS 和 AHS - Dimension 兩種改判 UPS 都不退錢，所以兩種都要
+                # 處理，各自套自己的下限——LPS 的下限和 AHS 的下限是不同的
+                # 數字，混用會把大包裹的單子錯誤地拉到 AHS 的下限。
+                # 兩個數值都取自工具設定，不在程式裡寫死。
+                if minimum_billable_floor > 0:
+                    if group_acc_codes & _LPS_FAMILY:
+                        minimum_billable_floor = max(minimum_billable_floor,
+                                                     oversize_min)
+                    elif group_acc_codes & _ahs_dim_codes:
+                        minimum_billable_floor = max(minimum_billable_floor,
+                                                     ahs_min)
 
                 # ---- Build human-readable trigger reasons (full names) ----
                 lps_reasons = []
@@ -4747,16 +18411,16 @@ class UPSRepricingTool:
                 ahs_reasons = []
                 if ahs_weight_trigger:
                     ahs_reasons.append("Additional Handling Surcharge - Weight")
-                if length > ahs_longest:
+                if _rules["use_ahs_longest"] and length > ahs_longest:
                     ahs_reasons.append(
                         "Additional Handling Surcharge - Longest Side")
-                if width > ahs_second:
+                if _rules["use_ahs_second"] and width > ahs_second:
                     ahs_reasons.append(
                         "Additional Handling Surcharge - Second Longest Side")
-                if length_girth > ahs_lg_limit:
+                if _rules["use_ahs_lg"] and length_girth > ahs_lg_limit:
                     ahs_reasons.append(
                         "Additional Handling Surcharge - Length + Girth")
-                if cubic_inches > ahs_cubic:
+                if _rules["use_ahs_cubic"] and cubic_inches > ahs_cubic:
                     ahs_reasons.append(
                         "Additional Handling Surcharge - Cubic Volume")
                 ahs_reason_text = "; ".join(ahs_reasons)
@@ -4767,16 +18431,28 @@ class UPSRepricingTool:
                 # actual weight -- in both cases dim weight must NOT be
                 # applied. Unknown/absent type falls back to the old
                 # behaviour (apply dim weight) so nothing regresses.
-                _dim_applies = billed_weight_type not in (2, 8)
+                # The type-2/8 gate suppresses dim weight because the row is
+                # re-based onto a stated scale/corrected weight. That only
+                # holds while such a weight actually survives: on an SCC whose
+                # own weight columns are empty and whose inherited figure was
+                # just discarded as a surcharge-minimum artifact, there is
+                # nothing to re-base onto, and suppressing dim weight rates a
+                # re-measured parcel on its scale weight alone. A dimension
+                # correction is precisely the case where the new dimensions
+                # must be honoured.
+                _has_rebasis_weight = weight_C > 0 and not _discarded_min_artifact
+                _dim_applies = (billed_weight_type not in (2, 8)
+                                or not _has_rebasis_weight)
                 _eff_dim_weight = dim_weight if _dim_applies else 0.0
 
+                # minimum_billable already carries ahs_min (folded in above
+                # under the same trigger/_ahs_min_applies condition), so the
+                # AHS floor is inside this max(). The second, identical check
+                # that used to follow was a no-op.
                 billable_weight = math.ceil(max(actual_weight, _eff_dim_weight,
                                                 minimum_billable,
                                                 minimum_billable_floor))
 
-                if (ahs_weight_trigger or ahs_dimension_trigger) and _ahs_min_applies \
-                        and billable_weight < ahs_min:
-                    billable_weight = math.ceil(ahs_min)
 
                 # =====================================================
                 # RECLASSIFICATION PRE-SCAN
@@ -4818,13 +18494,35 @@ class UPSRepricingTool:
                             orig_service = "Ground Commercial"     # was commercial
                             break
 
-                # Cross-period pure ADJ: when the original SHP isn't in this
-                # invoice and the description was the generic "SCC Ground"
-                # (defaults to Commercial), infer service from the ADJ's own
-                # residential/commercial accessorial codes (LPR/RDR/LDR/CAR ->
-                # residential; LPS/RDC/LDC/CAC -> commercial). Interim rule until
-                # cross-period lookup exists. Only when not reclassified.
+                # Cross-period pure ADJ, FIRST source: the invoice history.
+                # The original shipment is not in this file, but it is very
+                # likely in an earlier one that was already imported, and its
+                # FRT description states the channel outright. That is
+                # evidence, so it is consulted BEFORE the accessorial-code
+                # inference below -- which is a guess, and one that declines
+                # entirely on an ADJ carrying no res/com accessorial (e.g. a
+                # third-party correction whose only ACC line is FTP).
+                _svc_from_history = False
                 if (layer == "ADJ" and orig_service == reclass_service
+                        and tracking not in shp_rtn_service):
+                    _hist_svc = self.history_service_for(
+                        tracking, row_result.get("Invoice Number", ""))
+                    if _hist_svc:
+                        orig_service = reclass_service = _hist_svc
+                        shipment_type = _hist_svc
+                        # Taken from the shipment's own FRT line, not from the
+                        # Import Files dropdown. Leaving the flag set would
+                        # mark the lane unsupported.
+                        service_was_guessed = False
+                        _svc_from_history = True
+
+                # Cross-period pure ADJ, SECOND source: when the original SHP
+                # isn't in this invoice OR the history, infer service from the
+                # ADJ's own residential/commercial accessorial codes
+                # (LPR/RDR/LDR/CAR -> residential; LPS/RDC/LDC/CAC ->
+                # commercial). Only when not reclassified.
+                if (layer == "ADJ" and orig_service == reclass_service
+                        and not _svc_from_history
                         and tracking not in shp_rtn_freight_A):
                     pre_res = pre_com = False
                     for _r in rows:
@@ -4846,9 +18544,17 @@ class UPSRepricingTool:
                 #   freight_C: AG dims + AC (billed) weight, RECLASSIFIED service
                 #   v2: ADJ base rate = freight_C (corrected), not a difference.
                 # =====================================================
-                def freight_for(dims, weight, tag, svc, ahs_floor, lps_floor):
+                def freight_for(dims, weight, tag, svc, ahs_floor, lps_floor,
+                                use_zone=None):
+                    # use_zone: the A package is rated on the zone it was
+                    # originally billed at, which is not always this row's.
+                    zone_here = use_zone or zone
                     cu = cubic(dims)
-                    dw = round(cu / dim_factor, 2) if dim_factor > 0 else 0.0
+                    # svc can differ from shipment_type when a leg is being
+                    # priced under the reclassified service, so resolve the
+                    # divisor from svc rather than reusing the row's.
+                    svc_dim_factor = self.channel_dim_factor(svc, default=dim_factor)
+                    dw = round(cu / svc_dim_factor, 2) if svc_dim_factor > 0 else 0.0
                     # Per-package minimum billable: LPS forces its min (e.g. 90),
                     # else AHS forces its min (e.g. 40). Each package (A vs C)
                     # uses ITS OWN triggers, not a shared value.
@@ -4858,12 +18564,60 @@ class UPSRepricingTool:
                     elif ahs_floor:
                         pkg_min = max(pkg_min, ahs_min)
                     bw = math.ceil(max(weight, dw, pkg_min))
-                    base, warn = lookup_base_rate(svc, zone, bw, tracking)
+                    # 追單診斷：DEBUG_TRACKING 填了單號才會印，平常是空的。
+                    # 留著是因為這次找計費重被哪一行決定，來回改了四個地方都
+                    # 沒中——下次再遇到類似問題，填一個單號跑一次就知道。
+                    if str(tracking).strip() in DEBUG_TRACKING:
+                        print(f"[DBG] {tracking} tag={tag} layer={layer}")
+                        print(f"      weight={weight} dim_weight={dw} pkg_min={pkg_min} -> bw={bw}")
+                        print(f"      lps_floor={lps_floor} ahs_floor={ahs_floor}")
+                        print(f"      ahs_dimension_trigger={ahs_dimension_trigger}")
+                        print(f"      _ups_applied_ahs_floor={_ups_applied_ahs_floor}")
+                        print(f"      _ahs_dim_codes={sorted(_ahs_dim_codes)}")
+                        print(f"      ahs_min={ahs_min} oversize_min={oversize_min}")
+                        print(f"      本單代碼={sorted({str(safe_get(_r, AS_COL,'')).strip().upper() for _r in rows} - {''})}")
+                    # 服務別自己就說了住宅或商業時，以它為準。svc 傳進來的是
+                    # orig_service / reclass_service，那是上面依 FRT 行的
+                    # COM / RES 代碼、同期 SHP/RTN、或歷史原件判定過的結果 ——
+                    # 已經是證據，不該再被附加費代碼的推測翻掉。
+                    #
+                    # 翻掉會出事：RADJ 把一件重分類成商業，但同一層還留著
+                    # 「Residential Surcharge Adjustment」(RES) 這行在退住宅費，
+                    # 於是 _has_res 成立、_has_com 不成立，運費就照住宅表查，
+                    # 服務別寫著 Ground Commercial、金額卻是住宅價。
+                    # 同期若剛好還有 LDC/RDC（商業 DAS 調整）就兩邊都成立、
+                    # 退回服務別判斷而僥倖正確 —— 對錯取決於這單有沒有 DAS，
+                    # 不是取決於重分類本身。
+                    #
+                    # 代碼推測留給服務別沒講明的情形（自訂渠道等）。
+                    _svc_l = str(svc).lower()
+                    if "residential" in _svc_l or "commercial" in _svc_l:
+                        _residential = "residential" in _svc_l
+                    else:
+                        _has_res = any(str(safe_get(_r, AS_COL, "")).strip().upper() in ACC_RESIDENTIAL_CODES for _r in rows)
+                        _has_com = any(str(safe_get(_r, AS_COL, "")).strip().upper() in ACC_COMMERCIAL_CODES for _r in rows)
+                        _residential = True if (_has_res and not _has_com) else False if (_has_com and not _has_res) else self.custom_service_is_residential(svc, default=("residential" in _svc_l))
+                    base, warn = lookup_base_rate(svc, zone_here, bw, tracking,
+                                                  residential=_residential)
                     if warn:
-                        rate_notes.append(f"{tag}: weight {bw} not found ({svc}, zone {zone})")
+                        # Carry the real message through. "weight not found"
+                        # reads like a small gap; over the top of the table it
+                        # means the whole freight is missing from the Total,
+                        # and the row needs to say so.
+                        if "OVER RATE TABLE" in warn:
+                            rate_notes.append(
+                                f"*** {tag}: NO FREIGHT PRICED - billable "
+                                f"weight {bw} lb is past the top of the {svc} "
+                                f"rate table; this row's Total is missing its "
+                                f"freight ***")
+                        else:
+                            rate_notes.append(
+                                f"{tag}: weight {bw} not found "
+                                f"({svc}, zone {zone_here})")
                     return base, bw
 
                 rate_notes = []
+                self._last_rate_table_top = 0
                 if adj_skip_base:
                     # ADJ with no Package Dimension (AG) + no Detail Keyed Dim
                     # (HR), OR with no entered weight (AA) + no billed weight
@@ -4874,13 +18628,23 @@ class UPSRepricingTool:
                     # A package: HR dims, original service, A-package triggers.
                     freight_A, billable_A = freight_for(
                         dim_A, weight_A, "A", orig_service,
-                        (a_ahs_weight_trigger or a_ahs_dimension_trigger),
-                        a_lps_trigger)
+                        a_ahs_dimension_trigger,   # 只有 Dimension 有下限
+                        a_lps_trigger, use_zone=zone_a_frt)
                     # C package: AG dims, reclassified service, C-package triggers.
+                    # 傳給 freight_for 的 ahs_floor 決定要不要套 AHS 的最低
+                    # 計費重。兩點修正：
+                    #   * 只傳 dimension：最低計費重量只有 AHS - Dimension 有，
+                    #     Weight 和 Packaging 沒有這條規則。
+                    #   * 加上 _ups_applied_ahs_floor：UPS 判過 AHS - Dimension
+                    #     並把計費重拉高之後，就算把附加費沖掉，被拉高的計費重
+                    #     也不會退回去。我們照自己合約的下限算，否則收得比成本
+                    #     低。這是本函式裡真正決定計費重的地方——上游的
+                    #     minimum_billable / minimum_billable_floor 在修正單上
+                    #     碰不到 billable_C。
                     freight_C, billable_C = freight_for(
                         dim_C, weight_C, "C", reclass_service,
-                        (ahs_weight_trigger or ahs_dimension_trigger),
-                        large_package_trigger)
+                        (ahs_dimension_trigger or _ups_applied_ahs_floor),
+                        large_package_trigger, use_zone=zone_c_frt)
 
                 pure_adj_both_dims = False
                 if layer == "ADJ":
@@ -4902,7 +18666,13 @@ class UPSRepricingTool:
                         not matched
                         and _real_parcel(dim_A)
                         and _real_parcel(dim_C))
-                    if adj_no_own_dims:
+                    if adj_no_own_dims and not adj_has_weight_pair:
+                        # No dimensions AND no usable weight pair. With a
+                        # weight pair the row is still rateable as
+                        # rate(billed) - rate(entered) -- see the re-rate
+                        # branch below -- and zeroing it here is what made a
+                        # Shipping Charge Correction with no dimensions come
+                        # out 0.00 against a real UPS charge.
                         cal_base = 0.0
                         notes_match = "No ADJ dimension (AG & HR = 0) - base rate skipped"
                     elif adj_no_own_weight:
@@ -4942,7 +18712,8 @@ class UPSRepricingTool:
                         # matching the invoice FRT line. Using AG dims on the
                         # original leg would inflate its dim weight to the
                         # corrected value and collapse the delta to 0.
-                        _c_floor_ahs = ahs_weight_trigger or ahs_dimension_trigger
+                        _c_floor_ahs = (ahs_dimension_trigger
+                                        or _ups_applied_ahs_floor)
                         freight_hi, _ = freight_for(
                             dim_C, max_billed_weight, "C", reclass_service,
                             _c_floor_ahs, large_package_trigger)
@@ -4963,6 +18734,13 @@ class UPSRepricingTool:
 
                 # ----- Build Notes column (warnings for manual review) -----
                 notes = []
+                # Recorded far above, added here because that is where the
+                # list exists. In the row's Notes, NOT in the issues file: a
+                # resolved zone correction is the run working, and listing it
+                # beside things that need fixing sends you off to check
+                # something that is not broken.
+                if zone_change_note:
+                    notes.append("Zone correction: " + zone_change_note)
 
                 # UNSUPPORTED SERVICE / ZONE GUARD
                 # The rate tables only cover US domestic zones (2-8, 44-46).
@@ -4978,8 +18756,26 @@ class UPSRepricingTool:
                 _desc_l = _raw_desc.lower()
                 _intl_markers = ("to canada", "canada", "worldwide",
                                  "international", "export", "import")
+                # A channel registered in Custom Services is only trusted once
+                # its rate table is actually loaded. Registered + table -> the
+                # international marker and its declared zones stop being a
+                # blocker. Registered + no table -> still not rated, but say
+                # why, because "no rate table for this lane" and "you have not
+                # imported the file yet" need different fixes.
+                _svc_name = str(shipment_type).strip()
+                _svc_registered = bool(dict(self.custom_service_entries()).get(_svc_name))
+                _svc_has_table = self.service_has_rate_table(_svc_name)
+                # Unconditional on purpose: custom_service_zones() resolves a
+                # BUILT-IN by name, but a built-in never has a Custom Services
+                # entry, so gating on _svc_registered judged every air service
+                # against the Ground set and left it NOT RATED at Base Rate 0.
+                _supported_zones = _supported_zones | self.custom_service_zones(_svc_name)
+
                 _is_intl_desc = any(m in _desc_l for m in _intl_markers)
+                if _svc_registered and _svc_has_table:
+                    _is_intl_desc = False
                 _zone_unsupported = (str(zone).strip() not in _supported_zones)
+                _registered_no_table = bool(_svc_registered and not _svc_has_table)
 
                 # Hundredweight (Ground / Air CWT) is rated on the TOTAL weight
                 # of the whole multi-package shipment at a per-hundredweight
@@ -4992,8 +18788,17 @@ class UPSRepricingTool:
                 _is_hundredweight = ("hundredweight" in _desc_l
                                      or "cwt" in _desc_l.split())
 
+                # A built-in service switched off on the Channels tab is not
+                # rated. Left rating, the tick said "off" and the invoice was
+                # repriced anyway.
+                _svc_switched_off = bool(
+                    _svc_name in BUILT_IN_SERVICE_CHOICES
+                    and not self.builtin_service_enabled(_svc_name))
+
                 _unsupported_lane = bool(_zone_unsupported or _is_intl_desc
-                                         or _is_hundredweight)
+                                         or _is_hundredweight
+                                         or _registered_no_table
+                                         or _svc_switched_off)
 
                 if _unsupported_lane:
                     _bits = []
@@ -5004,21 +18809,41 @@ class UPSRepricingTool:
                     if _is_hundredweight:
                         _bits.append("hundredweight - rated on total shipment "
                                      "weight, not per parcel")
+                    if _svc_switched_off:
+                        _bits.append(f"channel '{_svc_name}' is switched off "
+                                     f"on the Channels tab")
+                    if _registered_no_table:
+                        _bits.append(f"service '{_svc_name}' is set up in Custom "
+                                     f"Services but no rates have been loaded "
+                                     f"for that name yet")
                     # The row is not rated, so do not present a service that
                     # was only guessed from the dropdown as if it were real.
                     if service_was_guessed:
                         shipment_type = (str(shipment_description).strip()
                                          or shipment_type)
-                    notes.append(
-                        "*** UNSUPPORTED SERVICE/ZONE - NOT RATED ("
-                        + ", ".join(_bits)
-                        + ") - no rate table for this lane; verify manually ***")
+                    # An accessorial-only layer has no zone by design -- UPS
+                    # stamps 000 because there is no movement to rate -- so
+                    # neither the row's note nor the issues file should call
+                    # it unrated. Its flat surcharges priced fine.
+                    if normalize_zone(zone) not in ("", "0"):
+                        notes.append(
+                            "*** UNSUPPORTED SERVICE/ZONE - NOT RATED ("
+                            + ", ".join(_bits)
+                            + ") - no rate table for this lane; "
+                              "verify manually ***")
+                        self.lane_diagnostics.append(
+                            f"[{tracking}] Not rated: " + ", ".join(_bits))
 
                 if service_was_guessed and not _unsupported_lane:
                     notes.append(
                         f"Service '{str(shipment_description).strip()}' not "
                         f"recognised - defaulted to '{shipment_type}' from the "
                         f"Import Files dropdown; verify")
+                    self.lane_diagnostics.append(
+                        f"[{tracking}] Service description not recognised, "
+                        f"used the Import Files dropdown instead: "
+                        f"'{str(shipment_description).strip()}' -> "
+                        f"'{shipment_type}'")
 
                 # Dimension-missing flags
                 if layer == "ADJ":
@@ -5046,10 +18871,15 @@ class UPSRepricingTool:
                 except (ValueError, TypeError):
                     default_fuel_percent = 0.0
 
+                # A channel with its own fuel schedule uses it instead of the
+                # global one; everything else is unchanged.
+                _fuel_sched, _fuel_default = self.fuel_settings_for(
+                    shipment_type, default_fuel_percent)
+
                 fuel_pct, fuel_note = fuel_percent_for_date(
-                    getattr(self, "fuel_schedule", []),
+                    _fuel_sched,
                     row_result.get("Date", ""),
-                    default_fuel_percent
+                    _fuel_default
                 )
 
                 if fuel_note:
@@ -5075,6 +18905,14 @@ class UPSRepricingTool:
                 row_result["Billed Weight"] = round(max_billed_weight, 2)
                 row_result["Dim Weight"] = round(dim_weight, 2)
                 row_result["Billable Weight"] = billable_weight
+                # 顯示用的尺寸:AG 沒有就退回 HR,含 UPS 沒量到時寫的 1x1x1。
+                # 只影響這三欄,計價仍然用 selected_dim。
+                _show = selected_dim
+                if cubic(_show) <= 0 and cubic(dim_A) > 0:
+                    _show = dim_A
+                if cubic(_show) <= 0 and raw_dims:
+                    _show = sorted(raw_dims, key=cubic, reverse=True)[0]
+                length, width, height = _show
                 row_result["Length"] = round(length, 2)
                 row_result["Width"] = round(width, 2)
                 row_result["Height"] = round(height, 2)
@@ -5093,8 +18931,20 @@ class UPSRepricingTool:
                 else:
                     row_result["AHS"] = ""
                     row_result["LPS"] = ""
-                row_result["CAL Base Rate"] = round(cal_base, 2)
+                # 不進位:合約費率帶四位小數,湊整後再乘燃油會和網頁版差一分。
+                # 進位留到寫進格子的時候(合併段的 val = round(val, 2))。
+                row_result["CAL Base Rate"] = cal_base
                 row_result["_has_freight"] = 1 if _layer_has_freight else 0
+                # Additive only when the layer's freight is ENTIRELY CLB.
+                # A layer holding both an SCC re-basis and a CLB cannot be
+                # represented by one freight figure at all (layers are
+                # grouped by SHP/RTN/ADJ, not by detail code), so that case
+                # keeps the original behaviour and gets flagged instead of
+                # silently emitting a number that is wrong either way.
+                row_result["_is_clb"] = (
+                    1 if (_layer_frt_clb and not _layer_frt_other) else 0)
+                row_result["_clb_mixed"] = (
+                    1 if (_layer_frt_clb and _layer_frt_other) else 0)
                 row_result["CAL Fuel"] = round(cal_fuel, 2)
                 row_result["Shipping Charge Correction Ground Undeliverable Return"] = 0
                 row_result["Residential Adjustment"] = 0
@@ -5127,6 +18977,10 @@ class UPSRepricingTool:
                 raw_remote_ak_net = 0.0
                 raw_remote_hi_net = 0.0
                 raw_declared_value_net = 0.0
+                # Highest declared value seen on the group. A parcel declares
+                # one value; it repeats down the rows and the EVS row itself
+                # sometimes carries none, so the maximum is the one to keep.
+                declared_value = 0.0
                 raw_rts_net = 0.0
                 raw_signature_net = 0.0
                 raw_adult_signature_net = 0.0
@@ -5169,12 +19023,18 @@ class UPSRepricingTool:
 
                 # v2.6 dynamic correction source rows
                 scc_ground_undeliverable_seen = False
+                scc_ground_undeliverable_net = 0.0
                 scc_source_entered_weight = 0.0
                 scc_source_billed_weight = 0.0
                 scc_source_service = shipment_type
                 scc_source_zone = zone
 
-                skip_2nd_mile = False
+                # A DIN freight row is the direct evidence of a return leg.
+                # This flag was set here and never read; the 2nd Mile column
+                # was triggered by the ISW web-request fee instead, which is
+                # only the service charge that usually accompanies it.
+                din_leg_seen = False
+                din_billed_weight = 0.0
 
                 dynamic_surcharge_seen_codes = set()
                 dynamic_surcharge_seen_amounts = {}
@@ -5192,6 +19052,14 @@ class UPSRepricingTool:
                     at = str(safe_get(row, AT_COL, "")).strip()
                     at_upper = at.upper()
                     ba = self.to_amount(safe_get(row, BA_COL, 0))
+                    # ONLY from the Declared Value row. Read from every row in
+                    # the group it picked up whatever else column AW carries
+                    # on other row types -- figures in the tens of thousands,
+                    # which priced 120 parcels that declared nothing at all.
+                    if as_code == "EVS":
+                        declared_value = max(
+                            declared_value,
+                            self.to_amount(safe_get(row, AW_COL, 0)))
 
                     # Reclassification (COM/RES Adjustment) rows frequently carry
                     # net = 0. Detect them BEFORE the zero-net skip below, or the
@@ -5209,6 +19077,7 @@ class UPSRepricingTool:
                     # below, so a code with a rate filled in was silently
                     # worth nothing. Registered here, priced later.
                     if (ar in BILLABLE_AR_CODES
+                            and as_code not in ACC_CODES_NOT_REPRICED
                             and as_code in self.dynamic_surcharge_mapping):
                         _dyn_cfg = self.dynamic_surcharge_mapping.get(as_code)
                         if (isinstance(_dyn_cfg, dict)
@@ -5228,15 +19097,15 @@ class UPSRepricingTool:
 
                     ups_total_for_tracking += ba
 
-                    # FIX #1: DDO - Delete else: ddo_charge = 0
+                    # DDO. Read through accessorial_lookup like every other
+                    # flat charge: the table is keyed (fee, shipment type) and
+                    # bare keys are expanded away on load, so the old
+                    # table.get("Direct Delivery Only") found nothing and this
+                    # surcharge priced at 0 whatever the template said.
                     if str(as_code).strip().upper() == "DDO":
                         try:
-                            ddo_charge = float(
-                                self.accessorial_rate_table.get(
-                                    "Direct Delivery Only",
-                                    0
-                                )
-                            )
+                            ddo_charge = float(accessorial_lookup(
+                                "Direct Delivery Only", shipment_type, zone))
                         except (ValueError, TypeError):
                             ddo_charge = 0
 
@@ -5245,6 +19114,7 @@ class UPSRepricingTool:
                     # Billed Weight Base Rate - Entered Weight Base Rate.
                     if ai == "ADJ" and ar == "FRT" and "SHIPPING CHARGE CORRECTION" in at_upper and "UNDELIVERABLE" in at_upper:
                         scc_ground_undeliverable_seen = True
+                        scc_ground_undeliverable_net += ba
                         # Fallback to ADJ row values only if no RTN row is available later.
                         if scc_source_entered_weight <= 0:
                             scc_source_entered_weight = self.to_amount(safe_get(row, ENTERED_WEIGHT_COL, 0))
@@ -5276,7 +19146,13 @@ class UPSRepricingTool:
                         commercial_adjustment_seen = True
 
                     elif ai == "ADJ" and aj == "DIN" and ar == "FRT":
-                        skip_2nd_mile = True
+                        din_leg_seen = True
+                        # What UPS billed the RETURN leg on. Kept so the
+                        # breakdown can say when UPS rated the second leg on a
+                        # weight the correction has since superseded.
+                        din_billed_weight = max(
+                            din_billed_weight,
+                            self.to_amount(safe_get(row, BILLED_WEIGHT_COL, 0)))
                         continue
 
                     elif as_code == "FRT" or as_code == "FSC":
@@ -5318,16 +19194,21 @@ class UPSRepricingTool:
                         res_code_seen = True
 
                     elif as_code == "HIC":
-                        # Hawaii remote area, commercial. Same surcharge and same
-                        # rate row as CAC per the ACC Codes table.
-                        raw_remote_com_seen = True
-                        raw_remote_com_net += ba
+                        # Hawaii remote area, commercial. Priced from its OWN
+                        # "Remote Area - HI" row, the same way AKR is: Hawaii
+                        # is not charged at the 48-state remote rate. It used
+                        # to share CAC's row, which left the Remote Area - HI
+                        # rate in the template unreachable.
+                        # The commercial flag still comes from it -- HIC is a
+                        # commercial code whichever row prices it.
+                        raw_remote_hi_seen = True
+                        raw_remote_hi_net += ba
                         com_code_seen = True
 
                     elif as_code == "HIR":
-                        # Hawaii remote area, residential -> same row as CAR.
-                        raw_remote_res_seen = True
-                        raw_remote_res_net += ba
+                        # Hawaii remote area, residential -> same Hawaii row.
+                        raw_remote_hi_seen = True
+                        raw_remote_hi_net += ba
                         res_code_seen = True
 
                     elif as_code == "AKR":
@@ -5336,6 +19217,22 @@ class UPSRepricingTool:
                         # UPS charges Alaska materially higher.
                         raw_remote_ak_seen = True
                         raw_remote_ak_net += ba
+
+                    # NPF / SCF: UPS billing catch-up fees, not a service
+                    # surcharge, so they are deliberately not repriced.
+                    # ACC_CODES_NOT_REPRICED has always documented that, but
+                    # nothing read the constant -- the policy held only because
+                    # no rate row happened to exist. Register a rate for NPF via
+                    # the ACC template and it would silently start being priced.
+                    # Enforced here, and recorded so the amount UPS charged is
+                    # not simply absent from the audit.
+                    elif as_code in ACC_CODES_NOT_REPRICED:
+                        not_repriced_rows.append({
+                            "Tracking": tracking,
+                            "AS Charge Code": as_code,
+                            "AT Description": at if at else as_code,
+                            "BA Net Amount": round(ba, 2),
+                        })
 
                     elif as_code in self.dynamic_surcharge_code_map:
                         linked_cfg = self.dynamic_surcharge_code_map[as_code]
@@ -5479,6 +19376,25 @@ class UPSRepricingTool:
                                 "AS Charge Code": as_code,
                                 "AR Charge Classification": ar,
                                 "BA Net Amount": round(ba, 2)
+                            })
+
+                        # Reaching this else at all means no branch above
+                        # priced the row. "Known" only says the code is in the
+                        # reference table -- it does NOT mean the tool can
+                        # price it. Codes such as REP / ART / AFW / LCC / LWC /
+                        # LWR / AHV have a name and no pricing path, so they
+                        # were charged by UPS, skipped by the recalculation,
+                        # and skipped by the unknown-code report as well: the
+                        # money left the audit without a trace.
+                        elif ar in BILLABLE_AR_CODES and ba != 0:
+                            acc_unpriced_rows.append({
+                                "Tracking": tracking,
+                                "AS Charge Code": as_code,
+                                "AT Description": (
+                                    at if at
+                                    else UPS_ACC_CODE_REFERENCE.get(
+                                        as_code, as_code)),
+                                "BA Net Amount": round(ba, 2),
                             })
 
                 # =====================================================
@@ -5625,8 +19541,13 @@ class UPSRepricingTool:
                 # Alaska (AKR) is applied AFTER the system-driven reset block
                 # below, which zeroes "Remote Area - AK" unconditionally.
 
-                if raw_declared_value_net != 0:
-                    row_result["Declared Value"] = raw_declared_value_net
+                if raw_declared_value_net != 0 or declared_value > 0:
+                    _dv = self.quote_declared_value(declared_value)
+                    # Falls back to what UPS charged when the tiers are not
+                    # set up or the parcel declared nothing: passing through a
+                    # figure is wrong, but inventing a $0.00 is worse.
+                    row_result["Declared Value"] = (
+                        _dv if _dv is not None else raw_declared_value_net)
 
                 # =====================================================
                 # UNDELIVERABLE RETURN + SCC Ground Undeliverable Return
@@ -5641,12 +19562,12 @@ class UPSRepricingTool:
                         # Pure ADJ (no SHP/RTN this period) with both AG and HR:
                         # the adjustment is the C-A base computed above (with dim
                         # weight). Show it as the Base Rate correction.
-                        row_result["CAL Base Rate"] = round(cal_base, 2)
+                        row_result["CAL Base Rate"] = cal_base
                     elif matched:
-                        # RTN/SHP is the主體 and the ADJ corrects it: the base is
+                        # RTN/SHP is the shipment and the ADJ corrects it: the base is
                         # the FULL corrected freight (freight_C at the corrected
                         # billable weight), NOT a billed-minus-entered difference.
-                        row_result["CAL Base Rate"] = round(freight_C, 2)
+                        row_result["CAL Base Rate"] = freight_C
                     else:
                         # No usable dims and no matching shipment: difference of
                         # billed vs entered base rate, by weight only.
@@ -5658,7 +19579,7 @@ class UPSRepricingTool:
                         entered_br, _ = lookup_base_rate(scc_service, scc_zone, entered_for_scc, tracking)
                         billed_br, _ = lookup_base_rate(scc_service, scc_zone, billed_for_scc, tracking)
 
-                        row_result["CAL Base Rate"] = round(billed_br - entered_br, 2)
+                        row_result["CAL Base Rate"] = billed_br - entered_br
 
                 # =====================================================
                 # ADDRESS CORRECTION
@@ -5680,10 +19601,26 @@ class UPSRepricingTool:
                 # =====================================================
                 # RETURN TO SENDER: 2ND MILE ROAD BASE RATE
                 # =====================================================
-                if raw_rts_net != 0:
-                    second_mile_base, _ = lookup_base_rate(shipment_type, zone, billable_weight, tracking)
+                # Zone is per LEG -- outbound and return cover different
+                # distances -- so the return uses its own. Reusing the outbound
+                # zone gave both legs the same base rate, twice.
+                #
+                # Weight is per PARCEL: one box, two journeys, so the corrected
+                # billable weight applies to both. Where UPS rated the return on
+                # the old weight, the breakdown says so rather than matching it.
+                # 這一期沒有 SHP/RTN 的攔截單:沒有第一趟,就沒有第二哩。
+                # 那筆運費是這一單自己的底價,合併時搬回 Base Rate。
+                row_result["_din_is_base"] = (
+                    1 if (din_leg_seen and tracking not in shp_rtn_freight_A)
+                    else 0)
+                _return_zone = zone_din or zone
+                if din_leg_seen or raw_rts_net != 0:
+                    second_mile_base, _ = lookup_base_rate(
+                        shipment_type, _return_zone, billable_weight, tracking)
                     row_result["2nd Mile Road Base"] = round(second_mile_base, 2)
-                    row_result["Return To Sender"] = accessorial_lookup("Return To Sender", shipment_type, zone)
+                if raw_rts_net != 0:
+                    row_result["Return To Sender"] = accessorial_lookup(
+                        "Return To Sender", shipment_type, _return_zone)
 
                 if raw_signature_net != 0:
                     row_result["Signature"] = accessorial_lookup("Signature", shipment_type, zone)
@@ -5727,6 +19664,11 @@ class UPSRepricingTool:
                 if raw_remote_ak_seen and round(raw_remote_ak_net, 2) != 0:
                     row_result["Remote Area - AK"] = accessorial_lookup(
                         "Remote Area - AK", shipment_type, zone)
+
+                # HIC / HIR = Hawaii remote area, same treatment.
+                if raw_remote_hi_seen and round(raw_remote_hi_net, 2) != 0:
+                    row_result["Remote Area - HI"] = accessorial_lookup(
+                        "Remote Area - HI", shipment_type, zone)
 
                 final_apply_lps = bool(system_should_lps)
                 final_apply_ovr = bool(system_should_ovr)
@@ -5898,16 +19840,28 @@ class UPSRepricingTool:
                     # avoids double-subtracting when A and C pick different types
                     # (e.g. both trigger weight AND dimension).
                     def c_ahs_amount():
+                        # 一件只收一個 AHS。Weight 和 Dimension 同時成立時取
+                        # 費率高的那一個，不是照固定順序挑 Weight——A 側本來
+                        # 就是 max()，兩側用不同規則會讓 C - A 的差額算錯。
+                        cands = []
                         if final_apply_ahs_weight:
-                            return ("Additional Handling Surcharge - Weight",
-                                    accessorial_lookup("AHS Weight", reclass_service, zone))
+                            cands.append(
+                                ("Additional Handling Surcharge - Weight",
+                                 accessorial_lookup("AHS Weight",
+                                                    reclass_service, zone_c_ahs)))
                         if final_apply_ahs_dimension:
-                            return ("Additional Handling Surcharge - Dimension",
-                                    accessorial_lookup("AHS Dimension", reclass_service, zone))
+                            cands.append(
+                                ("Additional Handling Surcharge - Dimension",
+                                 accessorial_lookup("AHS Dimension",
+                                                    reclass_service, zone_c_ahs)))
                         if final_apply_ahs_packaging:
-                            return ("Additional Handling Surcharge - Packaging",
-                                    accessorial_lookup("AHS Packaging", reclass_service, zone))
-                        return (None, 0.0)
+                            cands.append(
+                                ("Additional Handling Surcharge - Packaging",
+                                 accessorial_lookup("AHS Packaging",
+                                                    reclass_service, zone_c_ahs)))
+                        if not cands:
+                            return (None, 0.0)
+                        return max(cands, key=lambda cv: cv[1])
 
                     def a_ahs_amount():
                         # AHS and LPS are mutually exclusive: if the A package
@@ -5917,9 +19871,11 @@ class UPSRepricingTool:
                             return 0.0
                         cands = []
                         if a_ahs_weight_trigger:
-                            cands.append(accessorial_lookup("AHS Weight", orig_service, zone))
+                            cands.append(accessorial_lookup(
+                                "AHS Weight", orig_service, zone_a_ahs))
                         if a_ahs_dimension_trigger:
-                            cands.append(accessorial_lookup("AHS Dimension", orig_service, zone))
+                            cands.append(accessorial_lookup(
+                                "AHS Dimension", orig_service, zone_a_ahs))
                         return max(cands) if cands else 0.0
 
                     if not final_apply_lps:
@@ -5941,13 +19897,15 @@ class UPSRepricingTool:
                         # separately. This is the "downgrade from LPS to AHS".
                         if a_lps_trigger:
                             row_result["Large Package Surcharge"] = round(
-                                -accessorial_lookup("Large Package", orig_service, zone), 2)
+                                -accessorial_lookup("Large Package",
+                                                    orig_service, zone_a_lps), 2)
 
                     if final_apply_lps:
-                        c_amt = accessorial_lookup("Large Package", reclass_service, zone)
+                        c_amt = accessorial_lookup("Large Package",
+                                                   reclass_service, zone_c_lps)
                         if a_lps_trigger:
                             c_amt = round(c_amt - accessorial_lookup(
-                                "Large Package", orig_service, zone), 2)
+                                "Large Package", orig_service, zone_a_lps), 2)
                         row_result["Large Package Surcharge"] = c_amt
                         # C is now a Large Package, so it carries NO AHS (LPS and
                         # AHS are mutually exclusive). If the original A package
@@ -5962,12 +19920,22 @@ class UPSRepricingTool:
                                 row_result[target] = round(-a_val, 2)
 
                 else:
-                    # When the invoice's AH line is a REFUND/REVERSAL (negative
-                    # net, e.g. an AHW backed out because the shipment was
-                    # upgraded to a Large Package, or a standalone AHG credit),
-                    # the repriced amount must be negative too. Reprice the
-                    # magnitude from the rate table but carry the invoice's sign.
-                    def _signed(fee_col, fee_key, raw_net):
+                    # Credit rows only = a real reversal: negate the whole
+                    # surcharge. Credit AND charge = a re-rate, so write C's own
+                    # absolute amount instead. The sign of the net cannot tell
+                    # them apart -- a zone 8 -> 5 re-rate nets -0.30 and used to
+                    # be read as a refund, writing -6.08.
+                    def _rerated(family):
+                        return bool(adj_credit_zones.get(family)
+                                    and adj_charge_zones.get(family))
+
+                    def _signed(fee_col, fee_key, raw_net, family="ahs",
+                                zone_c=None):
+                        if _rerated(family):
+                            row_result[fee_col] = accessorial_lookup(
+                                fee_key, reclass_service,
+                                zone_c if zone_c is not None else zone)
+                            return
                         amt = accessorial_lookup(fee_key, shipment_type, zone)
                         if raw_net < -0.001:
                             amt = -abs(amt)
@@ -5975,15 +19943,18 @@ class UPSRepricingTool:
 
                     if final_apply_ahs_weight:
                         _signed("Additional Handling Surcharge - Weight",
-                                "AHS Weight", raw_ahs_weight_net)
+                                "AHS Weight", raw_ahs_weight_net,
+                                zone_c=zone_c_ahs)
 
                     if final_apply_ahs_dimension:
                         _signed("Additional Handling Surcharge - Dimension",
-                                "AHS Dimension", raw_ahs_dimension_net)
+                                "AHS Dimension", raw_ahs_dimension_net,
+                                zone_c=zone_c_ahs)
 
                     if final_apply_ahs_packaging:
                         _signed("Additional Handling Surcharge - Packaging",
-                                "AHS Packaging", raw_ahs_packaging_net)
+                                "AHS Packaging", raw_ahs_packaging_net,
+                                zone_c=zone_c_ahs)
                         if not final_apply_lps:
                             pkg_name = "Additional Handling Surcharge - Packaging"
                             existing = str(row_result.get("AHS", "")).strip()
@@ -5998,7 +19969,25 @@ class UPSRepricingTool:
                             accessorial_lookup("Large Package", shipment_type, zone)
 
                 if final_apply_ovr:
-                    row_result["Over Maximum Size Surcharge"] = round(raw_ovr_net, 2)
+                    # Priced from YOUR rate table, like every other flat
+                    # accessorial. It used to copy UPS's own net amount
+                    # straight across, so the one surcharge big enough to
+                    # matter -- $1,875 a parcel -- was never actually
+                    # repriced, and a contract rate entered for it did
+                    # nothing. Falls back to UPS's figure when no rate has
+                    # been loaded, and says so.
+                    _ovr_rate = accessorial_lookup(
+                        "Over Maximum Size Surcharge", shipment_type, zone)
+                    if self.to_amount(_ovr_rate):
+                        row_result["Over Maximum Size Surcharge"] = round(
+                            self.to_amount(_ovr_rate), 2)
+                    else:
+                        row_result["Over Maximum Size Surcharge"] = round(
+                            raw_ovr_net, 2)
+                        self.acc_rate_diagnostics.append(
+                            f"[{tracking}] No contract rate for Over Maximum "
+                            f"Size Surcharge ({shipment_type}); UPS's own "
+                            f"{raw_ovr_net:.2f} was used instead")
 
                 # FIX #3: ASSIGN THREE VALUES - NO > 0 conditional check
                 row_result["Residential Adjustment"] = round(residential_adj, 2)
@@ -6029,6 +20018,17 @@ class UPSRepricingTool:
                     row_result[_dyn_name] = round(
                         self.to_amount(row_result.get(_dyn_name, 0)) + _dyn_amt, 2)
 
+                # A marker only. The move itself happens on the merged row:
+                # this layer's Base Rate is not the figure the report carries
+                # when the tracking also has an ADJ layer, because Base Rate
+                # is dimension-driven and the merge takes it from ADJ.
+                # 退件層的運費就是退件的錢,擺在 Base Rate 底下,客戶帳單上
+                # 會讀成一趟出貨。看「這一層是不是 RTN」,不看說明寫什麼 ——
+                # 「Returns Ground」和「Ground Undeliverable Return」都是退件。
+                row_result["_undeliverable_return"] = (
+                    1 if ((undeliverable_return_seen or layer == "RTN")
+                          and abs(scc_ground_undeliverable_net) < 0.005) else 0)
+
                 # ===== FINAL CHARGE BASE FOR FUEL / TOTAL =====
                 # Fuel and Total are computed from the SAME charge columns that
                 # appear in the exported detail layout, so the displayed
@@ -6037,6 +20037,8 @@ class UPSRepricingTool:
                 # and must not silently drag Total negative.)
                 cal_charge_cols = [
                     "CAL Base Rate",
+                    "CAL Demand AHS", "CAL Demand LPS", "CAL Demand OVR",
+                    "CAL Demand Service",
                     "Residential", "DAS Commercial", "DAS Residential",
                     "DAS Extended Commercial", "DAS Extended Residential",
                     "Remote Area Commercial", "Remote Area Residential",
@@ -6046,23 +20048,99 @@ class UPSRepricingTool:
                     "Additional Handling Surcharge - Packaging",
                     "Large Package Surcharge", "Over Maximum Size Surcharge",
                     "Undeliverable Return", "Address Correction",
-                    "Declared Value", "Return To Sender", "2nd Mile Road Base",
+                    "Declared Value",
+                    "Return To Sender", "2nd Mile Road Base",
                     "Signature", "Adult Signature", "Package Protection", "Direct Delivery Only",
                 ] + dyn_acc_billable
 
                 # =====================================================
                 # UNSUPPORTED SERVICE/ZONE: DO NOT RATE
                 # =====================================================
-                # This lane has no rate table (e.g. Standard to Canada on zone
-                # 53). Every figure computed above used the Ground Commercial /
-                # zone 8 fallback and is therefore meaningless. Clear the
-                # calculated charges so the row reports nothing rather than
-                # something wrong -- the Notes column carries the warning and
-                # the UPS invoice total is still shown for reference.
+                # No rate table for this lane: everything above came off the
+                # Ground / zone 8 fallback, so clear it.
+                #
+                # Flat rates are exempt -- a single stored amount never depended
+                # on the zone, and an accessorial-only ADJ layer (zone 000) was
+                # losing a correctly-priced Address Correction this way. Zone
+                # tables still go, and so does anything with no row for the
+                # channel, which keeps a genuinely unsupported lane blank.
                 if _unsupported_lane:
+                    _acc_table = getattr(self, "accessorial_rate_table", {}) or {}
+                    _acc_channel = str(shipment_type).strip()
+
+                    def _acc_rate_is_flat(col):
+                        entry = _acc_table.get(
+                            (ACC_COLUMN_FEE_TYPE.get(col, col), _acc_channel))
+                        return entry is not None and not isinstance(entry, dict)
+
                     for _c in cal_charge_cols:
+                        if _acc_rate_is_flat(_c):
+                            continue
                         row_result[_c] = 0
+                    # Fuel stays off: the fuel base is only trustworthy when the
+                    # whole lane rated, and this one did not.
                     row_result["CAL Fuel"] = 0
+
+                # Peak/demand surcharge. Set up on the Demand tab and, until
+                # now, used nowhere: the whole tab was a form that changed no
+                # figure. UPS charges fuel on the demand surcharge too, so it
+                # lands before the fuel base is worked out.
+                #
+                # Only on the layer that carries the freight. An accessorial-
+                # only ADJ is not a second parcel, and charging it again would
+                # double the per-package fee.
+                if _demand_on and _layer_has_freight and not _unsupported_lane:
+                    try:
+                        _demand = calc_demand_surcharge(
+                            self.demand_config,
+                            row_result.get("Date") or row_result.get(
+                                "Transaction Date"),
+                            shipment_type,
+                            self.custom_service_is_residential(
+                                shipment_type,
+                                default=("residential" in
+                                         str(shipment_type).lower())),
+                            # The column names as they actually are. My first
+                            # attempt invented "CAL AHS Dimension" and friends,
+                            # so every flag read False and the package-level
+                            # demand never fired.
+                            ahs_flag=any(self.to_amount(row_result.get(c, 0))
+                                         for c in (
+                                "Additional Handling Surcharge - Weight",
+                                "Additional Handling Surcharge - Dimension",
+                                "Additional Handling Surcharge - Packaging")),
+                            lps_flag=bool(self.to_amount(
+                                row_result.get("Large Package Surcharge", 0))),
+                            ovr_flag=bool(self.to_amount(row_result.get(
+                                "Over Maximum Size Surcharge", 0))))
+                        # One column per UPS line. AHS, Large Package and
+                        # Over Maximum are three separate demand charges with
+                        # three separate amounts, and only one of them applies
+                        # to a parcel -- rolled into a single "package" figure
+                        # you cannot tell which fired, or check it against the
+                        # line on the invoice.
+                        _demand_parts = {
+                            "CAL Demand AHS": self.to_amount(
+                                _demand.get("demand_ahs")),
+                            "CAL Demand LPS": self.to_amount(
+                                _demand.get("demand_lps")),
+                            "CAL Demand OVR": self.to_amount(
+                                _demand.get("demand_ovr")),
+                            "CAL Demand Service": self.to_amount(
+                                _demand.get("demand_service")),
+                        }
+                        for _col, _val in _demand_parts.items():
+                            if _val:
+                                row_result[_col] = round(_val, 2)
+
+                        # NOT in the issues file. A demand surcharge that
+                        # applied is the run working, and on one invoice it
+                        # was 777 of 777 lines -- every real problem buried
+                        # under a log of things going right. The amount is on
+                        # the row, in its own column, which is where someone
+                        # checking it would look.
+                    except Exception as _de:
+                        print("Demand surcharge skipped:", _de)
 
                 # A custom surcharge marked Fuel Eligible = NO still counts
                 # toward CAL Total but must not inflate the fuel base.
@@ -6086,6 +20164,81 @@ class UPSRepricingTool:
                 row_result["CAL Total"] = cal_total
                 row_result["UPS Invoice Total"] = round(ups_total_for_tracking, 2)
                 row_result["_fuel_pct"] = fuel_pct
+
+                # ===== WHAT THE EXPLAIN WINDOW WILL NARRATE =====
+                # Recorded here, where the engine computed it. The explanation
+                # used to re-derive everything with a second, simpler set of
+                # rules and the two disagreed -- its service detector only knew
+                # the word "Ground", so every air parcel was explained on the
+                # Ground table. One engine, one answer.
+                _explain = {
+                    "service": shipment_type,
+                    "orig_service": orig_service,
+                    "reclass_service": reclass_service,
+                    "layer": layer,
+                    "invoice": str(row_result.get("Invoice Number", "")).strip(),
+                    "zone": zone,
+                    "zone_a": zone_a_frt,
+                    "zone_c": zone_c_frt,
+                    "zone_a_ahs": zone_a_ahs,
+                    "zone_c_ahs": zone_c_ahs,
+                    # False when nothing authoritative said which zone the
+                    # parcel came FROM -- the explanation must not name a
+                    # direction in that case.
+                    "zone_known": bool(_hist_zone),
+                    "dim_factor": dim_factor,
+                    "rules": dict(_rules) if isinstance(_rules, dict) else {},
+                    "entered_weight": round(max_entered_weight, 2),
+                    # The RESOLVED scale weight, after the SHP/RTN
+                    # fallback and the artifact sanitizer. The report
+                    # cannot re-derive this from entered/billed: on an
+                    # ADJ both of those columns are often 0.
+                    "actual_weight": round(actual_weight, 2),
+                    "billed_weight": round(max_billed_weight, 2),
+                    "dim_weight": round(dim_weight, 2),
+                    "billable_weight": billable_weight,
+                    "dims_a": dim_A,
+                    "dims_c": dim_C,
+                    "billable_a": billable_A,
+                    "billable_c": billable_C,
+                    "base_a": round(freight_A, 2),
+                    "base_c": round(freight_C, 2),
+                    "length": round(length, 2),
+                    "width": round(width, 2),
+                    "height": round(height, 2),
+                    "length_girth": round(length_girth, 2),
+                    "cubic_inches": round(cubic_inches, 2),
+                    "a_lps": bool(a_lps_trigger),
+                    "a_ahs_weight": bool(a_ahs_weight_trigger),
+                    "a_ahs_dimension": bool(a_ahs_dimension_trigger),
+                    "c_lps": bool(final_apply_lps),
+                    "c_ahs_weight": bool(final_apply_ahs_weight),
+                    "c_ahs_dimension": bool(final_apply_ahs_dimension),
+                    "c_ahs_packaging": bool(final_apply_ahs_packaging),
+                    "fuel_pct": fuel_pct,
+                    "cal_fuel": self.to_amount(row_result.get("CAL Fuel", 0)),
+                    "cal_total": self.to_amount(row_result.get("CAL Total", 0)),
+                    "ups_total": self.to_amount(
+                        row_result.get("UPS Invoice Total", 0)),
+                    # True when the engine deliberately did NOT look up a base
+                    # rate: an ADJ carrying neither weight nor dimensions of
+                    # its own has nothing to rate, and guessing would be worse
+                    # than a blank. The breakdown says which of the two it is.
+                    "skip_base": bool(adj_skip_base),
+                    # So the breakdown can say "past the top of the table"
+                    # rather than leaving a silent zero.
+                    "rate_table_top": getattr(self, "_last_rate_table_top", 0),
+                    "return_leg": bool(din_leg_seen),
+                    "return_zone": _return_zone if din_leg_seen else "",
+                    "return_ups_weight": round(din_billed_weight, 2),
+                    "unsupported": bool(_unsupported_lane),
+                    "notes": list(notes),
+                    "charges": {k: self.to_amount(v)
+                                for k, v in row_result.items()
+                                if not str(k).startswith("_")
+                                and isinstance(v, (int, float))},
+                }
+                self.reprice_explain.setdefault(str(tracking), {})[layer] = _explain
 
                 # ===== APPEND row_result TO output_rows =====
                 output_rows.append(row_result)
@@ -6114,19 +20267,30 @@ class UPSRepricingTool:
             # normalise separators first: a Windows path handed to a POSIX
             # basename() comes back whole, and the report gets named after
             # the entire path.
-            _src_raw = self.billing_path.get().strip().replace("\\", "/")
-            _src_name = os.path.splitext(os.path.basename(_src_raw))[0]
-            _suggest = (f"{_src_name}_Repriced.xlsx" if _src_name
-                        else "Repriced.xlsx")
-            _initdir = os.path.dirname(_src_raw) or os.getcwd()
+            if quiet:
+                # The per-tracking totals this backfill exists for are built
+                # inside the export branch, so the workbook still has to be
+                # written -- to a scratch file the caller deletes, not to a
+                # folder of reports nobody asked for.
+                import tempfile
+                self._quiet_scratch_dir = tempfile.mkdtemp(
+                    prefix="ups_backfill_")
+                export_path = os.path.join(self._quiet_scratch_dir,
+                                           "backfill.xlsx")
+            else:
+                _src_raw = self.billing_path.get().strip().replace("\\", "/")
+                _src_name = os.path.splitext(os.path.basename(_src_raw))[0]
+                _suggest = (f"{_src_name}_Repriced.xlsx" if _src_name
+                            else "Repriced.xlsx")
+                _initdir = os.path.dirname(_src_raw) or os.getcwd()
 
-            export_path = filedialog.asksaveasfilename(
-                title="Save Repricing Result",
-                initialfile=_suggest,
-                initialdir=_initdir,
-                defaultextension=".xlsx",
-                filetypes=[("Excel Files", "*.xlsx")]
-            )
+                export_path = filedialog.asksaveasfilename(
+                    title="Save Repricing Result",
+                    initialfile=_suggest,
+                    initialdir=_initdir,
+                    defaultextension=".xlsx",
+                    filetypes=[("Excel Files", "*.xlsx")]
+                )
 
             if export_path:
 
@@ -6135,7 +20299,10 @@ class UPSRepricingTool:
                 # Charge columns = per-code buckets. Each named column is one
                 # charge type; combine overrides per column (per code).
                 charge_cols = [
-                    "CAL Base Rate", "Residential",
+                    "CAL Base Rate",
+                    "CAL Demand AHS", "CAL Demand LPS", "CAL Demand OVR",
+                    "CAL Demand Service",
+                    "Residential",
                     "DAS Commercial", "DAS Residential",
                     "DAS Extended Commercial", "DAS Extended Residential",
                     "Remote Area Commercial", "Remote Area Residential",
@@ -6146,12 +20313,15 @@ class UPSRepricingTool:
                     "Large Package Surcharge", "Over Maximum Size Surcharge",
                     "Direct Delivery Only",
                     "Undeliverable Return", "Address Correction",
-                    "Declared Value", "Return To Sender", "2nd Mile Road Base",
+                    "Declared Value",
+                    "Return To Sender", "2nd Mile Road Base",
                     "Signature", "Adult Signature", "Package Protection",
                     "Reroute", "Reschedule Delivery",
                     "Returns Electronic Label", "Returns Print Label",
                 ] + dyn_acc_cols
                 id_cols = ["Tracking", "Layer", "Zone", "Shipment Type",
+                           "Shipment Reference Number 1",
+                           "Shipment Reference Number 2",
                            "Entered Weight", "Billed Weight", "Dim Weight",
                            "Billable Weight", "Length", "Width", "Height"]
 
@@ -6162,6 +20332,10 @@ class UPSRepricingTool:
                     "CAL Total": "Total",
                     "Residential": "Residential Surcharge",
                     "2nd Mile Road Base": "2nd Mile Road Base Rate",
+                    "CAL Demand AHS": "Demand - AHS",
+                    "CAL Demand LPS": "Demand - Large Package",
+                    "CAL Demand OVR": "Demand - Over Maximum",
+                    "CAL Demand Service": "Demand - Service",
                 }
 
                 if not detail_df.empty:
@@ -6171,13 +20345,49 @@ class UPSRepricingTool:
                             detail_df[c] = 0
 
                     # ---------- v2: per tracking = ONE final correct row ----------
+                    # AHS / LPS / OVR are mutually exclusive on one parcel:
+                    # UPS charges the highest that applies and nothing else.
+                    # Merged column by column, a parcel reclassified from AHS
+                    # to Large Package kept the AHS demand from its first
+                    # layer and gained the Large Package demand from its
+                    # second, so it paid both.
+                    # The row is keyed by the RENAMED columns, so match those.
+                    _demand_rank = ("Demand - Over Maximum",
+                                    "Demand - Large Package",
+                                    "Demand - AHS")
+
+                    def _demand_exclusive(row):
+                        """Keep the highest-ranking demand, zero the rest.
+
+                        Returns {column: amount removed} so the caller can take
+                        those amounts back out of the running total.
+                        """
+                        removed = {}
+                        for keep in _demand_rank:
+                            if self.to_amount(row.get(keep, 0)):
+                                for drop in _demand_rank:
+                                    if drop == keep:
+                                        continue
+                                    amount = self.to_amount(row.get(drop, 0))
+                                    if amount:
+                                        removed[drop] = amount
+                                    row[drop] = 0
+                                break
+                        return removed
+
                     # Size/weight-driven charges are recomputed by the ADJ row
                     # (reclassified service + size/weight triggers). Non-size
                     # charges (Signature, Address Correction, Declared Value,
                     # etc.) carry over from the original SHP/RTN.
                     # Output:
                     #   - has SHP/RTN  -> "Final" sheet (corrected if ADJ exists)
-                    #   - ADJ-only     -> "Prior Adj" sheet (修上期)
+                    #   - ADJ-only     -> "Prior Adj" sheet (corrections to earlier periods)
+                    # One per parcel, never summed across layers.
+                    demand_once_cols = {
+                        "CAL Demand AHS", "CAL Demand LPS",
+                        "CAL Demand OVR", "CAL Demand Service",
+                    }
+
                     size_driven_cols = {
                         "CAL Base Rate", "Residential",
                         "DAS Commercial", "DAS Residential",
@@ -6206,78 +20416,157 @@ class UPSRepricingTool:
                     }
 
                     final_rows = []
+
+                    # Hoisted out of the per-tracking loop. layer_charge() used
+                    # to run to_numeric().fillna().sum() per tracking PER COLUMN
+                    # per layer -- 2,500 trackings x 50 columns x 4 layers is
+                    # half a million pandas Series rebuilds, and it was the whole
+                    # cost of the merge stage (a 29k-line invoice ran for
+                    # minutes). Convert once for the entire frame here, then each
+                    # layer sums its columns in a single vectorised call and
+                    # layer_charge() becomes a dict lookup.
+                    _charge_num_cols = [c for c in charge_cols
+                                        if c in detail_df.columns]
+                    if _charge_num_cols:
+                        detail_df[_charge_num_cols] = (
+                            detail_df[_charge_num_cols]
+                            .apply(pd.to_numeric, errors="coerce")
+                            .fillna(0.0)
+                            .astype("float64"))
+                    # One float matrix for the whole frame; a layer's totals are
+                    # then a fancy-index and a column-wise sum in numpy, with no
+                    # pandas object built per tracking.
+                    _charge_mat = (detail_df[_charge_num_cols]
+                                   .to_numpy(dtype="float64")
+                                   if _charge_num_cols
+                                   else np.zeros((len(detail_df), 0)))
+                    _charge_idx = {c: i for i, c in enumerate(_charge_num_cols)}
+                    _zero_sums = np.zeros(len(_charge_num_cols), dtype="float64")
+                    detail_df["_rowpos"] = np.arange(len(detail_df))
+
+                    def _layer_sums(layer_df):
+                        """Column totals for one layer slice, one numpy pass."""
+                        if layer_df.empty or not _charge_num_cols:
+                            return _zero_sums
+                        return _charge_mat[
+                            layer_df["_rowpos"].to_numpy()].sum(axis=0)
+
+                    def layer_charge(sums, col):
+                        i = _charge_idx.get(col)
+                        return 0.0 if i is None else float(sums[i])
+
+                    # to_datetime() was also being called twice per tracking on
+                    # values that repeat across the whole invoice. Memoised.
+                    _date_cache = {}
+
                     for trk, g in detail_df.groupby("Tracking"):
                         shp = g[g["Layer"] == "SHP"]
                         rtn = g[g["Layer"] == "RTN"]
                         adj = g[g["Layer"] == "ADJ"]
 
-                        def layer_charge(layer_df, col):
-                            if layer_df.empty:
-                                return 0.0
-                            return float(pd.to_numeric(
-                                layer_df[col], errors="coerce").fillna(0).sum())
-
                         has_origin = (not shp.empty) or (not rtn.empty)
-                        has_adj = not adj.empty
 
+                        # Split the ADJ bucket: a CLB layer is an ADDITIONAL
+                        # shipment, every other ADJ is a correction to the
+                        # existing one. By merge time they are all just "ADJ",
+                        # so keep them apart -- a tracking can carry an SCC
+                        # re-basis and a CLB at once, and treating the SCC as a
+                        # second shipment would double-count it.
+                        #
+                        # Everything below works on adj_main. The CLB rows feed
+                        # their own "Not Previously Billed ..." columns instead,
+                        # so the two shipments never share a cell.
+                        if (not adj.empty) and "_is_clb" in adj.columns:
+                            _clb_mask = pd.to_numeric(
+                                adj["_is_clb"], errors="coerce").fillna(0) >= 1
+                            adj_clb = adj[_clb_mask]
+                            adj_main = adj[~_clb_mask]
+                        else:
+                            adj_clb = adj.iloc[0:0]
+                            adj_main = adj
+
+                        _sums_shp = _layer_sums(shp)
+                        _sums_rtn = _layer_sums(rtn)
+                        _sums_adj_main = _layer_sums(adj_main)
+                        _sums_adj_clb = _layer_sums(adj_clb)
+
+                        has_adj = not adj_main.empty
                         # Scenario A vs B: A = ADJ carries a COM/RES reclass.
                         reclassified = False
-                        if has_adj and "_reclassified" in adj.columns:
+                        if has_adj and "_reclassified" in adj_main.columns:
                             reclassified = bool(pd.to_numeric(
-                                adj["_reclassified"], errors="coerce")
+                                adj_main["_reclassified"], errors="coerce")
                                 .fillna(0).max() >= 1)
 
                         def adj_listed(col):
                             # True if the ADJ layer actually carries this charge
                             # (non-zero), i.e. UPS adjusted this specific code.
-                            return abs(layer_charge(adj, col)) > 0.0001
+                            return abs(layer_charge(_sums_adj_main, col)) > 0.0001
 
-                        # Did the ADJ layer actually re-rate freight/size? Check
-                        # whether it carries a freight (FRT) line at all. Do NOT
-                        # test its Length/Weight columns: when an ADJ has no dims
-                        # of its own the tool fills them in from the matched
-                        # SHP/RTN, so those columns look populated even for an
-                        # accessorial-only correction. An ADJ made purely of
-                        # accessorial lines (e.g. a standalone Reschedule
-                        # Delivery fee) has no freight line -- its recomputed
-                        # base/AHS/LPS are 0 and must not overwrite the
-                        # shipment's real values.
-                        adj_touches_size = True
-                        if has_adj:
+                        # (An identical adj_touches_size was computed here and
+                        # never read -- adj_main_touches_size below is the one
+                        # the merge actually uses. Removed rather than left to
+                        # be edited by mistake.)
+
+                        if not adj_clb.empty and has_origin:
+                            self.base_rate_diagnostics.append(
+                                f"[{trk}] two shipments on one tracking -- UPS "
+                                f"billed a Not Previously Billed (CLB) freight "
+                                f"line on top of the original, so Base Rate is "
+                                f"the sum of both; the Weight and Length/Width/"
+                                f"Height columns can only show one of them")
+
+                        _clb_mixed_seen = False
+                        if (not adj.empty) and "_clb_mixed" in adj.columns:
                             try:
-                                adj_touches_size = float(pd.to_numeric(
-                                    adj["_has_freight"], errors="coerce")
+                                _clb_mixed_seen = float(pd.to_numeric(
+                                    adj["_clb_mixed"], errors="coerce")
+                                    .fillna(0).max()) >= 1
+                            except (KeyError, IndexError):
+                                _clb_mixed_seen = False
+                            if _clb_mixed_seen:
+                                self.base_rate_diagnostics.append(
+                                    f"[{trk}] CHECK BY HAND -- this tracking has "
+                                    f"a Not Previously Billed (CLB) freight line "
+                                    f"AND another freight adjustment in the same "
+                                    f"invoice. The tool can only hold one freight "
+                                    f"figure per adjustment, so the Base Rate is "
+                                    f"the correction only and does NOT include "
+                                    f"the second shipment")
+
+                        adj_main_touches_size = True
+                        if not adj_main.empty:
+                            try:
+                                adj_main_touches_size = float(pd.to_numeric(
+                                    adj_main["_has_freight"], errors="coerce")
                                     .fillna(0).max()) > 0
                             except (KeyError, IndexError):
-                                adj_touches_size = True
+                                adj_main_touches_size = True
 
-                        # Does the ADJ layer carry its OWN recomputed dimensions?
-                        # An SCC that re-rates size (base/AHS/LPS) has its own
-                        # Length/Width/Height. A pure REFUND adjustment (UPS backs
-                        # out a previously-billed AHG/AHL with a negative net and
-                        # no dimensions of its own) does not. This distinction
-                        # decides how dimension-driven charges merge below.
-                        adj_has_own_dims = False
-                        if has_adj:
-                            try:
-                                _al = float(pd.to_numeric(
-                                    adj["Length"], errors="coerce")
-                                    .fillna(0).max())
-                                _aw = float(pd.to_numeric(
-                                    adj["Width"], errors="coerce")
-                                    .fillna(0).max())
-                                _ah = float(pd.to_numeric(
-                                    adj["Height"], errors="coerce")
-                                    .fillna(0).max())
-                                adj_has_own_dims = (_al > 0 and _aw > 0
-                                                    and _ah > 0)
-                            except (KeyError, IndexError):
-                                adj_has_own_dims = False
+                        # (adj_has_own_dims was computed here -- three pandas
+                        # passes per tracking -- and never read. The dimension
+                        # -driven merge branch below decides on
+                        # adj_main_touches_size instead. Removed.)
 
                         # Descriptive info source: corrected uses ADJ (updated)
                         # when present, else the original.
-                        info_src0 = (adj if has_adj else
-                                     (shp if not shp.empty else rtn))
+                        #
+                        # Exception for CLB: an SCC ADJ holds the CORRECTED dims
+                        # and weight of the same parcel, so it wins. A CLB ADJ is
+                        # a DIFFERENT parcel -- taking its weight and dims would
+                        # leave Base Rate (the original parcel) sitting next to
+                        # the second parcel's weight, which is the same
+                        # inconsistency the separate freight column exists to
+                        # remove. Only a tracking that is nothing BUT a CLB has
+                        # to use the CLB row for these fields.
+                        if has_adj and not adj_main.empty:
+                            info_src0 = adj_main
+                        elif has_origin:
+                            info_src0 = shp if not shp.empty else rtn
+                        elif has_adj:
+                            info_src0 = adj
+                        else:
+                            info_src0 = shp if not shp.empty else rtn
 
                         def iv(col, default=""):
                             try:
@@ -6285,7 +20574,7 @@ class UPSRepricingTool:
                             except (KeyError, IndexError):
                                 return default
 
-                        # The shipment (SHP/RTN) is the主體 for physical fields
+                        # The shipment (SHP/RTN) is the source for physical fields
                         # like entered/billed weight. Use the origin row for
                         # those when it exists; only a pure ADJ uses the ADJ row.
                         origin_src = (shp if not shp.empty else
@@ -6313,13 +20602,15 @@ class UPSRepricingTool:
                             s = str(raw).strip()
                             if not s:
                                 return s
+                            if s in _date_cache:
+                                return _date_cache[s]
                             try:
                                 dt = pd.to_datetime(s, errors="coerce")
-                                if pd.isna(dt):
-                                    return s
-                                return dt.to_pydatetime()
+                                out = s if pd.isna(dt) else dt.to_pydatetime()
                             except Exception:
-                                return s
+                                out = s
+                            _date_cache[s] = out
+                            return out
 
                         row = {"Date": fmt_date(iv("Date")), "Tracking": trk,
                                "Invoice Number": (iv("Invoice Number")
@@ -6327,7 +20618,14 @@ class UPSRepricingTool:
                                "Invoice Date": fmt_date(
                                    iv("Invoice Date")
                                    or ov("Invoice Date", ""))}
-                        # Entered/Billed weight come from the shipment (主體);
+                        # Either layer will do -- a correction carries the same
+                        # references as the shipment it corrects -- so take
+                        # whichever one actually filled them in. No reference
+                        # stays 0, the same as every other unset column.
+                        for f in ("Shipment Reference Number 1",
+                                  "Shipment Reference Number 2"):
+                            row[f] = iv(f) or ov(f, 0) or 0
+                        # Entered/Billed weight come from the shipment itself;
                         # the rest of the descriptive fields track the corrected
                         # (ADJ) row when present.
                         for f in ("Zone", "Shipment Type", "Dim Weight",
@@ -6349,19 +20647,50 @@ class UPSRepricingTool:
                             row[f] = ov(f)
 
                         base_sum = 0.0
+                        # Part of base_sum that a custom surcharge marked
+                        # Fuel Eligible = NO contributed: counts toward Total,
+                        # taken back out of the fuel base below.
+                        nonfuel_sum = 0.0
+                        # A Not Previously Billed (CLB) leg is a SECOND shipment.
+                        # Every charge it carries gets its own column rather than
+                        # being stacked onto the first shipment's cell: Base Rate
+                        # 100 next to a billable weight of 40 is a row that
+                        # contradicts itself, and the same is true of a doubled
+                        # Residential Surcharge. Listed separately, each cell
+                        # stands on its own and the money still reaches Total.
+                        npb_row = {}
+                        # Collected as the names are WRITTEN. Matching them
+                        # afterwards against charge_cols missed everything
+                        # rename_map touches -- "Residential" becomes
+                        # "Residential Surcharge", "2nd Mile Road Base" becomes
+                        # "2nd Mile Road Base Rate" -- so the breakdown listed
+                        # only the columns whose name happens not to change.
+                        explain_charges = {}
                         for col in charge_cols:
                             name = rename_map.get(col, col)
-                            shp_val = layer_charge(shp, col)
-                            rtn_val = layer_charge(rtn, col)
-                            adj_val = layer_charge(adj, col)
+                            shp_val = layer_charge(_sums_shp, col)
+                            rtn_val = layer_charge(_sums_rtn, col)
+                            adj_val = layer_charge(_sums_adj_main, col)
                             origin_val = shp_val + rtn_val
+                            clb_val = layer_charge(_sums_adj_clb, col)
 
-                            if not has_adj:
+                            if not has_origin and not adj_clb.empty:
+                                # Nothing for the CLB to sit beside: with no
+                                # original shipment on this tracking, the Not
+                                # Previously Billed leg IS the shipment, so it
+                                # belongs in the ordinary columns. Splitting it
+                                # out here would leave Base Rate empty and the
+                                # figures hiding in a column that only makes
+                                # sense when there are two shipments.
+                                val = adj_val + clb_val
+                                clb_val = 0.0
+
+                            elif not has_adj:
                                 # No adjustment: original as-is.
                                 val = origin_val
 
                             elif not has_origin:
-                                # Pure ADJ (修上期): ADJ row already holds the
+                                # Pure ADJ correcting an earlier period: the ADJ row already holds the
                                 # corrected value (C, or C-A for both-dims).
                                 val = adj_val
 
@@ -6370,6 +20699,15 @@ class UPSRepricingTool:
                                 # size-driven (incl. residential/DAS/Remote)
                                 # come from the recomputed ADJ row.
                                 val = adj_val
+
+                            elif col in demand_once_cols:
+                                # Charged once per parcel, whatever the layer
+                                # count. Falling through to the summing branch
+                                # below, a tracking with a shipment AND an
+                                # adjustment paid the per-package fee twice --
+                                # $1.20 where the schedule says $0.60.
+                                # The corrected layer wins when it has one.
+                                val = adj_val or origin_val
 
                             elif col in dimension_driven_cols:
                                 # Scenario B: dimension-triggered charges
@@ -6384,7 +20722,8 @@ class UPSRepricingTool:
                                 # a recomputed value of 0 for these columns.
                                 # Taking it would wipe out the shipment's real
                                 # base rate. Keep the origin in that case.
-                                if adj_touches_size:
+                                #
+                                if adj_main_touches_size and not adj_main.empty:
                                     val = adj_val
                                 else:
                                     val = origin_val
@@ -6399,18 +20738,167 @@ class UPSRepricingTool:
                                 else:
                                     val = origin_val
 
+                            # 格子顯示到分,但參與燃油與總額的是未進位的值。
+                            # 合約費率表上的底價帶著四位小數(7.2696),先湊
+                            # 整成 7.27 再乘燃油,和網頁版差一分 —— 191 筆。
+                            # 兩邊要完全一致,就都從原值算,只有寫進格子時進位。
+                            val_raw = val
                             val = round(val, 2)
-                            base_sum += val
+                            # A custom surcharge marked REPORT ONLY is shown in
+                            # its own column but must NOT reach Total (and so
+                            # must not be fuelled either). The per-layer engine
+                            # already excludes it via dyn_acc_billable; this
+                            # merge path was still summing the full
+                            # dyn_acc_cols, so the customer-facing report --
+                            # which is produced HERE -- billed it anyway.
+                            _report_only = col in dyn_acc_report_only
+                            if not _report_only:
+                                base_sum += val_raw
+                                if col in dyn_acc_nonfuel:
+                                    nonfuel_sum += val_raw
                             row[name] = val
+                            if val:
+                                explain_charges[name] = val
 
-                        row["Fuel Surcharge"] = round(base_sum * fuel_pct, 2)
-                        row["Total"] = round(
-                            base_sum + row["Fuel Surcharge"], 2)
+                            # The second shipment's own charge for this code.
+                            _clb_part = round(clb_val, 2)
+                            npb_row[f"Not Previously Billed {name}"] = _clb_part
+                            if not _report_only:
+                                base_sum += clb_val
+                                if col in dyn_acc_nonfuel:
+                                    nonfuel_sum += clb_val
+                            if _clb_part:
+                                explain_charges[
+                                    f"Not Previously Billed {name}"] = _clb_part
+
+                        row.update(npb_row)
+
+                        # Before the total, not after. Clearing the losing
+                        # column at the end left its amount inside base_sum,
+                        # so Total was $10.80 more than its own columns added
+                        # up to -- on 14 of 721 rows.
+                        for _drop, _amount in _demand_exclusive(row).items():
+                            base_sum -= _amount
+                            explain_charges.pop(_drop, None)
+
+                        # Fuel Eligible = NO: in Total, out of the fuel base.
+                        # The per-layer engine already did this; the merge path
+                        # fuelled base_sum whole, so the flag did nothing to the
+                        # report the customer receives.
+                        # NOT clamped at zero: a pure-ADJ refund has a negative
+                        # base_sum and owes negative fuel with it. Flooring the
+                        # base at 0 would hand back the freight credit while
+                        # keeping the fuel that was charged on top of it.
+                        # =====================================================
+                        # UNDELIVERABLE RETURN: OWN COLUMN, NOT BASE RATE
+                        # =====================================================
+                        # The RTN "Ground Undeliverable Return" freight is the
+                        # return leg's base rate. Under Base Rate it reads on a
+                        # client invoice as an outbound shipment, so a parcel
+                        # that went nowhere looks like one that shipped.
+                        #
+                        # Done here, on the merged row, not on the RTN layer:
+                        # Base Rate is dimension-driven, so on a tracking that
+                        # also has an ADJ layer the merge takes Base Rate from
+                        # ADJ and a zero written on the RTN layer never reaches
+                        # the report -- the freight came back and the moved
+                        # copy was added on top of it.
+                        #
+                        # base_sum is untouched: the amount moves between two
+                        # columns that are both already in it, so Fuel and
+                        # Total do not change.
+                        try:
+                            _ur_move = (not rtn.empty
+                                        and "_undeliverable_return" in rtn.columns
+                                        and float(pd.to_numeric(
+                                            rtn["_undeliverable_return"],
+                                            errors="coerce").fillna(0).max()) >= 1)
+                        except (KeyError, ValueError, TypeError):
+                            _ur_move = False
+                        if _ur_move:
+                            _ur_base = self.to_amount(row.get("Base Rate", 0))
+                            if _ur_base:
+                                row["Undeliverable Return"] = round(
+                                    self.to_amount(
+                                        row.get("Undeliverable Return", 0))
+                                    + _ur_base, 2)
+                                row["Base Rate"] = 0.0
+                                explain_charges.pop("Base Rate", None)
+                                explain_charges["Undeliverable Return"] = (
+                                    row["Undeliverable Return"])
+
+                        # 攔截單沒有出貨腿時,把第二哩那格搬回 Base Rate。
+                        # 兩欄都已經在 base_sum 裡,金額不動。
+                        try:
+                            _din_move = (has_adj
+                                         and "_din_is_base" in adj_main.columns
+                                         and float(pd.to_numeric(
+                                             adj_main["_din_is_base"],
+                                             errors="coerce").fillna(0).max()) >= 1)
+                        except (KeyError, ValueError, TypeError):
+                            _din_move = False
+                        if _din_move:
+                            _dm = self.to_amount(row.get("2nd Mile Road Base Rate", 0))
+                            if _dm:
+                                row["Base Rate"] = round(
+                                    self.to_amount(row.get("Base Rate", 0)) + _dm, 2)
+                                row["2nd Mile Road Base Rate"] = 0.0
+                                explain_charges.pop("2nd Mile Road Base Rate", None)
+                                explain_charges["Base Rate"] = row["Base Rate"]
+
+                        _fuel_base = base_sum - nonfuel_sum
+                        _fuel_raw = _fuel_base * fuel_pct
+                        row["Fuel Surcharge"] = round(_fuel_raw, 2)
+                        # 總額用未進位的燃油,不是格子裡那個已經進位的數字。
+                        row["Total"] = round(base_sum + _fuel_raw, 2)
+
+                        # The figure the report carries for this tracking, kept
+                        # for the breakdown window. A layer's own CAL Total is
+                        # not it: this row is the MERGE of every layer, so a
+                        # Residential Surcharge sitting on the SHP is in here
+                        # and was never in the ADJ layer the window narrates.
+                        # The window used to print the layer total and call it
+                        # the report Total; on a parcel with any surcharge
+                        # beyond the one size fee, the two disagreed.
+                        try:
+                            self.reprice_explain.setdefault(
+                                str(row.get("Tracking", "")).strip(), {}
+                            )["_final"] = {
+                                "total": row["Total"],
+                                "fuel": row["Fuel Surcharge"],
+                                "charges": dict(explain_charges),
+                            }
+                        except Exception:
+                            pass
 
                         final_rows.append(row)
 
+                    # Scratch column for the numpy layer sums -- not output.
+                    detail_df = detail_df.drop(columns=["_rowpos"],
+                                               errors="ignore")
+
                     detail_full = detail_df.copy().rename(columns=rename_map)
                     final_df = pd.DataFrame(final_rows)
+
+                    # Totals for the history tab, at both levels.
+                    try:
+                        _tot = pd.to_numeric(final_df.get("Total"),
+                                             errors="coerce").fillna(0)
+                        self.last_run_totals = {
+                            "trackings": int(final_df["Tracking"].nunique()),
+                            "cal_total": round(float(_tot.sum()), 2),
+                            "ups_total": round(float(pd.to_numeric(
+                                detail_df.get("UPS Invoice Total"),
+                                errors="coerce").fillna(0).sum()), 2)
+                            if "UPS Invoice Total" in detail_df.columns else 0.0,
+                        }
+                        self.last_run_lines = list(zip(
+                            final_df["Tracking"].astype(str),
+                            _tot.round(2).tolist()))
+                    except Exception as _e:
+                        print("Run totals skipped:", _e)
+                        self.last_run_totals = {}
+                        self.last_run_lines = []
                 else:
                     detail_full = pd.DataFrame()
                     final_df = pd.DataFrame()
@@ -6420,8 +20908,18 @@ class UPSRepricingTool:
                     # No Invoice Number / Invoice Date: this workbook goes to
                     # the client, and they are UPS's own references. The
                     # statement takes them straight from the invoice instead.
-                    "Date", "Tracking", "Zone", "Shipment Type",
-                    "Entered Weight", "Billed Weight", "Dim Weight",
+                    #
+                    # Two weights, not four: what the shipper declared
+                    # (Entered) and what the charge is calculated on
+                    # (Billable). UPS's own Billed Weight and the intermediate
+                    # Dim Weight are still computed -- Billable is the max of
+                    # them -- but they are working figures, and four weight
+                    # columns side by side is three invitations to ask which
+                    # one the price came from.
+                    "Date", "Tracking",
+                    "Shipment Reference Number 1", "Shipment Reference Number 2",
+                    "Zone", "Shipment Type",
+                    "Entered Weight",
                     "Billable Weight", "Length", "Width", "Height",
                     "Base Rate", "Residential Surcharge",
                     "DAS Commercial", "DAS Residential",
@@ -6433,12 +20931,24 @@ class UPSRepricingTool:
                     "Additional Handling Surcharge - Packaging",
                     "Large Package Surcharge", "Over Maximum Size Surcharge",
                     "Undeliverable Return", "Address Correction",
-                    "Declared Value", "Return To Sender",
+                    "Declared Value",
+                    "Return To Sender",
                     "2nd Mile Road Base Rate",
                     "Signature", "Adult Signature", "Package Protection", "Direct Delivery Only",
                     "Reroute", "Reschedule Delivery",
                     "Returns Electronic Label", "Returns Print Label",
-                ] + dyn_acc_cols + [
+                ] + dyn_acc_cols + (
+                    # Right before Fuel, because fuel is charged on them. Only
+                    # when the surcharge is switched on -- this layout is what
+                    # the client sees, and an empty column here is a charge
+                    # they will ask about.
+                    ["Demand - AHS", "Demand - Large Package",
+                     "Demand - Over Maximum", "Demand - Service"]
+                    if self.demand_in_use() else []
+                ) + [
+                    # Not Previously Billed columns are inserted here, just
+                    # before Fuel, and only the ones that actually carry money
+                    # on this invoice (see npb_cols below).
                     "Fuel Surcharge", "Total",
                 ]
                 # NOTE: no UPS cost, profit or margin here. This report is
@@ -6456,7 +20966,8 @@ class UPSRepricingTool:
                     "Additional Handling Surcharge - Packaging",
                     "Large Package Surcharge", "Over Maximum Size Surcharge",
                     "Undeliverable Return", "Address Correction",
-                    "Declared Value", "Return To Sender",
+                    "Declared Value",
+                    "Return To Sender",
                     "2nd Mile Road Base Rate",
                     "Signature", "Adult Signature", "Package Protection", "Direct Delivery Only",
                     "Reroute", "Reschedule Delivery",
@@ -6487,7 +20998,29 @@ class UPSRepricingTool:
                     final_layout = list(detail_layout)
                     final_money = set(detail_money)
 
-                    # Sheet 1 — 總表 (Shipment Detail): every shipped tracking,
+                    # "Not Previously Billed ..." columns, immediately before
+                    # Fuel. Only the codes that actually carry money on this
+                    # invoice: mirroring all ~40 charge columns would add 40
+                    # empty ones to every report. Order follows the main
+                    # columns so each sits in the same sequence as its
+                    # counterpart.
+                    npb_cols = []
+                    if not final_df.empty:
+                        for _base_name in detail_layout:
+                            _npb = f"Not Previously Billed {_base_name}"
+                            if _npb not in final_df.columns:
+                                continue
+                            if (pd.to_numeric(final_df[_npb], errors="coerce")
+                                    .fillna(0) != 0).any():
+                                npb_cols.append(_npb)
+                    if npb_cols:
+                        _at = (final_layout.index("Fuel Surcharge")
+                               if "Fuel Surcharge" in final_layout
+                               else len(final_layout))
+                        final_layout[_at:_at] = npb_cols
+                        final_money = final_money | set(npb_cols)
+
+                    # Sheet 1 - Shipment Detail: every shipped tracking,
                     # one row, ONE sheet with every tracking.
                     final_layout_one = list(final_layout)
                     if not final_df.empty:
@@ -6517,18 +21050,189 @@ class UPSRepricingTool:
 
 
                 _report_notes = []
+
+                # Rows the engine refused to rate, hoisted above the base-rate
+                # summary because they have to be subtracted from it. A lane
+                # with no rate table at all -- Standard to Canada, zone 53 --
+                # reports "No rate table for service" as a matter of course,
+                # and that used to raise the modal below on a row the report
+                # already marks NOT RATED in three other places. The modal
+                # exists for the opposite case: a lane that was expected to
+                # rate, priced at 0, and looks finished.
+                _lane_diags = list(getattr(self, "lane_diagnostics", []) or [])
+                _lane_ranked = _rate_diagnostics_by_reason(_lane_diags)
+                _not_rated_trackings = {
+                    t
+                    for reason, trackings in _lane_ranked
+                    if str(reason).startswith("Not rated:")
+                    for t in trackings}
+
+                # base_rate_diagnostics was append-only: nothing in the file
+                # ever read it. One run of invoice B519D7 collected 1,475
+                # messages -- 433 shipments priced at base rate 0 -- and the
+                # report still printed a plausible-looking Total. Silent
+                # under-pricing is the worst failure mode for an audit tool,
+                # so the summary now travels with the result.
+                _rate_diags = [
+                    _d for _d in (getattr(self, "base_rate_diagnostics", []) or [])
+                    if not any(f"[{_t}]" in str(_d)
+                               for _t in _not_rated_trackings)]
+                _missing_tables = _missing_rate_table_services(_rate_diags)
+                _ranked = _rate_diagnostics_by_reason(_rate_diags)
+                # A backfill has no dialog to walk past, so the verdict has to
+                # travel as a value. Base rate 0 recorded as this invoice's
+                # figure is the one outcome worse than "not repriced yet".
+                self.last_run_missing_tables = sorted(_missing_tables)
+
+                # Full list beside the report whenever there is anything to
+                # list. The dialog can only show a handful, and "these
+                # shipments" with no tracking numbers gives you nothing to go
+                # and check. Separate file, not a sheet: this workbook goes to
+                # the client.
+                # Surcharges with no ACC rate row belong on the same list. They
+                # fail the same way base rates do -- the charge line comes out
+                # 0, the Total still adds up -- and they were previously
+                # invisible: nothing read acc_rate_diagnostics, and the report
+                # column just showed 0.00.
+                _acc_diags = list(getattr(self, "acc_rate_diagnostics", []) or [])
+                _acc_ranked = _rate_diagnostics_by_reason(_acc_diags)
+
+                # _lane_diags / _lane_ranked are built above -- rows the engine
+                # refused to rate, and rows whose service name it had to guess.
+                # Same list, same file: "base rate 0" with no stated reason is
+                # the thing this file exists to prevent.
+
+                # Two more ways an ACC can be missing, neither of which ever
+                # reaches accessorial_lookup, which is why a missing-rate
+                # check alone finds nothing for them:
+                #   acc_unpriced_rows -- code recognised, no pricing path
+                #   unknown_rows      -- code not recognised at all
+                # Both are money UPS charged and the recalculation ignored, so
+                # both belong on the same list. Codes only, no amounts: the
+                # totals are in the status line and the profit statement, and
+                # a column that is filled for two issue kinds and blank for
+                # the rest reads like missing data.
+                # A refusal to rate is one fact, and everything downstream of it
+                # is the same fact restated: no rate table, so no zone column,
+                # so no ACC rate, so no DIM factor. One Standard-to-Canada
+                # parcel produced seven lines, six of which pointed at fixes
+                # that would change nothing. Keep the refusal, drop the echo --
+                # for that tracking only, so an unrelated row's ACC gap on the
+                # same invoice still shows. (_not_rated_trackings is built
+                # above, where the base-rate summary needs it too.)
+                _issue_records = [
+                    {"Tracking": tracking, "Issue": reason}
+                    for reason, trackings in (_ranked + _acc_ranked
+                                              + _lane_ranked)
+                    for tracking in trackings
+                    if not (tracking in _not_rated_trackings
+                            and not str(reason).startswith("Not rated:"))]
+
+                for _r in acc_unpriced_rows:
+                    # Same echo as above: nothing on this lane was priced, so
+                    # "no ACC handling" adds nothing. Unknown codes below are
+                    # NOT filtered -- a code the tool does not recognise is a
+                    # gap in the tool, true whether or not the lane rates.
+                    if _r["Tracking"] in _not_rated_trackings:
+                        continue
+                    _issue_records.append({
+                        "Tracking": _r["Tracking"],
+                        "Issue": ("No ACC handling for this charge code: "
+                                  f"{_r['AS Charge Code']} "
+                                  f"({_r['AT Description']})")})
+
+                for _r in unknown_rows:
+                    _issue_records.append({
+                        "Tracking": _r["Tracking"],
+                        "Issue": ("Unknown charge code, not repriced: "
+                                  f"{_r['AS Charge Code']} "
+                                  f"({_r['AT Description']})")})
+
+                _issues_path = ""
+                if _issue_records:
+                    try:
+                        # 匯出的檔一律 xlsx。CSV 在 Excel 裡開常常把追蹤號
+                        # 吃成科學記號,而這個檔的重點就是追蹤號。
+                        _issues_path = (os.path.splitext(export_path)[0]
+                                        + "_rate_issues.xlsx")
+                        pd.DataFrame(_issue_records).to_excel(
+                            _issues_path, index=False, sheet_name="Rate Issues")
+                    except Exception as _issue_err:
+                        print("Could not write rate issues file:", _issue_err)
+                        _issues_path = ""
+                _issues_name = (os.path.basename(_issues_path) if _issues_path
+                                else "")
+
+                # No rate card file. It was written beside every report to
+                # answer "did the import take?", and that question is answered
+                # on screen now -- View Loaded Rates on Channels, and the
+                # issue file names any rate that was missing when it was
+                # needed. One less file in the folder.
+
+                # Short counts only. The explanations moved onto the rows they
+                # belong to (the Notes and UPS Fee Not Repriced columns), which
+                # is where they are actually usable -- a sentence in the status
+                # bar cannot tell you WHICH of 505 shipments it means.
+                if _missing_tables:
+                    _affected_n = len({t for _r, ts in _ranked for t in ts})
+                    _report_notes.append(
+                        f"no rates for {'; '.join(sorted(_missing_tables))}: "
+                        f"{_affected_n} rows")
+
+                if _acc_ranked:
+                    # Name the surcharges, not just a count: "12 ACC issues"
+                    # gives nothing to act on, whereas the fee type points
+                    # straight at the row to add in the ACC template.
+                    _acc_affected = len({t for _r, ts in _acc_ranked for t in ts})
+                    _acc_names = sorted({
+                        _m.group(1).strip()
+                        for _r, _ts in _acc_ranked
+                        for _m in [re.search(r":\s*(.+?)\s*\[", _r)] if _m})
+                    _acc_shown = "; ".join(_acc_names[:3]) + (
+                        f" +{len(_acc_names) - 3} more"
+                        if len(_acc_names) > 3 else "")
+                    _report_notes.append(
+                        f"no ACC rate for {_acc_shown}: {_acc_affected} rows"
+                        + (f" (see {_issues_name})" if _issues_name else ""))
+
+                if acc_unpriced_rows:
+                    _up_total = sum(self.to_amount(r.get("BA Net Amount", 0))
+                                    for r in acc_unpriced_rows)
+                    _up_codes = sorted({str(r.get("AS Charge Code", "")).strip()
+                                        for r in acc_unpriced_rows} - {""})
+                    _report_notes.append(
+                        f"no ACC handling for {', '.join(_up_codes)}: "
+                        f"${_up_total:,.2f} billed by UPS, not repriced"
+                        + (f" (see {_issues_name})" if _issues_name else ""))
+
+                if _lane_ranked:
+                    _lane_n = len({t for _r, ts in _lane_ranked for t in ts})
+                    _report_notes.append(
+                        f"{_lane_n} row(s) not rated or service guessed"
+                        + (f" (see {_issues_name})" if _issues_name else ""))
+
+                if not_repriced_rows:
+                    # Name the fees. "UPS Fee Not Repriced" as a bare label told
+                    # you nothing about what the money was.
+                    _nr_total = sum(self.to_amount(r.get("BA Net Amount", 0))
+                                    for r in not_repriced_rows)
+                    _nr_names = sorted({UPS_ACC_CODE_REFERENCE.get(
+                        str(r.get("AS Charge Code", "")).strip(),
+                        str(r.get("AS Charge Code", "")).strip())
+                        for r in not_repriced_rows} - {""})
+                    _report_notes.append(
+                        f"{'; '.join(_nr_names)}: ${_nr_total:,.2f} billed by "
+                        f"UPS, no contract rate to compare")
+
                 if unknown_rows:
                     _report_notes.append(
-                        f"{len(unknown_rows)} row(s) with charge codes this "
-                        f"tool cannot price -- NOT in CAL Total, see "
-                        f"\"Unknown Codes\" sheet")
+                        f"unknown codes: {len(unknown_rows)} rows")
 
                 if account_rows:
                     _acct_total = sum(self.to_amount(r.get("Amount", 0))
                                       for r in account_rows)
                     _report_notes.append(
-                        f"{len(account_rows)} account-level charge(s) "
-                        f"${_acct_total:,.2f} -- see \"Account Charges\" sheet")
+                        f"account charges ${_acct_total:,.2f}")
 
                 # Remember it so Generate Profit Report can use this run
                 # directly instead of making you find the file again.
@@ -6536,9 +21240,75 @@ class UPSRepricingTool:
 
                 # One line, no modal. Anything that needs attention is named
                 # here and detailed on its own sheet.
-                self.set_status("Report generated."
-                                + ("   |   " + "   |   ".join(_report_notes) if _report_notes
-                                   else ""))
+                # final_rows only exists inside the "we have rows" branch;
+                # final_df is defined either way.
+                _shipment_n = 0
+                try:
+                    _shipment_n = len(final_df)
+                except Exception:
+                    pass
+                _head = f"Done. {_shipment_n} shipments"
+                self.set_status(_head
+                                + ("  |  " + "  |  ".join(_report_notes)
+                                   if _report_notes else ""))
+                # The block at the end of run_repricing sets the status again,
+                # so every note built here -- account charges included -- was
+                # being written and then wiped before anyone could read it.
+                self._last_report_notes = list(_report_notes)
+
+                # Deliberate exception to the "one line, no modal" rule: a
+                # whole service with no rate table means the numbers in this
+                # workbook are wrong, not merely incomplete, and the status
+                # line is easy to walk past.
+                if _missing_tables and not quiet:
+                    _summary, _unused = _rate_diagnostics_summary(_rate_diags)
+                    _affected = {t for _r, ts in _ranked for t in ts}
+                    messagebox.showwarning(
+                        "Base rate lookups failed -- check these shipments",
+                        f"{len(_affected)} shipment(s) had a base rate lookup "
+                        f"fail because no matching rate table was loaded.\n\n"
+                        f"Some come out with base rate 0. Others are only "
+                        f"partly wrong -- an SCC re-basis or a "
+                        f"Residential/Commercial correction quietly used 0 for "
+                        f"one leg -- so their total still looks reasonable.\n\n"
+                        + _summary
+                        + (f"\n\nFull list of tracking numbers:\n"
+                           f"{os.path.basename(_issues_path)}"
+                           if _issues_path else "")
+                        + "\n\nCheck the Service name and the Residential "
+                          "column in your base rate file: the name in that "
+                          "column has to match what the report shows under "
+                          "Shipment Type.")
+
+            # The invoice itself was filed at the top of this method. What is
+            # left is what the run made of it -- which only exists now.
+            try:
+                _inv = _inv0
+                if _inv and not quiet:
+                    try:
+                        _run = getattr(self, "last_run_totals", None) or {}
+                        _lines = getattr(self, "last_run_lines", None) or []
+                        for _n in _inv:
+                            self.history().record_run(
+                                _n, _run.get("trackings", 0),
+                                _run.get("cal_total", 0.0),
+                                _run.get("ups_total", 0.0),
+                                self.last_report_path)
+                            if len(_inv) == 1:
+                                self.history().record_lines(_n, _lines)
+                    except Exception as _e:
+                        print("History run summary failed:", _e)
+                    try:
+                        self.refresh_history_summary()
+                    except Exception:
+                        pass
+            except Exception as _hist_err:
+                print("History store failed:", _hist_err)
+
+            # This block runs after the one above and used to overwrite it.
+            # Rebuild from the notes instead of discarding them.
+            _notes = list(getattr(self, "_last_report_notes", []) or [])
+            _tail = ("   |   " + "   |   ".join(_notes)) if _notes else ""
 
             if unknown_rows:
                 _codes = {str(r.get("AS Charge Code", "")).strip()
@@ -6546,12 +21316,40 @@ class UPSRepricingTool:
                 _codes.discard("")
                 self.status_var.set(
                     f"Report generated -- {len(_codes)} UNKNOWN code(s), "
-                    f"{len(unknown_rows)} row(s) not priced")
+                    f"{len(unknown_rows)} row(s) not priced" + _tail)
+            elif _tail:
+                self.status_var.set("Report generated." + _tail)
             else:
                 self.status_var.set("Report Generated Successfully")
 
+            self._wp_finish(True, "Report generated · %s rows"
+                            % format(len(output_rows), ","))
+
+        except PermissionError as e:
+            # The usual one: last week's report is still open in Excel, so the
+            # new one cannot be written over it.
+            self._wp_finish(False, "Run failed — see message")
+            if quiet:
+                raise
+            try:
+                self.status_var.set("Error — see message.")
+            except Exception:
+                pass
+            messagebox.showerror(
+                self._channel_ui("Cannot Generate Report", "無法產生報表"),
+                self._channel_ui(
+                    "The report file is open in another program, so it "
+                    f"cannot be written:\n\n{getattr(e, 'filename', '') or e}"
+                    "\n\nClose it in Excel and run the report again.",
+                    "報表檔案正開在其他程式裡，無法寫入：\n\n"
+                    f"{getattr(e, 'filename', '') or e}"
+                    "\n\n請先在 Excel 關閉它，再產生一次報表。"))
+
         except Exception as e:
 
+            self._wp_finish(False, "Run failed — see message")
+            if quiet:
+                raise
             try:
                 self.status_var.set("Error — see message.")
             except Exception:
@@ -6559,11 +21357,28 @@ class UPSRepricingTool:
             messagebox.showerror("Cannot Generate Report", str(e))
 
 
+# =====================================================================
+# START HERE
+# =====================================================================
+# Build the window, load the saved settings, run. Any exception on the
+# way up is written to UPS_TOOL_CRASH_LOG.txt beside the program and
+# held on screen, because a GUI that dies takes its console with it.
+
+
 if __name__ == "__main__":
 
     try:
         root = ctk.CTk()
         app = UPSRepricingTool(root)
+
+        # Put the window on screen before anything slow happens below it.
+        # Everything up to mainloop() is invisible work, so a heavy config or
+        # a large history file used to mean a long stretch with nothing to
+        # look at.
+        try:
+            root.update()
+        except Exception:
+            pass
 
         # Settings should survive closing the window. Load whatever was saved
         # last time, and save again on the way out, so nothing has to be
