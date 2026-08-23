@@ -9,6 +9,11 @@
 -- service_role 改得動,所以權限規則都讀它。profiles.role 只是給畫面顯示的
 -- 副本,由觸發器同步,改它不會讓任何人變成管理者。
 
+-- 註:Admin 分頁的帳號清單直接問 auth.users(Edge Function 用 service_role
+-- 呼叫 listUsers),不讀 profiles —— 觸發器建立之前就存在的帳號不會在
+-- profiles 裡,那會變成「登得進去卻不在清單上」。profiles 留著是給日後
+-- 需要用 SQL 查名單時方便,不是清單的來源。
+
 -- ---------------------------------------------------------------- profiles
 create table if not exists public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,

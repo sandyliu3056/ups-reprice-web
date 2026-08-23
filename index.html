@@ -723,7 +723,6 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <input type="file" id="fHist" accept=".csv,.txt,.xlsx,.xls" multiple>
       <span id="vHist" style="color:var(--run2);font-size:12.5px"></span>
     </div>
-    <div id="legacyHist"></div>
     <p class="hint" id="histStats" style="margin:0 0 12px"></p>
 
     <div class="subhd" data-i18n="hd.findtrk">Find a Tracking</div>
@@ -2786,56 +2785,42 @@ function legacyRows(){
     rq.onerror=()=>rej(rq.error);
   })).catch(()=>[]);
 }
-function legacyCheck(){
-  const box=$("#legacyHist");
-  if(!box) return;
-  box.innerHTML="";
-  if(!ME) return;
-  legacyRows().then(rows=>{
-    if(!rows.length) return;
-    const periods=new Set(rows.map(r=>(r.invoice||"").trim()).filter(Boolean)).size;
-    box.innerHTML=`<div class="note warn"><b>${
-      L("這台瀏覽器上有舊版共用的帳單歷史","This browser holds invoice history from the shared, pre-account version")
-      }</b> — ${periods}${L(" 期 / ","  period(s) / ")}${rows.length.toLocaleString()}${
-      L(" 列。分帳號之前是所有人共用的,所以不會自動搬進來。",
-        " lines. It predates per-account storage, so it is not moved in automatically.")}
-      <div class="row" style="margin-top:10px;gap:8px">
-        <button class="act" id="bLegacyClaim">${L("收進我的帳號","Move into my account")}</button>
-        <button id="bLegacyDrop">${L("刪掉這份舊資料","Delete the old copy")}</button>
-      </div></div>`;
-    $("#bLegacyClaim").onclick=()=>{
-      if(!confirm(L("確定這些帳單是你的?收進來之後,這台機器上其他帳號就看不到了。",
-                    "Are these invoices yours? Once claimed, no other account on this machine can see them."))) return;
-      fileInvoices(rows,"legacy");
-      idbPutInvoices(rows).then(()=>{
-        saveHistoryMap(learnHistory(rows));
-        HIST_RESTORED=false;
-        restoreHistoryDetail();
-        box.innerHTML=`<div class="note">${L("已收進這個帳號。","Moved into this account.")}</div>`;
-      }).catch(e=>{ box.innerHTML=`<div class="note warn">${esc(e.message||"failed")}</div>`; });
-    };
-    $("#bLegacyDrop").onclick=()=>{
-      if(!confirm(L("刪掉舊版那份共用資料?救不回來。",
-                    "Delete the old shared copy? This cannot be undone."))) return;
-      legacyOpen().then(db=>new Promise((res,rej)=>{
-        const rq=db.transaction(IDB_STORE,"readwrite").objectStore(IDB_STORE).clear();
-        rq.onsuccess=()=>res(true); rq.onerror=()=>rej(rq.error);
-      })).then(()=>{
-        try{ localStorage.removeItem(HIST_KEY); localStorage.removeItem(HIST_RULE_KEY);
-             localStorage.removeItem(HISTINV_KEY); }catch(e){}
-        box.innerHTML=`<div class="note">${L("已刪除。","Deleted.")}</div>`;
-      }).catch(e=>{ box.innerHTML=`<div class="note warn">${esc(e.message||"failed")}</div>`; });
-    };
-  });
-}
-
 let HIST_RESTORED=false;
 /* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
    兩邊都補上畫面才會跟關掉之前一樣。只做一次。 */
+/* 舊版共用的那一份:分帳號之前所有人的明細堆在同一個 IndexedDB 裡。
+   這個帳號自己還沒有任何歷史、而舊的那份有東西時,就收進來,收完把舊的
+   清空 —— 一次性的搬家,不用問也不用在畫面上擺一條橫幅。
+   清空是重點:搬完就沒有第二個帳號還看得到它。
+   代價講清楚:同一台機器上,先登入的人會拿到那一份。實務上一人一台,
+   要改成只有主帳號能收,說一聲。 */
+function claimLegacy(){
+  return idbAllRows().then(mine=>{
+    if(mine.length) return mine;                 /* 已經有自己的歷史了 */
+    return legacyRows().then(old=>{
+      if(!old.length) return mine;
+      fileInvoices(old,"legacy");
+      return idbPutInvoices(old)
+        .then(()=>saveHistoryMap(learnHistory(old)))
+        .then(()=>legacyOpen())
+        .then(db=>new Promise(res=>{
+          const rq=db.transaction(IDB_STORE,"readwrite").objectStore(IDB_STORE).clear();
+          rq.onsuccess=()=>res(true); rq.onerror=()=>res(false);
+        }))
+        .then(()=>{
+          try{ localStorage.removeItem(HIST_KEY); localStorage.removeItem(HIST_RULE_KEY);
+               localStorage.removeItem(HISTINV_KEY); }catch(e){}
+          logAdd("history moved", old.length+" rows from the shared store");
+          return old;
+        })
+        .catch(()=>mine);
+    }).catch(()=>mine);
+  });
+}
 function restoreHistoryDetail(){
   if(HIST_RESTORED) return;
   HIST_RESTORED=true;
-  idbAllRows().then(rows=>{
+  claimLegacy().then(()=>idbAllRows()).then(rows=>{
     if(!rows.length) return;
     HISTROWS=rows;
     /* 對照表是舊規則學的就重學。明細本來就在這裡,不必叫人重匯檔案。 */
@@ -2925,7 +2910,6 @@ function showTab(p){
     s.classList.toggle("on", s.id==="p-"+p));
   sceneShow(p==="files");
   if(p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
-  if(p==="hist"&&ME) legacyCheck();
 }
 
 /* =====================================================================
@@ -2956,7 +2940,6 @@ $("#tabs").addEventListener("click",e=>{
     p.classList.toggle("on", p.id==="p-"+b.dataset.p));
   sceneShow(b.dataset.p==="files");
   if(b.dataset.p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
-  if(b.dataset.p==="hist"&&ME) legacyCheck();
 });
 
 /* ---------------------------------------------------------------------

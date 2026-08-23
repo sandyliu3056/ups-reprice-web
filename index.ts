@@ -69,26 +69,39 @@ Deno.serve(async (req) => {
 
   try {
     if (action === "list") {
-      // profiles 是觸發器同步過來的,一次拿得到 email 與角色;
-      // 費率有沒有設定則看 user_settings 有沒有那一列。
-      const { data: rows, error } = await admin
-        .from("profiles")
-        .select("id,email,username,name,contact_email,role,created_at")
-        .order("created_at", { ascending: true });
+      // 直接問 auth.users,不走 profiles。profiles 是觸發器同步的副本,
+      // 在觸發器存在之前建立的帳號、或同步失敗過的帳號就不會在裡面 ——
+      // 結果是「登得進去卻不在清單上」。能登入的人就該看得到,所以
+      // 認證系統自己那份名單才是答案。
+      const { data: list, error } = await admin.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000,
+      });
       if (error) throw error;
       const { data: cfgs } = await admin
         .from("user_settings")
         .select("user_id,config_name,updated_at");
       const byId = new Map((cfgs || []).map((c) => [c.user_id, c]));
-      return reply({
-        users: (rows || []).map((r) => ({
-          ...r,
-          // 舊帳號(用真 email 開的)沒有 username 欄位,拿 email 的前段頂著。
-          username: r.username || String(r.email || "").split("@")[0],
-          config_name: byId.get(r.id)?.config_name || "",
-          config_at: byId.get(r.id)?.updated_at || "",
-        })),
+      const users = (list?.users || []).map((u) => {
+        const meta = (u.user_metadata || {}) as Record<string, string>;
+        const authEmail = String(u.email || "").toLowerCase();
+        const synthetic = authEmail.endsWith(`@${DOMAIN}`);
+        return {
+          id: u.id,
+          username: meta.username || authEmail.split("@")[0],
+          name: meta.display_name || meta.full_name || "",
+          // 用真 email 開的舊帳號:那個 email 就是聯絡信箱,照樣顯示。
+          contact_email: meta.contact_email || (synthetic ? "" : authEmail),
+          role: (u.app_metadata as Record<string, unknown>)?.role === "admin"
+            ? "admin"
+            : "user",
+          created_at: u.created_at,
+          config_name: byId.get(u.id)?.config_name || "",
+          config_at: byId.get(u.id)?.updated_at || "",
+        };
       });
+      users.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+      return reply({ users });
     }
 
     if (action === "create") {
