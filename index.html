@@ -478,7 +478,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     <div id="cfgNote"></div>
   </div>
 
-  <div class="lf sketch" id="sumBox" style="display:none">
+  <div class="lf sketch" id="sumBox" style="display:none" hidden>
     <h3 class="display"><span class="em">📊</span><span data-i18n="hd.sum">This Invoice</span></h3>
     <div class="tiles" id="tiles"></div>
     <div class="tablewrap" style="margin-top:12px">
@@ -491,7 +491,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     </div>
   </div>
 
-  <div class="lf sketch" id="rateBox" style="display:none">
+  <div class="lf sketch" id="rateBox" style="display:none" hidden>
     <h3 class="display"><span class="em">🧮</span><span data-i18n="hd.rate">Repricing</span></h3>
     <div class="tiles" id="tiles2" style="margin-bottom:12px"></div>
     <!-- 逐筆明細不顯示。要看細節就用匯出的報表,那份有完整 44 欄;
@@ -4376,8 +4376,35 @@ function exportReport(){
     .replace(/[^A-Za-z0-9]+/g,"_")+"_Repriced.xlsx";
   loadXLSX().then(X=>{
     const aoa=[REPORT_COLS, ...rows.map(r=>REPORT_COLS.map(c=>r[c]))];
+    const ws=X.utils.aoa_to_sheet(aoa);
+    /* 金額欄套 $#,##0.00 並且先四捨五入到分,日期寫成真正的日期值配
+       mm/dd/yyyy —— 桌面版的活頁簿就是這樣,不做的話一格會印成
+       7.2696000000000005,而日期是不能排序的文字。 */
+    const MONEY_FROM=REPORT_COLS.indexOf("Base Rate");
+    const DATE_COL=REPORT_COLS.indexOf("Date");
+    const ref=X.utils.decode_range(ws["!ref"]);
+    for(let r=1;r<=ref.e.r;r++){
+      for(let c=MONEY_FROM;c<=ref.e.c;c++){
+        const cell=ws[X.utils.encode_cell({r:r,c:c})];
+        if(cell && typeof cell.v==="number"){
+          cell.v=Math.round(cell.v*100)/100;
+          cell.z="$#,##0.00";
+        }
+      }
+      const dc=ws[X.utils.encode_cell({r:r,c:DATE_COL})];
+      /* 出貨日在帳單上有 2026-08-03 也有 2026/8/3 兩種寫法,
+         先用 schedDate() 正規化,不要只認其中一種。 */
+      const iso=dc && typeof dc.v==="string" ? schedDate(dc.v) : "";
+      if(iso){
+        const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+        /* Excel 的序號起點是 1899-12-30,直接給數字比給 Date 物件穩,
+           Date 物件會被時區推掉一天。 */
+        dc.v=Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000);
+        dc.t="n"; dc.z="mm/dd/yyyy";
+      }
+    }
     const wb=X.utils.book_new();
-    X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(aoa), "Shipment Detail");
+    X.utils.book_append_sheet(wb, ws, "Shipment Detail");
     dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
       {type:"application/octet-stream"}), name);
     toast((LANG?"Report exported · ":"報表已匯出 · ")+rows.length
@@ -4683,8 +4710,7 @@ $("#bRun").onclick=()=>{
                 :"歷史索引太大,這個瀏覽器存不下。", false);
     ROWS=ing.rows; SHIPS=shipmentsOf(ROWS);
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
-    renderSummary(); renderRate(); renderCode(); renderHist();
-    $("#sumBox").style.display=""; $("#rateBox").style.display="";
+    renderCode(); renderHist();
     ready();
     logAdd("reprice report", ROWS.length+" rows / "+SHIPS.length+" tracking");
     /* 產生完就直接把活頁簿倒出來 —— 桌面版按下去就是給你一份檔案。 */
