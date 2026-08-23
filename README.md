@@ -241,10 +241,13 @@ A 側的渠道用原出貨的;跨期單本期沒有原出貨,只能查帳單歷�
 程式裡的 Zone 只是起點。匯入基本運費表時,**那條渠道的 Zone 以檔案為準** ——
 模板的 Zone 欄就是這條線實際跑的那組,比預設可靠。狀態列會寫出改成了什麼。
 
-沒有範本的線(2nd Day Air AM、Next Day Air Early、Standard、Worldwide 系列)
-預設給的是 Ground 那組 2–8 / 44–46,那**幾乎一定不對** —— Standard 和
-Worldwide 各有自己的 Zone。匯入那條線的運費表就會自動修正,或在「🚚 渠道」
-分頁直接改。
+**沒有範本的線 Zone 是空的**(SurePost、2nd Day Air AM、Next Day Air Early、
+Standard、Worldwide 系列),要設了才有。以前它們預設成 Ground 那組
+2–8 / 44–46,那幾乎一定不對 —— Standard 和 Worldwide 各有自己的 Zone,
+給一組看起來合理的錯號碼,比留白更危險。
+
+留白的渠道在「🚚 渠道」分頁的 Zone 欄會標成紅字「未設定」。匯入那條線的
+運費表就會自動填上,或直接手動輸入。
 
 設定進去之後照樣可以手動改,匯入不會把它鎖住。
 

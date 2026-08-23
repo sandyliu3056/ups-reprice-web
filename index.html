@@ -127,6 +127,27 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 /* 日曆標題右邊寫現在在挑哪一格 —— 連挑兩個日期時,不講的話
    使用者不知道自己已經被帶到第二格。 */
 .dpwhich{margin-left:10px;font-size:12.5px;font-weight:700;color:var(--run2)}
+/* 兩步的步驟條。連挑兩個日期時,不畫出來的話使用者不知道自己已經
+   被帶到第二格 —— 日曆長得一模一樣。 */
+/* 已匯入的帳單一覽。原本是一整塊換行文字,十七期疊起來讀不動。 */
+.strow{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 12px}
+.strow .stat{flex:1 1 150px;padding:10px 12px;border:2px solid var(--line);
+  border-radius:9px;background:var(--panel)}
+.strow .stat i{display:block;font-style:normal;font-size:12px;color:var(--muted)}
+.strow .stat b{font-size:18px;font-weight:800;color:var(--run2)}
+#tStored td:nth-child(3),#tStored td:nth-child(4),
+#tStored th:nth-child(3),#tStored th:nth-child(4){text-align:right}
+.dpsteps{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:13px}
+.dpsteps .st{flex:1;padding:8px 10px;border:2px solid var(--line);border-radius:9px;
+  background:transparent;color:var(--muted);line-height:1.35}
+.dpsteps .st b{display:block;font-size:12px;font-weight:700;margin-top:2px;opacity:.85}
+.dpsteps .st.on{border-color:var(--run2);background:var(--run2);color:#fff}
+.dpsteps .st.done{border-color:var(--run2);color:var(--run2)}
+.dpsteps .arw{color:var(--run2);font-weight:800}
+@media (prefers-reduced-motion:no-preference){
+  .dpsteps .st.on{animation:stepin .22s ease-out}
+  @keyframes stepin{from{transform:scale(.94);opacity:.4}to{transform:scale(1);opacity:1}}
+}
 /* 剛剛被填進去的欄位閃一下,不然值換了也看不出來。 */
 @keyframes justset{
   0%{background:var(--run2);color:#fff}
@@ -511,7 +532,14 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <input class="cell num" id="defDim" style="width:80px">
       <button class="act" id="bSaveDim" data-i18n="btn.save">Save</button>
       <span class="savenote"></span>
-      <button class="act ghost" id="bChanDim" data-i18n="btn.chandim">Set Channel DIM</button>
+    </div>
+    <div class="row sketch-soft" style="padding:10px 12px;margin-top:10px">
+      <label class="inlab" style="margin-left:0" data-i18n="lb.chandim">Channel DIM factor</label>
+      <input class="cell num" id="chanDimVal" style="width:80px">
+      <button class="act" id="bChanDimTicked" data-i18n="btn.applyticked">Apply to ticked</button>
+      <button class="act ghost" id="bChanDimAll" data-i18n="btn.applyall">Apply to all</button>
+      <button class="act ghost" id="bChanDimClear" data-i18n="btn.clearticked">Clear on ticked</button>
+      <span id="chanDimNote" class="savenote"></span>
     </div>
   </div>
 
@@ -609,7 +637,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   </div>
 
   <div class="lf sketch">
-    <h3 class="display"><span class="em">③</span><span data-i18n="hd.allchan">All channels</span></h3>
+    <h3 class="display"><span class="em">📋</span><span data-i18n="hd.allchan">Channels already set up</span></h3>
     <div class="row" style="margin-bottom:8px">
       <button class="act ghost" id="bDelChan" data-i18n="btn.delchan">Delete selected</button>
       <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
@@ -622,6 +650,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <th style="width:30px"></th>
       <th data-i18n="lb.channame">Channel name</th>
       <th data-i18n="th.zones">Zones</th>
+      <th data-i18n="th.dimf">DIM Factor</th>
       <th data-i18n="th.chantype">Type</th>
       <th data-i18n="th.ratestate">Base rates</th>
       <th data-i18n="th.enabled">Enabled</th>
@@ -850,6 +879,27 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 </div>
 
 <div class="sceneBox" id="sceneBox"><canvas id="scene"></canvas></div>
+<div id="stBg" class="modalbg">
+  <div class="modal sketch" id="stModal" style="width:min(760px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.stored">Stored invoices</span>
+      <button class="mx" id="stX">✕</button>
+    </div>
+    <div class="modalbody">
+      <div class="strow" id="stSum"></div>
+      <div class="tablewrap" style="max-height:52vh"><table id="tStored"><thead><tr>
+        <th data-i18n="th.invno">Invoice Number</th>
+        <th data-i18n="th.invdt">Invoice Date</th>
+        <th data-i18n="th.rows">Rows</th>
+        <th data-i18n="th.trkcount">Trackings</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="modalft">
+      <button class="act ghost" id="stClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="dpBg" class="modalbg">
   <div class="modal sketch" id="dpModal" style="width:min(420px,100%)">
     <div class="modalhd">
@@ -858,6 +908,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="mx" id="dpX">✕</button>
     </div>
     <div class="modalbody">
+      <div id="dpSteps" class="dpsteps hidden"></div>
       <div class="dpNav">
         <button class="act ghost" id="dpYPrev">&laquo;</button>
         <button class="act ghost" id="dpMPrev">&lsaquo;</button>
@@ -2209,7 +2260,7 @@ $("#tabs").addEventListener("click",e=>{
 /* 預設設定:結構、UPS 公告門檻、代碼登錄、渠道與 Zone 清單。
    費率表是空的,附加費全部是 0 —— 議價費率不在這裡,也不該在這裡。
    一開就能看規則和代碼;要算錢,載入自己的設定檔。 */
-const DEFAULT_CONFIG={"global_rules":{"dim_factor":"","default_dim_factor":"139","fuel_percent":"","use_oversize_longest":true,"use_oversize_weight":true,"use_oversize_cubic":true,"use_oversize_lg":true,"oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","use_ahs_weight":true,"use_ahs_longest":true,"use_ahs_second":true,"use_ahs_cubic":true,"use_ahs_lg":true,"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40"},"billing_path":"","last_report_path":"","base_rate_service":"Ground Commercial","base_rate_paths":[],"base_rate_tables":[],"accessorial_rate_table":{"AHS Weight|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Dimension|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Packaging|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"Large Package|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"DAS Commercial|||Ground Commercial":0,"DAS Residential|||Ground Commercial":0,"DAS Extended Commercial|||Ground Commercial":0,"DAS Extended Residential|||Ground Commercial":0,"Remote Area Commercial|||Ground Commercial":0,"Remote Area Residential|||Ground Commercial":0,"Remote Area - AK|||Ground Commercial":0,"Remote Area - HI|||Ground Commercial":0,"Residential Surcharge|||Ground Commercial":0,"Return To Sender|||Ground Commercial":0,"Reroute|||Ground Commercial":0,"Reschedule Delivery|||Ground Commercial":0,"Returns Electronic Label|||Ground Commercial":0,"Returns Print Label|||Ground Commercial":0,"Signature|||Ground Commercial":0,"Adult Signature|||Ground Commercial":0,"Package Protection|||Ground Commercial":0,"Address Correction|||Ground Commercial":0,"Direct Delivery Only|||Ground Commercial":0,"Over Maximum Size Surcharge|||Ground Commercial":0,"AHS Weight|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Dimension|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Packaging|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"Large Package|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"DAS Commercial|||Ground Residential":0,"DAS Residential|||Ground Residential":0,"DAS Extended Commercial|||Ground Residential":0,"DAS Extended Residential|||Ground Residential":0,"Remote Area Commercial|||Ground Residential":0,"Remote Area Residential|||Ground Residential":0,"Remote Area - AK|||Ground Residential":0,"Remote Area - HI|||Ground Residential":0,"Residential Surcharge|||Ground Residential":0,"Return To Sender|||Ground Residential":0,"Reroute|||Ground Residential":0,"Reschedule Delivery|||Ground Residential":0,"Returns Electronic Label|||Ground Residential":0,"Returns Print Label|||Ground Residential":0,"Signature|||Ground Residential":0,"Adult Signature|||Ground Residential":0,"Package Protection|||Ground Residential":0,"Address Correction|||Ground Residential":0,"Direct Delivery Only|||Ground Residential":0,"Over Maximum Size Surcharge|||Ground Residential":0,"Future Day Pickup - Alternate Address - Web Request|||Ground Commercial":0,"Future Day Pickup - Alternate Address - Web Request|||Ground Residential":0,"Returns 3 UPS Pickup Attempts|||Ground Commercial":0,"Returns 3 UPS Pickup Attempts|||Ground Residential":0,"Residential Pickup surcharge|||Ground Commercial":0,"Residential Pickup surcharge|||Ground Residential":0},"fuel_schedule":[],"channel_fuel_schedules":{},"channel_fuel_percents":{},"demand_config":{"special_rows":[],"service_rows":[],"service_groups":{},"enabled":false,"service_group_names":[]},"channel_rule_overrides":{"Ground Commercial":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Ground Residential":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"SurePost":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"3 Day Select":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"2nd Day Air":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"2nd Day Air AM":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air Saver":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air Early":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Standard":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Expedited":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Saver":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Express":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Express Plus":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Economy":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"}},"channel_dim_factors":{"Ground Commercial":"300","Ground Residential":"300","SurePost":"300","3 Day Select":"300","2nd Day Air":"300","2nd Day Air AM":"300","Next Day Air Saver":"300","Next Day Air":"300","Next Day Air Early":"300","Standard":"300","Worldwide Expedited":"300","Worldwide Saver":"300","Worldwide Express":"300","Worldwide Express Plus":"300","Worldwide Economy":"300"},"builtin_service_zones":{"Ground Commercial":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Ground Residential":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","SurePost":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","3 Day Select":"302, 303, 304, 305, 306, 307, 308","2nd Day Air":"202, 203, 204, 205, 206, 207, 208, 224, 225, 226","2nd Day Air AM":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Next Day Air Saver":"132, 133, 134, 135, 136, 137, 138","Next Day Air":"102, 103, 104, 105, 106, 107, 108, 124, 125, 126","Next Day Air Early":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Standard":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Expedited":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Saver":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Express":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Express Plus":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Worldwide Economy":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46"},"builtin_service_disabled":[],"ui_theme":"Brown Gold","ui_tz":"Taipei","ui_brand":"Scoobi","custom_service_registry":{},"dynamic_surcharge_mapping":{"AFW":{"ar":"ACC","name":"Future Day Pickup - Alternate Address - Web Request","type":"REPRICE","fuel_eligible":true,"enabled":true},"ART":{"ar":"ACC","name":"Returns 3 UPS Pickup Attempts","type":"REPRICE","fuel_eligible":true,"enabled":true},"REP":{"ar":"ACC","name":"Residential Pickup surcharge","type":"REPRICE","fuel_eligible":true,"enabled":true}},"dynamic_surcharge_code_map":{},"ahs_lps_code_registry":{"AHG":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Length+Girth"},"AHL":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Longest Side"},"AHS":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Second Longest Side"},"AHV":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Volume / Dimension"},"AHW":{"charge_type":"AHS - Weight","category":"AHS","rc_class":"None","description":"Additional Handling - Weight"},"AHC":{"charge_type":"AHS - Packaging","category":"AHS","rc_class":"None","description":"Additional Handling - Packaging"},"AHP":{"charge_type":"AHS - Packaging","category":"AHS","rc_class":"None","description":"Additional Handling - Packaging"},"LPS":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge (Commercial)"},"LPR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge (Residential)"},"LCR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge Resi - Cubic"},"LCT":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge - Cubic"},"LCC":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge Comm - Cubic Volume"},"LWC":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge Comm - Weight"},"LWR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge Resi - Weight"}},"accessorial_charges":{"residential_fee":"","das_com_fee":"","das_res_fee":"","das_ext_com_fee":"","das_ext_res_fee":"","remote_com_fee":"","remote_res_fee":"","ahs_weight_fee":"","ahs_dimension_fee":"","ahs_packaging_fee":"","oversize_fee":"","ovr_fee":"","signature_fee":"","package_protection_fee":"","dv_column":"","dv_free_limit":"","dv_min_charge":"","dv_unit":"","dv_unit_rate":""},"_note":"Default defaults: structure, published thresholds and code registry only. No contract rates."};
+const DEFAULT_CONFIG={"global_rules":{"dim_factor":"","default_dim_factor":"139","fuel_percent":"","use_oversize_longest":true,"use_oversize_weight":true,"use_oversize_cubic":true,"use_oversize_lg":true,"oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","use_ahs_weight":true,"use_ahs_longest":true,"use_ahs_second":true,"use_ahs_cubic":true,"use_ahs_lg":true,"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40"},"billing_path":"","last_report_path":"","base_rate_service":"Ground Commercial","base_rate_paths":[],"base_rate_tables":[],"accessorial_rate_table":{"AHS Weight|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Dimension|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Packaging|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"Large Package|||Ground Commercial":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"DAS Commercial|||Ground Commercial":0,"DAS Residential|||Ground Commercial":0,"DAS Extended Commercial|||Ground Commercial":0,"DAS Extended Residential|||Ground Commercial":0,"Remote Area Commercial|||Ground Commercial":0,"Remote Area Residential|||Ground Commercial":0,"Remote Area - AK|||Ground Commercial":0,"Remote Area - HI|||Ground Commercial":0,"Residential Surcharge|||Ground Commercial":0,"Return To Sender|||Ground Commercial":0,"Reroute|||Ground Commercial":0,"Reschedule Delivery|||Ground Commercial":0,"Returns Electronic Label|||Ground Commercial":0,"Returns Print Label|||Ground Commercial":0,"Signature|||Ground Commercial":0,"Adult Signature|||Ground Commercial":0,"Package Protection|||Ground Commercial":0,"Address Correction|||Ground Commercial":0,"Direct Delivery Only|||Ground Commercial":0,"Over Maximum Size Surcharge|||Ground Commercial":0,"AHS Weight|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Dimension|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"AHS Packaging|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"Large Package|||Ground Residential":{"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"44":0,"45":0,"46":0},"DAS Commercial|||Ground Residential":0,"DAS Residential|||Ground Residential":0,"DAS Extended Commercial|||Ground Residential":0,"DAS Extended Residential|||Ground Residential":0,"Remote Area Commercial|||Ground Residential":0,"Remote Area Residential|||Ground Residential":0,"Remote Area - AK|||Ground Residential":0,"Remote Area - HI|||Ground Residential":0,"Residential Surcharge|||Ground Residential":0,"Return To Sender|||Ground Residential":0,"Reroute|||Ground Residential":0,"Reschedule Delivery|||Ground Residential":0,"Returns Electronic Label|||Ground Residential":0,"Returns Print Label|||Ground Residential":0,"Signature|||Ground Residential":0,"Adult Signature|||Ground Residential":0,"Package Protection|||Ground Residential":0,"Address Correction|||Ground Residential":0,"Direct Delivery Only|||Ground Residential":0,"Over Maximum Size Surcharge|||Ground Residential":0,"Future Day Pickup - Alternate Address - Web Request|||Ground Commercial":0,"Future Day Pickup - Alternate Address - Web Request|||Ground Residential":0,"Returns 3 UPS Pickup Attempts|||Ground Commercial":0,"Returns 3 UPS Pickup Attempts|||Ground Residential":0,"Residential Pickup surcharge|||Ground Commercial":0,"Residential Pickup surcharge|||Ground Residential":0},"fuel_schedule":[],"channel_fuel_schedules":{},"channel_fuel_percents":{},"demand_config":{"special_rows":[],"service_rows":[],"service_groups":{},"enabled":false,"service_group_names":[]},"channel_rule_overrides":{"Ground Commercial":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Ground Residential":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"SurePost":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"3 Day Select":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"2nd Day Air":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"2nd Day Air AM":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air Saver":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Next Day Air Early":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Standard":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Expedited":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Saver":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Express":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Express Plus":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"},"Worldwide Economy":{"ahs_weight_threshold":"50","ahs_longest_side":"48","ahs_second_side":"30","ahs_cubic_inches":"10368","ahs_lg_limit":"105","ahs_min_billable_weight":"40","oversize_longest_side":"96","oversize_actual_weight":"110","oversize_cubic_inches":"17280","oversize_length_girth":"130","oversize_min_billable_weight":"90","dim_factor":"300"}},"channel_dim_factors":{"Ground Commercial":"300","Ground Residential":"300","SurePost":"300","3 Day Select":"300","2nd Day Air":"300","2nd Day Air AM":"300","Next Day Air Saver":"300","Next Day Air":"300","Next Day Air Early":"300","Standard":"300","Worldwide Expedited":"300","Worldwide Saver":"300","Worldwide Express":"300","Worldwide Express Plus":"300","Worldwide Economy":"300"},"builtin_service_zones":{"Ground Commercial":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","Ground Residential":"2, 3, 4, 5, 6, 7, 8, 44, 45, 46","SurePost":"","3 Day Select":"302, 303, 304, 305, 306, 307, 308","2nd Day Air":"202, 203, 204, 205, 206, 207, 208, 224, 225, 226","2nd Day Air AM":"","Next Day Air Saver":"132, 133, 134, 135, 136, 137, 138","Next Day Air":"102, 103, 104, 105, 106, 107, 108, 124, 125, 126","Next Day Air Early":"","Standard":"","Worldwide Expedited":"","Worldwide Saver":"","Worldwide Express":"","Worldwide Express Plus":"","Worldwide Economy":""},"builtin_service_disabled":[],"ui_theme":"Brown Gold","ui_tz":"Taipei","ui_brand":"Scoobi","custom_service_registry":{},"dynamic_surcharge_mapping":{"AFW":{"ar":"ACC","name":"Future Day Pickup - Alternate Address - Web Request","type":"REPRICE","fuel_eligible":true,"enabled":true},"ART":{"ar":"ACC","name":"Returns 3 UPS Pickup Attempts","type":"REPRICE","fuel_eligible":true,"enabled":true},"REP":{"ar":"ACC","name":"Residential Pickup surcharge","type":"REPRICE","fuel_eligible":true,"enabled":true}},"dynamic_surcharge_code_map":{},"ahs_lps_code_registry":{"AHG":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Length+Girth"},"AHL":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Longest Side"},"AHS":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Second Longest Side"},"AHV":{"charge_type":"AHS - Dimension","category":"AHS","rc_class":"None","description":"Additional Handling - Volume / Dimension"},"AHW":{"charge_type":"AHS - Weight","category":"AHS","rc_class":"None","description":"Additional Handling - Weight"},"AHC":{"charge_type":"AHS - Packaging","category":"AHS","rc_class":"None","description":"Additional Handling - Packaging"},"AHP":{"charge_type":"AHS - Packaging","category":"AHS","rc_class":"None","description":"Additional Handling - Packaging"},"LPS":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge (Commercial)"},"LPR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge (Residential)"},"LCR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge Resi - Cubic"},"LCT":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge - Cubic"},"LCC":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge Comm - Cubic Volume"},"LWC":{"charge_type":"Large Package","category":"LPS","rc_class":"Commercial","description":"Large Package Surcharge Comm - Weight"},"LWR":{"charge_type":"Large Package","category":"LPS","rc_class":"Residential","description":"Large Package Surcharge Resi - Weight"}},"accessorial_charges":{"residential_fee":"","das_com_fee":"","das_res_fee":"","das_ext_com_fee":"","das_ext_res_fee":"","remote_com_fee":"","remote_res_fee":"","ahs_weight_fee":"","ahs_dimension_fee":"","ahs_packaging_fee":"","oversize_fee":"","ovr_fee":"","signature_fee":"","package_protection_fee":"","dv_column":"","dv_free_limit":"","dv_min_charge":"","dv_unit":"","dv_unit_rate":""},"_note":"Default defaults: structure, published thresholds and code registry only. No contract rates."};
 
 /* UPS 收費代碼預設參考表:每個代碼代表哪一項附加費。 */
 const CODE_REF={"AHG":"Additional Handling Surcharge - Dimension","AHL":"Additional Handling Surcharge - Dimension","AHV":"Additional Handling Surcharge - Dimension","AHS":"Additional Handling Surcharge - Dimension","AHW":"Additional Handling Surcharge - Weight","AHC":"Additional Handling Surcharge - Packaging","AHP":"Additional Handling Surcharge - Packaging","CAC":"Remote Area Surcharge - Commercial","CAR":"Remote Area Surcharge - Residential","ERL":"Returns Electronic Label","EVS":"Declared Value","FTP":"Third Party Billing Service","ISW":"Return To Sender - Web Request","LCR":"Large Package Surcharge","LDC":"Delivery Area Surcharge - Extended - Commercial","LDR":"Delivery Area Surcharge - Extended - Residential","LPR":"Large Package Surcharge","LPS":"Large Package Surcharge","RDC":"Delivery Area Surcharge - Commercial","RDR":"Delivery Area Surcharge - Residential","RES":"Residential Surcharge","ADS":"Adult Signature Required","AFW":"Future Day Pickup - Alternate Address - Web Request","CSG":"Delivery Confirmation Signature - Commercial","DCS":"Delivery Confirmation Signature","HIC":"Remote Area Surcharge - Commercial","HIR":"Remote Area Surcharge - Residential","IRW":"Reroute - Web Request","LCC":"Large Package Surcharge","LWC":"Large Package Surcharge","LWR":"Large Package Surcharge","OML":"Over Maximum Limits","OVR":"Over Maximum Surcharge","REP":"Residential Pickup surcharge","AKR":"Remote Area Surcharge","ART":"Returns 3 UPS Pickup Attempts","NPF":"Net Payment Fee","SCF":"Service Charge Fee","LCT":"Large Package Surcharge - Cubic","003":"Freight / Transportation Charge","205":"Service Charge","ADC":"Address Correction","ASR":"Adult Signature Required","DDO":"Direct Delivery Only","ALP":"Returns Print Label","COM":"Commercial Adjustment","FSC":"Fuel Surcharge","FRT":"Freight / Transportation Charge","IFW":"Reschedule Delivery - Web Request","SHD":"Package Protection","SCC":"Shipping Charge Correction","DIN":"Delivery Intercept"};
@@ -2649,10 +2700,32 @@ $("#bBulkChan") && ($("#bBulkChan").onclick=()=>{
 $("#bSaveDim") && ($("#bSaveDim").onclick=()=>{
   CFG.raw.global_rules.default_dim_factor=String($("#defDim").value).trim();
   CFG=readConfig(CFG.raw); DIRTY=true; saveSettings(); renderConfigTabs(); });
-$("#bChanDim") && ($("#bChanDim").onclick=()=>{
-  const el=$("#bulkChans"); if(el) el.closest(".lf").scrollIntoView({behavior:"smooth"});
-  setStatus(LANG?"Set DIM per channel in Bulk Set Channels below"
-                :"渠道除數在下面的批量設定渠道裡改"); });
+/* 渠道除數直接在這裡設。原本這顆按鈕只是捲到下面的批量區並寫一行狀態列,
+   等於把事情推給使用者自己找。 */
+function chanDimNote(msg){ const el=$("#chanDimNote"); if(el) el.textContent=msg||""; }
+function setChanDim(targets, raw){
+  if(!CFG) return;
+  if(!targets.length){
+    chanDimNote(LANG?"Tick a channel below first, or use Apply to all."
+                    :"請先在下面勾選渠道,或用「套用到全部」。");
+    return;
+  }
+  const m=CFG.raw.channel_dim_factors||(CFG.raw.channel_dim_factors={});
+  const v=String(raw==null?"":raw).trim();
+  for(const c of targets){ if(v==="") delete m[c]; else m[c]=v; }
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
+  const what = v===""
+    ? (LANG?"DIM factor cleared on ":"已清除 DIM 除數,共 ")
+    : (LANG?"DIM factor set to "+v+" on ":"DIM 除數已設為 "+v+",共 ");
+  toast(what+targets.length+(LANG?" channel(s)":" 條渠道"), true);
+  chanDimNote("");
+}
+$("#bChanDimTicked") && ($("#bChanDimTicked").onclick=()=>
+  setChanDim(tickedChannels(), $("#chanDimVal").value));
+$("#bChanDimAll") && ($("#bChanDimAll").onclick=()=>
+  setChanDim(Object.keys((CFG&&CFG.raw.builtin_service_zones)||{}), $("#chanDimVal").value));
+$("#bChanDimClear") && ($("#bChanDimClear").onclick=()=>
+  setChanDim(tickedChannels(), ""));
 $("#bSelAll")  && ($("#bSelAll").onclick =()=>{document.querySelectorAll(".bulkc").forEach(c=>c.checked=true);});
 $("#bSelNone") && ($("#bSelNone").onclick=()=>{document.querySelectorAll(".bulkc").forEach(c=>c.checked=false);});
 $("#bApplyTicked") && ($("#bApplyTicked").onclick=bulkApply);
@@ -3030,19 +3103,34 @@ $("#bTrkSearch") && ($("#bTrkSearch").onclick=()=>renderHist());
 $("#trkSearch") && ($("#trkSearch").onkeydown=e=>{ if(e.key==="Enter") renderHist(); });
 $("#bHistRefresh") && ($("#bHistRefresh").onclick=()=>{ renderHist();
   setStatus(LANG?"Refreshed":"已重新整理"); });
-$("#bHistStored") && ($("#bHistStored").onclick=()=>{
+/* 已匯入的帳單開成一個視窗。原本是一大塊換行文字塞在頁面中間,
+   十七期疊起來只能一行一行用眼睛掃。 */
+function openStored(){
   const src=HISTROWS&&HISTROWS.length?HISTROWS:(ROWS||[]);
   const by={};
   for(const r of src){ const k=r.invoice||"—";
     (by[k]=by[k]||{n:0,d:r.invDate,trk:new Set()});
     by[k].n++; if(r.tracking) by[k].trk.add(r.tracking); }
   const list=Object.entries(by).sort();
-  $("#histNote").innerHTML=list.length
-    ? `<div class="note">`+list.map(([k,v])=>
-        `${esc(k)} · ${esc(v.d)} · ${v.n.toLocaleString()}${LANG?" rows":" 列"} · ${
-         v.trk.size.toLocaleString()}${LANG?" tracking":" 個追蹤號"}`).join("<br>")+`</div>`
-    : "";
-});
+  const allTrk=list.reduce((a,[,v])=>a+v.trk.size,0);
+  const allRows=list.reduce((a,[,v])=>a+v.n,0);
+  const stat=(lab,val)=>`<div class="stat"><i>${lab}</i><b>${val}</b></div>`;
+  $("#stSum").innerHTML =
+      stat(LANG?"Invoices":"帳單期數", list.length.toLocaleString())
+    + stat(LANG?"Rows":"帳單筆數", allRows.toLocaleString())
+    + stat(LANG?"Trackings":"追蹤號", allTrk.toLocaleString());
+  $("#tStored").tBodies[0].innerHTML = list.length
+    ? list.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${esc(v.d||"—")}</td>
+        <td>${v.n.toLocaleString()}</td><td>${v.trk.size.toLocaleString()}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty">${
+        LANG?"No invoices imported yet.":"還沒有匯入任何帳單。"}</td></tr>`;
+  $("#stBg").classList.add("on");
+}
+function closeStored(){ $("#stBg").classList.remove("on"); }
+$("#bHistStored") && ($("#bHistStored").onclick=openStored);
+$("#stX") && ($("#stX").onclick=closeStored);
+$("#stClose") && ($("#stClose").onclick=closeStored);
+$("#stBg") && ($("#stBg").onclick=e=>{ if(e.target===$("#stBg")) closeStored(); });
 $("#bTrkBreak") && ($("#bTrkBreak").onclick=()=>{
   const q=($("#trkSearch").value||"").trim();
   if(!q){ setStatus(LANG?"Type a tracking number first":"請先輸入追蹤號"); return; }
@@ -3310,7 +3398,12 @@ function renderConfigTabs(){
   $("#tChan").tBodies[0].innerHTML=shown.map(r=>
     `<tr><td><input type="checkbox" class="chanc" value="${esc(r.svc)}"${ro}></td>
      <td>${esc(r.svc)}</td>
-     <td class="wrap" style="font-size:11.5px">${esc(r.zones)}</td>
+     <td class="wrap" style="font-size:11.5px">${String(r.zones||"").trim()
+        ? esc(r.zones)
+        : `<span style="color:var(--neg)">${LANG?"not set":"未設定"}</span>`}</td>
+     <td>${(CFG.raw.channel_dim_factors||{})[r.svc]
+        ? esc(String((CFG.raw.channel_dim_factors||{})[r.svc]))+" *"
+        : `<span style="color:var(--muted)">${esc(String(defaultDimDivisor(CFG)))}</span>`}</td>
      <td>${r.res?(LANG?"Residential":"住宅"):(LANG?"Commercial":"商業")}</td>
      <td>${r.n?(LANG?"loaded":"已載入")+" ("+r.n+")"
               :`<span style="color:var(--neg)">${LANG?"not loaded":"未載入"}</span>`}</td>
@@ -3439,6 +3532,24 @@ function openPicker(id){
 }
 function closePicker(){ $("#dpBg").classList.remove("on"); DP_TARGET=null; }
 function renderPicker(){
+  /* 只有連挑起訖的那組欄位才畫步驟條;其他地方叫日曆時不要多一塊東西。 */
+  const stepEl=$("#dpSteps");
+  if(stepEl){
+    const pair=(DP_TARGET==="fuelFrom"||DP_TARGET==="fuelTo");
+    stepEl.classList.toggle("hidden",!pair);
+    if(pair){
+      const mk=(id,no,lab)=>{
+        const val=($("#"+id)||{}).value||"";
+        const on=DP_TARGET===id;
+        const cls="st"+(on?" on":(val?" done":""));
+        return `<span class="${cls}">${no} ${lab}<b>${
+          on?(LANG?"choosing…":"選擇中…"):(val?"✓ "+esc(val):(LANG?"not set":"未設定"))}</b></span>`;
+      };
+      stepEl.innerHTML=mk("fuelFrom","①",LANG?"Start date":"開始日期")
+        +`<span class="arw">→</span>`
+        +mk("fuelTo","②",LANG?"End date":"結束日期");
+    }
+  }
   const w=$("#dpWhich");
   if(w){
     const lab=DP_LABEL[DP_TARGET];
@@ -4398,7 +4509,7 @@ function applyTheme(name){
 const I18N={
   "hd.chandata":["➕ 新增渠道","Add a new channel"],
   "hd.ratestate":["② 費率表狀態","Rate table state"],
-  "hd.allchan":["③ 全部渠道","All channels"],
+  "hd.allchan":["📋 已建立的渠道","Channels already set up"],
   "lb.channame":["渠道名稱","Channel name"],
   "lb.reschan":["住宅渠道","Residential channel"],
   "lb.chanon":["啟用此渠道","Enable this channel"],
@@ -4429,6 +4540,13 @@ const I18N={
   "hd.dimf":["材積除數","DIM Factor"],
   "hd.rulesforce":["目前生效的規則","Rules in Force"],
   "lb.defdim":["預設材積除數","Default DIM factor"],
+  "lb.chandim":["渠道除數","Channel DIM factor"],
+  "btn.applyticked":["套用到勾選","Apply to ticked"],
+  "btn.applyall":["套用到全部","Apply to all"],
+  "btn.clearticked":["清除勾選的","Clear on ticked"],
+  "hd.stored":["已匯入的帳單","Stored invoices"],
+  "th.rows":["帳單筆數","Rows"],
+  "th.trkcount":["追蹤號","Trackings"],
   "btn.chandim":["設定渠道除數","Set Channel DIM"],
   "btn.defthr":["預設門檻","Default Thresholds"],
   "btn.bulkchan":["批量設定渠道","Bulk Set Channels"],
