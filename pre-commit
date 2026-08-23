@@ -14,5 +14,8 @@ for f in $(git diff --cached --name-only --diff-filter=ACM); do
   echo "$body" | grep -qE '\b0000[0-9A-F]{9,}\b' && { echo "擋下:$f(疑似帳單號含帳號)"; fail=1; }
   echo "$body" | grep -qE 'C:\\Users\\'          && { echo "擋下:$f(本機路徑)"; fail=1; }
   echo "$body" | grep -qE 'eyJhbGciOi|sb_secret_' && { echo "擋下:$f(疑似 secret key)"; fail=1; }
+  # 程式裡不該有任何密碼字面值。舊版內建帳號就是這樣把真的帳密留在檔案裡的。
+  echo "$body" | grep -qiE '(password|passwd|pwd|密碼)[^A-Za-z0-9]{0,4}[:=][^A-Za-z0-9]{0,4}["'"'"'][^"'"'"']{6,}' \
+    && { echo "擋下:$f(程式裡寫死密碼)"; fail=1; }
 done
 [ $fail -eq 0 ] || { echo "commit 已中止。"; exit 1; }

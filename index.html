@@ -719,6 +719,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <input type="file" id="fHist" accept=".csv,.txt,.xlsx,.xls" multiple>
       <span id="vHist" style="color:var(--run2);font-size:12.5px"></span>
     </div>
+    <div id="legacyHist"></div>
     <p class="hint" id="histStats" style="margin:0 0 12px"></p>
 
     <div class="subhd" data-i18n="hd.findtrk">Find a Tracking</div>
@@ -2263,12 +2264,23 @@ const HISTINV_KEY="ups_reprice_histinv_v1";
 /* 明細列放 IndexedDB,不是 localStorage —— 五十萬列是幾十 MB,
    localStorage 只有 5 MB。一期一筆,重開瀏覽器再讀回來。 */
 const IDB_NAME="ups_reprice_hist", IDB_STORE="invoices";
-let IDB=null;
+/* 帳單歷史也是一個帳號一份。localStorage 的 key 和 IndexedDB 的資料庫名稱
+   都綁 user id —— 同一台機器換人登入,不該看到前一個人的帳單明細。
+   舊版共用的那一份留在原地不動,由本人在歷史頁自己認領或刪掉。 */
+function whoKey(){ return (ME&&ME.id)||"anon"; }
+function histKey(){ return HIST_KEY+"::"+whoKey(); }
+function histRuleKey(){ return HIST_RULE_KEY+"::"+whoKey(); }
+function histInvKey(){ return HISTINV_KEY+"::"+whoKey(); }
+function idbName(){ return IDB_NAME+"::"+whoKey(); }
+let IDB=null, IDB_FOR="";
 function idb(){
-  if(IDB) return IDB;
+  /* 換人登入之後,上一個帳號那個連線就不能再用了。 */
+  if(IDB && IDB_FOR===idbName()) return IDB;
+  IDB_FOR=idbName();
+  const name=IDB_FOR;
   IDB=new Promise((res,rej)=>{
     if(!window.indexedDB) return rej(new Error("no indexedDB"));
-    const rq=indexedDB.open(IDB_NAME,1);
+    const rq=indexedDB.open(name,1);
     rq.onupgradeneeded=()=>{
       const db=rq.result;
       if(!db.objectStoreNames.contains(IDB_STORE))
@@ -2276,7 +2288,7 @@ function idb(){
     };
     rq.onsuccess=()=>res(rq.result);
     rq.onerror=()=>rej(rq.error||new Error("indexedDB open failed"));
-  }).catch(e=>{ IDB=null; throw e; });
+  }).catch(e=>{ IDB=null; IDB_FOR=""; throw e; });
   return IDB;
 }
 function idbTx(mode){
@@ -2321,7 +2333,7 @@ let HISTINV=null;
 
 function histInv(){
   if(HISTINV) return HISTINV;
-  try{ HISTINV=JSON.parse(localStorage.getItem(HISTINV_KEY)||"{}")||{}; }
+  try{ HISTINV=JSON.parse(localStorage.getItem(histInvKey())||"{}")||{}; }
   catch(e){ HISTINV={}; }
   return HISTINV;
 }
@@ -2345,7 +2357,7 @@ function fileInvoices(rows, how){
             at:new Date().toISOString().slice(0,19), how:how||""};
   }
   let stored=true;
-  try{ localStorage.setItem(HISTINV_KEY, JSON.stringify(inv)); }
+  try{ localStorage.setItem(histInvKey(), JSON.stringify(inv)); }
   catch(e){ stored=false; }
   /* 明細另外進 IndexedDB。寫失敗不影響索引,只是重新整理後查不到明細。 */
   idbPutInvoices(rows).catch(e=>{
@@ -2399,8 +2411,8 @@ function learnHistory(rows, map){
 function saveHistoryMap(map){
   HIST=map;
   try{
-    localStorage.setItem(HIST_KEY,JSON.stringify(map));
-    localStorage.setItem(HIST_RULE_KEY,HIST_RULE);
+    localStorage.setItem(histKey(),JSON.stringify(map));
+    localStorage.setItem(histRuleKey(),HIST_RULE);
   }catch(e){}
 }
 function buildHistory(texts){
@@ -2719,6 +2731,73 @@ function cfgReset(){
               LANG?"defaults":"預設值", false);
 }
 
+/* ---- 舊版共用的帳單歷史 ----
+   分帳號之前,所有人的明細都堆在同一個 IndexedDB 裡。自動搬進第一個
+   登入的帳號是不行的 —— 共用機器上那就是把別人的帳單交出去。
+   所以只認出來、擺在歷史頁,由本人自己按下認領或刪除。 */
+function legacyOpen(){
+  return new Promise((res,rej)=>{
+    if(!window.indexedDB) return rej(new Error("no indexedDB"));
+    const rq=indexedDB.open(IDB_NAME,1);
+    rq.onupgradeneeded=()=>{ const db=rq.result;
+      if(!db.objectStoreNames.contains(IDB_STORE))
+        db.createObjectStore(IDB_STORE,{keyPath:"invoice"}); };
+    rq.onsuccess=()=>res(rq.result);
+    rq.onerror=()=>rej(rq.error||new Error("open failed"));
+  });
+}
+function legacyRows(){
+  return legacyOpen().then(db=>new Promise((res,rej)=>{
+    const rq=db.transaction(IDB_STORE,"readonly").objectStore(IDB_STORE).getAll();
+    rq.onsuccess=()=>{ const out=[];
+      for(const rec of (rq.result||[])) out.push(...(rec.rows||[]));
+      res(out); };
+    rq.onerror=()=>rej(rq.error);
+  })).catch(()=>[]);
+}
+function legacyCheck(){
+  const box=$("#legacyHist");
+  if(!box) return;
+  box.innerHTML="";
+  if(!ME) return;
+  legacyRows().then(rows=>{
+    if(!rows.length) return;
+    const periods=new Set(rows.map(r=>(r.invoice||"").trim()).filter(Boolean)).size;
+    box.innerHTML=`<div class="note warn"><b>${
+      L("這台瀏覽器上有舊版共用的帳單歷史","This browser holds invoice history from the shared, pre-account version")
+      }</b> — ${periods}${L(" 期 / ","  period(s) / ")}${rows.length.toLocaleString()}${
+      L(" 列。分帳號之前是所有人共用的,所以不會自動搬進來。",
+        " lines. It predates per-account storage, so it is not moved in automatically.")}
+      <div class="row" style="margin-top:10px;gap:8px">
+        <button class="act" id="bLegacyClaim">${L("收進我的帳號","Move into my account")}</button>
+        <button id="bLegacyDrop">${L("刪掉這份舊資料","Delete the old copy")}</button>
+      </div></div>`;
+    $("#bLegacyClaim").onclick=()=>{
+      if(!confirm(L("確定這些帳單是你的?收進來之後,這台機器上其他帳號就看不到了。",
+                    "Are these invoices yours? Once claimed, no other account on this machine can see them."))) return;
+      fileInvoices(rows,"legacy");
+      idbPutInvoices(rows).then(()=>{
+        saveHistoryMap(learnHistory(rows));
+        HIST_RESTORED=false;
+        restoreHistoryDetail();
+        box.innerHTML=`<div class="note">${L("已收進這個帳號。","Moved into this account.")}</div>`;
+      }).catch(e=>{ box.innerHTML=`<div class="note warn">${esc(e.message||"failed")}</div>`; });
+    };
+    $("#bLegacyDrop").onclick=()=>{
+      if(!confirm(L("刪掉舊版那份共用資料?救不回來。",
+                    "Delete the old shared copy? This cannot be undone."))) return;
+      legacyOpen().then(db=>new Promise((res,rej)=>{
+        const rq=db.transaction(IDB_STORE,"readwrite").objectStore(IDB_STORE).clear();
+        rq.onsuccess=()=>res(true); rq.onerror=()=>rej(rq.error);
+      })).then(()=>{
+        try{ localStorage.removeItem(HIST_KEY); localStorage.removeItem(HIST_RULE_KEY);
+             localStorage.removeItem(HISTINV_KEY); }catch(e){}
+        box.innerHTML=`<div class="note">${L("已刪除。","Deleted.")}</div>`;
+      }).catch(e=>{ box.innerHTML=`<div class="note warn">${esc(e.message||"failed")}</div>`; });
+    };
+  });
+}
+
 let HIST_RESTORED=false;
 /* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
    兩邊都補上畫面才會跟關掉之前一樣。只做一次。 */
@@ -2748,11 +2827,13 @@ function setMe(m){
   ME=m;
   applyRole();
   if(changed){
-    /* 費率跟著人走。先清掉上一個帳號的,再抓這個帳號的。 */
+    /* 費率和帳單歷史都跟著人走。先清掉上一個帳號的,再載這個帳號的。 */
     cfgReset();
+    histLoad();
+    renderHist();
     if(m) cfgPull();
   }
-  if(!was && m) restoreHistoryDetail();
+  if(m) restoreHistoryDetail();
 }
 function applyRole(){
   const admin = ME && ME.role==="admin";
@@ -2813,6 +2894,7 @@ function showTab(p){
     s.classList.toggle("on", s.id==="p-"+p));
   sceneShow(p==="files");
   if(p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
+  if(p==="hist"&&ME) legacyCheck();
 }
 
 /* =====================================================================
@@ -2843,6 +2925,7 @@ $("#tabs").addEventListener("click",e=>{
     p.classList.toggle("on", p.id==="p-"+b.dataset.p));
   sceneShow(b.dataset.p==="files");
   if(b.dataset.p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
+  if(b.dataset.p==="hist"&&ME) legacyCheck();
 });
 
 /* ---------------------------------------------------------------------
@@ -6948,16 +7031,22 @@ try{ const t=localStorage.getItem(THEME_KEY); if(t) THEME=t; }catch(e){}
 try{ const b=localStorage.getItem(BRAND_KEY); if(b) BRAND=b; }catch(e){}
 applyTheme(THEME); applyBrand(BRAND); fillSelects();
 
-/* 記住的跨期對照。規則版本對不上就先不採用 —— 留著舊規則的答案
-   比沒有更糟,它看起來是有根據的。登入後會從 IndexedDB 重學。 */
+/* 歷史是綁帳號的,開機時還不知道是誰,所以這裡不讀 —— 由 setMe 之後的
+   histLoad() 讀那個帳號自己的那份。 */
 let HIST_STALE=false;
-try{
-  const hv=localStorage.getItem(HIST_KEY);
-  if(hv){
-    if(localStorage.getItem(HIST_RULE_KEY)===HIST_RULE) HIST=JSON.parse(hv);
-    else HIST_STALE=true;
-  }
-}catch(e){}
+function histLoad(){
+  HIST=null; HIST_STALE=false; HISTINV=null; HISTROWS=null; ORIG={};
+  HIST_RESTORED=false; IDB=null; IDB_FOR="";
+  try{
+    const hv=localStorage.getItem(histKey());
+    if(hv){
+      /* 規則版本對不上就先不採用 —— 留著舊規則的答案比沒有更糟,
+         它看起來是有根據的。登入後會從 IndexedDB 重學。 */
+      if(localStorage.getItem(histRuleKey())===HIST_RULE) HIST=JSON.parse(hv);
+      else HIST_STALE=true;
+    }
+  }catch(e){}
+}
 
 /* 每一步各自獨立。
    先前 drawClock() 寫一個已經被移除的元素,null.textContent 拋錯,
