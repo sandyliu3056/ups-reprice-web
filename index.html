@@ -2223,6 +2223,12 @@ function shipmentsOf(rows){
    完全不變。
    ===================================================================== */
 const HIST_KEY="ups_reprice_hist_v1";
+/* 住商對照表是「學」出來的,存在 localStorage。學習規則改過之後,
+   舊的對照表還是舊規則的產物 —— 程式改了它不會自己跟上,
+   跨期單就會照舊判錯。這個戳記記住存檔時用的是哪一版規則,
+   對不上就從 IndexedDB 的明細重學一次,不用叫人重匯檔案。 */
+const HIST_RULE_KEY="ups_reprice_hist_rule";
+const HIST_RULE="v2-marker-not-a-signal";
 /* 已歸檔的帳單:期號 -> {日期, 列數, 追蹤號數, 歸檔時間}。
    跟 HIST 分開存,因為 HIST 是追蹤號的住宅/商業對照,沒有期別。 */
 const HISTINV_KEY="ups_reprice_histinv_v1";
@@ -2327,17 +2333,14 @@ function alreadyFiled(rows){
 }
 let HIST=null;                 /* { 追蹤號: "R" | "C" } */
 
-function buildHistory(texts){
-  const map={};
-  let files=0, rows=0, learned=0;
-  for(const t of texts){
-    files++;
-    let ing;
-    try{ ing=ingest(t); }catch(e){ continue; }
-    rows+=ing.rows.length;
+/* 一批已經解析好的帳單列 -> {追蹤號: "R"|"C"}。
+   buildHistory(檔案文字) 和從 IndexedDB 重學都走這裡,規則只有一份。 */
+function learnHistory(rows, map){
+  map=map||{};
+  {
     /* 先把每個追蹤號在 SHP 層看到的訊號收齊 */
     const sig={};
-    for(const r of ing.rows){
+    for(const r of rows){
       if(!r.tracking) continue;
       const s=sig[r.tracking]||(sig[r.tracking]={ground:false,res:false,com:false});
       const d=(r.desc||"").toLowerCase();
@@ -2359,12 +2362,30 @@ function buildHistory(texts){
     }
     for(const [trk,s] of Object.entries(sig)){
       if(!s.ground) continue;                  /* Ground 才判,同桌面版 */
-      if(s.res&&!s.com) { map[trk]="R"; learned++; }
-      else if(s.com&&!s.res){ map[trk]="C"; learned++; }
+      if(s.res&&!s.com) map[trk]="R";
+      else if(s.com&&!s.res) map[trk]="C";
     }
   }
+  return map;
+}
+function saveHistoryMap(map){
   HIST=map;
-  try{ localStorage.setItem(HIST_KEY,JSON.stringify(map)); }catch(e){}
+  try{
+    localStorage.setItem(HIST_KEY,JSON.stringify(map));
+    localStorage.setItem(HIST_RULE_KEY,HIST_RULE);
+  }catch(e){}
+}
+function buildHistory(texts){
+  const map={};
+  let files=0, rows=0;
+  for(const t of texts){
+    files++;
+    let ing;
+    try{ ing=ingest(t); }catch(e){ continue; }
+    rows+=ing.rows.length;
+    learnHistory(ing.rows, map);
+  }
+  saveHistoryMap(map);
   return {files,rows,learned:Object.keys(map).length};
 }
 
@@ -2537,6 +2558,12 @@ function restoreHistoryDetail(){
   idbAllRows().then(rows=>{
     if(!rows.length) return;
     HISTROWS=rows;
+    /* 對照表是舊規則學的就重學。明細本來就在這裡,不必叫人重匯檔案。 */
+    if(HIST_STALE || !HIST){
+      saveHistoryMap(learnHistory(rows));
+      HIST_STALE=false;
+      if(RATED&&SHIPS&&CFG){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+    }
     renderHist();
     const inv=Object.keys(histInv()).length;
     setStatus((LANG?"History restored · ":"歷史已還原 · ")+inv
@@ -6727,10 +6754,15 @@ try{ const t=localStorage.getItem(THEME_KEY); if(t) THEME=t; }catch(e){}
 try{ const b=localStorage.getItem(BRAND_KEY); if(b) BRAND=b; }catch(e){}
 applyTheme(THEME); applyBrand(BRAND); fillSelects();
 
-/* 記住的跨期對照 */
+/* 記住的跨期對照。規則版本對不上就先不採用 —— 留著舊規則的答案
+   比沒有更糟,它看起來是有根據的。登入後會從 IndexedDB 重學。 */
+let HIST_STALE=false;
 try{
   const hv=localStorage.getItem(HIST_KEY);
-  if(hv) HIST=JSON.parse(hv);
+  if(hv){
+    if(localStorage.getItem(HIST_RULE_KEY)===HIST_RULE) HIST=JSON.parse(hv);
+    else HIST_STALE=true;
+  }
 }catch(e){}
 
 /* 每一步各自獨立。
