@@ -920,6 +920,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
         <th data-i18n="th.invdt">Invoice Date</th>
         <th data-i18n="th.rows">Rows</th>
         <th data-i18n="th.trkcount">Trackings</th>
+        <th data-i18n="th.filedat">Filed</th>
       </tr></thead><tbody></tbody></table></div>
     </div>
     <div class="modalft">
@@ -2015,6 +2016,47 @@ function shipmentsOf(rows){
    完全不變。
    ===================================================================== */
 const HIST_KEY="ups_reprice_hist_v1";
+/* 已歸檔的帳單:期號 -> {日期, 列數, 追蹤號數, 歸檔時間}。
+   跟 HIST 分開存,因為 HIST 是追蹤號的住宅/商業對照,沒有期別。 */
+const HISTINV_KEY="ups_reprice_histinv_v1";
+let HISTINV=null;
+
+function histInv(){
+  if(HISTINV) return HISTINV;
+  try{ HISTINV=JSON.parse(localStorage.getItem(HISTINV_KEY)||"{}")||{}; }
+  catch(e){ HISTINV={}; }
+  return HISTINV;
+}
+/* 把一批帳單列歸檔。同一期號再進來就整期取代,不是疊上去 ——
+   桌面版 store_frame() 是先 DELETE 該期再 INSERT,同一份檔案匯兩次
+   不該把每一列變成兩列。 */
+function fileInvoices(rows, how){
+  const inv=histInv();
+  const seen={};
+  for(const r of rows||[]){
+    const k=(r.invoice||"").trim();
+    if(!k) continue;
+    (seen[k]=seen[k]||{date:r.invDate||"",rows:0,trk:new Set()});
+    seen[k].rows++;
+    if(r.tracking) seen[k].trk.add(r.tracking);
+  }
+  const added=[], replaced=[];
+  for(const k of Object.keys(seen)){
+    (inv[k]?replaced:added).push(k);
+    inv[k]={date:seen[k].date, rows:seen[k].rows, trk:seen[k].trk.size,
+            at:new Date().toISOString().slice(0,19), how:how||""};
+  }
+  let stored=true;
+  try{ localStorage.setItem(HISTINV_KEY, JSON.stringify(inv)); }
+  catch(e){ stored=false; }
+  return {added, replaced, stored, count:Object.keys(seen).length};
+}
+/* 目前這張帳單已經歸檔過了嗎 */
+function alreadyFiled(rows){
+  const inv=histInv();
+  const nums=[...new Set((rows||[]).map(r=>(r.invoice||"").trim()).filter(Boolean))];
+  return nums.filter(n=>inv[n]);
+}
 let HIST=null;                 /* { 追蹤號: "R" | "C" } */
 
 function buildHistory(texts){
@@ -2674,6 +2716,10 @@ $("#fHist").onchange=e=>{
     for(const tx of texts){
       try{ HISTROWS.push(...ingest(tx).rows); }catch(e){}
     }
+    const filed=fileInvoices(HISTROWS,"import");
+    if(!filed.stored)
+      toast(LANG?"History index is too large for this browser to store."
+                :"歷史索引太大,這個瀏覽器存不下。", false);
     const r=buildHistory(texts);
     const kinds=[...new Set(good.map(x=>x.kind))].join(" + ");
     $("#vHist").textContent=r.files+(LANG?" files":" 個檔案")+" · "+kinds;
@@ -2687,7 +2733,9 @@ $("#fHist").onchange=e=>{
              +`跨期更正現在可以依原始出貨判定住宅或商業。`)+`</div>`;
     renderHist();
     setStatus((LANG?"History ready · ":"歷史已建立 · ")+good.length
-      +(LANG?" file(s)":" 個檔案"));
+      +(LANG?" file(s)":" 個檔案")
+      +(filed.count?"  ·  "+(LANG?"filed ":"已歸檔 ")+filed.added.length
+        +(filed.replaced.length?(LANG?", replaced ":",取代 ")+filed.replaced.length:""):""));
     if(RATED){ $("#bRun").click(); }
   }).catch(err=>{
     invNote((err&&err.message)||String(err));
@@ -3168,24 +3216,23 @@ $("#bHistRefresh") && ($("#bHistRefresh").onclick=()=>{ renderHist();
 /* 已匯入的帳單開成一個視窗。原本是一大塊換行文字塞在頁面中間,
    十七期疊起來只能一行一行用眼睛掃。 */
 function openStored(){
-  const src=HISTROWS&&HISTROWS.length?HISTROWS:(ROWS||[]);
-  const by={};
-  for(const r of src){ const k=r.invoice||"—";
-    (by[k]=by[k]||{n:0,d:r.invDate,trk:new Set()});
-    by[k].n++; if(r.tracking) by[k].trk.add(r.tracking); }
-  const list=Object.entries(by).sort();
-  const allTrk=list.reduce((a,[,v])=>a+v.trk.size,0);
-  const allRows=list.reduce((a,[,v])=>a+v.n,0);
+  /* 讀持久化的索引,不是這次載進來的那幾列 —— 重開瀏覽器之後
+     這張表還要在。 */
+  const inv=histInv();
+  const list=Object.entries(inv).sort();
+  const allTrk=list.reduce((a,[,v])=>a+(v.trk||0),0);
+  const allRows=list.reduce((a,[,v])=>a+(v.rows||0),0);
   const stat=(lab,val)=>`<div class="stat"><i>${lab}</i><b>${val}</b></div>`;
   $("#stSum").innerHTML =
       stat(LANG?"Invoices":"帳單期數", list.length.toLocaleString())
     + stat(LANG?"Rows":"帳單筆數", allRows.toLocaleString())
     + stat(LANG?"Trackings":"追蹤號", allTrk.toLocaleString());
   $("#tStored").tBodies[0].innerHTML = list.length
-    ? list.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${esc(v.d||"—")}</td>
-        <td>${v.n.toLocaleString()}</td><td>${v.trk.size.toLocaleString()}</td></tr>`).join("")
-    : `<tr><td colspan="4" class="empty">${
-        LANG?"No invoices imported yet.":"還沒有匯入任何帳單。"}</td></tr>`;
+    ? list.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${esc(v.date||"—")}</td>
+        <td>${(v.rows||0).toLocaleString()}</td><td>${(v.trk||0).toLocaleString()}</td>
+        <td>${esc((v.at||"").replace("T"," "))}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">${
+        LANG?"No invoices filed yet.":"還沒有任何帳單存進歷史。"}</td></tr>`;
   $("#stBg").classList.add("on");
 }
 function closeStored(){ $("#stBg").classList.remove("on"); }
@@ -4202,6 +4249,12 @@ $("#bRun").onclick=()=>{
   setStatus(L("讀取中…","Reading…"));
   try{
     const ing=ingest(INV);
+    /* 先歸檔再計價。桌面版把這一步放在最前面,理由是:計價失敗的那一期
+       如果沒進歷史,下個月的跨期更正就沒有東西可以對照。 */
+    const filed=fileInvoices(ing.rows,"run");
+    if(!filed.stored)
+      toast(LANG?"History index is too large for this browser to store."
+                :"歷史索引太大,這個瀏覽器存不下。", false);
     ROWS=ing.rows; SHIPS=shipmentsOf(ROWS);
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
     renderSummary(); renderRate(); renderCode(); renderHist();
@@ -4211,6 +4264,9 @@ $("#bRun").onclick=()=>{
     setStatus(L("完成:","Done: ")+ROWS.length.toLocaleString()
       +L(" 列 / "," lines / ")+SHIPS.length.toLocaleString()
       +L(" 個追蹤號"," tracking numbers")
+      +(filed.count?"  ·  "+(filed.replaced.length
+          ? L("已更新歷史:","history updated: ")+filed.replaced.join(", ")
+          : L("已存入歷史:","filed to history: ")+filed.added.join(", ")):"")
       +(ing.hasHdr?L("(有標題列)"," (header row found)")
                   :L("(無標題列,用固定欄位序號)"," (no header row; fixed column positions)")));
   }catch(e){
@@ -4609,6 +4665,7 @@ const I18N={
   "btn.applyticked":["套用到勾選","Apply to ticked"],
   "btn.clearticked":["清除勾選的","Clear on ticked"],
   "hd.stored":["已匯入的帳單","Stored invoices"],
+  "th.filedat":["歸檔時間","Filed"],
   "th.rows":["帳單筆數","Rows"],
   "th.trkcount":["追蹤號","Trackings"],
   "btn.chandim":["設定渠道除數","Set Channel DIM"],
