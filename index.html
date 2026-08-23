@@ -723,6 +723,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
         <input id="fuelPct" class="cell" style="width:90px">
         <button class="act" id="bAddRange" data-i18n="btn.addrange">Add Range</button>
       </div>
+      <div id="fuelNote"></div>
       <div class="subhd" data-i18n="hd.selchan">Select Channels</div>
       <div class="sketch-soft" style="padding:10px 12px">
         <div class="row" style="margin-bottom:8px">
@@ -1573,6 +1574,59 @@ function priceShipment(cfg, s){
       "UPS charged AHS-Weight but the weight is under the threshold"));
     }
     acc[bucket]=accLookup(cfg,bucket,channel,zone,issues);
+  }
+
+  /* 跨期更正單的 AHS / LPS 也是差額,不是全額 —— 原本那一段 UPS 已經
+     收過了。照桌面版 _pure_ca 那一段:
+       · 一件只收一個 AHS,Weight / Dimension / Packaging 取費率最高的
+       · AHS 與 LPS 互斥。A 觸發 LPS 時,它的 AHS 貢獻是 0
+       · C 是大包裹 → 收 LPS 差額,並退掉 A 的 AHS(C 沒有 AHS)
+       · A 是大包裹但 C 不是 → 退掉 A 的 LPS(從大包裹降級成 AHS)
+     這一筆的 ADJ 上完全沒有 AHS / LPS 代碼時整段不做,尺寸驅動的欄位
+     留 0 —— 沒有代碼就是 UPS 沒收,不是我們該補收。 */
+  if(netCA && bwA){
+    const AHSCOLS=["AHS Weight","AHS Dimension","AHS Packaging"];
+    /* 這一筆的 ADJ 上有沒有 AHS / LPS 代碼。沒有就整段不做 —— 沒有代碼
+       就是 UPS 沒收,不是我們該補收。 */
+    const carried=AHSCOLS.some(k=>acc[k]!=null)||acc["Large Package"]!=null;
+    if(carried){
+      /* 是不是大包裹,看我們自己的門檻判 C 和 A,不是看 UPS 開了什麼代碼
+         —— UPS 開 LPS 可能只是在沖掉 A 的那一筆。 */
+      const chA=(typeof historyServiceFor==="function"
+                 && historyServiceFor(s.tracking))||channel;
+      const amtA=fee=>accLookup(cfg,fee,chA,zone,issues);
+      const amtC=fee=>accLookup(cfg,fee,channel,zone,issues);
+      const r2=v=>Math.round(v*100)/100;
+      /* AHS 與 LPS 互斥:A 觸發 LPS 時它的 AHS 貢獻是 0。 */
+      const aAhs = bwA.oversize ? 0 : Math.max(
+        bwA.ahsWeight?amtA("AHS Weight"):0,
+        bwA.ahsDim   ?amtA("AHS Dimension"):0);
+
+      if(!bw.oversize){
+        /* 一件只收一個 AHS,取費率最高的那一個。 */
+        const cands=[];
+        if(bw.ahsWeight) cands.push(["AHS Weight",amtC("AHS Weight")]);
+        if(bw.ahsDim)    cands.push(["AHS Dimension",amtC("AHS Dimension")]);
+        if(acc["AHS Packaging"]!=null) cands.push(["AHS Packaging",acc["AHS Packaging"]]);
+        let cCol=null,cVal=0;
+        for(const [k,v] of cands) if(cCol===null||v>cVal){ cCol=k; cVal=v; }
+        for(const k of AHSCOLS) delete acc[k];
+        let target=cCol;
+        if(target===null&&aAhs>0) target = bwA.ahsWeight?"AHS Weight":"AHS Dimension";
+        if(target!==null) acc[target]=r2(cVal-aAhs);
+        /* A 是大包裹但 C 不是:退掉 A 的 LPS(從大包裹降級成 AHS)。 */
+        if(bwA.oversize) acc["Large Package"]=r2(-amtA("Large Package"));
+        else delete acc["Large Package"];
+      }else{
+        let c=amtC("Large Package");
+        if(bwA.oversize) c=r2(c-amtA("Large Package"));
+        acc["Large Package"]=r2(c);
+        /* C 是大包裹就不收 AHS。A 有 AHS 的話要退。 */
+        for(const k of AHSCOLS) delete acc[k];
+        if(!bwA.oversize&&aAhs>0)
+          acc[bwA.ahsWeight?"AHS Weight":"AHS Dimension"]=r2(-aAhs);
+      }
+    }
   }
 
   /* 宣告價值:UPS 收了才算,金額用合約級距重算 */
@@ -3062,7 +3116,9 @@ function renderConfigTabs(){
      要去掉才對得回服務名。沒設就跟著預設那條。 */
   const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
   const znMap=CFG.raw.builtin_service_zones||{};
-  const myZones=String(znMap[svcOf(fc)] ?? znMap[fc] ?? "")
+  /* 先看渠道自己那一筆,再退回服務名 —— 和匯出模板同一個順序,
+     不然畫面上的 Zone 和倒出去的檔案會不一樣。 */
+  const myZones=String(znMap[fc] ?? znMap[svcOf(fc)] ?? "")
     .split(",").map(z=>z.trim()).filter(Boolean);
 
   /* 費用項目的形狀取自所有渠道的聯集 —— 這樣還沒填過的渠道
@@ -3086,8 +3142,10 @@ function renderConfigTabs(){
     ? zoneFees.map(fee=>{
         const k=fee+"|||"+fc, v=t[k];
         const have = v && typeof v==="object";
-        const zs = have ? [...new Set([...zonesOf(v),...myZones])]
-                          .sort((a,b)=>(+a||999)-(+b||999)) : myZones;
+        /* 只列這條渠道設定的 Zone。以前是跟已存的費率取聯集,結果別條線
+           寫進來的 Zone 會一起冒出來 —— 畫面和匯出的模板就對不起來。
+           已存的其他 Zone 不會被刪掉,只是不顯示。 */
+        const zs = myZones;
         return `<div class="zonecol">
           <div class="zt">${esc(fee)}</div>
           <div class="zsel"><label><input type="checkbox" class="accc" value="${esc(k)}"${ro}>
@@ -3308,8 +3366,13 @@ function renderPicker(){
   }
   $("#dpGrid").innerHTML=html;
   $("#dpGrid").querySelectorAll("button[data-d]").forEach(b=>b.onclick=()=>{
-    if(DP_TARGET) $("#"+DP_TARGET).value=b.dataset.d;
+    const target=DP_TARGET;
+    if(target) $("#"+target).value=b.dataset.d;
     closePicker();
+    /* 一段區間要兩個日期,挑完開始就直接接到結束,少按一次日曆鈕。
+       結束日期已經填過就不打擾。 */
+    if(target==="fuelFrom" && !(($("#fuelTo")||{}).value||"").trim())
+      setTimeout(()=>openPicker("fuelTo"),0);
   });
 }
 function dpShift(dy,dm){
@@ -3558,7 +3621,15 @@ function dynImport(file){
     $("#dynNote").innerHTML=`<div class="note warn">${esc((e&&e.message)||e)}</div>`;
   });
 }
+/* 對話框裡的提示。狀態列在視窗底下,開著這個對話框的人看不到,
+   按了會像沒反應。訊息就放在 Add Range 那一列底下。 */
+function fuelNote(msg){
+  const box=$("#fuelNote");
+  if(!box) return;
+  box.innerHTML = msg ? `<div class="note plain">${esc(msg)}</div>` : "";
+}
 function openFuel(){
+  fuelNote("");
   $("#fuelDefault").value=(CFG.raw.global_rules||{}).fuel_percent??"";
   const chans=Object.keys(CFG.raw.builtin_service_zones||{});
   $("#fuelChans").innerHTML=chans.map(c=>
@@ -3585,9 +3656,15 @@ function renderFuelRows(){
 function addFuelRange(){
   const from=$("#fuelFrom").value, to=$("#fuelTo").value, pct=$("#fuelPct").value.trim();
   const chans=[...document.querySelectorAll(".fchan:checked")].map(c=>c.value);
-  if(!from||!to){ setStatus(LANG?"Both dates required":"開始與結束日期都要填"); return; }
-  if(pct===""){ setStatus(LANG?"Fuel % required":"請填燃油 %"); return; }
-  if(!chans.length){ setStatus(LANG?"Tick at least one channel":"請至少勾一個渠道"); return; }
+  if(!from||!to){
+    fuelNote(LANG?"Both dates are required.":"開始與結束日期都要填。"); return; }
+  if(pct===""){ fuelNote(LANG?"Fuel % is required.":"請填燃油 %。"); return; }
+  if(!chans.length){
+    /* 狀態列在視窗底下,開著這個對話框的人看不到,按了會像沒反應。 */
+    fuelNote(LANG?"Tick at least one channel before adding a range."
+                 :"新增區間前,請至少勾選一個渠道。");
+    return;
+  }
   const s=fuelSched();
   for(const c of chans){
     if(!Array.isArray(s[c])) s[c]=[];
@@ -3595,6 +3672,7 @@ function addFuelRange(){
     s[c].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
   }
   CFG=readConfig(CFG.raw); DIRTY=true; renderFuelRows();
+  fuelNote("");
   $("#fuelFrom").value=""; $("#fuelTo").value=""; $("#fuelPct").value="";
   setStatus((LANG?"Added a range to ":"已新增區間到 ")+chans.length
     +(LANG?" channel(s)":" 個渠道"));
