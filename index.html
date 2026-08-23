@@ -137,6 +137,10 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .strow .stat b{font-size:18px;font-weight:800;color:var(--run2)}
 /* 瀏覽器空間的量表。數字自己不會說話,配一條條就看得出還剩多少。 */
 .storagebox{border:2px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 14px}
+/* 帳單歷史的翻頁列 */
+.pager{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap}
+.pager button[disabled]{opacity:.4;cursor:default}
+.pager .pgnow{font-size:12.5px;color:var(--muted)}
 .meter{height:14px;border:2px solid var(--ink);border-radius:8px;overflow:hidden;
   background:var(--panel)}
 .meter .fill{height:100%;background:var(--run2);min-width:2px;
@@ -615,9 +619,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act ghost" id="bImpRate" data-i18n="btn.imprate">Import completed base rates</button>
       <button class="act ghost" id="bScanZone" data-i18n="btn.scanzone">Scan zones from invoice</button>
       <button class="act ghost" id="bViewRates" data-i18n="btn.viewrates">View loaded rates</button>
-      <button class="act ghost" id="bImpRateBatch" data-i18n="btn.imprateb">Batch import base rates</button>
-      <input type="file" id="fImpRate" accept=".csv,.txt,.xlsx,.xls">
-      <input type="file" id="fImpRateBatch" accept=".csv,.txt,.xlsx,.xls" multiple>
+      <input type="file" id="fImpRate" accept=".csv,.txt,.xlsx,.xls" multiple>
     </div>
     <div id="rateState"></div>
   </div>
@@ -694,6 +696,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     </div>
     <div id="histNote"></div>
 
+    <div id="histPager" class="pager"></div>
     <div class="tablewrap" style="max-height:56vh"><table id="tHist"><thead><tr>
       <th data-i18n="th.invno">Invoice Number</th>
       <th data-i18n="th.invdt">Invoice Date</th>
@@ -3133,42 +3136,39 @@ function rateChanLabel(r){
   return r.svc+(r.res?(LANG?" (Residential)":"(住宅)"):(LANG?" (Commercial)":"(商業)"));
 }
 $("#fImpRate") && ($("#fImpRate").onchange=e=>{
-  const inp=e.target, f=inp.files&&inp.files[0];
-  if(!f){ inp.value=""; return; }
-  setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
-  importRateWorkbook(f).then(r=>{
-    setStatus((LANG?"Imported ":"已匯入 ")+r.rows+(LANG?" rate rows for ":" 列費率:")
-      +rateChanLabel(r)+r.zoneNote
-      +(r.sheet?(LANG?" · sheet ":" · 工作表 ")+r.sheet:"")
-      +(r.fromFile&&(r.svc!==r.dsvc||r.res!==r.dres)
-        ?(LANG?"  — channel taken from the file":"  — 渠道以檔案為準"):""));
-  }).catch(err=>{
-    setStatus((LANG?"Could not import ":"匯入失敗 ")+f.name+": "+((err&&err.message)||err));
-  }).then(()=>{ inp.value=""; });
-});
-/* 批量匯入:一次選十個模板,一個一個照 _ChannelInfo 送到對應的渠道。
-   逐一處理而不是全部平行 —— 每個檔案都會改到同一份 CFG,同時寫會互相蓋掉。 */
-$("#bImpRateBatch") && ($("#bImpRateBatch").onclick=()=>$("#fImpRateBatch").click());
-$("#fImpRateBatch") && ($("#fImpRateBatch").onchange=e=>{
   const inp=e.target, files=[...(inp.files||[])];
   if(!files.length){ inp.value=""; return; }
+  const many=files.length>1;
   const ok=[], bad=[];
   let n=0;
+  /* 逐一處理,不平行 —— 每個檔案都會改到同一份 CFG,同時寫會互相蓋掉。 */
   const next=()=>{
     if(!files.length){
       renderConfigTabs();
-      const msg=(LANG?"Imported ":"已匯入 ")+ok.length+(LANG?" of ":" / ")+(ok.length+bad.length)
-        +(LANG?" files · ":" 個檔案 · ")+n+(LANG?" rate rows":" 列費率");
-      setStatus(msg+(ok.length?"  ·  "+ok.join(", "):"")
-        +(bad.length?"  ·  "+(LANG?"failed: ":"失敗:")+bad.join("; "):""));
-      toast(msg, bad.length===0);
+      if(!many){
+        /* 只選一個檔就把細節講完:哪條渠道、幾列、哪張工作表、Zone 有沒有跟著改。 */
+        if(bad.length) setStatus((LANG?"Could not import ":"匯入失敗 ")+bad[0]);
+        else setStatus(ok[0]);
+      }else{
+        const msg=(LANG?"Imported ":"已匯入 ")+ok.length+(LANG?" of ":" / ")+(ok.length+bad.length)
+          +(LANG?" files · ":" 個檔案 · ")+n+(LANG?" rate rows":" 列費率");
+        setStatus(msg+(bad.length?"  ·  "+(LANG?"failed: ":"失敗:")+bad.join("; "):""));
+        toast(msg, bad.length===0);
+      }
       inp.value="";
       return;
     }
     const f=files.shift();
     setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
     importRateWorkbook(f).then(r=>{
-      n+=r.rows; ok.push(rateChanLabel(r));
+      n+=r.rows;
+      ok.push(many
+        ? rateChanLabel(r)
+        : (LANG?"Imported ":"已匯入 ")+r.rows+(LANG?" rate rows for ":" 列費率:")
+          +rateChanLabel(r)+r.zoneNote
+          +(r.sheet?(LANG?" · sheet ":" · 工作表 ")+r.sheet:"")
+          +(r.fromFile&&(r.svc!==r.dsvc||r.res!==r.dres)
+            ?(LANG?"  — channel taken from the file":"  — 渠道以檔案為準"):""));
     }).catch(err=>{
       bad.push(f.name+" ("+((err&&err.message)||err)+")");
     }).then(next);
@@ -4594,17 +4594,44 @@ function renderHist(){
        : `${invs.size} 張帳單、${src.length.toLocaleString()} 列、${trks.size.toLocaleString()} 個追蹤號　${minD} ~ ${maxD}`)
     : (LANG ? "No invoices loaded yet." : "還沒有載入任何帳單。");
 
+  /* 追蹤號或發票期號都能查 —— 匯進來的帳單本來就該用期號找得到,
+     只認追蹤號的話,想看整期有哪些行反而沒有入口。 */
   const q=(($("#trkSearch")||{}).value||"").trim().toLowerCase();
-  const show=q ? src.filter(r=>(r.tracking||"").toLowerCase().includes(q)) : [];
+  const show=q ? src.filter(r=>
+        (r.tracking||"").toLowerCase().includes(q)
+     || (r.invoice||"").toLowerCase().includes(q)) : [];
   const tb=$("#tHist")&&$("#tHist").tBodies[0];
   if(!tb) return;
+
+  /* 一次全部塞進 DOM 會卡住,所以分頁 —— 六千多列還是每一列都看得到,
+     只是一次畫一頁。查詢字串換了就回到第一頁。 */
+  if(q!==HIST_Q){ HIST_Q=q; HIST_PAGE=0; }
+  const pages=Math.max(1, Math.ceil(show.length/HIST_PER));
+  if(HIST_PAGE>pages-1) HIST_PAGE=pages-1;
+  if(HIST_PAGE<0) HIST_PAGE=0;
+  const from=HIST_PAGE*HIST_PER, slice=show.slice(from, from+HIST_PER);
+
+  const pg=$("#histPager");
+  if(pg) pg.innerHTML = show.length>HIST_PER
+    ? `<button class="act ghost" id="hpFirst"${HIST_PAGE?"":" disabled"}>&laquo;</button>
+       <button class="act ghost" id="hpPrev"${HIST_PAGE?"":" disabled"}>&lsaquo;</button>
+       <span class="pgnow">${(from+1).toLocaleString()}–${
+         Math.min(show.length,from+HIST_PER).toLocaleString()} / ${show.length.toLocaleString()}</span>
+       <button class="act ghost" id="hpNext"${HIST_PAGE>=pages-1?" disabled":""}>&rsaquo;</button>
+       <button class="act ghost" id="hpLast"${HIST_PAGE>=pages-1?" disabled":""}>&raquo;</button>
+       <span class="pgnow">${LANG?"page":"第"} ${HIST_PAGE+1} / ${pages}${LANG?"":" 頁"}</span>`
+    : (show.length?`<span class="pgnow">${show.length.toLocaleString()}${
+         LANG?" line(s)":" 列"}</span>`:"");
+  const go=(id,to)=>{ const b=$("#"+id); if(b) b.onclick=()=>{ HIST_PAGE=to; renderHist(); }; };
+  go("hpFirst",0); go("hpPrev",HIST_PAGE-1); go("hpNext",HIST_PAGE+1); go("hpLast",pages-1);
+
   tb.innerHTML = show.length
-    ? show.slice(0,400).map(r=>`<tr>
+    ? slice.map(r=>`<tr>
         <td class="mono">${esc(r.invoice)}</td><td>${esc(r.invDate)}</td>
         <td>${esc(r.shipDate)}</td><td>${esc(r.layer)}</td>
         <td>${esc(r.detail||"")}</td><td class="mono">${esc(r.code)}</td>
         <td class="wrap">${esc(r.desc)}</td><td>${esc(r.zone)}</td>
-        <td class="num">${r.entered||""}</td><td class="num">${r.billed||""}</td>
+        <td class="num">${r.entered}</td><td class="num">${r.billed}</td>
         <td>${esc(r.dimsC||"")}</td><td>${esc(r.dimsA||"")}</td>
         <td class="num${r.net<0?" neg":""}">${money(r.net)}</td></tr>`).join("")
     : `<tr><td colspan="13" class="empty">${
@@ -4613,6 +4640,9 @@ function renderHist(){
                  :"在上面輸入追蹤號後按查詢。")}</td></tr>`;
 }
 let HISTROWS=null;
+/* 分頁狀態。每頁四百列是畫得動又不用一直按下一頁的折衷。 */
+const HIST_PER=400;
+let HIST_PAGE=0, HIST_Q=null;
 
 /* ---- 匯出 ---- */
 $("#bCsv").onclick=()=>{
@@ -4785,7 +4815,6 @@ const I18N={
   "hd.rulesforce":["目前生效的規則","Rules in Force"],
   "lb.defdim":["預設材積除數","Default DIM factor"],
   "hd.loadedrates":["已載入的運費表","Loaded base rates"],
-  "btn.imprateb":["批量匯入運費表","Batch import base rates"],
   "btn.viewrates":["檢視已載入的運費","View loaded rates"],
   "hd.bulkdim":["批量設定 DIM 除數","Bulk Set DIM Factor"],
   "hd.dimforce":["生效中的 DIM 除數","DIM Factors in Force"],
