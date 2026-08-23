@@ -860,16 +860,36 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
    。這裡照抄,
    有標題列時再用標題覆蓋。
    ===================================================================== */
+/* UPS 的 250 欄帳單沒有標題列 —— 實際下載回來的檔案就是直接從資料列開始。
+   欄位位置全部照桌面版的常數,不是自己數的:DATE_COL 11、
+   ENTERED_WEIGHT_COL 26、BILLED_WEIGHT_COL 28、BILLED_WEIGHT_TYPE_COL 31、
+   PACKAGE_DIM_TEXT_COL 32、ZONE_COL 33、AI 34、AJ 35、AR 43、AS 44、
+   SERVICE_COL 45、HR_DIM_COL 225。
+   少了這些,沒有標題列的檔案會讀不到 Zone、重量、尺寸與層別 —— 不是報錯,
+   是安靜地把每一件都當成沒有尺寸的普通件。 */
 const FIXED_COLS = {
-  "Invoice Date": 4, "Invoice Number": 5, "Lead Shipment Number": 13,
-  "Tracking Number": 20, "Charge Classification Code": 43,
-  "Charge Description Code": 44, "Charge Description": 45, "Net Amount": 52
+  "Invoice Date": 4, "Invoice Number": 5, "Transaction Date": 11,
+  "Lead Shipment Number": 13, "Tracking Number": 20,
+  "Entered Weight": 26, "Billed Weight": 28, "Billed Weight Type": 31,
+  "Package Dimensions": 32, "Zone": 33,
+  "Charge Category Code": 34, "Charge Category Detail Code": 35,
+  "Charge Classification Code": 43, "Charge Description Code": 44,
+  "Charge Description": 45, "Net Amount": 52,
+  "Detail Keyed Dimensions": 225
 };
-/* 標題列存在時才找得到的欄位。找不到就留空,不猜。 */
+/* 有標題列時照名字對,沒有就用上面的位置。 */
 const BY_NAME = ["Transaction Date","Zone","Entered Weight","Billed Weight",
                  "Billed Weight Type","Package Dimensions",
                  "Detail Keyed Dimensions","Charge Category Code",
                  "Charge Category Detail Code","Incentive Amount"];
+/* Zone 在帳單上是補零的三位數("008"),費率表的欄位是 "Zone 8"。
+   照桌面版:去掉結尾的 .0,再去掉前導零。 */
+function normZone(v){
+  let z=String(v==null?"":v).trim();
+  if(z.endsWith(".0")) z=z.slice(0,-2);
+  z=z.replace(/^0+/,"");
+  return z;
+}
 
 
 /* 狀態變數宣告在外殼,見下方畫面區 */
@@ -968,6 +988,126 @@ function readConfig(cfg){
   };
 }
 
+/* =====================================================================
+   燃油
+   ---------------------------------------------------------------------
+   照桌面版 fuel_settings_for() + fuel_percent_for_date():
+     · 渠道自己有排程或自己的百分比 → 用它的;只填百分比沒排程就沿用全域排程
+     · 否則用全域排程與全域百分比
+     · 有排程就按出貨日挑期間(頭尾都含);沒日期或沒有涵蓋的期間 → 退回
+       百分比,而且要在 issue 欄講出來,不能無聲退回
+   ===================================================================== */
+function schedDate(v){
+  const t=String(v==null?"":v).trim();
+  if(!t||["nan","nat","none"].indexOf(t.toLowerCase())>=0) return "";
+  let m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t);
+  if(!m) m=/^(\d{4})\/(\d{1,2})\/(\d{1,2})/.exec(t);
+  if(m) return m[1]+"-"+String(m[2]).padStart(2,"0")+"-"+String(m[3]).padStart(2,"0");
+  /* 12/31/2026 這種美式寫法 */
+  m=/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/.exec(t);
+  if(m) return m[3]+"-"+String(m[1]).padStart(2,"0")+"-"+String(m[2]).padStart(2,"0");
+  const d=new Date(t);
+  if(isNaN(d.getTime())) return "";
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")
+        +"-"+String(d.getDate()).padStart(2,"0");
+}
+function fuelSettingsFor(cfg, channel){
+  const raw=cfg.raw||{};
+  const name=String(channel||"").trim();
+  const gSched=Array.isArray(raw.fuel_schedule)?raw.fuel_schedule:[];
+  const gPct=toNum((raw.global_rules||{}).fuel_percent);
+  const cSched=(raw.channel_fuel_schedules||{})[name];
+  const cPctRaw=String(((raw.channel_fuel_percents||{})[name])==null
+    ?"":(raw.channel_fuel_percents||{})[name]).trim();
+  const hasSched=Array.isArray(cSched)&&cSched.length>0;
+  if(hasSched||cPctRaw!==""){
+    return {sched:hasSched?cSched:gSched, pct:cPctRaw!==""?toNum(cPctRaw):gPct, own:true};
+  }
+  return {sched:gSched, pct:gPct, own:false};
+}
+function fuelPercentFor(cfg, channel, shipDate){
+  const fs=fuelSettingsFor(cfg, channel);
+  if(!fs.sched.length) return {pct:fs.pct, note:""};
+  const d=schedDate(shipDate);
+  if(!d) return {pct:fs.pct,
+    note:L("燃油:這一筆沒有出貨日期,用了預設 ","Fuel: no ship date, used the default ")+fs.pct+"%"};
+  for(const wnd of fs.sched){
+    const a=schedDate(wnd.start), b=schedDate(wnd.end);
+    if(a&&b&&a<=d&&d<=b)
+      return {pct:toNum(wnd.percent!=null?wnd.percent:wnd.pct), note:""};
+  }
+  return {pct:fs.pct,
+    note:L("燃油:"+d+" 不在任何期間內,用了預設 ",
+           "Fuel: no schedule covers "+d+", used the default ")+fs.pct+"%"};
+}
+
+/* =====================================================================
+   Demand(旺季附加費)
+   ---------------------------------------------------------------------
+   照桌面版 calc_demand_surcharge() / find_demand_row() /
+   demand_service_group():
+     · 期間看出貨日,不是發票日 —— 出貨在期間之前的件不會因為帳單晚寄
+       就變成要收
+     · 特殊處理一件只收一項,OVR > LPS > AHS;有 GROUP 的列優先於空白的
+     · 服務級距的分組不從名字猜,只認設定裡的對照;對照成空字串就是
+       「這條線不收服務級距」,和「沒設定」不一樣
+     · UPS 對 Demand 也收燃油,所以它要進燃油底
+   ===================================================================== */
+const DEMAND_GROUPS=["GROUND_SAVER","GROUND_RESIDENTIAL","NEXT_DAY_AIR","OTHER_AIR"];
+function findDemandRow(rows, shipDate){
+  const d=schedDate(shipDate);
+  if(!d) return null;
+  for(const r of (rows||[])){
+    const a=schedDate(r.start), b=schedDate(r.end);
+    if(a&&b&&a<=d&&d<=b) return r;
+  }
+  return null;
+}
+function demandServiceGroup(service, overrides, knownGroups){
+  const key=String(service||"").trim().toLowerCase();
+  const map={};
+  for(const k in (overrides||{}))
+    map[String(k).trim().toLowerCase()]=String(overrides[k]).trim().toUpperCase();
+  const valid=(knownGroups&&knownGroups.length?knownGroups:DEMAND_GROUPS)
+    .map(g=>String(g).trim().toUpperCase());
+  if(Object.prototype.hasOwnProperty.call(map,key)){
+    const chosen=map[key];
+    return valid.indexOf(chosen)>=0 ? chosen : null;
+  }
+  /* 不從名字猜。沒對照過的渠道就是不收服務級距。 */
+  return null;
+}
+function demandInUse(cfg){
+  const d=(cfg.raw||{}).demand_config||{};
+  if(!d.enabled) return false;
+  return !!((d.special_rows&&d.special_rows.length)||(d.service_rows&&d.service_rows.length));
+}
+function calcDemand(cfg, shipDate, service, flags){
+  const d=(cfg.raw||{}).demand_config||{};
+  const out={group:"",ahs:0,lps:0,ovr:0,service:0,total:0};
+  const groups=d.service_groups||{};
+  let pkgGroup="";
+  for(const k in groups)
+    if(String(k).trim().toLowerCase()===String(service||"").trim().toLowerCase())
+      { pkgGroup=String(groups[k]).trim().toUpperCase(); break; }
+  const special=d.special_rows||[];
+  let row=findDemandRow(special.filter(r=>
+    String(r.GROUP||"").trim() && String(r.GROUP||"").trim().toUpperCase()===pkgGroup), shipDate);
+  if(!row) row=findDemandRow(special.filter(r=>!String(r.GROUP||"").trim()), shipDate);
+  if(row){
+    if(flags.ovr)      out.ovr=toNum(row.OVR);
+    else if(flags.lps) out.lps=toNum(row.LPS);
+    else if(flags.ahs) out.ahs=toNum(row.AHS);
+  }
+  const srow=findDemandRow(d.service_rows||[], shipDate);
+  if(srow){
+    const g=demandServiceGroup(service, groups, d.service_group_names);
+    if(g){ out.group=g; out.service=toNum(srow[g]); }
+  }
+  out.total=Math.round((out.ahs+out.lps+out.ovr+out.service)*100)/100;
+  return out;
+}
+
 /* ---- 基本費率查表:service × residential × zone × 計費重量 ---- */
 function lookupBaseRate(cfg, service, residential, zone, billWeight){
   /* Ground 的兩張表用名字分商/住("Ground Commercial" / "Ground Residential"),
@@ -1014,32 +1154,122 @@ function lookupBaseRate(cfg, service, residential, zone, billWeight){
      · AHS/LPS 一律用尺寸與重量門檻判定,絕不看帳單上的附加費代碼
      · OVR/OML 只在 UPS 實際收了才算,不自行依門檻判斷 —— 和 AHS 相反
    ===================================================================== */
-function billableWeight(cfg, entered, dims){
+/* DIM 除數的來源順序,照桌面版:
+     渠道自己的(custom_service_registry.dim_factor 或 channel_dim_factors)
+     → 「預設 DIM factor」那一格
+     → 公告的 139
+   桌面版的 global_rules.dim_factor 只存不用,這裡也不看它,不然同一份設定
+   檔兩邊會算出不同的計費重量。 */
+const TARIFF_DIM_FACTOR=139;
+/* 每條渠道的 AHS / LPS 規則,照桌面版 channel_rules():全域設定當底,
+   渠道自己填了的那幾格疊上去,空白 = 沿用全域。數字回數字、開關回布林,
+   呼叫端不必再解析。開關預設為開 —— 桌面版是 var is None 時當 True。 */
+const RULE_NUM_FIELDS=["oversize_longest_side","oversize_actual_weight",
+  "oversize_cubic_inches","oversize_length_girth","oversize_min_billable_weight",
+  "ahs_weight_threshold","ahs_longest_side","ahs_second_side","ahs_cubic_inches",
+  "ahs_lg_limit","ahs_min_billable_weight"];
+const RULE_BOOL_FIELDS=["use_oversize_longest","use_oversize_weight",
+  "use_oversize_cubic","use_oversize_lg","use_ahs_weight","use_ahs_longest",
+  "use_ahs_second","use_ahs_cubic","use_ahs_lg"];
+function ruleBool(v){
+  if(v===true||v===false) return v;
+  const t=String(v==null?"":v).trim().toUpperCase();
+  return t===""?null:["YES","Y","TRUE","1","是","ON"].indexOf(t)>=0;
+}
+function channelRules(cfg, channel){
+  const raw=cfg.raw||{}, g=raw.global_rules||{}, out={};
+  for(const f of RULE_NUM_FIELDS) out[f]=toNum(g[f]);
+  for(const f of RULE_BOOL_FIELDS){ const b=ruleBool(g[f]); out[f]=(b===null?true:b); }
+  const name=String(channel||"").trim();
+  if(!name) return out;
+  const reg=(raw.custom_service_registry||{})[name];
+  const ovr = reg ? (reg.rules||{}) : ((raw.channel_rule_overrides||{})[name]||{});
+  for(const f of RULE_NUM_FIELDS){
+    if(String(ovr[f]==null?"":ovr[f]).trim()==="") continue;
+    const v=toNum(ovr[f]); if(v||v===0) out[f]=v;
+  }
+  for(const f of RULE_BOOL_FIELDS){
+    const b=ruleBool(ovr[f]); if(b!==null) out[f]=b;
+  }
+  return out;
+}
+function defaultDimDivisor(cfg){
+  const v=toNum(((cfg.raw||{}).global_rules||{}).default_dim_factor);
+  return v>0?v:TARIFF_DIM_FACTOR;
+}
+function dimFactorFor(cfg, channel){
+  const name=String(channel||"").trim();
+  if(name){
+    const reg=((cfg.raw||{}).custom_service_registry||{})[name];
+    const raw = reg ? reg.dim_factor : ((cfg.raw||{}).channel_dim_factors||{})[name];
+    const v=toNum(raw);
+    if(v>0) return {factor:v, src:"channel"};
+  }
+  const d=toNum(((cfg.raw||{}).global_rules||{}).default_dim_factor);
+  if(d>0) return {factor:d, src:"default"};
+  return {factor:TARIFF_DIM_FACTOR, src:"tariff"};
+}
+/* 哪些代碼算 AHS - Dimension:去問代碼登錄表,不在程式裡另開名單。 */
+function ahsDimCodes(cfg){
+  const reg=(cfg&&cfg.codeReg)||{}, out={};
+  for(const c in reg){
+    const t=String((reg[c]||{}).charge_type||"").toUpperCase().replace(/\s+/g,"");
+    if(t==="AHS-DIMENSION") out[String(c).toUpperCase()]=true;
+  }
+  return out;
+}
+function billableWeight(cfg, entered, dims, channel, scales){
+  const S=scales||{};
+  const ahsScale=(S.ahsScale===undefined?entered:S.ahsScale);
+  const lpsScale=(S.lpsScale===undefined?entered:S.lpsScale);
   const out={entered, dim:null, billable:entered, basis:L("輸入重量","Entered weight"),
              ahsDim:false, ahsWeight:false, oversize:false};
-  if(dims && cfg.dimFactor>0){
-    out.dim=Math.ceil(dims.l*dims.w*dims.h/cfg.dimFactor);
+  const dv=dimFactorFor(cfg, channel);
+  out.dimFactor=dv.factor; out.dimSrc=dv.src;
+  const R=channelRules(cfg, channel);
+  out.rules=R;
+  if(dims && dv.factor>0){
+    out.dim=Math.ceil(dims.l*dims.w*dims.h/dv.factor);
     if(out.dim>out.billable){ out.billable=out.dim; out.basis=L("DIM 重量","DIM weight"); }
   }
   if(dims){
-    const girth=dims.l+2*(dims.w+dims.h);
-    out.ahsDim = (cfg.ahsLongest>0 && dims.l>cfg.ahsLongest)
-              || (cfg.ahsSecond>0 && dims.w>cfg.ahsSecond)
-              || (cfg.ahsCubic>0 && dims.l*dims.w*dims.h>cfg.ahsCubic)
-              || (cfg.ahsLG>0 && girth>cfg.ahsLG);
-    out.oversize = (cfg.ovrLongest>0 && dims.l>cfg.ovrLongest)
-                || (cfg.ovrCubic>0 && dims.l*dims.w*dims.h>cfg.ovrCubic)
-                || (cfg.ovrLG>0 && girth>cfg.ovrLG);
+    /* 桌面版把 L+G 四捨五入到小數兩位再比,而且剛好等於門檻不算超過
+       (isclose, abs_tol=0.01)。131 對 130 會觸發,130.004 對 130 不會。 */
+    const girth=Math.round((dims.l+2*(dims.w+dims.h))*100)/100;
+    const cube=dims.l*dims.w*dims.h;
+    const over=(v,thr)=>thr>0 && v>thr && Math.abs(v-thr)>0.01;
+    out.ahsDim = (R.use_ahs_longest && R.ahs_longest_side>0 && dims.l>R.ahs_longest_side)
+              || (R.use_ahs_second  && R.ahs_second_side>0  && dims.w>R.ahs_second_side)
+              || (R.use_ahs_cubic   && R.ahs_cubic_inches>0 && cube>R.ahs_cubic_inches)
+              || (R.use_ahs_lg      && R.ahs_lg_limit>0     && girth>R.ahs_lg_limit);
+    out.oversize = (R.use_oversize_longest && R.oversize_longest_side>0 && dims.l>R.oversize_longest_side)
+                || (R.use_oversize_cubic   && R.oversize_cubic_inches>0 && cube>R.oversize_cubic_inches)
+                || (R.use_oversize_lg      && over(girth, R.oversize_length_girth));
   }
-  out.ahsWeight = cfg.ahsWeightThr>0 && entered>cfg.ahsWeightThr;
+  /* LPS 的重量條原本整條漏掉:超過實際重量門檻(預設 110 lb)就算超大件,
+     和尺寸無關。桌面版用的是磅秤重量,不是被 DIM 撐大的計費重量。 */
+  if(R.use_oversize_weight && R.oversize_actual_weight>0 && lpsScale>R.oversize_actual_weight)
+    out.oversize=true;
+  out.ahsWeight = R.use_ahs_weight && R.ahs_weight_threshold>0 && ahsScale>R.ahs_weight_threshold;
+  out.ahsScale=ahsScale; out.lpsScale=lpsScale;
 
-  /* 最低計費重量。AHS 這一條只套 Dimension —— Weight 和 Packaging 沒有下限。 */
-  if(out.ahsDim && cfg.ahsMinBillable>0 && out.billable<cfg.ahsMinBillable){
-    out.billable=cfg.ahsMinBillable;
+  /* 最低計費重量。AHS 這一條只套 Dimension —— Weight 和 Packaging 沒有下限。
+     兩條路分開判,照桌面版:
+       · 我們自己依門檻判定的:Billed Weight Type 8(SCC 重新定基)與
+         9(材積重主導)時 UPS 不會把計費重拉到 AHS 下限,所以不套。
+       · UPS 自己開過 AHS - Dimension 代碼的:不受 type 限制。UPS 判過之後
+         就算事後用 SCC 沖掉附加費,被拉高的計費重也不會退回去;我們照
+         自己合約的下限算,否則同一顆箱子收得比成本低。 */
+  const bwtHere=(S.bwt===undefined?0:S.bwt);
+  const ahsMinApplies=(bwtHere!==8&&bwtHere!==9);
+  out.ahsFloorBy = (out.ahsDim&&ahsMinApplies) ? "threshold"
+                 : (S.upsAhsFloor ? "ups code" : "");
+  if(out.ahsFloorBy && R.ahs_min_billable_weight>0 && out.billable<R.ahs_min_billable_weight){
+    out.billable=R.ahs_min_billable_weight;
     out.basis=L("AHS-Dimension 最低計費重","AHS-Dimension minimum billable");
   }
-  if(out.oversize && cfg.ovrMinBillable>0 && out.billable<cfg.ovrMinBillable){
-    out.billable=cfg.ovrMinBillable;
+  if(out.oversize && R.oversize_min_billable_weight>0 && out.billable<R.oversize_min_billable_weight){
+    out.billable=R.oversize_min_billable_weight;
     out.basis=L("超大件最低計費重","Large package minimum billable");
   }
   return out;
@@ -1125,8 +1355,6 @@ const AHS_PKG  = new Set(["AHC","AHP"]);
 const LPS_CODE = new Set(["LPS","LPR","LCC","LCR","LCT","LWC","LWR"]);
 const LPS_RES  = new Set(["LPR","LCR","LWR"]);
 const LPS_COM  = new Set(["LPS","LCT","LCC","LWC"]);
-
-function normZone(z){ return String(z==null?"":z).trim(); }
 
 /* 原始碼 accessorial_lookup 的移植。
    查不到不回退成別的費率 —— 回 0 並且記成 issue,因為 0 只有在
@@ -1267,14 +1495,59 @@ function priceShipment(cfg, s){
       ? (residential?"Ground Residential":"Ground Commercial")
       : svc;
 
-  const bw=billableWeight(cfg, s.entered, s.dims);
+  /* AHS-Weight 用磅秤重量,不是計費重也不是 SCC 更正後的重量。 */
+  let ahsScale;
+  if(s.layer==="ADJ") ahsScale = s.refEntered>0 ? s.refEntered
+                               : (s.refBilled>0 ? s.refBilled : s.entered);
+  else ahsScale = s.entered>0 ? s.entered : s.billedUPS;
+  /* LPS 的重量條同理,但沒有 entered 時先看 billed 再退回計費重。 */
+  let lpsScale;
+  if(s.refEntered>0) lpsScale=s.refEntered;
+  else if(s.entered>0) lpsScale=s.entered;
+  else if(s.refBilled>0) lpsScale=s.refBilled;
+  else lpsScale=s.billedUPS;
+  /* 純 ADJ 的 Billed Weight Type 9:entered 和 billed 兩欄都是材積驅動的
+     計費重,沒有任何可信的磅秤重量,重量那條就不能觸發 —— 交給尺寸判。 */
+  if(s.pureAdj && s.bwt===9){ ahsScale=0; lpsScale=0; }
+
+  /* UPS 有沒有開過 AHS - Dimension 代碼。被 SCC 沖掉的也算數 ——
+     那是 UPS 明講「我判了 AHS - Dimension」的直接證據。 */
+  const dimCodes=ahsDimCodes(cfg);
+  const upsAhsFloor=s.lines.some(l=>dimCodes[String(l.code||"").toUpperCase()]);
+  const bw=billableWeight(cfg, s.entered, s.dims, channel,
+    {ahsScale:ahsScale, lpsScale:lpsScale, bwt:s.bwt, upsAhsFloor:upsAhsFloor});
+  /* 退到公告的 139 會改變這條線上每一件的計費重量,不能悄悄發生。
+     渠道自己有值、或「預設 DIM factor」有填,都不會走到這裡。 */
+  if(bw.dimSrc==="tariff" && s.dims)
+    issues.push(L("這條渠道與預設都沒有 DIM 除數,用了公告的 139:",
+                  "No DIM factor on this channel or in the default, used the published 139: ")+channel);
   const zone=s.zone;
 
-  /* 運費 */
-  let base=null, baseWhy=null;
+  /* 運費。跨期更正單同時帶著 C(更正後,Package Dimensions)與
+     A(原始,Detail Keyed Dimensions)兩組尺寸時,UPS 收的是差額,
+     所以要各算一次再相減 —— 只算 C 會把原本已經收過的那一段再收一次。
+     A 用原出貨的服務別;查不到就沿用這一筆的。 */
+  const g0=s.groups&&s.groups.length?s.groups[0]:null;
+  const netCA = !!(s.pureAdj && g0 && g0.dimsC && g0.dimsA);
+  let base=null, baseWhy=null, baseA=null, bwA=null;
   if(zone && s.service){
     const lk=lookupBaseRate(cfg, svc, residential, zone, bw.billable);
     base=lk.rate; baseWhy=lk.why;
+    if(netCA && base!==null){
+      const svcA=s.refService?guessService(s.refService):svc;
+      const resA=s.refService?/residential/i.test(s.refService):residential;
+      bwA=billableWeight(cfg, s.entered, g0.dimsA, channel,
+        {ahsScale:ahsScale, lpsScale:lpsScale, bwt:s.bwt, upsAhsFloor:upsAhsFloor});
+      /* 1x1x1 是 UPS 沒量到尺寸時寫的預設值,不是真的量出來的。拿它當
+         原始包裹會讓差額偏大,所以照算但標出來,不要無聲吃掉。 */
+      if(g0.dimsA.l<=1&&g0.dimsA.w<=1&&g0.dimsA.h<=1)
+        issues.push(L("原始包裹尺寸是 1x1x1(UPS 未量測的預設值),差額可能偏大",
+          "The original package is 1x1x1, UPS's placeholder for unmeasured, so the difference may be overstated"));
+      const lkA=lookupBaseRate(cfg, svcA, resA, zone, bwA.billable);
+      if(lkA.rate===null) issues.push(L("原始包裹查不到費率,運費沒有扣掉原本收過的那一段:",
+        "No rate for the original package, so the freight is not netted: ")+(lkA.why||""));
+      else { baseA=lkA.rate; base=Math.round((base-baseA)*100)/100; }
+    }
   }else baseWhy = !zone ? L("這一筆沒有 Zone","This line has no Zone")
                          : L("認不出服務別","Service not recognised");
   if(baseWhy) issues.push(baseWhy);
@@ -1310,6 +1583,21 @@ function priceShipment(cfg, s){
     else acc["Declared Value"]=dv;
   }
 
+  /* Demand。只有帶運費的那一層收 —— 純附加費的 ADJ 不是第二件包裹,
+     再收一次就變成同一件收兩次。UPS 對 Demand 也收燃油,所以放在
+     燃油底算出來之前。 */
+  let demand=null;
+  if(demandInUse(cfg) && base!==null){
+    demand=calcDemand(cfg, s.shipDate, channel, {
+      ahs: !!(acc["AHS Weight"]||acc["AHS Dimension"]||acc["AHS Packaging"]),
+      lps: !!acc["Large Package"],
+      ovr: !!acc["Over Maximum Size Surcharge"]});
+    if(demand.ahs) acc["Demand AHS"]=demand.ahs;
+    if(demand.lps) acc["Demand LPS"]=demand.lps;
+    if(demand.ovr) acc["Demand OVR"]=demand.ovr;
+    if(demand.service) acc["Demand Service"]=demand.service;
+  }
+
   /* 燃油。自訂附加費標 Fuel Eligible = NO 的不進燃油底,但仍然算進
      合約總額 —— 桌面版 fuel_base 那一段的算法。內建附加費一律計燃油。 */
   const accTotal=Object.values(acc).reduce((a,b)=>a+b,0);
@@ -1318,11 +1606,24 @@ function priceShipment(cfg, s){
     .filter(([k])=>noFuel.has(k))
     .reduce((a,[,v])=>a+v,0);
   const fuelBase=(base||0)+accTotal-nonFuelSum;
-  const fuel = cfg.fuelPct>0 ? fuelBase*cfg.fuelPct/100 : 0;
+  const fp=fuelPercentFor(cfg, channel, s.shipDate);
+  if(fp.note) issues.push(fp.note);
+  const fuel = fp.pct>0 ? fuelBase*fp.pct/100 : 0;
 
-  const total = base===null ? null : base+accTotal+fuel;
-  return {s, bw, residential, resBasis, channel, base, baseWhy,
-          acc, accInfo, accTotal, fuel, total, issues,
+  let total = base===null ? null : base+accTotal+fuel;
+
+  /* Not Previously Billed:UPS 當時漏開的第二段運送。它自己算一次,
+     金額進總額,但欄位分開列 —— 把 Base Rate 100 印在計費重 40 的那一格
+     旁邊,是一列自相矛盾的資料。 */
+  let npb=null;
+  if(s.npb){
+    npb=priceShipment(cfg, s.npb);
+    if(npb.total!==null) total = (total===null?0:total)+npb.total;
+    for(const m of npb.issues) issues.push(L("第二段運送:","Second movement: ")+m);
+  }
+
+  return {s, bw, bwA, residential, resBasis, channel, base, baseA, netCA, baseWhy, demand,
+          acc, accInfo, accTotal, fuel, fuelPct:fp.pct, total, issues, npb,
           notRepriced:scan.notRepriced,
           diff: total===null?null: total-s.upsTotal};
 }
@@ -1348,15 +1649,56 @@ function ingest(text){
       shipDate:g(r,"Transaction Date"),
       tracking:g(r,"Tracking Number"), lead:g(r,"Lead Shipment Number"),
       layer, cls, code:g(r,"Charge Description Code").toUpperCase(),
+      detail:g(r,"Charge Category Detail Code").toUpperCase(),
       desc:g(r,"Charge Description"),
-      zone:g(r,"Zone"),
+      zone:normZone(g(r,"Zone")),
       entered:toNum(g(r,"Entered Weight")),
       billed:toNum(g(r,"Billed Weight")),
+      bwt:g(r,"Billed Weight Type"),
       dimsC:g(r,"Package Dimensions"), dimsA:g(r,"Detail Keyed Dimensions"),
       net:toNum(g(r,"Net Amount"))
     };
   }).filter(r=>r.tracking||r.net);
   return {rows, hasHdr, cols:Object.keys(idx).length};
+}
+
+/* =====================================================================
+   分層
+   ---------------------------------------------------------------------
+   桌面版是 (追蹤號, 層) 一組,不是一個追蹤號一組。這件事有實際後果:
+     · CLB(Not Previously Billed)是第二段運送,有自己的重量尺寸 Zone,
+       合併時要「加上去」
+     · SCC 是同一件重新計價,要「取代」原本那一段
+   全部併成一列之後,這兩者長得一模一樣,分不出來。
+
+   這一版先把結構建出來並掛在 shipment 上,計價仍走合併後的整筆,
+   數字一個都不動;CLB 與 SCC 的分支在後面兩步才接上去。
+   ===================================================================== */
+function layerGroup(lines){
+  const frt=lines.find(l=>/freight|ground|air|day/i.test(l.desc))||lines[0];
+  const pick=k=>(lines.find(l=>l[k])||{})[k];
+  const o={
+    lines,
+    layer:(lines[0]||{}).layer||"MIS",
+    service:frt?frt.desc:"",
+    zone:pick("zone")||"",
+    entered:Math.max(0,...lines.map(l=>l.entered)),
+    billed:Math.max(0,...lines.map(l=>l.billed)),
+    dimsC:parseDims(pick("dimsC")),
+    dimsA:parseDims(pick("dimsA")),
+    net:lines.reduce((a,l)=>a+l.net,0),
+    shipDate:(frt&&frt.shipDate)||pick("shipDate")||"",
+    bwt:0,
+    details:new Set(lines.map(l=>l.detail).filter(Boolean)),
+    /* 這一層自己有沒有運費。CLB 判定要用:ADJ + CLB + 有 FRT 才是第二段。 */
+    hasFreight:lines.some(l=>l.code==="FRT"||/freight/i.test(l.desc))
+  };
+  o.dims=o.dimsC||o.dimsA;
+  for(const l of lines){
+    const t=String(l.bwt||"").trim();
+    if(t&&t.toLowerCase()!=="nan"){ const n=Math.trunc(toNum(t)); if(n) o.bwt=n; }
+  }
+  return o;
 }
 
 /* ---- 服務名稱:從 FRT 行的說明推出來,住宅與否看有沒有住宅附加費 ---- */
@@ -1368,6 +1710,19 @@ function shipmentsOf(rows){
     by.get(r.tracking).lines.push(r);
   }
   for(const s of by.values()){
+    /* 這一筆的每一行,不論屬於哪一段運送。UPS 實收金額要用它,
+       不然 CLB 拆出去之後差異欄就對不起來。 */
+    s.allLines=s.lines;
+
+    /* CLB = Not Previously Billed,是 UPS 當時漏開的「第二段運送」,
+       有自己的重量、尺寸與 Zone,不是同一件的更正。它跟原出貨併在一起
+       算,會拿到別段的 Zone 和重量 —— 兩邊都錯。
+       原出貨不在這張帳單裡時,CLB 本身就是這一筆,照舊合併。 */
+    const clbLines=s.lines.filter(l=>l.layer==="ADJ"&&l.detail==="CLB");
+    const hasOrigin=s.lines.some(l=>l.layer==="SHP"||l.layer==="RTN");
+    s.clbLines = (clbLines.length&&hasOrigin) ? clbLines : [];
+    if(s.clbLines.length) s.lines=s.lines.filter(l=>s.clbLines.indexOf(l)<0);
+
     const frt=s.lines.find(l=>/freight|ground|air|day/i.test(l.desc))||s.lines[0];
     s.service=frt?frt.desc:"";
     s.zone=(s.lines.find(l=>l.zone)||{}).zone||"";
@@ -1375,7 +1730,73 @@ function shipmentsOf(rows){
     s.billedUPS=Math.max(...s.lines.map(l=>l.billed),0);
     s.dims=parseDims((s.lines.find(l=>l.dimsC)||{}).dimsC)
         || parseDims((s.lines.find(l=>l.dimsA)||{}).dimsA);
-    s.upsTotal=s.lines.reduce((a,l)=>a+l.net,0);
+    s.upsTotal=s.allLines.reduce((a,l)=>a+l.net,0);
+    /* 燃油按出貨日挑期間,所以要把日期帶上來。優先用運費那一行的。 */
+    s.shipDate=(frt&&frt.shipDate)||(s.lines.find(l=>l.shipDate)||{}).shipDate||"";
+
+    /* ADJ 的磅秤重量回溯,照桌面版 shp_rtn_weights:
+       ADJ 那一行的 entered 常常是被 DIM 撐大的「更正後計費重」——
+       41 lb 的件在 ADJ 上可能寫 95。拿它去比 50 lb 的 AHS 門檻會誤觸發,
+       所以同一個追蹤號只要有 SHP / RTN,一律用它們的重量。 */
+    /* 非 ADJ 層的 entered 為 0(退貨常見:重量只寫在 Billed 欄),
+       用 billed 當重量,不然計費重會掉到材積重,運費算低。 */
+    if(s.entered<=0 && !s.lines.every(l=>l.layer==="ADJ"))
+      s.entered=Math.max(s.billedUPS, s.entered);
+
+    /* 依層分組,檔案裡出現的順序。合併後的欄位一個都沒改,
+       所以這一步不會動到任何金額。 */
+    s.byLayer={}; s.layers=[];
+    for(const l of s.lines){
+      const k=l.layer;
+      if(!s.byLayer[k]){ s.byLayer[k]=[]; s.layers.push(k); }
+      s.byLayer[k].push(l);
+    }
+    s.groups=s.layers.map(k=>layerGroup(s.byLayer[k]));
+    s.groupOf=k=>s.groups.find(g=>g.layer===k)||null;
+    /* 之後 SCC / CLB 要用的兩個判斷,先算好放著,這一步還沒有人讀。 */
+    s.adjClb=s.groups.filter(g=>g.layer==="ADJ"&&g.details.has("CLB")&&g.hasFreight);
+    s.adjScc=s.groups.filter(g=>g.layer==="ADJ"&&g.details.has("SCC"));
+
+    const ref=s.lines.filter(l=>l.layer==="SHP"||l.layer==="RTN");
+    s.refEntered=Math.max(0,...ref.map(l=>l.entered));
+    s.refBilled =Math.max(0,...ref.map(l=>l.billed));
+    /* s.layer 在這一行之後才決定,所以直接看有沒有 ADJ 行,
+       不要讀還沒賦值的 s.layer。 */
+    s.pureAdj = ref.length===0 && s.lines.some(l=>l.layer==="ADJ");
+    /* 原出貨的服務名稱與尺寸,跨期 ADJ 要回頭查。住宅優先 ——
+       RTN 那一層的說明常常是泛稱。 */
+    const refG=s.groups.filter(g=>g.layer==="SHP"||g.layer==="RTN");
+    s.refService="";
+    for(const g of refG){
+      if(!s.refService||/residential/i.test(g.service)) s.refService=g.service;
+    }
+    s.refDimsC=(refG.find(g=>g.dimsC)||{}).dimsC||null;
+    s.refDimsA=(refG.find(g=>g.dimsA)||{}).dimsA||null;
+
+    /* 第二段運送做成自己的一筆,欄位規則跟主件一樣。它不吃跨期回溯:
+       CLB 有自己的磅秤重量,不是別人的更正。 */
+    s.npb=null;
+    if(s.clbLines.length){
+      const g=layerGroup(s.clbLines);
+      s.npb={
+        tracking:s.tracking, lines:s.clbLines, allLines:s.clbLines, clbLines:[],
+        service:g.service||s.service, zone:g.zone||s.zone,
+        entered:g.entered>0?g.entered:g.billed, billedUPS:g.billed,
+        dims:g.dims, shipDate:g.shipDate||s.shipDate,
+        upsTotal:g.net, layer:"ADJ", npb:null,
+        refEntered:0, refBilled:0, pureAdj:false, bwt:g.bwt,
+        resiKnown:s.resiKnown, residential:s.residential,
+        groups:[g], byLayer:{ADJ:s.clbLines}, layers:["ADJ"],
+        adjClb:[], adjScc:[], refService:s.refService,
+        refDimsC:null, refDimsA:null, groupOf:()=>g
+      };
+    }
+    /* 同一組取最後一個非空值:SCC 重新定基(8)要蓋掉原出貨的 3 / 9。 */
+    s.bwt=0;
+    for(const l of s.lines){
+      const t=String(l.bwt||"").trim();
+      if(t&&t.toLowerCase()!=="nan"){ const n=Math.trunc(toNum(t)); if(n) s.bwt=n; }
+    }
     /* 住宅判定只在 SHP 層安全。跨期 ADJ 的住宅/商業要回頭查原始
        shipment 的 FRT 說明,那要歷史資料庫 —— 這一版沒有,所以標不確定。 */
     s.resiKnown = s.lines.some(l=>l.layer==="SHP");
@@ -1710,7 +2131,7 @@ function applyConfig(text,name,remember){
   $("#cfgNote").innerHTML = CFG.tableRowCount===0 ? ""
     : `<div class="note">${LANG?"Rate tables":"費率表"} <b>${CFG.tables.length}</b> ·
         <b>${CFG.tableRowCount.toLocaleString()}</b> ${LANG?"rows":"列"} ·
-        DIM <b>${CFG.dimFactor||"—"}</b> ·
+        DIM <b>${defaultDimDivisor(CFG)}</b> ·
         ${LANG?"Fuel":"燃油"} <b>${CFG.fuelPct||0}%</b></div>`;
   renderConfigTabs();
   ready();
