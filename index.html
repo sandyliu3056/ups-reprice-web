@@ -906,10 +906,14 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
         <div class="row" style="margin-bottom:8px">
           <button class="act ghost" id="bDimAll" data-i18n="btn.selall">Select All</button>
           <button class="act ghost" id="bDimNone" data-i18n="btn.selnone">Deselect All</button>
+        </div>
+        <div id="dimChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
+        <!-- 動作按鈕放在清單下面:先勾再按,順序跟做的事一致。
+             放上面的話,勾完還要把眼睛移回去找按鈕。 -->
+        <div class="row" style="margin-top:10px">
           <button class="act" id="bChanDimTicked" data-i18n="btn.dimapply">Apply to Ticked Channels</button>
           <button class="act ghost" id="bChanDimClear" data-i18n="btn.dimreset">Reset to default</button>
         </div>
-        <div id="dimChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
       </div>
       <div class="subhd" data-i18n="hd.dimforce">DIM Factors in Force</div>
       <div class="tablewrap" style="max-height:210px"><table id="tDimForce"><thead><tr>
@@ -2591,6 +2595,11 @@ const FEE_KEY_BY_DISPLAY=(function(){
   m["Intercept Service Web"]="Return To Sender";
   return m;
 })();
+/* 桌面版的模板帶著這一項,但網頁版的申報價值是級距公式算出來的,沒有
+   「加成百分比」這個概念。畫一個永遠不參與計算的輸入框,比不畫更糟 ——
+   填了不會有作用,而且看不出來。設定檔裡原本的值不動,只是不顯示也不匯出。 */
+const FEE_HIDDEN=["Declared Value Markup %"];
+function feeShown(name){ return FEE_HIDDEN.indexOf(String(name||"").trim())<0; }
 const ACC_ZONE_FEES=["AHS Weight","AHS Dimension","AHS Packaging","Large Package"];
 const ACC_FLAT_FEES=["DAS Commercial","DAS Residential","DAS Extended Commercial",
   "DAS Extended Residential","Remote Area Commercial","Remote Area Residential",
@@ -2899,10 +2908,17 @@ function setChanDim(targets, raw){
   CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
   /* 視窗還開著,下面那張「生效中」的表要跟著更新,不然看不出剛才做了什麼。 */
   renderDimModal();
-  const what = v===""
-    ? (LANG?"DIM factor cleared on ":"已清除 DIM 除數,共 ")
-    : (LANG?"DIM factor set to "+v+" on ":"DIM 除數已設為 "+v+",共 ");
-  toast(what+targets.length+(LANG?" channel(s)":" 條渠道"), true);
+  /* 直接存檔。這個視窗沒有自己的儲存鈕,提示又寫「已設為 N」——
+     不存的話重新整理就沒了,而畫面剛剛才說做好了。 */
+  const ok=saveSettings();
+  if(ok){
+    const what = v===""
+      ? (LANG?"DIM factor cleared on ":"已清除 DIM 除數,共 ")
+      : (LANG?"DIM factor set to "+v+" on ":"DIM 除數已設為 "+v+",共 ");
+    /* saveSettings() 自己會跳一個「已儲存」,用這句蓋掉講得更具體。
+       存檔失敗時不蓋 —— 那個錯誤要留在畫面上。 */
+    toast(what+targets.length+(LANG?" channel(s), saved":" 條渠道,已儲存"), true);
+  }
   chanDimNote("");
 }
 /* 勾選、輸入、套用、看結果全部在同一個視窗裡。原本勾選在頁面下方的批量區、
@@ -3238,8 +3254,8 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
     const fee=k.split("|||")[0], banded=t[k]&&typeof t[k]==="object";
     if(!shape.has(fee)||banded) shape.set(fee,banded);
   }
-  const zoneFees=[...shape.entries()].filter(x=>x[1]).map(x=>x[0]);
-  const flatFees=[...shape.entries()].filter(x=>!x[1]).map(x=>x[0]);
+  const zoneFees=[...shape.entries()].filter(x=>x[1]).map(x=>x[0]).filter(feeShown);
+  const flatFees=[...shape.entries()].filter(x=>!x[1]).map(x=>x[0]).filter(feeShown);
 
   const ahsHead=["Fee Type","Shipment Type",...zones.map(z=>"Zone "+z)];
   const ahsRows=zoneFees.map(fee=>{
@@ -3617,7 +3633,7 @@ function renderConfigTabs(){
     const fee=k.split("|||")[0];
     shape.set(fee, t[k] && typeof t[k]==="object");
   }
-  const feeNames=[...shape.keys()].sort();
+  const feeNames=[...shape.keys()].filter(feeShown).sort();
   const zoneFees=feeNames.filter(f=>shape.get(f));
   const flatFees=feeNames.filter(f=>!shape.get(f));
 
