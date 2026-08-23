@@ -12,6 +12,8 @@
 | `.githooks/pre-commit` | 要 |
 | `supabase-js-2.112.3.js` | 要。登入用的 Supabase 用戶端 |
 | `xlsx-0.18.5.full.min.js` | 要。寫 Excel 檔的元件 |
+| `supabase/schema.sql` | 不上傳網站,在 Supabase 後台執行一次 |
+| `supabase/functions/admin-users/` | 不上傳網站,部署成 Edge Function |
 | `.nojekyll` | 要,如果部署在 GitHub Pages |
 
 **不在包裡、也不該進 repo 的:**`ups_billing_tool_config.json`(你的合約費率)、`ups_history.sqlite3`、任何帳單 CSV 或 xlsx。費率是每次開工具時自己載進去的,不是打包進去的。
@@ -22,6 +24,25 @@
 2. 安裝 hook:`git config core.hooksPath .githooks`
 3. `auth-config.js` 只填 Project URL 與 anon/publishable key。**service_role 或任何 secret key 絕對不能進前端** —— hook 會擋 JWT 形狀的字串與 Supabase secret key 前綴,但別靠它。
 4. Supabase 那邊要先跑過 `supabase/login_history.sql`,不然登入紀錄那頁會顯示錯誤。這支 SQL 不在這個包裡。
+
+## 每個帳號自己的費率
+
+費率存在 Supabase,一個帳號一列。換電腦登入還在,主帳號看得到誰設定過。同一台機器換人登入,上一個人的費率會被清掉 —— 那是合約價,不該被下一個人看到。localStorage 只當離線快取,key 綁 user id。
+
+**上線前要多做兩件事:**
+
+1. Supabase 後台 → SQL Editor,把 `supabase/schema.sql` 整份貼上執行一次。
+2. 部署 Edge Function:`supabase functions deploy admin-users`(或在後台 Functions 頁貼上 `supabase/functions/admin-users/index.ts`)。
+
+第一個主帳號要用 SQL 指定,前端做不到也不該做得到 —— 指令寫在 `schema.sql` 最後面。改完角色要重新登入一次,JWT 才會帶上新角色。
+
+## 主帳號能做什麼
+
+Admin 分頁上半部是帳號清單:新增帳號(email + 密碼 + 角色)、改角色、改密碼、刪除。新帳號的費率是**空白**的,由他自己匯入。
+
+新增與刪除需要 service_role 金鑰,那把金鑰在 Edge Function 裡,不在瀏覽器。函式每次都先驗來人是不是主帳號,驗不過直接回絕。
+
+**還沒分開的:**帳單歷史(IndexedDB)仍是整台瀏覽器共用,同一台機器換帳號登入看得到前一個人的帳單明細。要分開跟我說。
 
 ## 上線後先驗這三件
 

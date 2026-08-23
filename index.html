@@ -430,6 +430,29 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 <!-- ==================== Admin Login History ==================== -->
 <section class="page" id="p-admin">
   <div class="lf sketch">
+    <h3 class="display"><span class="em">👥</span><span data-i18n="hd.users">Accounts</span></h3>
+    <div class="row" style="margin:12px 0;gap:8px;flex-wrap:wrap">
+      <input id="nuEmail" type="email" placeholder="email" style="min-width:220px">
+      <input id="nuPass" type="password" placeholder="password" style="min-width:160px">
+      <select id="nuRole">
+        <option value="user">user</option>
+        <option value="admin">admin</option>
+      </select>
+      <button class="act" id="bUserAdd" data-i18n="btn.useradd">Add account</button>
+      <button id="bUserRefresh" data-i18n="btn.refreshlog">Refresh</button>
+    </div>
+    <div id="usersNote"></div>
+    <div class="tablewrap" style="max-height:44vh">
+      <table id="tUsers"><thead><tr>
+        <th data-i18n="th.email">Email</th>
+        <th data-i18n="th.role">Role</th>
+        <th data-i18n="th.rates">Rates</th>
+        <th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="lf sketch">
     <h3 class="display"><span class="em">🛡️</span><span data-i18n="hd.loginhistory">Login History</span></h3>
     <div class="note" data-i18n="hint.loginhistory">Successful sign-ins recorded by Supabase. Only administrators can view this page.</div>
     <div class="row" style="margin:12px 0">
@@ -2543,6 +2566,107 @@ async function loadLoginHistory(){
   </tr>`).join(""):`<tr><td colspan="3">${LANG?"No login records yet.":"目前沒有登入紀錄。"}</td></tr>`;
 }
 
+/* ---- 帳號管理。新增/改角色/刪除都要 service_role,那把金鑰不在瀏覽器裡,
+       所以一律呼叫 Edge Function,由它先驗來人是不是主帳號。 ---- */
+let USERS=[];
+function adminCall(payload){
+  if(!AUTH||!ME||ME.role!=="admin")
+    return Promise.reject(new Error(L("只有主帳號能做這件事","Admins only")));
+  return AUTH.auth.getSession().then(({data})=>{
+    const tok=data&&data.session&&data.session.access_token;
+    if(!tok) throw new Error(L("請重新登入","Please sign in again"));
+    return fetch(AUTH_CONFIG.url.replace(/\/$/,"")+"/functions/v1/admin-users",{
+      method:"POST",
+      headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},
+      body:JSON.stringify(payload)
+    });
+  }).then(r=>r.json().then(j=>{
+    if(!r.ok||j.error) throw new Error(j.error||("HTTP "+r.status));
+    return j;
+  }));
+}
+function usersNote(msg,ok){
+  const el=$("#usersNote");
+  if(el) el.innerHTML=msg?`<div class="note${ok?"":" warn"}">${esc(msg)}</div>`:"";
+}
+function loadUsers(quiet){
+  if(!ME||ME.role!=="admin") return Promise.resolve(false);
+  if(!quiet) usersNote(L("讀取中…","Loading…"),true);
+  return adminCall({action:"list"}).then(j=>{
+    USERS=j.users||[]; if(!quiet) usersNote("",true); renderUsers(); return true;
+  }).catch(e=>{ usersNote(e.message,false); return false; });
+}
+function renderUsers(){
+  const tb=$("#tUsers tbody");
+  if(!tb) return;
+  if(!USERS.length){
+    tb.innerHTML=`<tr><td colspan="4" class="empty">${
+      L("還沒有其他帳號。","No accounts yet.")}</td></tr>`;
+    return;
+  }
+  tb.innerHTML=USERS.map(u=>{
+    const me=ME&&u.id===ME.id;
+    return `<tr><td>${esc(u.email||"")}${me?" ·":""}</td>
+      <td>${esc(u.role||"user")}</td>
+      <td>${u.config_name?esc(u.config_name):`<span class="empty">${
+          L("未設定","not set")}</span>`}</td>
+      <td class="row" style="gap:6px">
+        ${me?"":`<button data-act="role" data-id="${esc(u.id)}" data-role="${
+            u.role==="admin"?"user":"admin"}">${
+            u.role==="admin"?L("改成 user","Make user"):L("改成 admin","Make admin")}</button>
+          <button data-act="pw" data-id="${esc(u.id)}">${L("改密碼","Password")}</button>
+          <button data-act="del" data-id="${esc(u.id)}" data-email="${esc(u.email||"")}">${
+            L("刪除","Delete")}</button>`}
+      </td></tr>`;
+  }).join("");
+}
+/* 綁定放在啟動段呼叫。這一段的位置在 $ 宣告之前,
+   在這裡直接執行會踩到 TDZ。 */
+function bindUserAdmin(){
+$("#tUsers") && ($("#tUsers").onclick=e=>{
+  const b=e.target.closest("button[data-act]");
+  if(!b) return;
+  const id=b.dataset.id;
+  if(b.dataset.act==="role"){
+    adminCall({action:"set_role",user_id:id,role:b.dataset.role})
+      .then(()=>{ usersNote(L("角色已更新。對方要重新登入才會生效。",
+        "Role updated. They must sign in again for it to take effect."),true);
+        loadUsers(true); })
+      .catch(err=>usersNote(err.message,false));
+  }else if(b.dataset.act==="pw"){
+    const pw=prompt(L("新密碼(至少 8 個字元)","New password (at least 8 characters)")||"");
+    if(!pw) return;
+    adminCall({action:"set_password",user_id:id,password:pw})
+      .then(()=>usersNote(L("密碼已更新。","Password updated."),true))
+      .catch(err=>usersNote(err.message,false));
+  }else if(b.dataset.act==="del"){
+    /* 刪帳號會連他的費率一起刪掉,而且救不回來。 */
+    if(!confirm(L("刪除 "+b.dataset.email+" ?他的費率設定會一起消失,無法復原。",
+                  "Delete "+b.dataset.email+"? Their rate settings go too, and this cannot be undone."))) return;
+    adminCall({action:"delete",user_id:id})
+      .then(()=>loadUsers(true)).then(()=>usersNote(L("已刪除。","Deleted."),true))
+      .catch(err=>usersNote(err.message,false));
+  }
+});
+$("#bUserAdd") && ($("#bUserAdd").onclick=()=>{
+  const email=($("#nuEmail").value||"").trim();
+  const pw=$("#nuPass").value||"";
+  const role=$("#nuRole").value||"user";
+  if(!email||pw.length<8){
+    usersNote(L("要填 email,密碼至少 8 個字元。",
+                "Email required, password at least 8 characters."),false);
+    return;
+  }
+  adminCall({action:"create",email:email,password:pw,role:role})
+    .then(()=>{ $("#nuEmail").value=""; $("#nuPass").value="";
+      return loadUsers(true); })
+    .then(()=>usersNote(L("帳號已建立。費率是空白的,由他自己匯入。",
+      "Account created. Its rates start empty — they import their own."),true))
+    .catch(err=>usersNote(err.message,false));
+});
+$("#bUserRefresh") && ($("#bUserRefresh").onclick=()=>loadUsers());
+}
+
 function exportLoginHistory(){
   if(!ME||ME.role!=="admin"||!LOGIN_ROWS.length){
     setStatus(LANG?"No login history to export":"沒有可匯出的登入紀錄");
@@ -2554,6 +2678,47 @@ function exportLoginHistory(){
     .then(ok=>setStatus(ok?L("登入紀錄已匯出","Login history exported")
                           :L("已取消存檔","Save cancelled")));
 }
+/* ---- 費率:每個帳號自己的一列 ---- */
+let CFG_SYNC=0;                 /* 最後一次寫回成功的時間,0 = 還沒寫過 */
+function cfgPush(text,name){
+  if(!AUTH||!ME) return Promise.resolve(false);
+  return AUTH.from("user_settings").upsert({
+      user_id:ME.id, config:JSON.parse(text), config_name:name,
+      updated_at:new Date().toISOString()
+    },{onConflict:"user_id"})
+    .then(({error})=>{
+      if(error){ toast((LANG?"Rates saved on this device only: "
+                            :"費率只存在這台裝置:")+error.message,false); return false; }
+      CFG_SYNC=Date.now(); return true;
+    })
+    .catch(()=>false);
+}
+/* 登入後把這個帳號的費率抓回來。抓不到就退回本機快取,
+   再沒有就用預設值 —— 新帳號本來就是空白的,自己匯入。 */
+function cfgPull(){
+  if(!AUTH||!ME) return Promise.resolve(false);
+  return AUTH.from("user_settings").select("config,config_name")
+    .eq("user_id",ME.id).maybeSingle()
+    .then(({data,error})=>{
+      if(error||!data||!data.config){ restoreConfig(); return false; }
+      applyConfig(JSON.stringify(data.config),
+        data.config_name||(LANG?"saved settings":"已儲存的設定"));
+      CFG_SYNC=Date.now();
+      setStatus((LANG?"Rates loaded for ":"已載入費率:")+ME.name);
+      return true;
+    })
+    .catch(()=>{ restoreConfig(); return false; });
+}
+/* 換人登入(或登出)時把上一個帳號的費率清掉。留著的話,
+   下一個人看到的是別人的合約價,而且看不出來。 */
+function cfgReset(){
+  CFG=null; CFG_LABEL=""; CFG_SYNC=0;
+  RATED=null; SHIPS=null; ROWS=null; INV=null;
+  INV_NAME=""; INV_SIZE=0; INV_KIND=""; INV_SHEET="";
+  applyConfig(JSON.stringify(DEFAULT_CONFIG),
+              LANG?"defaults":"預設值", false);
+}
+
 let HIST_RESTORED=false;
 /* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
    兩邊都補上畫面才會跟關掉之前一樣。只做一次。 */
@@ -2579,8 +2744,14 @@ function restoreHistoryDetail(){
 
 function setMe(m){
   const was=ME;
+  const changed = (was&&was.id) !== (m&&m.id);
   ME=m;
   applyRole();
+  if(changed){
+    /* 費率跟著人走。先清掉上一個帳號的,再抓這個帳號的。 */
+    cfgReset();
+    if(m) cfgPull();
+  }
   if(!was && m) restoreHistoryDetail();
 }
 function applyRole(){
@@ -2641,7 +2812,7 @@ function showTab(p){
   document.querySelectorAll(".page").forEach(s=>
     s.classList.toggle("on", s.id==="p-"+p));
   sceneShow(p==="files");
-  if(p==="admin"&&ME&&ME.role==="admin") loadLoginHistory();
+  if(p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
 }
 
 /* =====================================================================
@@ -2671,7 +2842,7 @@ $("#tabs").addEventListener("click",e=>{
   document.querySelectorAll(".page").forEach(p=>
     p.classList.toggle("on", p.id==="p-"+b.dataset.p));
   sceneShow(b.dataset.p==="files");
-  if(b.dataset.p==="admin"&&ME&&ME.role==="admin") loadLoginHistory();
+  if(b.dataset.p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
 });
 
 /* ---------------------------------------------------------------------
@@ -2690,7 +2861,14 @@ const DEFAULT_CONFIG={"global_rules":{"dim_factor":"","default_dim_factor":"139"
 /* UPS 收費代碼預設參考表:每個代碼代表哪一項附加費。 */
 const CODE_REF={"AHG":"Additional Handling Surcharge - Dimension","AHL":"Additional Handling Surcharge - Dimension","AHV":"Additional Handling Surcharge - Dimension","AHS":"Additional Handling Surcharge - Dimension","AHW":"Additional Handling Surcharge - Weight","AHC":"Additional Handling Surcharge - Packaging","AHP":"Additional Handling Surcharge - Packaging","CAC":"Remote Area Surcharge - Commercial","CAR":"Remote Area Surcharge - Residential","ERL":"Returns Electronic Label","EVS":"Declared Value","FTP":"Third Party Billing Service","ISW":"Return To Sender - Web Request","LCR":"Large Package Surcharge","LDC":"Delivery Area Surcharge - Extended - Commercial","LDR":"Delivery Area Surcharge - Extended - Residential","LPR":"Large Package Surcharge","LPS":"Large Package Surcharge","RDC":"Delivery Area Surcharge - Commercial","RDR":"Delivery Area Surcharge - Residential","RES":"Residential Surcharge","ADS":"Adult Signature Required","AFW":"Future Day Pickup - Alternate Address - Web Request","CSG":"Delivery Confirmation Signature - Commercial","DCS":"Delivery Confirmation Signature","HIC":"Remote Area Surcharge - Commercial","HIR":"Remote Area Surcharge - Residential","IRW":"Reroute - Web Request","LCC":"Large Package Surcharge","LWC":"Large Package Surcharge","LWR":"Large Package Surcharge","OML":"Over Maximum Limits","OVR":"Over Maximum Surcharge","REP":"Residential Pickup surcharge","AKR":"Remote Area Surcharge","ART":"Returns 3 UPS Pickup Attempts","NPF":"Net Payment Fee","SCF":"Service Charge Fee","LCT":"Large Package Surcharge - Cubic","003":"Freight / Transportation Charge","205":"Service Charge","ADC":"Address Correction","ASR":"Adult Signature Required","DDO":"Direct Delivery Only","ALP":"Returns Print Label","COM":"Commercial Adjustment","FSC":"Fuel Surcharge","FRT":"Freight / Transportation Charge","IFW":"Reschedule Delivery - Web Request","SHD":"Package Protection","SCC":"Shipping Charge Correction","DIN":"Delivery Intercept"};
 
-const CFG_KEY="ups_reprice_cfg_v1", CFG_NAME="ups_reprice_cfg_name_v1";
+/* 費率是每個帳號自己的,存在 Supabase 的 user_settings。
+   localStorage 只當離線快取,而且 key 綁 user id —— 同一台機器換人登入
+   不該看到上一個人的合約費率。沒登入時用 anon,那份只會是預設值。 */
+const CFG_KEY_BASE="ups_reprice_cfg_v1", CFG_NAME_BASE="ups_reprice_cfg_name_v1";
+function cfgKeys(){
+  const who=(ME&&ME.id)||"anon";
+  return [CFG_KEY_BASE+"::"+who, CFG_NAME_BASE+"::"+who];
+}
 let CFG=null, INV=null, RATED=null, SHIPS=null, ROWS=null;
 /* 就緒狀態列要顯示的檔名與大小。CFG_LABEL 同時也是存回 CFG_NAME 的值。
    INV_KIND 是 CSV / TXT / XLSX / XLS,INV_SHEET 只有 Excel 才有值。 */
@@ -2714,7 +2892,8 @@ function applyConfig(text,name,remember){
      本來就會把未設定的標成紅字,要看的人看得到。 */
   if(zoneFixed.length) DIRTY=true;
   if(remember!==false){
-    try{ localStorage.setItem(CFG_KEY,text); localStorage.setItem(CFG_NAME,name); }
+    try{ const [k,kn]=cfgKeys();
+      localStorage.setItem(k,text); localStorage.setItem(kn,name); }
     catch(e){
       /* 靜靜吞掉的話,使用者會以為設定已經記住了。講清楚是哪一種失敗。 */
       $("#pathCfg") && ($("#pathCfg").value=name+" ("+(LANG?"not remembered":"沒有記住")+")");
@@ -2737,7 +2916,8 @@ function applyConfig(text,name,remember){
    這裡跑的話 LANG 還沒宣告。 */
 function restoreConfig(){
   let t=null,n=null;
-  try{ t=localStorage.getItem(CFG_KEY); n=localStorage.getItem(CFG_NAME); }catch(e){}
+  try{ const [k,kn]=cfgKeys();
+    t=localStorage.getItem(k); n=localStorage.getItem(kn); }catch(e){}
   /* 名稱可以掉,內容不能掉。舊版的 saveSettings() 只寫了內容沒寫名稱,
      這裡如果堅持兩個都要,那些人存過的設定會被預設值蓋掉。 */
   if(t){ n=n||(LANG?"saved settings":"已儲存的設定");
@@ -4890,11 +5070,15 @@ function saveSettings(){
     return false;
   }
   const txt=JSON.stringify(CFG.raw,null,2);
+  /* 存回這個帳號在 Supabase 的那一列。網路不通時本機快取仍然寫得進去,
+     所以這裡不擋流程,失敗只回報。 */
+  cfgPush(txt, CFG_LABEL||(LANG?"saved settings":"已儲存的設定"));
   try{
-    localStorage.setItem(CFG_KEY,txt);
+    const [k,kn]=cfgKeys();
+    localStorage.setItem(k,txt);
     /* 名稱也要一起寫。只寫內容的話 restoreConfig() 那邊配不成對,
        重開會退回預設值,看起來就像剛才根本沒存到。 */
-    localStorage.setItem(CFG_NAME,CFG_LABEL||(LANG?"saved settings":"已儲存的設定"));
+    localStorage.setItem(kn,CFG_LABEL||(LANG?"saved settings":"已儲存的設定"));
   }catch(e){
     /* 這裡以前是 catch(e){} ——失敗和成功長得一模一樣。 */
     const why=(e&&e.name)||"Error";
@@ -5613,6 +5797,9 @@ const I18N={
   "btn.save":["儲存設定","Save Settings"],
   "btn.run":["產生運費重算報表","Generate Reprice Report"],
   "btn.csv":["產生利潤報表","Generate Profit Report"],
+  "hd.users":["帳號","Accounts"],
+  "btn.useradd":["新增帳號","Add account"],
+  "th.rates":["費率","Rates"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
   "lb.cfg":["費率檔","Rate file"],
   "btn.login":["登入","Sign in"],
@@ -6805,10 +6992,15 @@ step("auth",()=>{
     setStatus(LANG?"Signed out":"已登出");
   };
   $("#bLoginRefresh").onclick=()=>loadLoginHistory();
+  bindUserAdmin();
   $("#bLoginExport").onclick=()=>exportLoginHistory();
 });
 step("language",()=>applyLang());
-step("config",  ()=>restoreConfig());
+/* 開機時還不知道是誰,先給預設值。真正的費率在 setMe 之後才抓 ——
+   restoreConfig() 讀的是綁 user id 的快取,這裡讀等於讀 anon 那份。 */
+step("config",  ()=>{ applyConfig(JSON.stringify(DEFAULT_CONFIG),
+                                  LANG?"defaults":"預設值", false);
+                      setStatus(""); });
 step("codes",   ()=>renderCode());
 /* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
    兩邊都補上畫面才會跟關掉之前一樣。 */
