@@ -432,10 +432,10 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
   <div class="lf sketch">
     <h3 class="display"><span class="em">👥</span><span data-i18n="hd.users">Accounts</span></h3>
     <div class="row" style="margin:12px 0;gap:8px;flex-wrap:wrap">
-      <input id="nuUser" type="text" placeholder="帳號" style="min-width:130px">
-      <input id="nuName" type="text" placeholder="名稱" style="min-width:130px">
-      <input id="nuEmail" type="email" placeholder="Email(選填)" style="min-width:190px">
-      <input id="nuPass" type="password" placeholder="密碼" style="min-width:140px">
+      <input id="nuUser" type="text" data-i18n-ph="ph.username" style="min-width:130px">
+      <input id="nuName" type="text" data-i18n-ph="ph.name" style="min-width:130px">
+      <input id="nuEmail" type="email" data-i18n-ph="ph.email" style="min-width:190px">
+      <input id="nuPass" type="password" data-i18n-ph="ph.pw" style="min-width:140px">
       <select id="nuRole">
         <option value="user">user</option>
         <option value="admin">admin</option>
@@ -2275,7 +2275,7 @@ function histKey(){ return HIST_KEY+"::"+whoKey(); }
 function histRuleKey(){ return HIST_RULE_KEY+"::"+whoKey(); }
 function histInvKey(){ return HISTINV_KEY+"::"+whoKey(); }
 function idbName(){ return IDB_NAME+"::"+whoKey(); }
-let IDB=null, IDB_FOR="";
+let IDB=null, IDB_FOR="", IDB_DB=null;
 function idb(){
   /* 換人登入之後,上一個帳號那個連線就不能再用了。 */
   if(IDB && IDB_FOR===idbName()) return IDB;
@@ -2289,7 +2289,7 @@ function idb(){
       if(!db.objectStoreNames.contains(IDB_STORE))
         db.createObjectStore(IDB_STORE,{keyPath:"invoice"});
     };
-    rq.onsuccess=()=>res(rq.result);
+    rq.onsuccess=()=>{ IDB_DB=rq.result; res(rq.result); };
     rq.onerror=()=>rej(rq.error||new Error("indexedDB open failed"));
   }).catch(e=>{ IDB=null; IDB_FOR=""; throw e; });
   return IDB;
@@ -2614,7 +2614,14 @@ function adminCall(payload){
   }).then(r=>r.json().then(j=>{
     if(!r.ok||j.error) throw new Error(j.error||("HTTP "+r.status));
     return j;
-  }));
+  })).catch(e=>{
+    /* fetch 自己失敗(不是回了錯誤碼)幾乎都是函式還沒部署上去。
+       「Failed to fetch」四個字對著畫面是猜不出來的。 */
+    if(e && /failed to fetch|networkerror|load failed/i.test(e.message||""))
+      throw new Error(L("連不到 admin-users 函式,請先部署:supabase functions deploy admin-users",
+        "Cannot reach the admin-users function. Deploy it first: supabase functions deploy admin-users"));
+    throw e;
+  });
 }
 function usersNote(msg,ok){
   const el=$("#usersNote");
@@ -2678,6 +2685,7 @@ $("#tUsers") && ($("#tUsers").onclick=e=>{
     if(!confirm(L("刪除 "+b.dataset.email+" ?他的費率設定會一起消失,無法復原。",
                   "Delete "+b.dataset.email+"? Their rate settings go too, and this cannot be undone."))) return;
     adminCall({action:"delete",user_id:id})
+      .then(()=>dropLocalHistory(id))
       .then(()=>loadUsers(true)).then(()=>usersNote(L("已刪除。","Deleted."),true))
       .catch(err=>usersNote(err.message,false));
   }
@@ -2785,6 +2793,24 @@ function legacyRows(){
     rq.onerror=()=>rej(rq.error);
   })).catch(()=>[]);
 }
+/* 帳號刪掉之後,他存在這台機器上的帳單明細就沒有主人了。清掉它。
+   只開啟和清空,不讀任何一列 —— 隔離照舊,沒有人因此看到別人的帳單。 */
+function dropLocalHistory(id){
+  if(!id||!window.indexedDB) return Promise.resolve(false);
+  try{ localStorage.removeItem(HIST_KEY+"::"+id);
+       localStorage.removeItem(HIST_RULE_KEY+"::"+id);
+       localStorage.removeItem(HISTINV_KEY+"::"+id); }catch(e){}
+  return new Promise(res=>{
+    let done=false;
+    const fin=v=>{ if(!done){ done=true; res(v); } };
+    const rq=indexedDB.deleteDatabase(IDB_NAME+"::"+id);
+    rq.onsuccess=()=>fin(true);
+    rq.onerror=()=>fin(false);
+    rq.onblocked=()=>fin(false);
+    setTimeout(()=>fin(false),3000);
+  });
+}
+
 let HIST_RESTORED=false;
 /* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
    兩邊都補上畫面才會跟關掉之前一樣。只做一次。 */
@@ -2795,6 +2821,9 @@ let HIST_RESTORED=false;
    代價講清楚:同一台機器上,先登入的人會拿到那一份。實務上一人一台,
    要改成只有主帳號能收,說一聲。 */
 function claimLegacy(){
+  /* 只有主帳號會收。子帳號在別人的機器上登入一次,就把整台機器的帳單
+     歷史吸進自己名下 —— 那正是分帳號要避免的事。 */
+  if(!ME||ME.role!=="admin") return Promise.resolve([]);
   return idbAllRows().then(mine=>{
     if(mine.length) return mine;                 /* 已經有自己的歷史了 */
     return legacyRows().then(old=>{
@@ -5898,6 +5927,10 @@ const I18N={
   "btn.useradd":["新增帳號","Add account"],
   "th.rates":["費率","Rates"],
   "th.username":["帳號","Username"],
+  "ph.username":["帳號","Username"],
+  "ph.name":["名稱","Name"],
+  "ph.email":["Email(選填)","Email (optional)"],
+  "ph.pw":["密碼","Password"],
   "th.name":["名稱","Name"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
   "lb.cfg":["費率檔","Rate file"],
@@ -5947,6 +5980,11 @@ function T(k){ const v=I18N[k]; return v?v[LANG]:k; }
 function applyLang(){
   document.querySelectorAll("[data-i18n]").forEach(el=>{
     el.textContent=T(el.dataset.i18n);
+  });
+  /* 輸入框的提示字也要跟著換 —— 介面切成英文了、格子裡還寫著中文,
+     那一塊看起來就像沒做完。 */
+  document.querySelectorAll("[data-i18n-ph]").forEach(el=>{
+    el.placeholder=T(el.dataset.i18nPh);
   });
   document.documentElement.lang = LANG?"en":"zh-Hant";
   if(!AUTH && !ME) paintGateNote();
@@ -7052,7 +7090,11 @@ applyTheme(THEME); applyBrand(BRAND); fillSelects();
 let HIST_STALE=false;
 function histLoad(){
   HIST=null; HIST_STALE=false; HISTINV=null; HISTROWS=null; ORIG={};
-  HIST_RESTORED=false; IDB=null; IDB_FOR="";
+  HIST_RESTORED=false;
+  /* 上一個帳號的連線要關掉。留著的話那個資料庫刪不掉(deleteDatabase 會
+     一直卡在 blocked),而且連線也不該跨帳號留著。 */
+  try{ if(IDB_DB) IDB_DB.close(); }catch(e){}
+  IDB_DB=null; IDB=null; IDB_FOR="";
   try{
     const hv=localStorage.getItem(histKey());
     if(hv){
