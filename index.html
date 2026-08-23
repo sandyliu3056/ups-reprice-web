@@ -1645,6 +1645,8 @@ function scanCharges(lines, dynMap){
      內建的附加費一律計燃油 —— 桌面版的 ACC_FUEL_ELIGIBLE 只拿來決定
      AFW / ART / REP 的預設值,沒有拿去擋內建桶子的燃油。 */
   const nonFuel=new Set();
+  /* 住宅口味的桶子(RES、住宅 DAS)。RADJ 轉商業時這些桶不再收。 */
+  const resBucket=new Set();
   /* 每個自訂桶子的 Type。REPRICE 查合約費率;COPY INVOICE 和
      REPORT ONLY 都用 UPS 實收的金額,差別只在算不算進合約總額。 */
   const dynMode={};
@@ -1681,6 +1683,7 @@ function scanCharges(lines, dynMap){
         continue;                     /* 標記行,不是可計價的附加費 */
       }
       bucket=cm.fee;
+      if(cm.res&&bucket) resBucket.add(bucket);
     }
     else if(AHS_DIM.has(c))  bucket="AHS Dimension";
     else if(AHS_WT.has(c))   bucket="AHS Weight";
@@ -1696,7 +1699,7 @@ function scanCharges(lines, dynMap){
     }
   }
   return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj,
-          nonFuel, dynMode};
+          nonFuel, dynMode, resBucket};
 }
 
 /* 一筆貨的完整計價 */
@@ -1725,7 +1728,9 @@ function priceShipment(cfg, s){
     resBasis=L("帳單住宅代碼","Residential code on the invoice"); }
   else if(scan.comCode && !scan.resCode){ residential=false;
     resBasis=L("帳單商業代碼","Commercial code on the invoice"); }
-  else if(s.layer!=="SHP"){
+  else if(s.layer==="ADJ"){
+    /* 只有跨期 ADJ 才查歷史。純 RTN(Undeliverable Return)不查 ——
+       退件送回寄件人,不因原出貨是住宅就套住宅費率,照服務名稱判。 */
     /* 跨期單:先查歷史,查不到才退回服務名稱。
        這是桌面版 history_service_for() 存在的唯一理由 —— SCC 那一行
        沒有任何 RES/COM 字樣,不查歷史就一定被當成商業。 */
@@ -1794,29 +1799,62 @@ function priceShipment(cfg, s){
   if(bw.dimSrc==="tariff" && s.dims)
     issues.push(L("這條渠道與預設都沒有 DIM 除數,用了公告的 139:",
                   "No DIM factor on this channel or in the default, used the published 139: ")+channel);
-  const zone=s.zone;
+  /* ZONE 調整:整筆的 Zone 會取到 ZONE 行上的「舊」Zone。
+     C 側要用更正後(SCC 行)的 Zone;舊的留給 A 側(zRow)。 */
+  let zone=s.zone;
+  const zRow = s.pureAdj ? s.allLines.find(l=>l.layer==="ADJ"
+      && l.detail==="ZONE" && l.zone) : null;
+  if(zRow){
+    const sccRow=s.allLines.find(l=>l.layer==="ADJ"
+      && l.detail==="SCC" && isFreightLine(l) && l.zone);
+    if(sccRow) zone=sccRow.zone;
+  }
 
   /* 運費。跨期更正單同時帶著 C(更正後,Package Dimensions)與
      A(原始,Detail Keyed Dimensions)兩組尺寸時,UPS 收的是差額,
      所以要各算一次再相減 —— 只算 C 會把原本已經收過的那一段再收一次。
      A 用原出貨的服務別;查不到就沿用這一筆的。 */
   const g0=s.groups&&s.groups.length?s.groups[0]:null;
-  const netCA = !!(s.pureAdj && g0 && g0.dimsC && g0.dimsA);
+  const sameCA = !!(s.pureAdj && g0 && g0.dimsC && g0.dimsA);
+  /* 同一期沒有 A 尺寸的純更正單:退回歷史找原始出貨的 FRT 行,
+     找得到就一樣算差額;找不到才收全額(照舊標問題)。 */
+  const orig = s.pureAdj ? origFrtFor(s.tracking) : null;
+  /* 只有更正類(SCC / ZONE)才抵差。DIN 攔截是 UPS 開的新服務
+     (退回寄件人的新運費),全額收,不拿原件來抵。 */
+  const corrAdj = s.pureAdj && s.allLines.some(l=>l.layer==="ADJ"
+      && isFreightLine(l) && (l.detail==="SCC"||l.detail==="ZONE"));
+  const histCA = !!(s.pureAdj && !sameCA && orig && corrAdj);
+  const netCA = sameCA || histCA;
   let base=null, baseWhy=null, baseA=null, bwA=null;
   if(zone && s.service){
     const lk=lookupBaseRate(cfg, svc, residential, zone, bw.billable);
     base=lk.rate; baseWhy=lk.why;
     if(netCA && base!==null){
-      const svcA=s.refService?guessService(s.refService):svc;
-      const resA=s.refService?/residential/i.test(s.refService):residential;
-      bwA=billableWeight(cfg, s.entered, g0.dimsA, channel,
-        {ahsScale:ahsScale, lpsScale:lpsScale, bwt:s.bwt, upsAhsFloor:upsAhsFloor});
+      let svcA, resA, zoneA, dimsA0, entA, bwtA;
+      if(sameCA){
+        svcA=s.refService?guessService(s.refService):svc;
+        resA=s.refService?/residential/i.test(s.refService):residential;
+        zoneA=(zRow&&zRow.zone)||zone;
+        dimsA0=g0.dimsA; entA=s.entered; bwtA=s.bwt;
+      }else{
+        /* 歷史原件:服務別、住商、Zone、實重、尺寸全用原始出貨的。 */
+        svcA=guessService(orig.desc);
+        resA=/residential/i.test(orig.desc);
+        zoneA=orig.zone||(zRow&&zRow.zone)||zone;
+        dimsA0=parseDims(orig.dimsC); entA=toNum(orig.entered);
+        bwtA=toNum(orig.bwt)||0;
+      }
+      const chACh = (svcA==="Ground Commercial"||svcA==="Ground Residential")
+          ? (resA?"Ground Residential":"Ground Commercial") : svcA;
+      bwA=billableWeight(cfg, entA, dimsA0, sameCA?channel:chACh,
+        {ahsScale:sameCA?ahsScale:entA, lpsScale:sameCA?lpsScale:entA,
+         bwt:bwtA, upsAhsFloor:sameCA?upsAhsFloor:false});
       /* 1x1x1 是 UPS 沒量到尺寸時寫的預設值,不是真的量出來的。拿它當
          原始包裹會讓差額偏大,所以照算但標出來,不要無聲吃掉。 */
-      if(g0.dimsA.l<=1&&g0.dimsA.w<=1&&g0.dimsA.h<=1)
+      if(dimsA0 && dimsA0.l<=1&&dimsA0.w<=1&&dimsA0.h<=1)
         issues.push(L("原始包裹尺寸是 1x1x1(UPS 未量測的預設值),差額可能偏大",
           "The original package is 1x1x1, UPS's placeholder for unmeasured, so the difference may be overstated"));
-      const lkA=lookupBaseRate(cfg, svcA, resA, zone, bwA.billable);
+      const lkA=lookupBaseRate(cfg, svcA, resA, zoneA, bwA.billable);
       if(lkA.rate===null) issues.push(L("原始包裹查不到費率,運費沒有扣掉原本收過的那一段:",
         "No rate for the original package, so the freight is not netted: ")+(lkA.why||""));
       else { baseA=lkA.rate; base=Math.round((base-baseA)*100)/100; }
@@ -1831,6 +1869,9 @@ function priceShipment(cfg, s){
   for(const [bucket,on] of Object.entries(scan.seen)){
     if(!on) continue;
     if(Math.round((scan.net[bucket]||0)*100)===0) continue;   // 淨額 0 不收
+    /* RADJ 轉商業:住宅口味的桶子(RES、住宅 DAS)不再收。
+       商業側的 DAS 是 UPS 自己開的行(LDC / RDC),照一般規則收。 */
+    if(scan.commercialAdj && scan.resBucket && scan.resBucket.has(bucket)) continue;
     /* 自訂附加費的三種 Type。COPY INVOICE 和 REPORT ONLY 沒有合約費率
        可查,兩者都照抄 UPS 實收;REPORT ONLY 只顯示,不進合約總額,
        因此也不進燃油底。 */
@@ -2135,7 +2176,11 @@ function shipmentsOf(rows){
     s.layer = s.lines.some(l=>l.layer==="SHP") ? "SHP"
             : (s.lines.find(l=>l.layer!=="MIS")||{layer:"MIS"}).layer;
   }
-  return [...by.values()];
+  /* 報表列序照桌面版:追蹤號全字串遞增。桌面版是 pandas groupby 的
+     預設排序,勝負常在第 9–12 碼,不在字尾。用逐字碼比較,
+     不用 localeCompare —— 語系規則會跟 Python 的字串比較不一致。 */
+  return [...by.values()].sort((a,b)=>
+    a.tracking<b.tracking?-1:a.tracking>b.tracking?1:0);
 }
 
 
@@ -2301,6 +2346,31 @@ function historyServiceFor(tracking){
   if(!HIST) return null;
   const v=HIST[tracking];
   return v==="R" ? "Ground Residential" : v==="C" ? "Ground Commercial" : null;
+}
+
+/* 跨期更正的原件對照:追蹤號 -> 原始出貨(SHP / RTN)的 FRT 行。
+   計價是同步的,所以先把本期純 ADJ 需要的原件從 IndexedDB 撈成
+   同步對照表,再開始算。同一追蹤號有多期時取最近的一期。 */
+let ORIG={};
+function origFrtFor(tracking){ return ORIG[tracking]||null; }
+function buildOriginals(allRows, need){
+  const out={};
+  for(const r of allRows||[]){
+    if(!r||!r.tracking) continue;
+    if(need && !need.has(r.tracking)) continue;
+    if(!(r.layer==="SHP"||r.layer==="RTN")||!isFreightLine(r)) continue;
+    const cur=out[r.tracking];
+    if(!cur || String(r.invoice)>String(cur.invoice)) out[r.tracking]=r;
+  }
+  return out;
+}
+function prefetchOriginals(ships){
+  const need=new Set((ships||[]).filter(s=>s.pureAdj).map(s=>s.tracking));
+  if(!need.size){ ORIG={}; return Promise.resolve(0); }
+  return idbAllRows().then(rows=>{
+    ORIG=buildOriginals(rows,need);
+    return Object.keys(ORIG).length;
+  }).catch(()=>{ ORIG={}; return 0; });
 }
 
 /* Supabase owns credentials and session validation. No passwords are stored
@@ -4709,6 +4779,9 @@ $("#bRun").onclick=()=>{
       toast(LANG?"History index is too large for this browser to store."
                 :"歷史索引太大,這個瀏覽器存不下。", false);
     ROWS=ing.rows; SHIPS=shipmentsOf(ROWS);
+    /* 跨期更正的原件先從 IndexedDB 撈成同步對照再計價。
+       撈不到(沒有歷史、私密視窗)就空表照算,跨期單照舊標問題。 */
+    prefetchOriginals(SHIPS).then(()=>{
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
     renderCode(); renderHist();
     ready();
@@ -4723,6 +4796,11 @@ $("#bRun").onclick=()=>{
           : L("已存入歷史:","filed to history: ")+filed.added.join(", ")):"")
       +(ing.hasHdr?L("(有標題列)"," (header row found)")
                   :L("(無標題列,用固定欄位序號)"," (no header row; fixed column positions)")));
+    }).catch(e=>{
+      $("#cfgNote").innerHTML=`<div class="note warn"><b>`
+        +L("讀不動這張帳單。","Could not read that invoice.")+`</b> ${esc(e.message)}</div>`;
+      setStatus(L("失敗","Failed"));
+    });
   }catch(e){
     $("#cfgNote").innerHTML=`<div class="note warn"><b>`
       +L("讀不動這張帳單。","Could not read that invoice.")+`</b> ${esc(e.message)}</div>`;

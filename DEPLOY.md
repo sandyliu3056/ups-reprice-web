@@ -1,140 +1,51 @@
-# UPS Reprice Tool v170 — 一模一樣的部署
+# UPS Reprice Web — 部署包
 
-工具本身是可攜的:`_app_dir()` 把設定綁在程式檔旁邊,全檔沒有任何硬編絕對路徑。
-所以「一模一樣」的難點不在 exe,在**跟著 exe 走的東西**。
+2026-08-24 版。這一版修了跨期更正的三件事,計價結果與桌面版 v170 逐號比對過。
 
----
+## 包了什麼
 
-## 一、必須一起走的三樣
+| 檔案 | 要不要上傳 |
+|---|---|
+| `index.html` | 要。整個工具就這一份 |
+| `auth-config.js` | 要。只放 Project URL 與 anon/publishable key |
+| `.gitignore` | 要 |
+| `.githooks/pre-commit` | 要 |
 
-放在同一個資料夾,exe 旁邊。少一樣,結果就不會一樣。
+**不在包裡、也不該進 repo 的:**`ups_billing_tool_config.json`(你的合約費率)、`ups_history.sqlite3`、任何帳單 CSV 或 xlsx。費率是每次開工具時自己載進去的,不是打包進去的。
 
-| 檔案 | 決定什麼 | 少了會怎樣 |
-|---|---|---|
-| `UPS_Reprice_Tool.exe` | 計價引擎 | — |
-| `ups_billing_tool_config.json` | 費率、管道、附加費、AHS/LPS 門檻、code registry | 開起來是全新空白設定,**算出來的錢完全不一樣** |
-| `ups_history.sqlite3` | 每一期匯入過的帳單明細 | 跨期 ADJ/SCC 查不到原始 shipment 的 FRT 描述,住宅/商業分類會錯 |
+## 上線
 
-第二個是「金額不一樣」最常見的原因,第三個是「單期看起來對、跨期改單就錯」的原因。
-兩個都不是選配。
+1. Repository 設 **Private**,用支援 private repo 的平台(Vercel、Cloudflare Pages、Netlify)部署。訪客開得了網址,但要過 Supabase 登入才看得到工具。
+2. 安裝 hook:`git config core.hooksPath .githooks`
+3. `auth-config.js` 只填 Project URL 與 anon/publishable key。**service_role 或任何 secret key 絕對不能進前端** —— hook 會擋 JWT 形狀的字串與 Supabase secret key 前綴,但別靠它。
+4. Supabase 那邊要先跑過 `supabase/login_history.sql`,不然登入紀錄那頁會顯示錯誤。這支 SQL 不在這個包裡。
 
----
+## 上線後先驗這三件
 
-## 二、字型:裝了才是同一張臉
+1. 開網址 → 登入 → 載入 `ups_billing_tool_config.json` → 跑一張帳單 → 下載 xlsx。
+2. 拿同一張帳單在桌面版跑一次,**先比計費重量欄**,再比總額。
+3. 開 DevTools → Application → IndexedDB,確認 `ups_reprice_hist` 有東西。
 
-字型只影響外觀,**不影響任何金額**。沒裝不會壞,只是掉回正黑體。
+## 跨期更正要有歷史才準
 
-要一模一樣,目標機要裝:
+這一版的跨期更正(SCC / ZONE)會去 IndexedDB 找原始出貨那一筆,用它的服務別、住商、Zone、實重、尺寸算出原本收過的那一段,只收差額。
 
-- `RepriceSketch.ttf` — 標題和分頁的手繪字
-- `Iansui` 或 `芫荽` — 中文手寫層
-- `LXGW WenKai TC`(霞鶩文楷)— 內文的可讀退路
+**IndexedDB 是綁瀏覽器的。** 換一台電腦、換一個瀏覽器、無痕視窗,都等於沒有歷史 —— 這時跨期單會收全額,並在問題欄標出來。所以新機器上線後,要把前幾期的帳單依序跑一次(或用歷史頁匯入),把歷史建起來再開始對客戶收錢。
 
-裝法:對 `.ttf` 按右鍵 → 為所有使用者安裝。裝完要重開工具。
+## 這一版動到金額的地方
 
-### 免安裝的做法
+| 改動 | 影響 |
+|---|---|
+| 歷史住商查詢限縮到 ADJ 層 | 純退件(Undeliverable Return)不再誤套原出貨的住宅費率 |
+| 跨期 SCC 用歷史原件抵差額 | 原件不在同一期時,不再重複收原本已收過的那一段 |
+| C / A 兩側 Zone 拆開 | 有 ZONE 調整行時,C 用更正後的 Zone,A 用原本的 |
+| DIN 攔截不抵差 | 退回寄件人是新運費,全額收,不拿原件去抵 |
+| RADJ 轉商業時不收住宅口味的桶 | RES 與住宅 DAS 跟著轉,商業側 LDC / RDC 照常 |
 
-同事電腦沒有安裝權限的話,可以在啟動時私有註冊字型 —— 只有這個 process 看得到,
-不會動到系統字型清單。在 `pick_display_font()` 之前(約第 308 行)加:
+已知還沒收乾淨,都在 `diff_336_after_fix.csv`:兩筆 RADJ 沒換 DAS 桶的、一筆掛在退件上的跨期 SCC 住商判定(差 3 分)、以及約 190 列 ±0.01 的燃油進位差(桌面版逐列先進位,這裡匯出才進位)。
 
-```python
-def _load_bundled_fonts():
-    """把 exe 旁邊的 .ttf 私有註冊給這個 process。
+## 連外的地方
 
-    只影響外觀。註冊失敗就當作沒裝,一路走既有的 fallback。
-    """
-    if os.name != "nt":
-        return
-    import ctypes
-    FR_PRIVATE = 0x10
-    for name in ("RepriceSketch.ttf",):
-        path = os.path.join(_app_dir(), name)
-        if not os.path.exists(path):
-            continue
-        try:
-            n = ctypes.windll.gdi32.AddFontResourceExW(
-                ctypes.c_wchar_p(path), FR_PRIVATE, 0)
-            print("字型 %s:%s" % (name, "載入" if n else "系統不接受"))
-        except Exception as e:
-            print("字型 %s 載入失敗,用系統既有的:%s" % (name, e))
-```
+只有三個,都跟帳單無關:開機抓一次天氣(`api.open-meteo.com`,連不到就畫晴天)、按鈕才開的 UPS 帳單中心與燃油費率頁、以及按到 Excel 才載的 SheetJS(版本鎖死並附 SRI)。
 
-呼叫點在建好 `root` 之後、`resolve_round_font(root)` 之前。
-順序很重要:Tk 是在建 root 時抓字型清單的。
-
----
-
-## 三、版本鎖定
-
-不同 pandas 大版本對 `read_excel` 的 dtype 推斷不一樣,同一張 invoice 可能被讀成不同型別。
-要真正重現,在**現在跑得起來的那台**下:
-
-```
-pip freeze > requirements.lock.txt
-```
-
-新機器用這個檔裝,不要用 `requirements.txt`。
-
----
-
-## 四、打包
-
-把這四個檔案放進 `UPS_Reprice_Tool.py` 的資料夾:
-
-```
-UPS_Reprice_Tool.py
-UPS_Reprice_Tool.spec
-build.bat
-requirements.txt
-verify_deploy.py
-ups_billing_tool_config.json      ← 你現在在用的那份
-ups_history.sqlite3               ← 你現在在用的那份
-RepriceSketch.ttf                 ← 有的話
-```
-
-雙擊 `build.bat`。產出在 `dist\UPS_Reprice_Tool\`。
-
-**整個資料夾壓縮起來給同事,不要只給 exe。**
-`_internal\` 裡是 pandas 和 numpy 的 DLL,抽掉 exe 就開不起來。
-
-spec 預設是 onedir 不是 onefile:onefile 每次啟動都要把 pandas 解壓到 temp,
-冷開機十幾秒;onedir 秒開,而且 PyInstaller 6 會把 DLL 全收進 `_internal\`,
-最上層只留 exe —— 剛好對上 `_app_dir()` 的設計,config 和 history 就在同事看得到的地方。
-
----
-
-## 五、驗收
-
-### 1. 兩台各跑一次
-
-```
-python verify_deploy.py
-```
-
-比對:config 的 sha256、各項筆數、history 的列數。全一樣 = 設定一致。
-
-### 2. 跑同一張 invoice
-
-這才是真的驗完。同一個檔案兩台各跑一次,對三件事:
-
-- 總金額
-- `<report>_rate_issues.csv` 兩邊都是空的
-- 標題列都顯示 **v170**
-
-第三點看起來多餘,但這支工具歷史上每一次「我改了但沒變」都是舊檔還在跑。
-
----
-
-## 六、之後怎麼維持一致
-
-同事各自本機跑、靠匯出匯入同步歷史,所以**不要**讓大家各自改設定。
-`ups_billing_tool_config.json` 以你這份為準,改動後重發,同事整份覆蓋。
-
-要換版本時:
-
-1. 你這台先跑 `verify_deploy.py`,把輸出存檔
-2. 重新 build,把新的 exe + 你的 config 一起發
-3. 同事覆蓋整個資料夾,但**保留自己的 `ups_history.sqlite3`**(那是他們匯入過的帳單)
-4. 同事跑一次 `verify_deploy.py`,config 的 sha256 要跟你的一樣
-
-第 3 點是唯一一個「不要覆蓋」的檔案,值得在發布訊息裡寫清楚。
+**帳單資料完全不離開瀏覽器。**
