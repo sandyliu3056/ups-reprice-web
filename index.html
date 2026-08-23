@@ -649,6 +649,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act ghost" id="bExpRate" data-i18n="btn.exprate">Export base rate template</button>
       <button class="act ghost" id="bImpRate" data-i18n="btn.imprate">Import completed base rates</button>
       <button class="act ghost" id="bScanZone" data-i18n="btn.scanzone">Scan zones from invoice</button>
+      <button class="act ghost" id="bViewRates" data-i18n="btn.viewrates">View loaded rates</button>
       <input type="file" id="fImpRate" accept=".csv,.txt,.xlsx,.xls">
     </div>
     <div id="rateState"></div>
@@ -668,7 +669,6 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <th style="width:30px"></th>
       <th data-i18n="lb.channame">Channel name</th>
       <th data-i18n="th.zones">Zones</th>
-      <th data-i18n="th.dimf">DIM Factor</th>
       <th data-i18n="th.chantype">Type</th>
       <th data-i18n="th.ratestate">Base rates</th>
       <th data-i18n="th.enabled">Enabled</th>
@@ -897,6 +897,27 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 </div>
 
 <div class="sceneBox" id="sceneBox"><canvas id="scene"></canvas></div>
+<div id="rvBg" class="modalbg">
+  <div class="modal sketch" id="rvModal" style="width:min(880px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.loadedrates">Loaded base rates</span>
+      <button class="mx" id="rvX">✕</button>
+    </div>
+    <div class="modalbody">
+      <div class="strow" id="rvSum"></div>
+      <div class="row" style="margin-bottom:10px">
+        <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
+        <select id="rvPick" style="min-width:280px"></select>
+      </div>
+      <div class="tablewrap" style="max-height:46vh"><table id="tRates">
+        <thead><tr></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="modalft">
+      <button class="act ghost" id="rvClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="dimBg" class="modalbg">
   <div class="modal sketch" id="dimModal" style="width:min(820px,100%)">
     <div class="modalhd">
@@ -1118,6 +1139,23 @@ function parseDims(s){
    一個原則,和桌面版一致:程式裡不放任何費率、門檻、代碼清單。
    全部從這份 JSON 讀,讀不到就說讀不到,不套預設值。
    ===================================================================== */
+/* 有範本佐證的六條。其餘的 Zone 由你自己設,程式不猜。 */
+const ZONE_KNOWN=["Ground Commercial","Ground Residential","3 Day Select",
+                  "2nd Day Air","Next Day Air Saver","Next Day Air"];
+const GROUND_ZONES="2,3,4,5,6,7,8,44,45,46";
+/* 舊的預設值把每一條沒有範本的線都填成 Ground 的 2–8 / 44–46。空運與國際
+   線根本不跑那組 Zone,那是程式塞的,不是你設的 —— 存過的設定檔也帶著它。
+   開檔時清掉,清了哪幾條會講出來,不會無聲改動。 */
+function repairZones(cfg){
+  const zn=cfg.builtin_service_zones||{};
+  const norm=v=>String(v||"").split(",").map(z=>z.trim()).filter(Boolean).join(",");
+  const fixed=[];
+  for(const c of Object.keys(zn)){
+    if(ZONE_KNOWN.indexOf(c)>=0) continue;
+    if(norm(zn[c])===GROUND_ZONES){ zn[c]=""; fixed.push(c); }
+  }
+  return fixed;
+}
 function readConfig(cfg){
   const g=cfg.global_rules||{};
   const tables=(cfg.base_rate_tables||[]).map(t=>({
@@ -2053,6 +2091,63 @@ const HIST_KEY="ups_reprice_hist_v1";
 /* 已歸檔的帳單:期號 -> {日期, 列數, 追蹤號數, 歸檔時間}。
    跟 HIST 分開存,因為 HIST 是追蹤號的住宅/商業對照,沒有期別。 */
 const HISTINV_KEY="ups_reprice_histinv_v1";
+/* 明細列放 IndexedDB,不是 localStorage —— 五十萬列是幾十 MB,
+   localStorage 只有 5 MB。一期一筆,重開瀏覽器再讀回來。 */
+const IDB_NAME="ups_reprice_hist", IDB_STORE="invoices";
+let IDB=null;
+function idb(){
+  if(IDB) return IDB;
+  IDB=new Promise((res,rej)=>{
+    if(!window.indexedDB) return rej(new Error("no indexedDB"));
+    const rq=indexedDB.open(IDB_NAME,1);
+    rq.onupgradeneeded=()=>{
+      const db=rq.result;
+      if(!db.objectStoreNames.contains(IDB_STORE))
+        db.createObjectStore(IDB_STORE,{keyPath:"invoice"});
+    };
+    rq.onsuccess=()=>res(rq.result);
+    rq.onerror=()=>rej(rq.error||new Error("indexedDB open failed"));
+  }).catch(e=>{ IDB=null; throw e; });
+  return IDB;
+}
+function idbTx(mode){
+  return idb().then(db=>db.transaction(IDB_STORE,mode).objectStore(IDB_STORE));
+}
+/* 一期一筆寫進去。同期再寫就覆蓋,跟 localStorage 那份索引同一條規則。 */
+function idbPutInvoices(rows){
+  const by={};
+  for(const r of rows||[]){
+    const k=(r.invoice||"").trim();
+    if(!k) continue;
+    (by[k]=by[k]||[]).push(r);
+  }
+  const keys=Object.keys(by);
+  if(!keys.length) return Promise.resolve(0);
+  return idbTx("readwrite").then(st=>new Promise((res,rej)=>{
+    let done=0;
+    for(const k of keys){
+      const rq=st.put({invoice:k, rows:by[k], at:Date.now()});
+      rq.onsuccess=()=>{ if(++done===keys.length) res(keys.length); };
+      rq.onerror=()=>rej(rq.error);
+    }
+  }));
+}
+function idbAllRows(){
+  return idbTx("readonly").then(st=>new Promise((res,rej)=>{
+    const rq=st.getAll();
+    rq.onsuccess=()=>{
+      const out=[];
+      for(const rec of (rq.result||[])) out.push(...(rec.rows||[]));
+      res(out);
+    };
+    rq.onerror=()=>rej(rq.error);
+  }));
+}
+function idbClear(){
+  return idbTx("readwrite").then(st=>new Promise((res,rej)=>{
+    const rq=st.clear(); rq.onsuccess=()=>res(true); rq.onerror=()=>rej(rq.error);
+  }));
+}
 let HISTINV=null;
 
 function histInv(){
@@ -2083,6 +2178,10 @@ function fileInvoices(rows, how){
   let stored=true;
   try{ localStorage.setItem(HISTINV_KEY, JSON.stringify(inv)); }
   catch(e){ stored=false; }
+  /* 明細另外進 IndexedDB。寫失敗不影響索引,只是重新整理後查不到明細。 */
+  idbPutInvoices(rows).catch(e=>{
+    console.warn("history detail not stored:", e && e.message);
+  });
   return {added, replaced, stored, count:Object.keys(seen).length};
 }
 /* 目前這張帳單已經歸檔過了嗎 */
@@ -2376,8 +2475,11 @@ let CFG=null, INV=null, RATED=null, SHIPS=null, ROWS=null;
 let INV_NAME="", INV_SIZE=0, INV_KIND="", INV_SHEET="", CFG_LABEL="";
 
 function applyConfig(text,name,remember){
+  let zoneFixed=[];
   try{
-    CFG=readConfig(JSON.parse(text));
+    const raw=JSON.parse(text);
+    zoneFixed=repairZones(raw);
+    CFG=readConfig(raw);
   }catch(e){
     CFG=null;
     $("#cfgNote").innerHTML=`<div class="note warn"><b>`
@@ -2386,6 +2488,12 @@ function applyConfig(text,name,remember){
   }
   $("#pathCfg") && ($("#pathCfg").value=name);
   CFG_LABEL=name;
+  if(zoneFixed.length){
+    DIRTY=true;
+    toast((LANG
+      ? "Cleared the Ground zones that were sitting on lanes that cannot run them: "
+      : "已清除套錯的 Ground Zone,受影響的線:")+zoneFixed.join(", "), false);
+  }
   if(remember!==false){
     try{ localStorage.setItem(CFG_KEY,text); localStorage.setItem(CFG_NAME,name); }
     catch(e){
@@ -2856,6 +2964,43 @@ function renderDimModal(){
           LANG?"default":"預設"})</span>`}</td></tr>`;
   }).join("")||`<tr><td colspan="2" class="empty">—</td></tr>`;
 }
+/* 載進來的運費表長什麼樣。沒有這個視窗,只能看到「已載入 (150)」這幾個字,
+   看不出裡面是哪些 Zone、哪個重量對到多少錢。 */
+function renderLoadedRates(){
+  if(!CFG) return;
+  const tabs=CFG.tables||[];
+  const sel=$("#rvPick");
+  const cur=(sel&&sel.value)||"";
+  if(sel) sel.innerHTML=tabs.length
+    ? tabs.map((t,i)=>{
+        const lab=t.service+" — "+(t.residential?(LANG?"Residential":"住宅")
+                                                :(LANG?"Commercial":"商業"));
+        return `<option value="${i}"${String(i)===cur?" selected":""}>${esc(lab)}</option>`;
+      }).join("")
+    : `<option value="">—</option>`;
+  const stat=(lab,val)=>`<div class="stat"><i>${lab}</i><b>${val}</b></div>`;
+  $("#rvSum").innerHTML =
+      stat(LANG?"Rate tables":"費率表", tabs.length.toLocaleString())
+    + stat(LANG?"Rows":"費率列數", tabs.reduce((a,t)=>a+t.rows.length,0).toLocaleString())
+    + stat(LANG?"Channels covered":"涵蓋渠道",
+        new Set(tabs.map(t=>t.service)).size.toLocaleString());
+  const t=tabs[+((sel&&sel.value)||0)];
+  const head=$("#tRates").tHead.rows[0], body=$("#tRates").tBodies[0];
+  if(!t){ head.innerHTML=""; body.innerHTML=
+    `<tr><td class="empty">${LANG?"No base rates loaded yet."
+                                :"還沒有載入任何運費表。"}</td></tr>`; return; }
+  const cols=t.columns||[];
+  head.innerHTML=cols.map(c=>`<th>${esc(String(c))}</th>`).join("");
+  body.innerHTML=(t.rows||[]).map(r=>
+    `<tr>${cols.map((c,i)=>`<td>${esc(String(r[i]==null?"":r[i]))}</td>`).join("")}</tr>`).join("");
+}
+function openLoadedRates(){ renderLoadedRates(); $("#rvBg").classList.add("on"); }
+$("#bViewRates") && ($("#bViewRates").onclick=openLoadedRates);
+$("#rvX") && ($("#rvX").onclick=()=>$("#rvBg").classList.remove("on"));
+$("#rvClose") && ($("#rvClose").onclick=()=>$("#rvBg").classList.remove("on"));
+$("#rvBg") && ($("#rvBg").onclick=e=>{ if(e.target===$("#rvBg")) $("#rvBg").classList.remove("on"); });
+$("#rvPick") && ($("#rvPick").onchange=renderLoadedRates);
+
 function openChanDim(){ renderDimModal(); chanDimNote(""); $("#dimBg").classList.add("on"); }
 function closeChanDim(){ $("#dimBg").classList.remove("on"); }
 $("#bChanDim") && ($("#bChanDim").onclick=openChanDim);
@@ -3604,9 +3749,6 @@ function renderConfigTabs(){
      <td class="wrap" style="font-size:11.5px">${String(r.zones||"").trim()
         ? esc(r.zones)
         : `<span style="color:var(--neg)">${LANG?"not set":"未設定"}</span>`}</td>
-     <td>${(CFG.raw.channel_dim_factors||{})[r.svc]
-        ? esc(String((CFG.raw.channel_dim_factors||{})[r.svc]))+" *"
-        : `<span style="color:var(--muted)">${esc(String(defaultDimDivisor(CFG)))}</span>`}</td>
      <td>${r.res?(LANG?"Residential":"住宅"):(LANG?"Commercial":"商業")}</td>
      <td>${r.n?(LANG?"loaded":"已載入")+" ("+r.n+")"
               :`<span style="color:var(--neg)">${LANG?"not loaded":"未載入"}</span>`}</td>
@@ -4752,6 +4894,8 @@ const I18N={
   "hd.dimf":["材積除數","DIM Factor"],
   "hd.rulesforce":["目前生效的規則","Rules in Force"],
   "lb.defdim":["預設材積除數","Default DIM factor"],
+  "hd.loadedrates":["已載入的運費表","Loaded base rates"],
+  "btn.viewrates":["檢視已載入的運費","View loaded rates"],
   "hd.bulkdim":["批量設定 DIM 除數","Bulk Set DIM Factor"],
   "hd.dimforce":["生效中的 DIM 除數","DIM Factors in Force"],
   "hint.bulkdim":["勾選渠道、填入除數、套用。留空等於清除該渠道的設定,改回沿用預設。","Tick channels, type a divisor, apply. Blank clears the override and follows the global one."],
@@ -6090,6 +6234,19 @@ step("auth",()=>{
 step("language",()=>applyLang());
 step("config",  ()=>restoreConfig());
 step("codes",   ()=>renderCode());
+/* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
+   兩邊都補上畫面才會跟關掉之前一樣。 */
+step("history", ()=>{
+  idbAllRows().then(rows=>{
+    if(!rows.length) return;
+    HISTROWS=rows;
+    renderHist();
+    const inv=Object.keys(histInv()).length;
+    setStatus((LANG?"History restored · ":"歷史已還原 · ")+inv
+      +(LANG?" invoice(s) · ":" 期 · ")+rows.length.toLocaleString()
+      +(LANG?" lines":" 列"));
+  }).catch(()=>{ /* 沒有 IndexedDB 就只是沒有明細,索引照樣在 */ });
+});
 step("weather", ()=>{ if(WX.live) fetchWx(); });
 step("scene",   ()=>sceneInit());
 
