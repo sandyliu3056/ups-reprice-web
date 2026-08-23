@@ -10,6 +10,7 @@
 | `auth-config.js` | 要。只放 Project URL 與 anon/publishable key |
 | `.gitignore` | 要 |
 | `.githooks/pre-commit` | 要 |
+| `vendor/supabase-js-2.112.3.js` | 要。登入用的 Supabase 用戶端 |
 
 **不在包裡、也不該進 repo 的:**`ups_billing_tool_config.json`(你的合約費率)、`ups_history.sqlite3`、任何帳單 CSV 或 xlsx。費率是每次開工具時自己載進去的,不是打包進去的。
 
@@ -47,5 +48,7 @@
 ## 連外的地方
 
 只有三個,都跟帳單無關:開機抓一次天氣(`api.open-meteo.com`,連不到就畫晴天)、按鈕才開的 UPS 帳單中心與燃油費率頁、以及按到 Excel 才載的 SheetJS(版本鎖死並附 SRI)。
+
+登入用的 Supabase 用戶端放在 `vendor/` 裡,不跟 CDN 拿 —— 版本不會在你不知情的時候換掉,CDN 掛了也不影響登入。要升版就換掉 `vendor/` 底下那個檔,並改 `index.html` 裡引用的檔名。
 
 **帳單資料完全不離開瀏覽器。**

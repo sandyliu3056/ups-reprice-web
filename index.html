@@ -1030,7 +1030,10 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
 
 <div class="statusbar"><span id="status" data-i18n="ready">Ready</span></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Supabase 用戶端放在自己的網站裡,不跟 CDN 拿。理由跟 SheetJS 鎖版本一樣:
+     這支工具在算客戶的錢,不能讓一個隨時會變的外部檔案跑在頁面上。
+     要升版就換掉 vendor/ 底下那個檔,並改這一行的檔名。 -->
+<script src="vendor/supabase-js-2.112.3.js"></script>
 <script src="auth-config.js"></script>
 <script>
 "use strict";
@@ -2027,6 +2030,8 @@ function ingest(text){
       declaredValue:toNum(g(r,"Declared Value")),
       bwt:g(r,"Billed Weight Type"),
       dimsC:g(r,"Package Dimensions"), dimsA:g(r,"Detail Keyed Dimensions"),
+      ref1:g(r,"Shipment Reference Number 1"),
+      ref2:g(r,"Shipment Reference Number 2"),
       net:toNum(g(r,"Net Amount"))
     };
   }).filter(r=>r.tracking||r.net);
@@ -2127,6 +2132,11 @@ function shipmentsOf(rows){
     /* 之後 SCC / CLB 要用的兩個判斷,先算好放著,這一步還沒有人讀。 */
     s.adjClb=s.groups.filter(g=>g.layer==="ADJ"&&g.details.has("CLB")&&g.hasFreight);
     s.adjScc=s.groups.filter(g=>g.layer==="ADJ"&&g.details.has("SCC"));
+
+    /* 參考號:同一個追蹤號的各行通常一樣,取第一個有值的。
+       ADJ 那些行常常是空的,所以是找第一個有值的,不是拿第一行。 */
+    s.ref1=(s.allLines.find(l=>l.ref1)||{}).ref1||"";
+    s.ref2=(s.allLines.find(l=>l.ref2)||{}).ref2||"";
 
     const ref=s.lines.filter(l=>l.layer==="SHP"||l.layer==="RTN");
     s.refEntered=Math.max(0,...ref.map(l=>l.entered));
@@ -4419,6 +4429,9 @@ function reportRows(){
     for(const c of REPORT_COLS) o[c]="";
     o["Date"]=s.shipDate||"";
     o["Tracking"]=s.tracking||"";
+    /* 沒有參考號就填 0,不是留白 —— 跟桌面版同一個樣子。 */
+    o["Shipment Reference Number 1"]=s.ref1||0;
+    o["Shipment Reference Number 2"]=s.ref2||0;
     o["Zone"]=s.zone||"";
     o["Shipment Type"]=r.channel||"";
     o["Entered Weight"]=s.entered||0;
