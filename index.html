@@ -3995,8 +3995,17 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
   const t=CFG.raw.accessorial_rate_table||{};
   const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
   const znMap=CFG.raw.builtin_service_zones||{};
-  const zones=String(znMap[ch] ?? znMap[svcOf(ch)] ?? "")
-    .split(",").map(z=>z.trim()).filter(Boolean);
+  const znStr=c=>String(znMap[c] ?? znMap[svcOf(c)] ?? "")
+    .split(",").map(z=>z.trim()).filter(Boolean).join(",");
+  const zones=znStr(ch).split(",").filter(Boolean);
+  /* 一份模板涵蓋整個渠道族:同一個字首、同一組 Zone 的渠道
+     (Ground Commercial + Ground Residential)一起倒出去。
+     com / res 的區別由第一頁每一列的 Shipment Type 扛 ——
+     Large Package 兩邊費率就是不同,列要分開,檔不必分開。 */
+  const family=[...new Set(Object.keys(t).map(k=>k.split("|||")[1]))]
+    .filter(c=>svcOf(c)===svcOf(ch) && znStr(c)===znStr(ch));
+  if(!family.includes(ch)) family.push(ch);
+  family.sort();
 
   /* 這個設定檔裡出現過的費用,依實際形狀分成分區 / 單一金額兩組。
      內建清單擺在前面,順序才跟桌面版的模板對得起來。 */
@@ -4011,16 +4020,24 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
   const flatFees=[...shape.entries()].filter(x=>!x[1]).map(x=>x[0]).filter(feeShown);
 
   const ahsHead=["Fee Type","Shipment Type",...zones.map(z=>"Zone "+z)];
-  const ahsRows=zoneFees.map(fee=>{
-    const v=t[fee+"|||"+ch];
-    return [feeDisplay(fee),ch,...zones.map(z=>
-      (v&&typeof v==="object"&&v[z]!=null&&v[z]!=="")?toNum(v[z]):"")];
-  });
+  const ahsRows=[];
+  for(const fee of zoneFees) for(const c of family){
+    const v=t[fee+"|||"+c];
+    ahsRows.push([feeDisplay(fee),c,...zones.map(z=>
+      (v&&typeof v==="object"&&v[z]!=null&&v[z]!=="")?toNum(v[z]):"")]);
+  }
+  /* 平費不帶 Shipment Type:com / res 的區別已經在費用名稱裡
+     (DAS Commercial / DAS Residential…),再掛一欄渠道只是重複。
+     值取所選渠道的;族裡如有不同值,先講,不悄悄壓平。 */
+  const flatDiff=flatFees.filter(fee=>family.some(c=>{
+    const a=t[fee+"|||"+ch], b=t[fee+"|||"+c];
+    return b!=null&&typeof b!=="object"&&toNum(b)!==toNum(a!=null&&typeof a!=="object"?a:0);
+  }));
   const flatRows=flatFees.map(fee=>{
     const v=t[fee+"|||"+ch];
-    return [feeDisplay(fee),ch,(v!=null&&typeof v!=="object")?toNum(v):0];
+    return [feeDisplay(fee),(v!=null&&typeof v!=="object")?toNum(v):0];
   });
-  const fname="UPS_Accessorials_"+ch.replace(/[^A-Za-z0-9]+/g,"_")+".xlsx";
+  const fname="UPS_Accessorials_"+svcOf(ch).replace(/[^A-Za-z0-9]+/g,"_")+".xlsx";
   /* 申報價值那四個數也要跟著模板走 —— 不然拿到模板的人附加費都有了,
      偏偏保價費用預設值算。名字照畫面上那四格。它是全域設定,每個渠道
      的模板都帶同一份。 */
@@ -4031,13 +4048,14 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
     const wb=X.utils.book_new();
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet([ahsHead,...ahsRows]),"AHS_LPS");
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(
-      [["Fee Type","Shipment Type","Amount"],...flatRows]),"FLAT_CHARGES");
+      [["Fee Type","Amount"],...flatRows]),"FLAT_CHARGES");
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(
       [["Free up to","Minimum charge","Step","Per step"],dvRow]),"DECLARED_VALUE");
     const buf=X.write(wb,{bookType:"xlsx",type:"array"});
     dlBlob(new Blob([buf],{type:"application/octet-stream"}),fname);
-    setStatus((LANG?"Template exported for ":"已匯出模板:")+ch
+    setStatus((LANG?"Template exported for ":"已匯出模板:")+family.join(" + ")
       +"  ("+(ahsRows.length+flatRows.length)+(LANG?" rows":" 列")+")"
+      +(flatDiff.length?(LANG?"  ⚠ flat fees differ between channels: ":"  ⚠ 平費兩邊值不同,已取所選渠道的:")+flatDiff.map(feeDisplay).join(", "):"")
       +(LANG?" — opens in the desktop tool too":" — 桌面版可直接匯入"));
   }).catch(()=>{
     const q=v=>/[",\r\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':String(v);
@@ -4097,9 +4115,18 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
       const hdr=sheetHeader(flat);
       const fi=hdr.indexOf("Fee Type"), ci=hdr.indexOf("Shipment Type"), ai=hdr.indexOf("Amount");
       if(fi>=0&&ai>=0){
-        /* 沒有 Shipment Type 欄就是「一列一個費用,寫進每一條標準 Zone 的
-           渠道」—— 桌面版全渠道模板就是這個形狀。 */
-        const targets=ci>=0?null:standardZoneChannels();
+        /* 沒有 Shipment Type 欄就是「一列一個費用,寫進整個渠道族」——
+           族就是這本活頁簿第一頁列出來的那些渠道;第一頁沒有渠道
+           (桌面版全渠道模板)才寫進每一條標準 Zone 的渠道。 */
+        const seen=new Set();
+        for(const nm of bk.order){
+          if(nm==="FLAT_CHARGES"||nm==="_ChannelInfo"||nm==="DECLARED_VALUE") continue;
+          const rows=bk.sheets[nm]||[]; if(rows.length<2) continue;
+          const hdr2=sheetHeader(rows), ci2=hdr2.indexOf("Shipment Type");
+          if(ci2<0) continue;
+          for(const r of rows.slice(1)){ const c=String(r[ci2]||"").trim(); if(c) seen.add(c); }
+        }
+        const targets=ci>=0?null:(seen.size?[...seen]:standardZoneChannels());
         let m=0;
         for(const r of flat.slice(1)){
           const fee=feeKey(r[fi]); if(!fee) continue;
