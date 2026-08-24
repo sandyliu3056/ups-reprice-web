@@ -548,6 +548,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act" id="bSaveRates" data-i18n="btn.saverates">Save Rates</button>
       <span id="saveNote" class="savenote"></span>
       <button class="act ghost" id="bRemoveTicked" data-i18n="btn.removeticked">Remove Ticked</button>
+      <select id="tplChan"></select>
       <button class="act ghost" id="bExportAcc" data-i18n="btn.exportacc">Export Accessorials Template</button>
       <button class="act ghost" id="bImportAcc" data-i18n="btn.importacc">Import Accessorials Template</button>
       <input type="file" id="fImportAcc" accept=".csv,.txt,.xlsx,.xls">
@@ -3990,22 +3991,30 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
   /* 只倒目前選的渠道,Zone 用它自己的那組 ——
      整張表倒出來的話,填的人得先在幾百列裡找自己要的那幾列。
      工作表名稱與欄位跟桌面版的 per-channel 模板一致,兩邊互通。 */
-  const ch=($("#accFilter")||{}).value||"";
-  if(!ch){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
+  /* 按鈕旁選的是渠道族(Ground、3 Day Select…),不分 com / res ——
+     一份模板涵蓋全族,com / res 的區別由第一頁每一列的 Shipment Type 扛。
+     Large Package 兩邊費率就是不同,列要分開,檔不必分開。 */
+  const fam=($("#tplChan")||{}).value||"";
+  if(!fam){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
   const t=CFG.raw.accessorial_rate_table||{};
   const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
   const znMap=CFG.raw.builtin_service_zones||{};
   const znStr=c=>String(znMap[c] ?? znMap[svcOf(c)] ?? "")
     .split(",").map(z=>z.trim()).filter(Boolean).join(",");
-  const zones=znStr(ch).split(",").filter(Boolean);
-  /* 一份模板涵蓋整個渠道族:同一個字首、同一組 Zone 的渠道
-     (Ground Commercial + Ground Residential)一起倒出去。
-     com / res 的區別由第一頁每一列的 Shipment Type 扛 ——
-     Large Package 兩邊費率就是不同,列要分開,檔不必分開。 */
-  const family=[...new Set(Object.keys(t).map(k=>k.split("|||")[1]))]
-    .filter(c=>svcOf(c)===svcOf(ch) && znStr(c)===znStr(ch));
-  if(!family.includes(ch)) family.push(ch);
-  family.sort();
+  const members=[...new Set([
+      ...Object.keys(t).map(k=>k.split("|||")[1]),
+      ...Object.keys(znMap)])]
+    .filter(c=>svcOf(c)===fam);
+  /* Zone 取族裡第一個有 Zone 的成員;族內 Zone 不同組的成員不倒
+     (欄位對不上,硬塞會錯格)。 */
+  const zstr=members.map(znStr).find(z=>z)||"";
+  const zones=zstr.split(",").filter(Boolean);
+  const family=members.filter(c=>znStr(c)===zstr).sort();
+  const ch=family[0]||"";
+  if(!family.length||!zones.length){
+    setStatus(LANG?"That channel has no zones configured":"這個渠道沒有設定 Zone");
+    return;
+  }
 
   /* 這個設定檔裡出現過的費用,依實際形狀分成分區 / 單一金額兩組。
      內建清單擺在前面,順序才跟桌面版的模板對得起來。 */
@@ -4408,6 +4417,15 @@ function renderConfigTabs(){
     const cur=sel.value||prefer||[...withRates].sort()[0]||allChans[0]||"";
     sel.innerHTML=allChans.map(c=>
       `<option value="${esc(c)}"${c===cur?" selected":""}>${esc(c)}</option>`).join("");
+  }
+  /* 模板匯出用的渠道族:com / res 收成一個(模板一份涵蓋全族)。 */
+  const tsel=$("#tplChan");
+  if(tsel){
+    const fam=[...new Set(allChans.map(c=>
+      String(c).replace(/\s+(Commercial|Residential)$/i,"").trim()))].sort();
+    const tcur=tsel.value||"Ground";
+    tsel.innerHTML=fam.map(c=>
+      `<option value="${esc(c)}"${c===tcur?" selected":""}>${esc(c)}</option>`).join("");
   }
   const fc=(sel&&sel.value)||allChans[0]||"";
   if($("#accChanName")) $("#accChanName").textContent=fc;
