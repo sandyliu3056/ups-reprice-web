@@ -250,6 +250,9 @@ td.cells{white-space:normal}
 .zrow{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}
 .zrow .zl{flex:1;color:var(--muted)}
 .flatgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px}
+/* 模板那一組:族選單管的是右邊兩顆按鈕,不是整頁 —— 圈在一起就不用解釋 */
+.tplgrp{display:inline-flex;gap:8px;align-items:center;
+  border:1.6px dashed var(--line);border-radius:var(--rad);padding:4px 8px}
 .flatitem{display:flex;align-items:center;gap:6px;font-size:12px}
 .flatitem .fl{flex:1;color:var(--text);line-height:1.25}
 #dvRow{gap:14px;flex-wrap:wrap}
@@ -548,9 +551,11 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
       <button class="act" id="bSaveRates" data-i18n="btn.saverates">Save Rates</button>
       <span id="saveNote" class="savenote"></span>
       <button class="act ghost" id="bRemoveTicked" data-i18n="btn.removeticked">Remove Ticked</button>
-      <select id="tplChan"></select>
-      <button class="act ghost" id="bExportAcc" data-i18n="btn.exportacc">Export Accessorials Template</button>
-      <button class="act ghost" id="bImportAcc" data-i18n="btn.importacc">Import Accessorials Template</button>
+      <span class="tplgrp">
+        <select id="tplChan"></select>
+        <button class="act ghost" id="bExportAcc" data-i18n="btn.exportacc">Export Accessorials Template</button>
+        <button class="act ghost" id="bImportAcc" data-i18n="btn.importacc">Import Accessorials Template</button>
+      </span>
       <input type="file" id="fImportAcc" accept=".csv,.txt,.xlsx,.xls">
     </div>
     <div class="row" style="margin-bottom:10px">
@@ -4418,13 +4423,15 @@ function renderConfigTabs(){
     sel.innerHTML=allChans.map(c=>
       `<option value="${esc(c)}"${c===cur?" selected":""}>${esc(c)}</option>`).join("");
   }
-  /* 模板匯出用的渠道族:com / res 收成一個(模板一份涵蓋全族)。 */
+  /* 模板的渠道族選單:com / res 收成一個。第一次跟著目前渠道的族,
+     之後尊重使用者自己選的。 */
   const tsel=$("#tplChan");
   if(tsel){
-    const fam=[...new Set(allChans.map(c=>
+    const fams=[...new Set(allChans.map(c=>
       String(c).replace(/\s+(Commercial|Residential)$/i,"").trim()))].sort();
-    const tcur=tsel.value||"Ground";
-    tsel.innerHTML=fam.map(c=>
+    const cf=String((sel&&sel.value)||"").replace(/\s+(Commercial|Residential)$/i,"").trim();
+    const tcur=(tsel.value&&fams.includes(tsel.value))?tsel.value:(cf||fams[0]||"");
+    tsel.innerHTML=fams.map(c=>
       `<option value="${esc(c)}"${c===tcur?" selected":""}>${esc(c)}</option>`).join("");
   }
   const fc=(sel&&sel.value)||allChans[0]||"";
