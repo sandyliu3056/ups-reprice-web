@@ -2600,13 +2600,16 @@ async function loadLoginHistory(){
 /* ---- 帳號管理。新增/改角色/刪除都要 service_role,那把金鑰不在瀏覽器裡,
        所以一律呼叫 Edge Function,由它先驗來人是不是主帳號。 ---- */
 let USERS=[];
+function adminUrl(){
+  return AUTH_CONFIG.url.replace(/\/$/,"")+"/functions/v1/admin-users";
+}
 function adminCall(payload){
   if(!AUTH||!ME||ME.role!=="admin")
     return Promise.reject(new Error(L("只有主帳號能做這件事","Admins only")));
   return AUTH.auth.getSession().then(({data})=>{
     const tok=data&&data.session&&data.session.access_token;
     if(!tok) throw new Error(L("請重新登入","Please sign in again"));
-    return fetch(AUTH_CONFIG.url.replace(/\/$/,"")+"/functions/v1/admin-users",{
+    return fetch(adminUrl(),{
       method:"POST",
       headers:{"Authorization":"Bearer "+tok,
                "apikey":AUTH_CONFIG.anonKey,
@@ -2617,15 +2620,26 @@ function adminCall(payload){
     if(!r.ok||j.error) throw new Error(j.error||("HTTP "+r.status));
     return j;
   })).catch(e=>{
-    /* fetch 自己失敗(不是回了錯誤碼)幾乎都是函式還沒部署上去。
-       「Failed to fetch」四個字對著畫面是猜不出來的。 */
-    if(e && /failed to fetch|networkerror|load failed/i.test(e.message||""))
-      /* 瀏覽器對 404 和 CORS 被擋一律只說 fetch 失敗,分不出來,
-         所以三種原因都要講。到底是哪一種,開 DevTools 的 Network 看那一筆。 */
-      throw new Error(L(
-        "連不到 admin-users 函式。三種可能:①還沒部署 ②名稱不是 admin-users ③函式設定裡的「Enforce JWT verification」要關掉(函式自己會驗身分)",
-        "Cannot reach admin-users. Either: (1) not deployed, (2) name is not exactly admin-users, or (3) turn OFF \"Enforce JWT verification\" in the function's settings — the function verifies callers itself"));
-    throw e;
+    /* fetch 自己失敗(不是回了錯誤碼)有好幾種原因,瀏覽器一律只說
+       「Failed to fetch」,分不出來。那就再問一次,這次送一筆瀏覽器不會
+       為它送預檢的「簡單請求」—— GET、不帶任何自訂標頭。函式對 GET 會
+       回 405,而且回應帶著 CORS 標頭,所以這一筆的成敗剛好把原因拆成兩邊。 */
+    if(!(e && /failed to fetch|networkerror|load failed/i.test(e.message||"")))
+      throw e;
+    return fetch(adminUrl()).then(
+      /* 讀得到回應 → 函式在,網址也對,來源也放行了。那擋掉剛才那筆
+         POST 的就是預檢:函式回的 Access-Control-Allow-Headers 沒放行
+         apikey。舊版函式就是漏了這個,重新部署一次就好。 */
+      ()=>{ throw new Error(L(
+        "函式在,但它擋掉了這次呼叫要帶的標頭 —— 那是舊版。請重新部署 supabase/functions/admin-users/index.ts。",
+        "The function is there but blocks a header this call sends — that copy is out of date. Redeploy supabase/functions/admin-users/index.ts.")); },
+      /* 連這一筆都失敗 → 這個網址上沒有東西回應,或回的東西沒有 CORS
+         標頭。剩下三種可能。到底是哪一種,開 DevTools 的 Network 看那
+         一筆的狀態碼:404 是沒部署或名稱不對,401 是「Enforce JWT
+         verification」把沒帶 token 的預檢擋掉了。 */
+      ()=>{ throw new Error(L(
+        "連不到 "+adminUrl()+"。三種可能:①還沒部署 ②名稱不是 admin-users ③函式設定裡的「Enforce JWT verification」要關掉(函式自己會驗身分)",
+        "Cannot reach "+adminUrl()+". Either: (1) not deployed, (2) name is not exactly admin-users, or (3) turn OFF \"Enforce JWT verification\" in the function's settings — the function verifies callers itself")); });
   });
 }
 function usersNote(msg,ok){

@@ -14,9 +14,16 @@ const URL_ = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 
+// 瀏覽器送這一筆 POST 之前,會先自己送一次 OPTIONS 預檢,把待會要帶的
+// 自訂標頭列出來問「這些可以嗎」。回答漏掉任何一個,整筆請求就被瀏覽器
+// 擋下來,而且只會說 Failed to fetch —— 畫面上跟「函式沒部署」長得一模
+// 一樣。前端會帶 authorization、apikey、content-type,supabase-js 另外還
+// 會自己加 x-client-info,所以四個都要列進來。
+const ALLOW_HEADERS = "authorization, apikey, content-type, x-client-info";
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Headers": ALLOW_HEADERS,
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -28,7 +35,17 @@ function reply(body: unknown, status = 200) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method === "OPTIONS") {
+    // 預檢問了什麼就答什麼,以後前端多帶一個標頭也不會再被擋。
+    const asked = req.headers.get("Access-Control-Request-Headers");
+    return new Response("ok", {
+      headers: {
+        ...CORS,
+        "Access-Control-Allow-Headers": asked || ALLOW_HEADERS,
+        "Access-Control-Max-Age": "86400",
+      },
+    });
+  }
   if (req.method !== "POST") return reply({ error: "POST only" }, 405);
 
   // ---- 來人是誰 ----

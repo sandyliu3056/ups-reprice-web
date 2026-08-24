@@ -32,7 +32,11 @@
 **上線前要多做兩件事:**
 
 1. Supabase 後台 → SQL Editor,把 `supabase/schema.sql` 整份貼上執行一次。
-2. 部署 Edge Function:`supabase functions deploy admin-users`(或在後台 Functions 頁貼上 `supabase/functions/admin-users/index.ts`)。
+2. 部署 Edge Function:`supabase functions deploy admin-users --no-verify-jwt`(或在後台 Functions 頁貼上 `supabase/functions/admin-users/index.ts`)。
+
+`--no-verify-jwt` 不是把門打開:函式自己每一次都會驗 token、驗角色,不是 admin 就 403。關掉的是 Supabase 閘道那一層的檢查 —— 瀏覽器送 POST 之前會先送一次 OPTIONS 預檢,那一筆**不帶** Authorization,閘道會直接回 401,函式根本沒被叫到,畫面上只會看到「連不到 admin-users」。後台改的話是函式設定裡的 **Enforce JWT verification**,關掉它。
+
+Admin 分頁如果說「函式在,但它擋掉了這次呼叫要帶的標頭」,是線上那份函式是舊的:舊版回的 `Access-Control-Allow-Headers` 沒放行 `apikey`,重新部署一次就好。
 
 第一個主帳號要用 SQL 指定,前端做不到也不該做得到 —— 指令寫在 `schema.sql` 最後面。改完角色要重新登入一次,JWT 才會帶上新角色。
 
