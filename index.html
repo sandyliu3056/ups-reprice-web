@@ -4021,11 +4021,19 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
     return [feeDisplay(fee),ch,(v!=null&&typeof v!=="object")?toNum(v):0];
   });
   const fname="UPS_Accessorials_"+ch.replace(/[^A-Za-z0-9]+/g,"_")+".xlsx";
+  /* 申報價值那四個數也要跟著模板走 —— 不然拿到模板的人附加費都有了,
+     偏偏保價費用預設值算。名字照畫面上那四格。它是全域設定,每個渠道
+     的模板都帶同一份。 */
+  const dvA=CFG.raw.accessorial_charges||{};
+  const dvRow=[toNum(dvA.dv_free_limit),toNum(dvA.dv_min_charge),
+               toNum(dvA.dv_unit),toNum(dvA.dv_unit_rate)];
   loadXLSX().then(X=>{
     const wb=X.utils.book_new();
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet([ahsHead,...ahsRows]),"AHS_LPS");
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(
       [["Fee Type","Shipment Type","Amount"],...flatRows]),"FLAT_CHARGES");
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(
+      [["Free up to","Minimum charge","Step","Per step"],dvRow]),"DECLARED_VALUE");
     const buf=X.write(wb,{bookType:"xlsx",type:"array"});
     dlBlob(new Blob([buf],{type:"application/octet-stream"}),fname);
     setStatus((LANG?"Template exported for ":"已匯出模板:")+ch
@@ -4063,7 +4071,7 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
        桌面版叫 AHS_LPS,但它自己也吃「任何帶 Fee Type + Shipment Type 的
        工作表」,這裡照同一條規則,per-channel 模板才不用另外處理。 */
     for(const nm of bk.order){
-      if(nm==="FLAT_CHARGES"||nm==="_ChannelInfo") continue;
+      if(nm==="FLAT_CHARGES"||nm==="_ChannelInfo"||nm==="DECLARED_VALUE") continue;
       const rows=bk.sheets[nm]||[]; if(rows.length<2) continue;
       const hdr=sheetHeader(rows);
       const fi=hdr.indexOf("Fee Type"), ci=hdr.indexOf("Shipment Type");
@@ -4129,6 +4137,23 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
         }else t[key]=toNum(r[ci.amt]);
         n++;
       }
+    }
+
+    /* --- 申報價值:DECLARED_VALUE 工作表,一列四個數 -------------------
+       空格不動原值 —— 空白模板匯進來不該把設定洗掉,和 Zone 的規則同一條。 */
+    const dvs=bk.sheets["DECLARED_VALUE"];
+    if(dvs&&dvs.length>1){
+      const hdr=sheetHeader(dvs);
+      const map=[["Free up to","dv_free_limit"],["Minimum charge","dv_min_charge"],
+                 ["Step","dv_unit"],["Per step","dv_unit_rate"]];
+      const a=CFG.raw.accessorial_charges||(CFG.raw.accessorial_charges={});
+      let m=0;
+      for(const [col,key] of map){
+        const i=hdr.indexOf(col);
+        if(i<0||blankCell(dvs[1][i])) continue;
+        a[key]=String(toNum(dvs[1][i])); m++;
+      }
+      if(m){ n+=m; shapes.push("DECLARED_VALUE("+m+")"); }
     }
 
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
@@ -5988,8 +6013,8 @@ const I18N={
   "lb.fuelsur":["燃油附加費","Fuel Surcharge"],
   "hd.flat":["固定金額","Flat amounts"],
   "hd.dv":["申報價值級距","Declared value tiers"],
-  "lb.dvfree":["免費上限","Free limit"], "lb.dvmin":["最低收費","Min charge"],
-  "lb.dvunit":["級距單位","Unit"], "lb.dvrate":["每級距","Per unit"],
+  "lb.dvfree":["免收上限","Free up to"], "lb.dvmin":["最低收費","Minimum charge"],
+  "lb.dvunit":["級距單位","Step"], "lb.dvrate":["每級距","Per step"],
   "btn.reset":["重設","Reset"],
   "hd.acc":["附加費設定","Surcharge Setup"],
   "hd.fuel":["燃油","Fuel"],
