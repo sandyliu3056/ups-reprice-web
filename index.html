@@ -2485,6 +2485,7 @@ const AUTH_CONFIG=window.UPS_AUTH_CONFIG||{};
    以及裡面填好的 url / key。少哪一個就講哪一個 —— 只說「缺少設定」
    會讓人對著畫面猜。 */
 function authMissing(){
+  if(typeof LOCAL_MODE!=="undefined" && LOCAL_MODE) return "";
   if(!window.supabase) return LANG
     ? "supabase-js-2.112.3.js did not load. Open that file's URL directly: if it 404s, the file is not on the server next to index.html."
     : "supabase-js-2.112.3.js 沒有載到。直接開那個檔的網址看看:如果是 404,就是它沒有和 index.html 一起放在伺服器上。";
@@ -2493,7 +2494,35 @@ function authMissing(){
     : "auth-config.js 沒有載到、或裡面是空的。它要和 index.html 放在一起,並填好 Project URL 與 anon key。";
   return "";
 }
-const AUTH=(window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
+/* ===== 本機帳號模式(暫時) =====
+   Supabase 那條路設定好之前先用這個頂著。改回去只要把 LOCAL_MODE 改成
+   false,Supabase 的整套原封不動在下面。
+
+   檔案裡存的不是密碼,是 sha256(帳號 + ":" + 密碼) 的雜湊 —— repo 是
+   public,明文寫進來就等於公開。但要說清楚:這是純前端的鎖,擋君子
+   不擋小人;費率和帳單都在各自的瀏覽器裡,不在這個檔案裡,所以真正
+   要緊的東西本來就不經過這道門。密碼是暫時的,切回 Supabase 就作廢。 */
+const LOCAL_MODE=true;
+const LOCAL_ACCOUNTS=[
+  { user:"sandyliu3056@gmail.com",
+    hash:"ccfc40179aad9e5bf82c9bfa48503f59dadeec53970b17ebaa65ca48e076eb65",
+    name:"Sandy Liu", role:"admin" },
+  { user:"geniqua_log",
+    hash:"9bb4feb1506bb39ba86de217f17f0ad20abb17a74b8cebf5526c27920de5c8a2",
+    name:"Geniqua", role:"user" },
+];
+const LOCAL_SESSION_KEY="ups_reprice_local_session";
+async function sha256Hex(text){
+  if(!(window.crypto&&crypto.subtle))
+    /* WebCrypto 只在 https 或 localhost 提供。真的碰到,幾乎都是
+       用 http:// 開的 —— 換成 https 就有了。 */
+    throw new Error(LANG?"This page must be served over https for sign-in to work."
+                       :"登入需要 https,請用 https 開這個網站。");
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+const AUTH=(!LOCAL_MODE && window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
   ? window.supabase.createClient(AUTH_CONFIG.url,AUTH_CONFIG.anonKey)
   : null;
 let ME=null;
@@ -2530,6 +2559,21 @@ function logAdd(what,detail){
 }
 
 async function login(email,pw){
+  if(LOCAL_MODE){
+    const id=String(email||"").trim().toLowerCase();
+    if(!id||!pw) return {err:LANG?"Username and password are required."
+                              :"請輸入帳號和密碼。"};
+    const h=await sha256Hex(id+":"+String(pw));
+    const acct=LOCAL_ACCOUNTS.find(a=>a.user.toLowerCase()===id && a.hash===h);
+    if(!acct) return {err:LANG?"Incorrect username or password."
+                            :"帳號或密碼不正確。"};
+    const me={id:"local::"+acct.user, user:acct.user, email:"",
+              name:acct.name, role:acct.role};
+    /* sessionStorage:關掉分頁就要重新登入。這道門本來就薄,
+       不留長效的登入狀態。 */
+    try{ sessionStorage.setItem(LOCAL_SESSION_KEY,JSON.stringify(me)); }catch(e){}
+    return me;
+  }
   if(!AUTH) return {err:authMissing()};
   const id=loginEmail(email);
   if(!id||!pw) return {err:LANG
@@ -2546,6 +2590,7 @@ async function login(email,pw){
    current session. Email, user id and timestamp are derived server-side from
    the verified JWT; the browser never receives a privileged Supabase key. */
 async function recordLogin(){
+  if(LOCAL_MODE){ logAdd("signed in", navigator.userAgent.slice(0,120)); return; }
   if(!AUTH||!ME) return;
   const ua=String(navigator.userAgent||"").slice(0,500);
   const {error}=await AUTH.rpc("record_login",{p_user_agent:ua});
@@ -2573,9 +2618,18 @@ function loginWhen(value){
 }
 
 async function loadLoginHistory(){
-  if(!AUTH||!ME||ME.role!=="admin") return;
+  if(!ME||ME.role!=="admin") return;
   const body=$("#tLoginHistory tbody"), note=$("#loginHistoryNote");
   if(!body) return;
+  if(LOCAL_MODE){
+    /* 本機模式的登入寫在活動紀錄裡(Activity Log),這張表是 Supabase 的。 */
+    const rows=logRead().filter(x=>x.w==="signed in").slice(-100).reverse();
+    body.innerHTML=rows.length?rows.map(r=>`<tr><td>${esc(r.t)}</td><td>${esc(r.u)}</td><td>${esc(loginDevice(r.d))}</td></tr>`).join("")
+      :`<tr><td colspan="3" class="empty">${L("這台瀏覽器還沒有登入紀錄。","No sign-ins recorded on this browser yet.")}</td></tr>`;
+    if(note) note.innerHTML=`<div class="note">${L("本機帳號模式:只看得到這台瀏覽器的登入。","Local-account mode: sign-ins on this browser only.")}</div>`;
+    return;
+  }
+  if(!AUTH) return;
   body.innerHTML=`<tr><td colspan="3">${LANG?"Loading…":"讀取中…"}</td></tr>`;
   if(note) note.innerHTML="";
   const {data,error}=await AUTH.from("login_history")
@@ -2634,6 +2688,14 @@ function usersNote(msg,ok){
 }
 function loadUsers(quiet){
   if(!ME||ME.role!=="admin") return Promise.resolve(false);
+  if(LOCAL_MODE){
+    USERS=LOCAL_ACCOUNTS.map(a=>({id:"local::"+a.user,username:a.user,
+      name:a.name,contact_email:"",role:a.role,config_name:"",local:true}));
+    renderUsers();
+    usersNote(L("本機帳號模式:帳號寫在 index.html 的 LOCAL_ACCOUNTS 裡,新增或改密碼要改檔案。切回 Supabase 後這裡才能直接管理。",
+      "Local-account mode: accounts live in index.html (LOCAL_ACCOUNTS). Edit the file to add or change them. Switch back to Supabase to manage them here."),true);
+    return Promise.resolve(true);
+  }
   if(!quiet) usersNote(L("讀取中…","Loading…"),true);
   return adminCall({action:"list"}).then(j=>{
     USERS=j.users||[]; if(!quiet) usersNote("",true); renderUsers(); return true;
@@ -2649,6 +2711,12 @@ function renderUsers(){
   }
   tb.innerHTML=USERS.map(u=>{
     const me=ME&&u.id===ME.id;
+    if(u.local) return `<tr><td>${esc(u.username||"")}${me?" ·":""}</td>
+      <td>${esc(u.name||"")}</td>
+      <td><span class="empty">—</span></td>
+      <td>${esc(u.role||"user")}</td>
+      <td><span class="empty">${L("本機","local")}</span></td>
+      <td></td></tr>`;
     return `<tr><td>${esc(u.username||"")}${me?" ·":""}</td>
       <td>${esc(u.name||"")}</td>
       <td>${u.contact_email?esc(u.contact_email)
@@ -2736,6 +2804,7 @@ function exportLoginHistory(){
 /* ---- 費率:每個帳號自己的一列 ---- */
 let CFG_SYNC=0;                 /* 最後一次寫回成功的時間,0 = 還沒寫過 */
 function cfgPush(text,name){
+  if(LOCAL_MODE) return Promise.resolve(false);   /* 本機模式:費率就存本機 */
   if(!AUTH||!ME) return Promise.resolve(false);
   return AUTH.from("user_settings").upsert({
       user_id:ME.id, config:JSON.parse(text), config_name:name,
@@ -2751,6 +2820,7 @@ function cfgPush(text,name){
 /* 登入後把這個帳號的費率抓回來。抓不到就退回本機快取,
    再沒有就用預設值 —— 新帳號本來就是空白的,自己匯入。 */
 function cfgPull(){
+  if(LOCAL_MODE){ restoreConfig(); return Promise.resolve(false); }
   if(!AUTH||!ME) return Promise.resolve(false);
   return AUTH.from("user_settings").select("config,config_name")
     .eq("user_id",ME.id).maybeSingle()
@@ -2918,6 +2988,15 @@ async function initAuth(){
     localStorage.removeItem("ups_reprice_accounts");
     localStorage.removeItem("ups_reprice_session");
   }catch(e){}
+  if(LOCAL_MODE){
+    let saved=null;
+    try{ saved=JSON.parse(sessionStorage.getItem(LOCAL_SESSION_KEY)); }catch(e){}
+    /* 只認得名單裡的帳號 —— sessionStorage 被手動塞東西也沒用。 */
+    if(saved && LOCAL_ACCOUNTS.some(a=>a.user===saved.user && a.role===saved.role))
+      setMe(saved);
+    else setMe(null);
+    return;
+  }
   if(!AUTH){
     setMe(null);
     paintGateNote();
@@ -7139,6 +7218,7 @@ step("auth",()=>{
 
   $("#bLogout").onclick=async()=>{
     logAdd("sign out","");
+    try{ sessionStorage.removeItem(LOCAL_SESSION_KEY); }catch(e){}
     if(AUTH) await AUTH.auth.signOut();
     setMe(null);
     setStatus(LANG?"Signed out":"已登出");
