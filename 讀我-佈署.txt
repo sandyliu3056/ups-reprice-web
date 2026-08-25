@@ -19,11 +19,15 @@ UPS Reprice Web — 佈署包
 4. Rating Breakdown 改版
    追蹤號深色橫幅、每期金色色條標帳單號;一段一張卡,左 UPS 實收、
    右重新計價,左邊框顏色分住宅(紫紅)/商業(藍);卡頭掛渠道、
-   Zone、計費重、日期;最後一條深色合計條(UPS / Reprice / 差異 / 差異率)。
+   Zone、計費重、日期;最後一條深色合計條。
+   查不到費率的金額標紅加虛線底,滑鼠停留顯示原因。
 
-5. Dashboard 新增「未判定」卡
-   住/商判不出的筆數與金額(依原因分列)、NPF/SCF 不重算金額、
-   未知 ACC 代碼金額與代碼清單。有東西才顯示,金額未計入重算總額。
+5. Dashboard 改版
+   上排三格算式:向客戶收 − UPS − 帳戶層費用,標題列金底分隔。
+   費用組成與渠道改甜甜圈,各自帶 Unknown 紅色切片
+   (未知 ACC 代碼與 NPF/SCF 進費用組成;服務名認不出的件進渠道)。
+   Zone 保留長條。「未判定」卡列出查不到費率筆數、住/商判不出的原因分列、
+   NPF/SCF 金額、未知代碼與代碼清單;有東西才顯示,金額未計入重算總額。
 
 【上傳到網站主機】(全部放同一層)
   index.html                  <- 整個工具
@@ -52,9 +56,6 @@ Residential / Shipment Type)請自行勾選刪除。
 
 新增色票在 :root(--resi / --com / --ups / --rp),換色改那裡。
 
-尚未實作(mock 已確認版型,等指示):
-  · Dashboard 上排三格算式(Charge customer − UPS − Account charges)
-  · Cost breakdown 與 Channel 改甜甜圈、各自加 Unknown 切片
-  · Breakdown 查不到費率的金額標紅虛線
+回歸測試:test_rtn_adj_split.js 與 index.html 同層,node 執行,50 項。
 
 其他細節見 DEPLOY.md。
