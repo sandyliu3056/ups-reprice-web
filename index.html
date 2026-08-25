@@ -172,6 +172,12 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 button.act.danger{background:transparent;color:var(--neg);border-color:var(--neg)}
 button.act.danger:hover:not(:disabled){background:var(--neg);color:#fff}
 button.act.danger:disabled{opacity:.45;cursor:default}
+/* 沒見過的渠道:紅框標出來。這一格的意思是「這筆會被算成別條渠道」,
+   不是「少一筆附加費」,所以標得比其他欄位重。 */
+.newtag{display:inline-block;padding:1px 7px;border:1.6px solid var(--neg);
+  border-radius:5px;color:var(--neg);font-weight:600;font-size:12px}
+#tNew td,#tNew th{white-space:nowrap}
+#tNew td.num,#tNew th.num{text-align:right}
 /* 登入頁的「保持登入」開關。畫成小滑軌,勾選變金色 ——
    比原生方框好看,也比較像「開/關」這件事。 */
 .remember{display:inline-flex;align-items:center;gap:9px;margin-top:12px;
@@ -1099,6 +1105,33 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     </div>
     <div class="modalft">
       <button class="act ghost" id="dimClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="nwBg" class="modalbg">
+  <div class="modal sketch" id="nwModal" style="width:min(1040px,100%);height:min(76vh,900px)">
+    <div class="modalhd">
+      <span data-i18n="hd.newthings">New in this invoice</span>
+      <span><button class="mx" id="nwMax">⤢</button><button class="mx" id="nwX">✕</button></span>
+    </div>
+    <div class="modalbody" style="display:flex;flex-direction:column;min-height:0">
+      <div class="strow" id="nwSum"></div>
+      <div id="nwChans"></div>
+      <p class="hint" style="margin:0 0 10px" data-i18n="hint.newthings">One row per tracking number. Each unrecognised charge code gets its own column, and the cell is what UPS billed for it. Unrecognised codes are dropped from the repriced total today, so that money is not billed on to the customer.</p>
+      <div class="tablewrap" style="flex:1;min-height:120px;max-height:none"><table id="tNew">
+        <thead><tr></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="modalft">
+      <span class="row" style="gap:10px">
+        <button class="act ghost" id="nwAddChan" data-i18n="btn.addchanshort">Add channel…</button>
+        <button class="act ghost" id="nwAddCode" data-i18n="btn.addcodeshort">Register code…</button>
+        <button class="act ghost" id="nwExport" data-i18n="btn.exportlist">Export list</button>
+      </span>
+      <span class="row" style="gap:10px">
+        <button class="act ghost" id="nwCancel" data-i18n="btn.cancel">Cancel</button>
+        <button class="act" id="nwGo" data-i18n="btn.goanyway">Generate anyway</button>
+      </span>
     </div>
   </div>
 </div>
@@ -6501,12 +6534,192 @@ function saveSettings(){
   return true;
 }
 
+/* =====================================================================
+   這期有新東西
+   ---------------------------------------------------------------------
+   帳單裡出現設定沒有的東西時,先擋一道再算 —— 算完才發現沒有意義,
+   報表那時已經倒出去了。兩種東西要擋:
+
+   · 沒見過的渠道。guessService() 配不到任何 SERVICE_PATTERNS 時會退回
+     base_rate_service(預設 Ground Commercial),所以新服務不會報錯,
+     它會被拿別條渠道的費率算出一個看起來很正常的數字。比報錯危險。
+
+   · 沒見過的 ACC 代碼。scanCharges() 認不出來的代碼整行跳過,金額
+     無聲消失 —— 重新計價的總額少一筆,diff 有落差但看不出來自哪裡,
+     而少收的正是那筆錢。
+
+   一列一個追蹤號,新代碼橫向展開,格子裡是 UPS 收的錢。
+   ===================================================================== */
+function serviceKnown(desc){
+  const d=String(desc==null?"":desc).trim().toLowerCase();
+  /* 沒有服務描述的層不判 —— 純附加費的 ADJ 本來就沒有服務名。 */
+  if(!d) return true;
+  return SERVICE_PATTERNS.some(p=>d.indexOf(p[0])>=0);
+}
+function codeKnown(code, cls, dyn){
+  const c=String(code||"").toUpperCase();
+  if(!c) return true;
+  if(MAIN_LINE.has(c)||NOT_REPRICED.has(c)) return true;
+  if(ACC_CODE_MAP[c]) return true;
+  if(AHS_DIM.has(c)||AHS_WT.has(c)||AHS_PKG.has(c)||LPS_CODE.has(c)) return true;
+  /* 自訂註冊表:代碼有、AR 也對得上才算認得。條件跟 scanCharges 一模一樣 ——
+     這裡放寬的話,會漏報一批計價時其實還是算不到的行。 */
+  const d=dyn&&dyn[c];
+  if(d && d.enabled!==false && String(d.name||"").trim()!==""
+     && AR_CODES.includes(normArCode(cls))
+     && normArCode(cls)===normArCode(d.ar||"ACC")) return true;
+  return false;
+}
+let NEWQ=null;          /* 最近一次掃描的結果。關卡、匯出、續跑都讀它 */
+function scanNewThings(ships){
+  const dyn=(CFG&&CFG.raw&&CFG.raw.dynamic_surcharge_mapping)||{};
+  const codes=new Map(), chans=new Map(), rows=[];
+  const r2=v=>Math.round(v*100)/100;
+  for(const s of ships||[]){
+    const svcNew=!serviceKnown(s.service);
+    const mine={};
+    let amt=0;
+    for(const l of (s.allLines||[])){
+      if(codeKnown(l.code,l.cls,dyn)) continue;
+      const c=String(l.code||"").toUpperCase();
+      mine[c]=(mine[c]||0)+l.net;
+      amt+=l.net;
+      const e=codes.get(c)||{desc:"",n:0,amt:0};
+      e.n++; e.amt+=l.net;
+      if(!e.desc) e.desc=l.desc||"";
+      codes.set(c,e);
+    }
+    if(svcNew){
+      const e=chans.get(s.service)||{n:0,amt:0};
+      e.n++; e.amt+=(s.upsTotal||0);
+      chans.set(s.service,e);
+    }
+    if(svcNew||Object.keys(mine).length)
+      rows.push({tracking:s.tracking||"",
+                 invoice:((s.allLines&&s.allLines[0])||{}).invoice||"",
+                 service:s.service||"", svcNew, codes:mine,
+                 newAmt:r2(amt), ups:r2(s.upsTotal||0)});
+  }
+  return {
+    rows,
+    codes:[...codes.entries()].map(([c,v])=>({code:c,desc:v.desc,n:v.n,amt:r2(v.amt)}))
+            .sort((a,b)=>a.code.localeCompare(b.code)),
+    chans:[...chans.entries()].map(([c,v])=>({service:c,n:v.n,amt:r2(v.amt)}))
+            .sort((a,b)=>String(a.service).localeCompare(String(b.service)))
+  };
+}
+function renderNewGate(){
+  const q=NEWQ; if(!q) return;
+  const cols=q.codes.map(c=>c.code);
+  const stat=(lab,val)=>`<div class="stat"><i>${lab}</i><b>${val}</b></div>`;
+  const totalNew=q.rows.reduce((a,r)=>a+r.newAmt,0);
+  $("#nwSum").innerHTML =
+      stat(L("沒見過的渠道","New channels"), q.chans.length.toLocaleString())
+    + stat(L("沒見過的代碼","New codes"), q.codes.length.toLocaleString())
+    + stat(L("影響追蹤號","Trackings"), q.rows.length.toLocaleString())
+    + stat(L("未認得金額","Unrecognised"), money(totalNew));
+  const head=$("#tNew").tHead.rows[0], body=$("#tNew").tBodies[0];
+  head.innerHTML=`<th>${L("追蹤號","Tracking")}</th>`
+    +`<th>${L("期別","Invoice")}</th>`
+    +`<th>${L("新渠道","New channel")}</th>`
+    +cols.map(c=>{
+        const m=q.codes.find(x=>x.code===c)||{};
+        return `<th class="num" title="${esc(m.desc||"")}">${esc(c)}</th>`;
+      }).join("")
+    +`<th class="num">${L("未認得合計","Unrecognised")}</th>`
+    +`<th class="num">${L("UPS 實收","UPS billed")}</th>`;
+  const cell=v=>v?money(v):`<span style="color:var(--muted)">—</span>`;
+  body.innerHTML=q.rows.map(r=>
+    `<tr><td style="font-family:monospace">${esc(r.tracking)}</td>`
+    +`<td>${esc(r.invoice)}</td>`
+    +`<td>${r.svcNew
+        ? `<span class="newtag">${esc(r.service||L("(無服務名)","(no service)"))}</span>`
+        : `<span style="color:var(--muted)">—</span>`}</td>`
+    +cols.map(c=>`<td class="num">${cell(r.codes[c])}</td>`).join("")
+    +`<td class="num"><b>${money(r.newAmt)}</b></td>`
+    +`<td class="num">${money(r.ups)}</td></tr>`).join("")
+    ||`<tr><td colspan="${cols.length+5}" class="empty">—</td></tr>`;
+  /* 新渠道用粗體紅字列在表格上面 —— 它比新代碼嚴重得多:
+     整筆運費會被算成別條渠道的價,不是少一筆附加費而已。 */
+  $("#nwChans").innerHTML = q.chans.length
+    ? `<div class="note warn"><b>${L("這些服務名稱設定裡沒有,會被當成預設渠道計價:",
+        "These service names are not configured and will be priced as the default channel:")}</b><br>`
+      + q.chans.map(c=>`· ${esc(c.service||L("(無服務名)","(no service)"))} — `
+          + c.n + L(" 筆,UPS 收 "," shipment(s), UPS billed ") + money(c.amt)).join("<br>")
+      + `</div>`
+    : "";
+}
+function openNewGate(ing, ships){
+  renderNewGate();
+  /* 「仍要產生」必須在自己的 click 裡呼叫 runReport —— showSaveFilePicker
+     要使用者手勢,Generate 那一下的授權到這裡已經過期了。 */
+  $("#nwGo").onclick=()=>{
+    $("#nwBg").classList.remove("on");
+    logAdd("report with unknowns",
+      NEWQ.chans.length+" channel(s) / "+NEWQ.codes.length+" code(s)");
+    runReport(ing, ships);
+  };
+  $("#nwBg").classList.add("on");
+  setStatus(L("這期有設定裡沒有的東西","This period has items not in your settings"));
+}
+function closeNewGate(){ $("#nwBg").classList.remove("on"); }
+$("#nwX") && ($("#nwX").onclick=closeNewGate);
+$("#nwMax") && ($("#nwMax").onclick=()=>{
+  const m=$("#nwModal");
+  m.classList.toggle("max");
+  m.style.removeProperty("width"); m.style.removeProperty("height");
+  if(!m.classList.contains("max")){
+    m.style.width="min(1040px,100%)"; m.style.height="min(76vh,900px)";
+  }
+  $("#nwMax").textContent=m.classList.contains("max")?"⤡":"⤢";
+});
+$("#nwCancel") && ($("#nwCancel").onclick=()=>{
+  closeNewGate(); setStatus(L("已取消","Cancelled"));
+});
+$("#nwBg") && ($("#nwBg").onclick=e=>{ if(e.target===$("#nwBg")) closeNewGate(); });
+/* 兩個捷徑:代碼去自訂附加費、渠道去渠道分頁。當場處理,不用記下來事後找。 */
+$("#nwAddCode") && ($("#nwAddCode").onclick=()=>{
+  closeNewGate(); showTab("rules");
+  if(typeof dynLoad==="function") dynLoad();
+  $("#dynBg") && $("#dynBg").classList.add("on");
+});
+$("#nwAddChan") && ($("#nwAddChan").onclick=()=>{
+  closeNewGate(); showTab("chan");
+  const el=$("#newChanName"); if(el) el.focus();
+});
+$("#nwExport") && ($("#nwExport").onclick=()=>{
+  const q=NEWQ; if(!q) return;
+  const cols=q.codes.map(c=>c.code);
+  const head=["Tracking","Invoice","New Channel",...cols,"Unrecognised","UPS Billed"];
+  const aoa=[head,...q.rows.map(r=>[r.tracking,r.invoice,r.svcNew?r.service:"",
+    ...cols.map(c=>r.codes[c]||0), r.newAmt, r.ups])];
+  saveSheet(aoa,"New This Period","new_this_period.xlsx",3)
+    .then(ok=>setStatus(ok?L("清單已匯出","List exported"):L("已取消存檔","Save cancelled")));
+});
+
 /* ---- 產生報表 ---- */
 $("#bRun").onclick=async ()=>{
   setStatus(L("讀取中…","Reading…"));
   try{
     const ing=ingest(INV);
-    /* 趁按鈕的授權還在,先問要存哪裡。取消就整個不跑,不要算完才發現沒地方放。 */
+    const ships=shipmentsOf(ing.rows);
+    /* 設定裡沒有的渠道或代碼,先擋一道再算。算完才發現沒有意義 ——
+       報表那時已經倒出去了。沒有新東西就直接往下跑,不多一次點擊。 */
+    NEWQ=scanNewThings(ships);
+    if(NEWQ.rows.length){ openNewGate(ing, ships); return; }
+    await runReport(ing, ships);
+  }catch(e){
+    $("#cfgNote").innerHTML=`<div class="note warn"><b>`
+      +L("讀不動這張帳單。","Could not read that invoice.")+`</b> ${esc(e.message)}</div>`;
+    setStatus(L("失敗","Failed"));
+  }
+};
+
+/* 真正的產生報表。從「問要存哪裡」開始 —— showSaveFilePicker 需要
+   使用者手勢,所以這個函式一定要在某個 click 處理器裡呼叫:
+   沒有新東西時是 Generate 那一下,有新東西時是關卡上「仍要產生」那一下。 */
+async function runReport(ing, ships){
+  try{
     SAVE_TO=await pickSave(reportName());
     if(SAVE_TO==="cancel"){ SAVE_TO=null; setStatus(L("已取消","Cancelled")); return; }
     /* 先歸檔再計價。桌面版把這一步放在最前面,理由是:計價失敗的那一期
@@ -6515,10 +6728,10 @@ $("#bRun").onclick=async ()=>{
     if(!filed.stored)
       toast(LANG?"History index is too large for this browser to store."
                 :"歷史索引太大,這個瀏覽器存不下。", false);
-    ROWS=ing.rows; SHIPS=shipmentsOf(ROWS);
+    ROWS=ing.rows; SHIPS=ships;
     /* 跨期更正的原件先從 IndexedDB 撈成同步對照再計價。
        撈不到(沒有歷史、私密視窗)就空表照算,跨期單照舊標問題。 */
-    prefetchOriginals(SHIPS).then(()=>{
+    return prefetchOriginals(SHIPS).then(()=>{
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
     renderCode(); renderHist();
     ready();
@@ -6543,7 +6756,7 @@ $("#bRun").onclick=async ()=>{
       +L("讀不動這張帳單。","Could not read that invoice.")+`</b> ${esc(e.message)}</div>`;
     setStatus(L("失敗","Failed"));
   }
-};
+}
 
 const LAYER_MEANING={
   SHP:["本期出貨","Shipped this period"],
@@ -7133,6 +7346,14 @@ const I18N={
   "hd.dimf":["材積除數","DIM Factor"],
   "hd.rulesforce":["目前生效的規則","Rules in Force"],
   "lb.defdim":["預設材積除數","Default DIM factor"],
+  "hd.newthings":["這期有設定裡沒有的東西","New in this invoice"],
+  "hint.newthings":["一列一個追蹤號。每個沒見過的收費代碼各占一欄,格子裡是 UPS 收的錢。這些代碼目前不會進重新計價的總額,等於那筆錢沒有轉嫁給客戶。",
+    "One row per tracking number. Each unrecognised charge code gets its own column, and the cell is what UPS billed for it. Unrecognised codes are dropped from the repriced total today, so that money is not billed on to the customer."],
+  "btn.addchanshort":["新增渠道…","Add channel…"],
+  "btn.addcodeshort":["註冊代碼…","Register code…"],
+  "btn.exportlist":["匯出清單","Export list"],
+  "btn.cancel":["取消","Cancel"],
+  "btn.goanyway":["仍要產生報表","Generate anyway"],
   "hd.loadedrates":["已載入的運費表","Loaded base rates"],
   "btn.viewrates":["檢視已載入的運費","View loaded rates"],
   "hd.bulkchan":["批量設定渠道門檻","Bulk Set Channels"],
