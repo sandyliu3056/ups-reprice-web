@@ -26,6 +26,13 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
       CFG.raw.accessorial_rate_table["Return To Sender|||Ground Residential"]=18;
       /* 另一項保持開啟,用來證明只有被關掉的那一項被排除 */
       CFG.raw.accessorial_rate_table["Residential Surcharge|||Ground Residential"]=5;
+      /* 基本運費表。沒有它整筆會被「這條渠道沒有費率」擋掉、附加費一起
+         歸零(index.html:2322 的 noRates),測不到燃油底。 */
+      CFG.raw.base_rate_tables=[{
+        service:"Ground Residential", residential:"true",
+        columns:["Weight","Zone 8"],
+        rows:[[5,10.00]]
+      }];
       CFG.raw.global_rules.fuel_percent="20";
       CFG.raw.channel_fuel_schedules={};
       CFG.raw.fuel_schedule=[];
@@ -52,8 +59,10 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
     ship(){ return shipmentsOf(ingest(this.csv()).rows)[0]; },
     price(){
       const r=priceShipment(CFG,this.ship());
-      return {fuel:r.fuel, rts:(r.acc&&r.acc["Return To Sender"])||0,
-              res:(r.acc&&r.acc["Residential Surcharge"])||0};
+      return {fuel:r.fuel, base:r.base, acc:r.acc||{},
+              rts:(r.acc&&r.acc["Return To Sender"])||0,
+              res:(r.acc&&r.acc["Residential Surcharge"])||0,
+              issues:r.issues||[]};
     },
     scan(){
       return [...scanCharges(this.ship().lines, CFG.dynMap, CFG.accFuelOff).nonFuel];
@@ -94,12 +103,23 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   ck("預設沒有任何項目被排除", T.off().length === 0, T.off().join());
   ck("預設 Return To Sender 有進燃油底", T.scan().indexOf("Return To Sender") < 0, T.scan().join());
 
-  /* 這份設定沒有基本運費表,所以合約底價是 0,燃油底就只有附加費 —— 
-     18(退回寄件人) + 5(住宅費)。 */
+  /* 燃油底 = 底價 10(5 lb / Zone 8)
+              + 退回寄件人 18
+              + 住宅費 5
+              + 第二哩底價 10 —— ISW 是退回寄件人,回程那一段有自己的運費,
+                index.html 的 A4 會補一筆。它是運費不是附加費,所以不在
+                小視窗的清單裡,永遠收燃油。
+     合計 43。 */
   const on = T.price();
+  ck("這條渠道有被計價(沒被 noRates 擋掉)",
+     !on.issues.some(m => /沒有|No base rate/.test(m)), on.issues.join(" | "));
+  ck("預設:底價 10", Math.abs(on.base - 10) < 0.005, on.base);
   ck("預設:退回寄件人收 18", Math.abs(on.rts - 18) < 0.005, on.rts);
   ck("預設:住宅費收 5", Math.abs(on.res - 5) < 0.005, on.res);
-  ck("預設:燃油含兩項 → (18+5)x20% = 4.60", Math.abs(on.fuel - 4.60) < 0.005, on.fuel);
+  ck("預設:ISW 帶出第二哩底價 10",
+     Math.abs((on.acc["2nd Mile Road Base Rate"] || 0) - 10) < 0.005,
+     on.acc["2nd Mile Road Base Rate"]);
+  ck("預設:燃油含全部 → 43x20% = 8.60", Math.abs(on.fuel - 8.60) < 0.005, on.fuel);
 
   /* ---- 關掉 ---- */
   T.toggle("Return To Sender", false);
@@ -118,7 +138,8 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   const off = T.price();
   ck("關掉後:退回寄件人仍然收 18(費用本身照收)", Math.abs(off.rts - 18) < 0.005, off.rts);
   ck("關掉後:住宅費不受影響,仍是 5", Math.abs(off.res - 5) < 0.005, off.res);
-  ck("關掉後:燃油只剩住宅費 → 5x20% = 1.00", Math.abs(off.fuel - 1.00) < 0.005, off.fuel);
+  ck("關掉後:燃油底只扣掉那 18 → (43-18)x20% = 5.00",
+     Math.abs(off.fuel - 5.00) < 0.005, off.fuel);
 
   /* ---- 其他項目不受影響 ---- */
   ck("只影響被關的那一項",
@@ -127,7 +148,7 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   /* ---- 開回來要清乾淨 ---- */
   T.toggle("Return To Sender", true);
   ck("開回來後設定檔清乾淨（不留 true）", T.cfgKey() === "{}", T.cfgKey());
-  ck("開回來後燃油回到 4.60", Math.abs(T.price().fuel - 4.60) < 0.005, T.price().fuel);
+  ck("開回來後燃油回到 8.60", Math.abs(T.price().fuel - 8.60) < 0.005, T.price().fuel);
 
   /* 說明文字兩種語言都要有,而且 data-i18n 要真的換得掉 */
   run(`window.__h = {
@@ -142,11 +163,13 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   /* ---- 全開 / 全關 ---- */
   T.none();
   ck("全關:每一格都未勾", T.boxes().every(b => !b.checked));
-  ck("全關:燃油變成 0", Math.abs(T.price().fuel) < 0.005, T.price().fuel);
+  /* 全關只排除附加費。底價和第二哩底價都是運費,不在清單裡,照樣收燃油 */
+  ck("全關:燃油只剩兩段運費 → (10+10)x20% = 4.00",
+     Math.abs(T.price().fuel - 4.00) < 0.005, T.price().fuel);
   T.all();
   ck("全開:每一格都勾起來", T.boxes().every(b => b.checked));
   ck("全開:設定檔清乾淨", T.cfgKey() === "{}", T.cfgKey());
-  ck("全開:燃油回到 4.60", Math.abs(T.price().fuel - 4.60) < 0.005, T.price().fuel);
+  ck("全開:燃油回到 8.60", Math.abs(T.price().fuel - 8.60) < 0.005, T.price().fuel);
   ck("全開:摘要說全部都收", /都收|All charge/.test(T.summary()), T.summary());
   ck("全開:計數回到 27 / 27", T.count() === "27 / 27", T.count());
   ck("小視窗裡有 Save 按鈕", !!d.getElementById("bAfSave"));
