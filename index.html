@@ -358,6 +358,14 @@ td.cells{white-space:normal}
 .subpanel .hint{margin:0 0 10px}
 
 /* 燃油視窗 */
+/* 從關卡跳去設定時,關卡本身會被關掉 —— 這條浮動列是回去的路。
+   沒有它,使用者設定完就得重選帳單、重按一次產生,才看得到還剩什麼。 */
+#nwBack{position:fixed;right:18px;bottom:44px;z-index:45;display:none;
+  align-items:center;gap:10px;padding:9px 12px;
+  border:2px solid var(--line);border-radius:12px;background:var(--panel);
+  box-shadow:0 6px 20px rgba(0,0,0,.28)}
+#nwBack.on{display:flex}
+#nwBackTxt{font-weight:700}
 .modalbg{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.35);
   align-items:flex-start;justify-content:center;padding:26px 16px;overflow:auto}
 .modalbg.on{display:flex}
@@ -1271,6 +1279,12 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       </span>
     </div>
   </div>
+</div>
+
+<div id="nwBack">
+  <span id="nwBackTxt"></span>
+  <button class="act" id="nwBackGo" data-i18n="btn.backlist">Back to the list</button>
+  <button class="mx" id="nwBackX">✕</button>
 </div>
 
 <div id="stBg" class="modalbg">
@@ -7363,7 +7377,13 @@ function gateUnsetChan(){
   const c=((NEWQ&&NEWQ.chans)||[]).find(x=>x.why!=="norates");
   return c?c.service:"";
 }
+/* 這張帳單已經讀好了,關卡關掉也不要丟。使用者按捷徑去設定的時候,
+   舊做法是連同它一起丟 —— 設定完只能重選檔案、重按一次產生,
+   而且回不到剛才那張清單,不知道還剩幾項沒處理。 */
+let GATEPEND=null;
 function openNewGate(ing, ships){
+  GATEPEND={ing:ing, ships:ships};
+  hideGateBack();
   renderNewGate();
   const nr=gateNoRateChan(), un=gateUnsetChan();
   if($("#nwRates")) $("#nwRates").style.display=nr?"":"none";
@@ -7371,6 +7391,7 @@ function openNewGate(ing, ships){
   /* 「仍要產生」必須在自己的 click 裡呼叫 runReport —— showSaveFilePicker
      要使用者手勢,Generate 那一下的授權到這裡已經過期了。 */
   $("#nwGo").onclick=()=>{
+    GATEPEND=null; hideGateBack();
     $("#nwBg").classList.remove("on");
     logAdd("report with unknowns",
       NEWQ.chans.length+" channel(s) / "+NEWQ.codes.length+" code(s)");
@@ -7380,7 +7401,35 @@ function openNewGate(ing, ships){
   setStatus(L("這期有設定裡沒有的東西","This period has items not in your settings"));
 }
 function closeNewGate(){ $("#nwBg").classList.remove("on"); }
-$("#nwX") && ($("#nwX").onclick=closeNewGate);
+/* 真的不做了:連暫存的那張帳單一起丟掉,浮動列也收起來。 */
+function dropNewGate(){ GATEPEND=null; hideGateBack(); closeNewGate(); }
+function hideGateBack(){ $("#nwBack") && $("#nwBack").classList.remove("on"); }
+/* 捷徑用這個關窗:窗收起來,帳單留著,右下角留一條回去的路。 */
+function gateAway(){
+  closeNewGate();
+  const bar=$("#nwBack"); if(!bar||!GATEPEND) return;
+  const n=((NEWQ&&NEWQ.chans)||[]).length+((NEWQ&&NEWQ.codes)||[]).length;
+  const t=$("#nwBackTxt");
+  if(t) t.textContent=L("這期還有 "+n+" 項沒設定","This period still has "+n+" unset item(s)");
+  bar.classList.add("on");
+}
+/* 設定完按這裡:拿同一張帳單重掃一次。還有沒設定的就把清單再開起來
+   （這次少了剛處理掉的那幾項）;全部處理完了就直接產生報表 ——
+   這一下是使用者手勢,showSaveFilePicker 叫得動。 */
+$("#nwBackGo") && ($("#nwBackGo").onclick=()=>{
+  if(!GATEPEND) { hideGateBack(); return; }
+  const {ing, ships}=GATEPEND;
+  NEWQ=scanNewThings(ships);
+  if(NEWQ.rows.length){ openNewGate(ing, ships); return; }
+  GATEPEND=null; hideGateBack();
+  setStatus(L("都設定好了,開始產生報表","All set — generating the report"));
+  runReport(ing, ships);
+});
+$("#nwBackX") && ($("#nwBackX").onclick=()=>{
+  GATEPEND=null; hideGateBack();
+  setStatus(L("已取消","Cancelled"));
+});
+$("#nwX") && ($("#nwX").onclick=gateAway);
 $("#nwMax") && ($("#nwMax").onclick=()=>{
   const m=$("#nwModal");
   m.classList.toggle("max");
@@ -7391,12 +7440,12 @@ $("#nwMax") && ($("#nwMax").onclick=()=>{
   $("#nwMax").textContent=m.classList.contains("max")?"⤡":"⤢";
 });
 $("#nwCancel") && ($("#nwCancel").onclick=()=>{
-  closeNewGate(); setStatus(L("已取消","Cancelled"));
+  dropNewGate(); setStatus(L("已取消","Cancelled"));
 });
-$("#nwBg") && ($("#nwBg").onclick=e=>{ if(e.target===$("#nwBg")) closeNewGate(); });
+$("#nwBg") && ($("#nwBg").onclick=e=>{ if(e.target===$("#nwBg")) gateAway(); });
 /* 兩個捷徑:代碼去自訂附加費、渠道去渠道分頁。當場處理,不用記下來事後找。 */
 $("#nwAddCode") && ($("#nwAddCode").onclick=()=>{
-  closeNewGate(); showTab("rules");
+  gateAway(); showTab("rules");
   if(typeof dynLoad==="function") dynLoad();
   $("#dynBg") && $("#dynBg").classList.add("on");
 });
@@ -7405,7 +7454,7 @@ $("#nwAddCode") && ($("#nwAddCode").onclick=()=>{
    新增時會自動沿用 Ground Commercial 的分區。 */
 $("#nwAddChan") && ($("#nwAddChan").onclick=()=>{
   const want=gateUnsetChan();
-  closeNewGate(); showTab("chan");
+  gateAway(); showTab("chan");
   const el=$("#newChanName");
   if(el){ if(want) el.value=want; el.focus(); el.select&&el.select();
     el.scrollIntoView({block:"center"}); }
@@ -7418,7 +7467,7 @@ $("#nwAddChan") && ($("#nwAddChan").onclick=()=>{
    不切的話使用者到了頁面還要自己在幾十條裡找。 */
 $("#nwRates") && ($("#nwRates").onclick=()=>{
   const want=gateNoRateChan();
-  closeNewGate(); showTab("chan");
+  gateAway(); showTab("chan");
   const rc=$("#rateChan");
   if(rc && want){
     /* 選單的值是「渠道|C」或「渠道|R」。先找商業,沒有再找住宅,
@@ -7955,12 +8004,32 @@ function serviceRecognised(d0){
    算出一個看起來正常、其實用錯費率的數字。 */
 const SERVICE_GENERIC=["commercial adjustment",
                        "shipping charge correction","residential"];
+/* 設定裡自己加的渠道名。SERVICE_PATTERNS 是寫死的清單,認不得使用者
+   新增的渠道 —— 少了這一段,照著關卡的指示把渠道加進去以後,下一次掃描
+   還是判它「沒設定」,整筆照樣不計價,而且看不出是哪裡沒生效。
+   同時比對到好幾條時取最長的那條:"Ground Commercial" 要贏過 "Ground"。 */
+function configuredService(d0){
+  const d=String(d0==null?"":d0).trim().toLowerCase();
+  if(!d) return "";
+  const zones=(CFG&&CFG.raw&&CFG.raw.builtin_service_zones)||{};
+  let best="";
+  for(const name of Object.keys(zones)){
+    const n=String(name).trim().toLowerCase();
+    if(!n) continue;
+    if(d===n || d.indexOf(n)>=0){
+      if(n.length>String(best).trim().length) best=name;
+    }
+  }
+  return best;
+}
 function serviceIdentified(d0){
   const d=String(d0==null?"":d0).trim().toLowerCase();
   if(!d) return true;
   /* 先看有沒有配到「真的講出服務」的規則 */
   if(SERVICE_PATTERNS.some(p=>SERVICE_GENERIC.indexOf(p[0])<0 && d.indexOf(p[0])>=0))
     return true;
+  /* 使用者自己加的渠道也算認得出來 */
+  if(configuredService(d)) return true;
   /* 只配到最後手段時,把那段字拿掉再看剩下什麼:
        "Commercial Adjustment"                          -> 什麼都不剩
        "Shipping Charge Correction"                     -> 什麼都不剩
@@ -8007,6 +8076,11 @@ function channelUnidentified(s){
 function guessService(d0){
   const d=String(d0==null?"":d0).trim().toLowerCase();
   for(const [pat,name] of SERVICE_PATTERNS) if(d.indexOf(pat)>=0) return name;
+  /* 寫死的清單認不得,就看設定裡有沒有同名的渠道 —— 使用者為了這張帳單
+     新增的渠道要真的被用到,不然加了等於沒加。放在內建規則後面:
+     新增一條叫 "Air" 的渠道不該把所有空運件都搶過去。 */
+  const cs=configuredService(d);
+  if(cs) return cs;
   /* 全部落空時退回設定裡的預設服務,和桌面版 base_rate_service 一樣;
      以前回傳原始描述,結果是一個永遠配不到費率表的字串。 */
   const dflt=String((CFG&&CFG.raw&&CFG.raw.base_rate_service)||"").trim();
@@ -8161,6 +8235,7 @@ const I18N={
   "hint.newthings":["一列一個追蹤號。每個沒見過的收費代碼各占一欄,格子裡是 UPS 收的錢。這些代碼目前不會進重新計價的總額,等於那筆錢沒有轉嫁給客戶。",
     "One row per tracking number. Each unrecognised charge code gets its own column, and the cell is what UPS billed for it. Unrecognised codes are dropped from the repriced total today, so that money is not billed on to the customer."],
   "btn.addchanshort":["新增渠道…","Add channel…"],
+  "btn.backlist":["回到清單","Back to the list"],
   "btn.fillrates":["去填這條的費率…","Import rates…"],
   "btn.addcodeshort":["註冊代碼…","Register code…"],
   "btn.exportlist":["匯出清單","Export list"],
