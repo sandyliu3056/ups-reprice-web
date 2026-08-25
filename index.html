@@ -839,20 +839,19 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <section class="page" id="p-setting">
   <div class="lf sketch">
     <h3 class="display"><span class="em">⚙️</span><span data-i18n="hd.setting">Settings</span></h3>
-    <p class="hint" data-i18n="hint.setting">General repricing behaviour. Changes are saved to your account.</p>
 
     <!-- 住/商判定來源:系統設定 或 API -->
-    <div class="sketch-soft" style="padding:14px 16px;margin:10px 0 14px">
+    <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
       <div class="subhd" style="margin-top:0" data-i18n="hd.resisrc">🔄 Residential / Commercial · Source</div>
       <label class="bulkchk" style="margin-top:8px"><input type="radio" name="resiSrc" value="system" id="resiSrcSys">
-        <span data-i18n="lb.resisys">Use system logic (invoice codes &amp; service name; returns look up history)</span></label>
+        <span data-i18n="lb.resisys">System</span></label>
       <label class="bulkchk" style="margin-top:5px"><input type="radio" name="resiSrc" value="api" id="resiSrcApi">
-        <span data-i18n="lb.resiapi">Look up the ship-to address by API (UPS Address Validation)</span></label>
+        <span data-i18n="lb.resiapi">API (UPS Address)</span></label>
       <div id="resiApiBox" style="display:none;margin-top:10px">
         <label class="inlab" style="margin-left:0" data-i18n="lb.resiapiurl">API proxy endpoint (Edge Function URL)</label>
         <input id="resiApiUrl" class="cell" style="width:min(520px,100%);text-align:left" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
       </div>
-      <p class="hint" style="margin:9px 0 0" data-i18n="hint.resisrc">System = the tool decides. API = classify the delivery address via a UPS proxy; falls back to system logic when unset or unavailable.</p>
+      <p class="hint" style="margin:9px 0 0" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
     </div>
 
     <div class="row" style="margin-top:4px">
@@ -7433,10 +7432,10 @@ const I18N={
   "hd.setting":["設定","Settings"],
   "hint.setting":["重新計價的一般行為設定,改動會存到你的帳號。","General repricing behaviour. Changes are saved to your account."],
   "hd.resisrc":["🔄 住宅／商業判定來源","🔄 Residential / Commercial · Source"],
-  "lb.resisys":["沿用系統設定(依帳單代碼、服務名稱;退件回程查帳單歷史)","Use system logic (invoice codes & service name; returns look up history)"],
-  "lb.resiapi":["用 API 查送達地址(UPS 地址驗證)","Look up the ship-to address by API (UPS Address Validation)"],
+  "lb.resisys":["沿用系統設定","System"],
+  "lb.resiapi":["API(UPS 地址)","API (UPS address)"],
   "lb.resiapiurl":["API 代理端點(Edge Function 網址)","API proxy endpoint (Edge Function URL)"],
-  "hint.resisrc":["「沿用系統設定」= 用工具自己的判定(帳單代碼、服務名稱;退件回程會查帳單歷史,原始出貨是住宅就判住宅)。「API」= 把送達地址丟給你架的 UPS 代理(Edge Function)判住/商 —— 純網頁不能直接打 UPS,需要後端代理與 UPS 金鑰;沒設定或查不到時,自動退回系統判定。","\"System\" = the tool decides (invoice codes, service name; returns look up Invoice History, inheriting the original shipment). \"API\" = send the delivery address to your UPS proxy (Edge Function) for classification — a browser cannot call UPS directly, so a backend proxy with UPS keys is required; it falls back to system logic when unset or unavailable."],
+  "hint.resisrc":["API 需自架 UPS 代理,未設定時退回系統。","API needs a UPS proxy; falls back to System when unset."],
   "hd.files":["匯入檔案","Import Files"],
   "hd.sum":["這張帳單","This Invoice"],
   "hd.rate":["重新計價","Repricing"],
