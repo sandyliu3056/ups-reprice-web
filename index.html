@@ -444,6 +444,7 @@ td.cells{white-space:normal}
 .plegend td{padding:3px 0;white-space:nowrap;border-bottom:none}
 .plegend td.pnm{width:100%;white-space:normal;padding-right:8px}
 .plegend td.pamt{text-align:right;font-family:Consolas,monospace}
+.plegend tr.pfold td{opacity:.6;font-size:11.5px}
 .plegend td.ppct{text-align:right;font-family:Consolas,monospace;color:var(--muted);
   width:52px;padding-left:10px}
 .pdot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;
@@ -3378,6 +3379,9 @@ function prefetchOriginals(ships){
    ===================================================================== */
 let ADDRCLASS={};        /* 追蹤號 -> "R" | "C" */
 let API_NOTE="";         /* 這次跑批的一次性提示(端點沒填、呼叫失敗等) */
+/* 「選了 API 卻沒填端點」是設定沒填完,不是這一次跑批出事 —— 每產一次報表
+   就跳一次,跳到後來沒有人會看。一個工作階段講一次就夠。 */
+let API_NOURL_SHOWN=false;
 const ADDRCLASS_CACHE_KEY="ups_addrclass_v1";
 function addressClassFor(s){ return (s&&ADDRCLASS[s.tracking])||null; }
 function addrKey(a){
@@ -3407,8 +3411,11 @@ async function prefetchAddressClass(ships){
   const gr=(CFG&&CFG.raw&&CFG.raw.global_rules)||{};
   if((gr.resi_source||"system")!=="api") return 0;      /* 系統模式:完全不打 */
   const url=String(gr.resi_api_url||"").trim();
-  if(!url){ API_NOTE=L("已選 API 判定,但沒有填代理端點 —— 這次改用系統判定。",
-                       "API source selected but no proxy endpoint is set — using system logic this run."); return 0; }
+  if(!url){
+    if(!API_NOURL_SHOWN){ API_NOURL_SHOWN=true;
+      API_NOTE=L("已選「連動 API」但沒有填代理端點 —— 一律用系統判定。要改回去請到「設定」分頁。",
+                 "\u201cLinked API\u201d is selected with no proxy endpoint — system logic is used. Change it on the Settings tab."); }
+    return 0; }
   /* 收齊不重複的地址,對回追蹤號 */
   const groups=new Map();
   for(const s of ships||[]){
@@ -4401,6 +4408,16 @@ const ACC_FLAT_FEES=["DAS Commercial","DAS Residential","DAS Extended Commercial
 function feeDisplay(k){ const n=String(k||"").trim(); return FEE_DISPLAY[n]||n; }
 function feeKey(d){ const n=String(d||"").trim(); return FEE_KEY_BY_DISPLAY[n]||n; }
 
+/* 檔案讀不到最常見的原因是它還在 Excel 裡開著 —— Windows 鎖住之後
+   FileReader 回 NotReadableError。只說「讀不到」沒有人會想到要先關 Excel。 */
+function readErr(rd, file){
+  const n=(rd && rd.error && rd.error.name)||"";
+  if(n==="NotReadableError" || n==="NotFoundError")
+    return new Error(L(
+      "讀不到「"+file.name+"」—— 這個檔可能還在 Excel 裡開著,或是被移動、改名了。請先關掉 Excel 再試一次。",
+      "Could not read \u201c"+file.name+"\u201d \u2014 it is probably still open in Excel, or it was moved or renamed. Close Excel and try again."));
+  return new Error((LANG?"could not read ":"讀不到 ")+file.name+(n?" ("+n+")":""));
+}
 /* 整本活頁簿:每個工作表各自轉成列陣列。readInvoiceFile() 只回第一個
    有資料的表,而共用模板要同時看 _ChannelInfo / AHS_LPS / FLAT_CHARGES,
    所以另開一個入口。CSV / TXT 當成一張無名工作表,上層邏輯不必分兩套。 */
@@ -4411,7 +4428,7 @@ function readWorkbookRows(file){
       const rd=new FileReader();
       rd.onload=()=>{ const rows=parseCSV(String(rd.result));
         res({kind:kind,order:[""],sheets:{"":rows}}); };
-      rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+      rd.onerror=()=>rej(readErr(rd,file));
       rd.readAsText(file,"utf-8");
     });
   }
@@ -4429,7 +4446,7 @@ function readWorkbookRows(file){
         res({kind:kind,order:order,sheets:sheets});
       }catch(e){ rej(e); }
     };
-    rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+    rd.onerror=()=>rej(readErr(rd,file));
     rd.readAsArrayBuffer(file);
   }));
 }
@@ -4522,7 +4539,7 @@ function readInvoiceFile(file){
     return new Promise((res,rej)=>{
       const rd=new FileReader();
       rd.onload=()=>res({text:String(rd.result),kind:kind,sheet:""});
-      rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+      rd.onerror=()=>rej(readErr(rd,file));
       rd.readAsText(file,"utf-8");
     });
   }
@@ -4543,7 +4560,7 @@ function readInvoiceFile(file){
         res({text:text,kind:kind,sheet:nm});
       }catch(e){ rej(e); }
     };
-    rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+    rd.onerror=()=>rej(readErr(rd,file));
     rd.readAsArrayBuffer(file);
   }));
 }
@@ -6618,11 +6635,11 @@ function renderDashboard(){
     return segs;
   };
   const pieBlock=(items,total,centerBig,centerSmall)=>{
-    const rows=items.map(([n,v,col,tip])=>`<tr${tip?` title="${esc(tip)}" style="cursor:help"`:""}>`
-      +`<td class="pnm"><span class="pdot" style="background:${col}"></span>${esc(n)}${tip?" ⓘ":""}</td>`
+    const rows=items.map(([n,v,col,fold])=>`<tr${fold?' class="pfold"':""}>`
+      +`<td class="pnm"><span class="pdot" style="background:${col}"></span>${fold?"↳ ":""}${esc(n)}</td>`
       +`<td class="pamt">${money(v)}</td><td class="ppct">${total?(Math.abs(v)/total*100).toFixed(1):"0.0"}%</td></tr>`).join("");
     return `<div class="pie"><svg viewBox="0 0 150 150" width="150" height="150" role="img" aria-label="${esc(centerSmall)}">`
-      +donut(items,total)
+      +donut(items.filter(x=>x[3]!=="fold"),total)
       +`<text class="phole" x="75" y="71" text-anchor="middle" font-size="17" font-weight="700">${esc(centerBig)}</text>`
       +`<text class="phole" x="75" y="88" text-anchor="middle" font-size="10" opacity=".7">${esc(centerSmall)}</text>`
       +`</svg><div class="plegend"><table>${rows}</table></div></div>`;
@@ -6634,16 +6651,17 @@ function renderDashboard(){
     const ent=Object.entries(obj)
       .filter(([k,v])=>k!==DASH_RECLASS&&k!==DASH_UNKNOWN&&Math.abs(v)>0.005)
       .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
-    /* 列到第 10 名。太小的併成「其他」,但滑過去要看得到裡面是什麼 ——
-       $8 的 AHS 包裝混在「其他 11 項」裡,等於查無此項。 */
+    /* 圓餅畫得下的只有前 10 塊,但圖例把每一項都列出來 —— $8 的 AHS 包裝
+       併進「其他」就等於查無此項。折進去的共用「其他」的顏色、標成 fold,
+       畫圓的時候跳過,只出現在圖例。 */
     const TOP=10;
     const out=ent.slice(0,TOP).map(([c,v],i)=>[dashLabel(c),v,PIE[i%PIE.length]]);
     const rest=ent.slice(TOP);
     if(rest.length){
-      const restSum=rest.reduce((a,[,v])=>a+v,0);
-      out.push([L(`其他 ${rest.length} 項`,`Other (${rest.length})`),restSum,
-                PIE[TOP%PIE.length],
-                rest.map(([c,v])=>dashLabel(c)+"  "+money(v)).join("\n")]);
+      const col=PIE[TOP%PIE.length];
+      out.push([L(`其他 ${rest.length} 項`,`Other (${rest.length})`),
+                rest.reduce((a,[,v])=>a+v,0), col]);
+      for(const [c,v] of rest) out.push([dashLabel(c),v,col,"fold"]);
     }
     const rc=toNum(obj[DASH_RECLASS]);
     if(Math.abs(rc)>0.005) out.push([L("改判 AHS/大包裹","Reclassified AHS/LP"),rc,RECLCOL]);
@@ -6652,7 +6670,8 @@ function renderDashboard(){
     return out;
   };
   const oneP=(obj,extra,cap,sum)=>{
-    const it=pieItems(obj,extra), t=it.reduce((a,[,v])=>a+Math.abs(v),0);
+    const it=pieItems(obj,extra);
+    const t=it.filter(x=>x[3]!=="fold").reduce((a,[,v])=>a+Math.abs(v),0);
     const bf=(obj["Base Rate"]||0)+(obj["Undeliverable Return"]||0)+(obj["Fuel Surcharge"]||0);
     return `<div><div class="pcap">${esc(cap)}<b>${money(sum)}</b></div>`
       +pieBlock(it,t,(t?Math.round(Math.abs(bf)/t*100):0)+"%",L("運費 + 燃油","freight + fuel"))
