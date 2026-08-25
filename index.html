@@ -490,6 +490,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
+  <button role="tab" aria-selected="false" data-p="setting" class="display" data-i18n="tab.setting">Settings</button>
   <button role="tab" aria-selected="false" data-p="admin"  class="display" data-i18n="tab.admin">Admin</button>
 </div>
 
@@ -837,6 +838,31 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <th data-i18n="th.keydim">Detail Keyed Dimensions</th>
       <th class="num" data-i18n="th.net">Net Amount</th>
     </tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ==================== Settings ==================== -->
+<section class="page" id="p-setting">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">⚙️</span><span data-i18n="hd.setting">Settings</span></h3>
+
+    <!-- 住/商判定來源:系統設定 或 API -->
+    <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
+      <div class="subhd" style="margin-top:0" data-i18n="hd.resisrc">🔄 Residential / Commercial · Source</div>
+      <label class="bulkchk" style="margin-top:8px"><input type="radio" name="resiSrc" value="system" id="resiSrcSys">
+        <span data-i18n="lb.resisys">System</span></label>
+      <label class="bulkchk" style="margin-top:5px"><input type="radio" name="resiSrc" value="api" id="resiSrcApi">
+        <span data-i18n="lb.resiapi">Linked API</span></label>
+      <div id="resiApiBox" style="display:none;margin-top:10px">
+        <label class="inlab" style="margin-left:0" data-i18n="lb.resiapiurl">API proxy endpoint (Edge Function URL)</label>
+        <input id="resiApiUrl" class="cell" style="width:min(520px,100%);text-align:left" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
+      </div>
+      <p class="hint" style="margin:9px 0 0" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
+    </div>
+
+    <div class="row" style="margin-top:4px">
+      <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
+    </div>
   </div>
 </section>
 
@@ -1234,7 +1260,12 @@ const FIXED_COLS = {
   /* 申報金額。桌面版 dv_column 預設 "AW",A=0 換算就是 48。這一欄裝的是
      「申報了多少錢」,不是 UPS 收了多少 —— 兩者差很多:同一行申報
      647.15、收費 5.95。用收費去查級距會落在免收上限以下,結果永遠是 0。 */
-  "Declared Value": 48
+  "Declared Value": 48,
+  /* 收件人(送達地址)。API 住/商判定要用 —— UPS 地址驗證看的是這一段。
+     欄位序號照 250 欄帳單:收件人名 74、地址 76/77、城市 78、州 79、
+     郵遞區號 80、國別 81。只有 API 模式會讀,系統模式完全不碰。 */
+  "Ship To Name": 74, "Ship To Address 1": 76, "Ship To Address 2": 77,
+  "Ship To City": 78, "Ship To State": 79, "Ship To Zip": 80, "Ship To Country": 81
 };
 /* 有標題列時照名字對,沒有就用上面的位置。 */
 const BY_NAME = ["Transaction Date","Zone","Entered Weight","Billed Weight",
@@ -2048,6 +2079,13 @@ function quoteDeclaredValue(cfg, value){
 function priceShipment(cfg, s){
   const issues=[];
   const scan=scanCharges(s.lines, cfg.dynMap);
+  /* 住/商判定來源(設定在帳單歷史頁):
+       system(預設)= 工具自己的判定(帳單代碼、服務名稱;退件回程查帳單歷史)
+       api          = 用 UPS 地址驗證分類送達地址(經後端代理,prefetch 先查好)
+     API 有答案時凌駕一切;沒答案(沒設定/呼叫失敗/判不出)就退回系統判定。 */
+  const resiSrc = ((cfg.raw||{}).global_rules||{}).resi_source || "system";
+  const apiVerdict = (resiSrc==="api" && typeof addressClassFor==="function")
+      ? addressClassFor(s) : null;
   /* 住宅/商業:帳單自己的代碼優先,和原始碼同一條規則。
      兩邊都沒有代碼時只能看服務名稱 —— 跨期 ADJ 這時會不準,標出來。 */
   let residential, resBasis;
@@ -2069,24 +2107,33 @@ function priceShipment(cfg, s){
       resBasis=L("帳單商業代碼","Commercial code on the invoice"); return true; }
     return false;
   };
-  if(scan.residentialAdj){ residential=true; resBasis=LANG?"residential adjustment":"住宅重分類"; }
+  if(apiVerdict){ residential=(apiVerdict==="R");
+    resBasis=L("API 地址驗證(送達地址)","API address validation (ship-to)"); }
+  else if(scan.residentialAdj){ residential=true; resBasis=LANG?"residential adjustment":"住宅重分類"; }
   else if(scan.commercialAdj){ residential=false; resBasis=LANG?"commercial adjustment":"商業重分類"; }
   else if(svcSaysRes!==svcSaysCom){ residential=svcSaysRes;
     resBasis=L("服務名稱明講住/商","Service name states residential/commercial"); }
-  else if(s.layer==="ADJ"){
-    /* 只有跨期 ADJ 才查歷史。純 RTN(Undeliverable Return)不查 ——
-       退件送回寄件人,不因原出貨是住宅就套住宅費率,照服務名稱判。 */
+  else if(s.layer==="ADJ" || s.layer==="RTN"){
+    /* 跨期 ADJ 一律查歷史。退件回程(RTN)在系統判定裡也查歷史 ——
+       原始出貨是住宅就沿用住宅,而不是因為退件送回商業倉庫就一律判商業。
+       (要純看地址時改用「API」判定來源。) */
     /* 跨期單:先查歷史,查不到才退回服務名稱。
        這是桌面版 history_service_for() 存在的唯一理由 —— SCC 那一行
        沒有任何 RES/COM 字樣,不查歷史就一定被當成商業。 */
+    const isRtn=s.layer==="RTN";
     const h=typeof historyServiceFor==="function"?historyServiceFor(s.tracking):null;
     if(h){ residential = h==="Ground Residential";
-      resBasis=L("歷史(原始出貨)","History (original shipment)"); }
+      resBasis=isRtn?L("歷史(退件沿用原始出貨)","History (return follows original shipment)")
+                    :L("歷史(原始出貨)","History (original shipment)"); }
     else if(!byCode()){
       residential=svcSaysRes;
-      resBasis=L("服務名稱(跨期,無歷史)","Service name (cross-period, no history)");
-      issues.push(L("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯",
-        "Cross-period line: this tracking number is not in the history, so Residential/Commercial may be wrong"));
+      resBasis=isRtn?L("服務名稱(退件,查無歷史)","Service name (return, no history)")
+                    :L("服務名稱(跨期,無歷史)","Service name (cross-period, no history)");
+      issues.push(isRtn
+        ? L("退件單:帳單歷史裡查不到原始出貨,住宅/商業可能判錯;請先在「帳單歷史」頁匯入含原始出貨的舊帳單",
+            "Return leg: the original shipment is not in Invoice History, so Residential/Commercial may be wrong — import the past invoice that contains it")
+        : L("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯",
+            "Cross-period line: this tracking number is not in the history, so Residential/Commercial may be wrong"));
     }
   }
   else if(!byCode()){
@@ -2610,6 +2657,12 @@ function ingest(text){
         .map(x=>String(x||"").trim())
         .filter((x,i,a)=>x && !/^(nan|none|<na>)$/i.test(x) && a.indexOf(x)===i)
         .join(" "),
+      /* 收件人(送達地址),只給 API 住/商判定用。多數行是空的,
+         主運費行才有值,shipment 層再取第一個非空的。 */
+      to:{ name:g(r,"Ship To Name"),
+           a1:g(r,"Ship To Address 1"), a2:g(r,"Ship To Address 2"),
+           city:g(r,"Ship To City"), state:g(r,"Ship To State"),
+           zip:g(r,"Ship To Zip"), country:g(r,"Ship To Country") },
       net:toNum(g(r,"Net Amount"))
     };
   }).filter(r=>r.tracking||r.net);
@@ -2745,6 +2798,12 @@ function shipmentsOf(rows){
        ADJ 那些行常常是空的,所以是找第一個有值的,不是拿第一行。 */
     s.ref1=(s.allLines.find(l=>l.ref1)||{}).ref1||"";
     s.ref2=(s.allLines.find(l=>l.ref2)||{}).ref2||"";
+    /* 送達地址:取第一個有街道或郵遞區號的行。只有 API 住/商判定會用。 */
+    const toL=(s.allLines.find(l=>l.to&&(String(l.to.a1||"").trim()||String(l.to.zip||"").trim()))||{}).to;
+    s.shipTo = toL ? { name:String(toL.name||"").trim(),
+        addr:[toL.a1,toL.a2].map(x=>String(x||"").trim()).filter(Boolean).join(" "),
+        city:String(toL.city||"").trim(), state:String(toL.state||"").trim(),
+        zip:String(toL.zip||"").trim(), country:String(toL.country||"").trim()||"US" } : null;
 
     const ref=s.lines.filter(l=>l.layer==="SHP"||l.layer==="RTN");
     s.refEntered=Math.max(0,...ref.map(l=>l.entered));
@@ -3063,6 +3122,90 @@ function prefetchOriginals(ships){
     ORIG=buildOriginals(rows,need);
     return Object.keys(ORIG).length;
   }).catch(()=>{ ORIG={}; return 0; });
+}
+
+/* =====================================================================
+   API 住/商判定 —— 「判定來源 = API」時才啟用(設定在帳單歷史頁)
+   ---------------------------------------------------------------------
+   純前端不能直接打 UPS(要 OAuth 金鑰、且被 CORS 擋),所以打的是使用者
+   自己架的後端代理(例如 Supabase Edge Function),由它去呼叫 UPS 地址
+   驗證。回傳 R / C / U(住宅 / 商業 / 判不出)。查不到就退回系統判定,
+   結果在報表 issues 標出來。地址查過的存 localStorage,不重複打。
+   ===================================================================== */
+let ADDRCLASS={};        /* 追蹤號 -> "R" | "C" */
+let API_NOTE="";         /* 這次跑批的一次性提示(端點沒填、呼叫失敗等) */
+const ADDRCLASS_CACHE_KEY="ups_addrclass_v1";
+function addressClassFor(s){ return (s&&ADDRCLASS[s.tracking])||null; }
+function addrKey(a){
+  return [a.addr,a.city,a.state,String(a.zip||"").slice(0,5),a.country||"US"]
+    .join("|").toUpperCase().replace(/\s+/g," ").trim();
+}
+function readAddrCache(){ try{ return JSON.parse(localStorage.getItem(ADDRCLASS_CACHE_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function writeAddrCache(c){ try{ localStorage.setItem(ADDRCLASS_CACHE_KEY,JSON.stringify(c)); }catch(e){} }
+/* 一個地址打一次代理。代理回 {class:"R"|"C"|"U"} 或
+   {classification:"Residential"|"Commercial"|"UnClassified"} 都吃。 */
+async function classifyOne(url, a, auth){
+  const headers={"Content-Type":"application/json"};
+  if(auth) headers["Authorization"]="Bearer "+auth;   /* 讓 Supabase Edge Function 認得這是登入的呼叫 */
+  const res=await fetch(url,{ method:"POST", headers,
+    body:JSON.stringify({ name:a.name, address:a.addr, city:a.city,
+                          state:a.state, postal:a.zip, country:a.country||"US" }) });
+  if(!res.ok) throw new Error("HTTP "+res.status);
+  const j=await res.json();
+  let v=String(j.class||j.classification||j.result||"").trim().toUpperCase();
+  if(v==="RESIDENTIAL") v="R"; else if(v==="COMMERCIAL") v="C";
+  else if(v==="UNCLASSIFIED"||v==="U"||v==="0") v="U";
+  else if(v==="1") v="C"; else if(v==="2") v="R";
+  return (v==="R"||v==="C")?v:"U";
+}
+async function prefetchAddressClass(ships){
+  ADDRCLASS={}; API_NOTE="";
+  const gr=(CFG&&CFG.raw&&CFG.raw.global_rules)||{};
+  if((gr.resi_source||"system")!=="api") return 0;      /* 系統模式:完全不打 */
+  const url=String(gr.resi_api_url||"").trim();
+  if(!url){ API_NOTE=L("已選 API 判定,但沒有填代理端點 —— 這次改用系統判定。",
+                       "API source selected but no proxy endpoint is set — using system logic this run."); return 0; }
+  /* 收齊不重複的地址,對回追蹤號 */
+  const groups=new Map();
+  for(const s of ships||[]){
+    const a=s.shipTo; if(!a) continue;
+    const k=addrKey(a); if(!k.replace(/\|/g,"").trim()) continue;
+    if(!groups.has(k)) groups.set(k,{addr:a,tracks:[]});
+    groups.get(k).tracks.push(s.tracking);
+  }
+  if(!groups.size){ API_NOTE=L("這批帳單沒有可用的送達地址,改用系統判定。",
+                               "No usable ship-to address in this batch — using system logic."); return 0; }
+  /* 取登入 token,讓代理(Supabase Edge Function)認得呼叫者;沒有就用 anon 金鑰。 */
+  let auth="";
+  try{
+    if(typeof AUTH!=="undefined" && AUTH){ const {data}=await AUTH.auth.getSession();
+      auth=(data&&data.session&&data.session.access_token)||""; }
+  }catch(e){}
+  if(!auth && typeof AUTH_CONFIG!=="undefined" && AUTH_CONFIG) auth=AUTH_CONFIG.anonKey||"";
+  const cache=readAddrCache();
+  const pend=[...groups.entries()].filter(([k])=>!(k in cache));
+  let ok=0, fail=0;
+  /* 併發上限 6,避免一次打爆代理/UPS 的速率限制 */
+  const LIMIT=6; let i=0;
+  async function worker(){
+    while(i<pend.length){
+      const [k,info]=pend[i++];
+      try{ cache[k]=await classifyOne(url,info.addr,auth); ok++; }
+      catch(e){ fail++; cache[k]="U"; }   /* 失敗當作判不出,退回系統判定 */
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(LIMIT,pend.length)},worker));
+  writeAddrCache(cache);
+  for(const [k,info] of groups){
+    const v=cache[k];
+    if(v==="R"||v==="C") for(const t of info.tracks) ADDRCLASS[t]=v;
+  }
+  const hit=Object.keys(ADDRCLASS).length;
+  if(fail && !ok) API_NOTE=L("API 代理呼叫失敗,這次改用系統判定。",
+                             "API proxy calls failed — using system logic this run.");
+  else if(!hit) API_NOTE=L("API 沒有回傳任何住/商分類(可能都判不出),改用系統判定。",
+                           "API returned no Residential/Commercial classification — using system logic.");
+  return hit;
 }
 
 /* 登入用「帳號」,不是 email。Supabase 的密碼登入一定要一個 email,
@@ -4560,6 +4703,20 @@ $("#demandOn") && ($("#demandOn").onchange=e=>{
   CFG=readConfig(CFG.raw); DIRTY=true;
   setStatus(LANG?("Demand "+e.target.value):("Demand 已"+(e.target.value==="on"?"開啟":"關閉")));
 });
+document.querySelectorAll('input[name="resiSrc"]').forEach(el=>{ el.onchange=()=>{
+  const sel=document.querySelector('input[name="resiSrc"]:checked');
+  const v=sel?sel.value:"system";
+  (CFG.raw.global_rules||(CFG.raw.global_rules={})).resi_source=v;
+  if($("#resiApiBox")) $("#resiApiBox").style.display=(v==="api")?"":"none";
+  CFG=readConfig(CFG.raw); DIRTY=true; saveSettings();
+  setStatus(LANG
+    ? ("Residential/Commercial source: "+(v==="api"?"API (address)":"System"))
+    : ("住/商判定來源:"+(v==="api"?"API(地址)":"系統設定")));
+};});
+$("#resiApiUrl") && ($("#resiApiUrl").onchange=e=>{
+  (CFG.raw.global_rules||(CFG.raw.global_rules={})).resi_api_url=String(e.target.value||"").trim();
+  CFG=readConfig(CFG.raw); DIRTY=true; saveSettings();
+});
 $("#chanSearch") && ($("#chanSearch").oninput=()=>renderConfigTabs());
 $("#rateChan") && ($("#rateChan").onchange=()=>renderConfigTabs());
 $("#bAddChan") && ($("#bAddChan").onclick=()=>{
@@ -5625,6 +5782,11 @@ function renderConfigTabs(){
   /* ---- Demand:四個子分頁 ---- */
   const dcfg=CFG.raw.demand_config||{};
   if($("#demandOn")) $("#demandOn").value=dcfg.enabled?"on":"off";
+  const _rs=(g.resi_source==="api")?"api":"system";
+  if($("#resiSrcSys")) $("#resiSrcSys").checked=(_rs==="system");
+  if($("#resiSrcApi")) $("#resiSrcApi").checked=(_rs==="api");
+  if($("#resiApiUrl")) $("#resiApiUrl").value=g.resi_api_url||"";
+  if($("#resiApiBox")) $("#resiApiBox").style.display=(_rs==="api")?"":"none";
   renderDemand();
 
   document.querySelectorAll("#app input.cell").forEach(el=>{
@@ -6581,12 +6743,6 @@ function saveSettings(){
 
    一列一個追蹤號,新代碼橫向展開,格子裡是 UPS 收的錢。
    ===================================================================== */
-function serviceKnown(desc){
-  const d=String(desc==null?"":desc).trim().toLowerCase();
-  /* 沒有服務描述的層不判 —— 純附加費的 ADJ 本來就沒有服務名。 */
-  if(!d) return true;
-  return SERVICE_PATTERNS.some(p=>d.indexOf(p[0])>=0);
-}
 function codeKnown(code, cls, dyn){
   const c=String(code||"").toUpperCase();
   if(!c) return true;
@@ -6607,7 +6763,8 @@ function scanNewThings(ships){
   const codes=new Map(), chans=new Map(), rows=[];
   const r2=v=>Math.round(v*100)/100;
   for(const s of ships||[]){
-    const svcNew=!serviceKnown(s.service);
+    /* 沒有服務描述的層不判 —— 純附加費的 ADJ 本來就沒有服務名。 */
+    const svcNew=!!String(s.service||"").trim() && !serviceRecognised(s.service);
     const mine={};
     let amt=0;
     for(const l of (s.allLines||[])){
@@ -6762,8 +6919,11 @@ async function runReport(ing, ships){
     ROWS=ing.rows; SHIPS=ships;
     /* 跨期更正的原件先從 IndexedDB 撈成同步對照再計價。
        撈不到(沒有歷史、私密視窗)就空表照算,跨期單照舊標問題。 */
-    return prefetchOriginals(SHIPS).then(()=>{
+    return prefetchOriginals(SHIPS)
+      .then(()=>prefetchAddressClass(SHIPS).catch(()=>0))
+      .then(()=>{
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
+    if(API_NOTE) toast(API_NOTE, false);
     renderCode(); renderHist();
     ready();
     logAdd("reprice report", ROWS.length+" rows / "+SHIPS.length+" tracking");
@@ -7515,6 +7675,14 @@ const I18N={
   "tab.demand":["⚡ Demand 附加費","⚡ Demand Surcharge"],
   "tab.hist":["📚 帳單歷史","📚 Invoice History"],
   "tab.code":["🔎 代碼查詢","🔎 Code Lookup"],
+  "tab.setting":["⚙️ 設定","⚙️ Settings"],
+  "hd.setting":["設定","Settings"],
+  "hint.setting":["重新計價的一般行為設定,改動會存到你的帳號。","General repricing behaviour. Changes are saved to your account."],
+  "hd.resisrc":["🔄 住宅／商業判定來源","🔄 Residential / Commercial · Source"],
+  "lb.resisys":["沿用系統設定","System"],
+  "lb.resiapi":["連動 API","Linked API"],
+  "lb.resiapiurl":["API 代理端點(Edge Function 網址)","API proxy endpoint (Edge Function URL)"],
+  "hint.resisrc":["API 需自架 UPS 代理,未設定時退回系統。","API needs a UPS proxy; falls back to System when unset."],
   "hd.files":["匯入檔案","Import Files"],
   "hd.sum":["這張帳單","This Invoice"],
   "hd.rate":["重新計價","Repricing"],
