@@ -100,12 +100,17 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
 .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .inlab{font-size:12.5px;color:var(--accent);font-weight:600;margin-left:12px}
 
+/* 按鈕配色照桌面版:一般按鈕 = TButton(金底 TAB、深棕字 TEXT,
+   hover 轉 ACCENT 底白字);「產生報表」獨用 RUN 深棕(.run),
+   利潤報表用 RUN2 暗金(.alt)—— 三種角色和 py 一一對應。 */
 button.act{font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
   border:2px solid var(--accent);border-radius:7px;padding:7px 17px;
-  background:var(--run);color:#fff;letter-spacing:.2px}
-button.act:hover:not(:disabled){background:var(--run-hover)}
-button.act.alt{background:var(--run2);border-color:var(--run2)}
-button.act.alt:hover:not(:disabled){background:var(--run2-hover)}
+  background:var(--tab);color:var(--text);letter-spacing:.2px}
+button.act:hover:not(:disabled){background:var(--accent);color:#fff}
+button.act.run{background:var(--run);color:#fff}
+button.act.run:hover:not(:disabled){background:var(--run-hover);color:#fff}
+button.act.alt{background:var(--run2);border-color:var(--run2);color:#fff}
+button.act.alt:hover:not(:disabled){background:var(--run2-hover);color:#fff}
 button.act.ghost{background:transparent;color:var(--accent)}
 button.act.ghost:hover:not(:disabled){background:var(--select)}
 button.act:disabled{opacity:.72;cursor:not-allowed;filter:saturate(.55)}
@@ -497,7 +502,7 @@ select:focus-visible{outline:2px solid var(--run2);outline-offset:1px}
     <div class="readyrow" id="filesReady"></div>
     <div id="invNote"></div>
     <div class="row" style="margin-top:14px">
-      <button class="act" id="bRun" data-i18n="btn.run" disabled>Generate Reprice Report</button>
+      <button class="act run" id="bRun" data-i18n="btn.run" disabled>Generate Reprice Report</button>
       <button class="act alt" id="bCsv" data-i18n="btn.csv" disabled>Generate Profit Report</button>
     </div>
     <div class="row" style="margin-top:14px">
