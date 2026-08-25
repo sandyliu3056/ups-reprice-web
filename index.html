@@ -239,6 +239,17 @@ select.chansel{font:inherit;font-size:12px;padding:3px 5px;max-width:170px;caret
   border:1.4px solid var(--line);border-radius:5px;
   background:var(--panel);color:var(--text);cursor:pointer}
 select.chansel:disabled{opacity:.6;background:transparent;border-style:dashed;cursor:default}
+/* 好看一點的下拉選單:拿掉瀏覽器原生外觀,配站上的線條色與自畫的箭頭。
+   箭頭畫在背景圖裡,右邊留 34px 的 padding 給它,字才不會壓到箭頭。 */
+select.nice{appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  font:inherit;font-size:13px;font-weight:600;color:var(--accent);
+  background:var(--panel) url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%3E%3Cpath%20d%3D%27M1%201l5%205%205-5%27%20fill%3D%27none%27%20stroke%3D%27%238a6104%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E") no-repeat right 12px center;
+  border:2px solid var(--line);border-radius:8px;
+  padding:7px 34px 7px 12px;cursor:pointer;
+  box-shadow:0 1px 3px rgba(53,28,21,.12)}
+select.nice:hover{background-color:var(--select)}
+select.nice:focus{outline:3px solid var(--run2);outline-offset:2px}
+select.nice option{color:#000;background:#fff;font-weight:400}
 
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .tile{padding:10px 12px}
@@ -969,18 +980,18 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   </div>
 </div>
 <div id="rvBg" class="modalbg">
-  <div class="modal sketch" id="rvModal" style="width:min(880px,100%)">
+  <div class="modal sketch" id="rvModal" style="width:min(880px,100%);height:min(74vh,880px)">
     <div class="modalhd">
       <span data-i18n="hd.loadedrates">Loaded base rates</span>
-      <button class="mx" id="rvX">✕</button>
+      <span><button class="mx" id="rvMax">⤢</button><button class="mx" id="rvX">✕</button></span>
     </div>
-    <div class="modalbody">
+    <div class="modalbody" style="display:flex;flex-direction:column;min-height:0">
       <div class="strow" id="rvSum"></div>
       <div class="row" style="margin-bottom:10px">
         <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
-        <select id="rvPick" style="min-width:280px"></select>
+        <select id="rvPick" class="nice" style="min-width:280px"></select>
       </div>
-      <div class="tablewrap" style="max-height:46vh"><table id="tRates">
+      <div class="tablewrap" style="flex:1;min-height:140px;max-height:none"><table id="tRates">
         <thead><tr></tr></thead><tbody></tbody></table></div>
     </div>
     <div class="modalft">
@@ -3019,6 +3030,14 @@ async function sha256Hex(text){
 const AUTH=(!LOCAL_MODE && window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
   ? window.supabase.createClient(AUTH_CONFIG.url,AUTH_CONFIG.anonKey)
   : null;
+/* 設定同步用的連線。本機帳號模式沒有 Supabase 登入,但設定還是要跨電腦
+   跟著帳號走,所以另開一條只跑 RPC 的匿名連線(見 supabase/local_settings.sql)。
+   鑰匙是登入當下用「帳號+密碼」算出來的雜湊 —— 不知道密碼就算不出鑰匙,
+   資料庫那邊也只認鑰匙、不能列清單。Supabase 模式直接沿用 AUTH。 */
+const SYNC=AUTH || ((window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
+  ? window.supabase.createClient(AUTH_CONFIG.url,AUTH_CONFIG.anonKey,
+      {auth:{persistSession:false,autoRefreshToken:false}})
+  : null);
 let ME=null;
 const ADMIN_ONLY=["admin"];
 let LOGIN_ROWS=[];
@@ -3062,7 +3081,10 @@ async function login(email,pw){
     if(!acct) return {err:LANG?"Incorrect username or password."
                             :"帳號或密碼不正確。"};
     const me={id:"local::"+acct.user, user:acct.user, email:"",
-              name:acct.name, role:acct.role};
+              name:acct.name, role:acct.role,
+              /* 雲端同步的鑰匙。跟登入雜湊(帳號:密碼)是不同的算法,
+                 所以放在 repo 裡的登入雜湊推不出這把鑰匙。 */
+              sync:await sha256Hex("cfg-sync::"+id+"::"+String(pw))};
     /* sessionStorage:關掉分頁就要重新登入。這道門本來就薄,
        不留長效的登入狀態。 */
     try{ sessionStorage.setItem(LOCAL_SESSION_KEY,JSON.stringify(me)); }catch(e){}
@@ -3298,7 +3320,20 @@ function exportLoginHistory(){
 /* ---- 費率:每個帳號自己的一列 ---- */
 let CFG_SYNC=0;                 /* 最後一次寫回成功的時間,0 = 還沒寫過 */
 function cfgPush(text,name){
-  if(LOCAL_MODE) return Promise.resolve(false);   /* 本機模式:費率就存本機 */
+  if(LOCAL_MODE){
+    /* 本機帳號模式:用同步鑰匙寫進 local_settings(RPC)。
+       Supabase 那邊還沒建表、或網路不通,設定仍在本機快取裡,不擋流程。 */
+    if(!SYNC||!ME||!ME.sync) return Promise.resolve(false);
+    return SYNC.rpc("local_settings_put",
+        {k:ME.sync, cfg:JSON.parse(text), cfg_name:name})
+      .then(({error})=>{
+        if(error){ toast((LANG?"Saved on this computer only — cloud sync failed: "
+                              :"只存在這台電腦,雲端同步失敗:")+error.message,false);
+                   return false; }
+        CFG_SYNC=Date.now(); return true;
+      })
+      .catch(()=>false);
+  }
   if(!AUTH||!ME) return Promise.resolve(false);
   return AUTH.from("user_settings").upsert({
       user_id:ME.id, config:JSON.parse(text), config_name:name,
@@ -3314,7 +3349,24 @@ function cfgPush(text,name){
 /* 登入後把這個帳號的費率抓回來。抓不到就退回本機快取,
    再沒有就用預設值 —— 新帳號本來就是空白的,自己匯入。 */
 function cfgPull(){
-  if(LOCAL_MODE){ restoreConfig(); return Promise.resolve(false); }
+  if(LOCAL_MODE){
+    /* 本機快取先上,畫面不用等網路;雲端那份到了再蓋上去 ——
+       換電腦登入時本機是空的,蓋上來的就是上次在別台電腦存的設定。
+       抓不到(還沒建表、離線)就維持本機快取,跟原本一樣。 */
+    restoreConfig();
+    if(!SYNC||!ME||!ME.sync) return Promise.resolve(false);
+    return SYNC.rpc("local_settings_get",{k:ME.sync})
+      .then(({data,error})=>{
+        const row=Array.isArray(data)?data[0]:data;
+        if(error||!row||!row.config) return false;
+        applyConfig(JSON.stringify(row.config),
+          row.config_name||(LANG?"saved settings":"已儲存的設定"));
+        CFG_SYNC=Date.now();
+        setStatus((LANG?"Settings loaded for ":"已載入帳號設定:")+ME.name);
+        return true;
+      })
+      .catch(()=>false);
+  }
   if(!AUTH||!ME) return Promise.resolve(false);
   return AUTH.from("user_settings").select("config,config_name")
     .eq("user_id",ME.id).maybeSingle()
@@ -4107,12 +4159,30 @@ function renderLoadedRates(){
                                 :"還沒有載入任何運費表。"}</td></tr>`; return; }
   const cols=t.columns||[];
   head.innerHTML=cols.map(c=>`<th>${esc(String(c))}</th>`).join("");
+  /* Zone 欄(第三欄起)只顯示到小數第二位。折扣算出來的費率會帶著
+     7.2696000000000005 這種浮點尾巴,全部印出來沒人讀得了。
+     只改顯示 —— 計價引擎照舊用完整精度。 */
+  const cell=(v,i)=>{
+    if(v==null) return "";
+    if(i>=2){ const n=Number(v); if(Number.isFinite(n)) return n.toFixed(2); }
+    return String(v);
+  };
   body.innerHTML=(t.rows||[]).map(r=>
-    `<tr>${cols.map((c,i)=>`<td>${esc(String(r[i]==null?"":r[i]))}</td>`).join("")}</tr>`).join("");
+    `<tr>${cols.map((c,i)=>`<td>${esc(cell(r[i],i))}</td>`).join("")}</tr>`).join("");
 }
 function openLoadedRates(){ renderLoadedRates(); $("#rvBg").classList.add("on"); }
 $("#bViewRates") && ($("#bViewRates").onclick=openLoadedRates);
 $("#rvX") && ($("#rvX").onclick=()=>$("#rvBg").classList.remove("on"));
+$("#rvMax") && ($("#rvMax").onclick=()=>{
+  const m=$("#rvModal");
+  m.classList.toggle("max");
+  /* 拖拉把手留下的 inline 尺寸會蓋過 class,切換時清掉才真的變大/還原 */
+  m.style.removeProperty("width"); m.style.removeProperty("height");
+  if(!m.classList.contains("max")){
+    m.style.width="min(880px,100%)"; m.style.height="min(74vh,880px)";
+  }
+  $("#rvMax").textContent=m.classList.contains("max")?"⤡":"⤢";
+});
 $("#rvClose") && ($("#rvClose").onclick=()=>$("#rvBg").classList.remove("on"));
 $("#rvBg") && ($("#rvBg").onclick=e=>{ if(e.target===$("#rvBg")) $("#rvBg").classList.remove("on"); });
 $("#rvPick") && ($("#rvPick").onchange=renderLoadedRates);
@@ -6121,6 +6191,8 @@ let DIRTY=false;
 let SAVE_MSG=null;   /* {ok:boolean, key:string, extra:string} */
 const SAVE_TXT={
   saved:      ["已存進這個瀏覽器。","Saved in this browser."],
+  synced:     ["已同步到帳號,任何電腦登入都會載入這份設定。",
+               "Synced to this account — loads on any computer you sign in on."],
   changed:    ["已修改,記得儲存。","Changed. Save to keep it."],
   nothing:    ["還沒有可以儲存的設定。","Nothing to save yet."],
   failed:     ["沒有存進去 — ","Not saved — "],
@@ -6172,8 +6244,14 @@ function saveSettings(){
   }
   const txt=JSON.stringify(CFG.raw,null,2);
   /* 存回這個帳號在 Supabase 的那一列。網路不通時本機快取仍然寫得進去,
-     所以這裡不擋流程,失敗只回報。 */
-  cfgPush(txt, CFG_LABEL||(LANG?"saved settings":"已儲存的設定"));
+     所以這裡不擋流程,失敗只回報。同步成功再補一句 —— 「存進這個瀏覽器」
+     和「跟著帳號走」對使用者是兩件事,要分開講。 */
+  cfgPush(txt, CFG_LABEL||(LANG?"saved settings":"已儲存的設定"))
+    .then(ok=>{ if(ok){
+      saveNoteKey(true,"synced");
+      toast(LANG?"Settings synced to this account — any computer will load them."
+                :"設定已同步到帳號,換電腦登入也會載入。", true);
+    }});
   try{
     const [k,kn]=cfgKeys();
     localStorage.setItem(k,txt);

@@ -70,3 +70,29 @@ website address and add any preview address under **Redirect URLs**.
   current web edition.
 - The old plaintext passwords remain in Git history. Rotate them before launch,
   then rewrite the public history or create a clean private repository.
+
+## 7. Settings sync for local-account mode（本機帳號模式的設定同步）
+
+While the site runs in local-account mode (`LOCAL_MODE = true` in
+`index.html`), sign-in does not go through Supabase Auth, but saved settings
+can still follow the account across computers.
+
+Run `supabase/local_settings.sql` once in the Supabase SQL Editor. It creates:
+
+- a `local_settings` table with Row Level Security enabled and **no**
+  policies, so the anon key can never read or list it directly;
+- two `security definer` functions (`local_settings_get` /
+  `local_settings_put`) that require the caller to present the full sync key.
+
+The sync key is computed in the browser at sign-in time as
+`sha256("cfg-sync::" + username + "::" + password)`. It cannot be derived from
+the login hashes stored in the repository. Pressing **Save settings** uploads
+the settings under that key; signing in on any other computer with the same
+account and password downloads them again.
+
+Changing a password changes the key — settings saved under the old password
+stay behind, so save once more after a password change.
+
+If this SQL has not been run yet, the app keeps working exactly as before:
+settings are saved in the browser only, and each save shows a "cloud sync
+failed" notice.
