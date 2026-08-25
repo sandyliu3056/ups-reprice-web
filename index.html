@@ -393,6 +393,18 @@ td.cells{white-space:normal}
 .modalbody{padding:14px 16px;overflow:auto;flex:1}
 .modalft{padding:10px 16px;display:flex;justify-content:space-between;
   border-top:1.5px solid var(--line)}
+.afbar{display:flex;align-items:center;gap:8px;margin:0 0 12px;
+  padding-bottom:10px;border-bottom:1.5px solid var(--line)}
+.afsp{flex:1}
+.afcount{font-size:13px;font-weight:700;color:var(--accent)}
+.afgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));
+  gap:7px;max-height:52vh;overflow:auto;padding:2px}
+.afitem{display:flex;align-items:center;gap:9px;font-size:12.5px;line-height:1.35;
+  padding:8px 11px;border-radius:8px;border:1.5px solid var(--line);cursor:pointer}
+.afitem.on{background:var(--select);border-color:var(--run2);color:var(--accent);font-weight:600}
+.afitem.off{background:var(--stripe);border-color:var(--line);color:var(--muted)}
+.afitem:hover{border-color:var(--accent)}
+.afitem input{margin:0;flex:0 0 auto}
 .chkgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
   gap:4px 12px;max-height:150px;overflow:auto}
 .chkgrid label{display:flex;align-items:center;gap:6px;font-size:12.5px}
@@ -1299,13 +1311,13 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <button class="mx" id="afX">✕</button>
     </div>
     <div class="modalbody">
-      <p class="hint" style="margin:0 0 10px" data-i18n="hint.accfuelmodal">Ticked = the surcharge goes into the fuel base. This is per surcharge, not per channel — whether a surcharge attracts fuel is UPS’s billing rule, not a property of the lane.</p>
-      <div class="row" style="margin-bottom:10px">
+      <div class="afbar">
+        <span id="afCount" class="afcount"></span>
+        <span class="afsp"></span>
         <button class="act ghost" id="bAfAll" data-i18n="btn.afall">All charge fuel</button>
         <button class="act ghost" id="bAfNone" data-i18n="btn.afnone">None charge fuel</button>
-        <span id="afCount" style="color:var(--muted);font-size:12.5px"></span>
       </div>
-      <div id="afList" class="chkgrid" style="max-height:46vh;overflow:auto"></div>
+      <div id="afList" class="afgrid"></div>
     </div>
     <div class="modalft">
       <button class="act ghost" id="afClose" data-i18n="btn.close">Close</button>
@@ -6633,12 +6645,14 @@ function renderDashboard(){
   const chTot=chItems.reduce((a,[,v])=>a+Math.abs(v),0);
   const chanHTML=pieBlock(chItems,chTot,String(chItems.length),L("渠道","channels"));
   const zEntries=Object.entries(d.zoneAgg).sort((a,b)=>(+a[0])-(+b[0]));
-  const zmax=Math.max(1,...zEntries.map(([,v])=>Math.abs(v)));
-  const zoneHTML=zEntries.length?zEntries.map(([z,v])=>`
-    <div class="zrow" title="Zone ${z}: ${money(v)}"><span class="zl">Zone ${esc(z)}</span>
-    <div class="ztrack"><div class="zfill" data-w="${(Math.abs(v)/zmax*100).toFixed(1)}"></div></div>
-    <span class="zv">${money(v)}</span></div>`).join("")
-    :`<div class="dsub">${L("沒有 Zone 資料","No zone data")}</div>`;
+  const zItems=zEntries.map(([z,v],i)=>["Zone "+z, v, PIE[i%PIE.length]]);
+  const zTot=zItems.reduce((a,[,v])=>a+Math.abs(v),0);
+  const zTop=zItems.slice().sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]))[0];
+  const zoneHTML=zItems.length
+    ? pieBlock(zItems, zTot,
+        (zTot&&zTop?Math.round(Math.abs(zTop[1])/zTot*100):0)+"%",
+        zTop?zTop[0]:L("Zone","Zone"))
+    : `<div class="dsub">${L("沒有 Zone 資料","No zone data")}</div>`;
   const hasU=d.unsureN>0||d.missN>0||Math.abs(uAmt)>0.005;
   const uCard=hasU?`
     <div class="dcard warn" style="margin-top:12px">
@@ -7075,7 +7089,7 @@ function renderAccFuel(){
   const box=$("#afList");
   if(box) box.innerHTML=fees.map(fee=>{
     const on=!off.has(fee);
-    return `<label class="bulkchk aff${on?"":" off"}">`
+    return `<label class="afitem${on?" on":" off"}">`
       +`<input type="checkbox" class="accfuel" data-fee="${esc(fee)}"${on?" checked":""}>`
       +`<span>${esc(fee)}</span></label>`;
   }).join("")||`<div class="empty">—</div>`;
@@ -8259,13 +8273,6 @@ const I18N={
     "Every surcharge charges fuel unless you turn it off here."],
   "btn.accfuel":["設定哪些附加費收燃油","Set which surcharges charge fuel"],
   "hd.accfuelmodal":["哪些附加費收燃油","Which surcharges charge fuel"],
-  "hint.accfuelmodal":["打勾 = 這一項算進燃油的計費底。按費用項目設定,不分渠道 —— "
-    +"一項附加費收不收燃油是 UPS 的計費規則,不會因為走哪條線而不同。"
-    +"實測 UPS 對退回寄件人(ISW)不收燃油。",
-    "Ticked = the surcharge goes into the fuel base. This is per surcharge, "
-    +"not per channel \u2014 whether a surcharge attracts fuel is UPS\u2019s "
-    +"billing rule, not a property of the lane. UPS was measured not to charge "
-    +"fuel on Return To Sender (ISW)."],
   "btn.afall":["全部都收","All charge fuel"],
   "btn.afnone":["全部都不收","None charge fuel"],
   "hd.flat":["固定金額","Flat amounts"],
