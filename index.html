@@ -1996,7 +1996,14 @@ function priceShipment(cfg, s){
   const hasAdjHere=s.allLines.some(l=>l.layer==="ADJ");
   const dvHere=dimFactorFor(cfg,channel).factor;
   const dimW=(s.dims&&dvHere>0)?Math.round(s.dims.l*s.dims.w*s.dims.h/dvHere*100)/100:0;
-  const looksLikeMin=(minOwning||s.bwt===3) && s.billedUPS>Math.max(ahsScale,dimW)+0.01;
+  /* py :17983 _weight_C_inherited:只有「ADJ 自己沒有計費重、數字是從
+     SHP/RTN 借來的」時,那個偏高的計費重才可能是附加費最低重量的殘留。
+     ADJ 自己帶著 billed(例如重測後 41->70)就是 UPS 重新量出來的權威
+     數字,不能丟。少了這個條件,重測單的計費重會被錯誤退回實重。 */
+  const adjOwnBilled=Math.max(0,...s.lines.filter(l=>l.layer==="ADJ").map(l=>l.billed));
+  const weightInherited = s.lines.some(l=>l.layer==="ADJ") ? adjOwnBilled<=0 : false;
+  const looksLikeMin=weightInherited && (minOwning||s.bwt===3)
+      && s.billedUPS>Math.max(ahsScale,dimW)+0.01;
   const upsFloor=(looksLikeMin && hasAdjHere && Math.abs(adjFrtNet)<0.005) ? s.billedUPS : 0;
 
   /* 實重 = max(帳單計費重, 磅秤重量)。桌面版 :18158
@@ -2046,17 +2053,23 @@ function priceShipment(cfg, s){
   /* 桌面版沒有「拿歷史 CSV 重建一個 A 件來抵差」這條路徑 ——
      history_service_for 只回渠道、history_zone_for 只回 Zone。
      留著會算出 py 從來不會算的差額,所以拿掉。 */
-  const netCA = sameCA;
+  /* py 的分支順位:「沒有重量(AA、AC 都是 0)就跳過運費重算」。 */
+  const adjNoOwnWeight = !!(s.pureAdj && s.entered<=0 && s.billedUPS<=0);
+  const netCA = sameCA;   /* 附加費的 C−A 不受「沒重量」影響,py 只跳運費 */
   /* 純 ADJ 的重量對:entered 與 billed 都有值且不相等時,桌面版 :18712
      收的是 rate(billed) - rate(entered),而不是把更正當成一筆新出貨收全額。
      C 側用更正後尺寸 + 帳單計費重 + 它自己觸發的下限;
      A 側用原始尺寸 + 磅秤重量,沒有任何下限(freight_for :18547)。 */
-  const wPair = !!(s.pureAdj && !sameCA && corrAdj
+  const wPair = !!(s.pureAdj && !sameCA && !adjNoOwnWeight && corrAdj
                    && s.entered>0 && s.billedUPS>0
                    && Math.abs(s.billedUPS-s.entered)>0.001);
   let base=0, baseWhy=null, baseA=null, bwA=null;
   if(zone && s.service){
-    const lk=lookupBaseRate(cfg, svc, residential, zone, bw.billable);
+    /* py: "No ADJ weight (AA & AC = 0) - base rate skipped" ——
+       只有「運費查表」跳過,附加費的 C−A(下面的 netCA 區塊)照走,
+       AHS 的退款(例如 A 側長加圍觸發的 -6.08)才不會跟著消失。 */
+    const lk = adjNoOwnWeight ? {rate:0, why:null, missing:false}
+                              : lookupBaseRate(cfg, svc, residential, zone, bw.billable);
     base=lk.rate; baseWhy=lk.why;
     if(wPair){
       const Rw=bw.rules||{};
@@ -2090,15 +2103,55 @@ function priceShipment(cfg, s){
       bwA=billableWeight(cfg, entA, dimsA0, sameCA?channel:chACh,
         {ahsScale:sameCA?ahsScale:entA, lpsScale:sameCA?lpsScale:entA,
          bwt:bwtA, upsAhsFloor:sameCA?upsAhsFloor:false});
+      /* C−A 的運費差照 py 的 freight_for(:18547):兩側「各自」依尺寸
+         門檻套 AHS / LPS 最低計費重,這條路徑不看 Billed Weight Type。
+         py 在 16->19 的 SCC 上兩側都被 20 磅下限墊平,差額是 0;
+         之前 web 的 C 側被 BWT 9 擋掉下限,算出不該有的 1.73。 */
+      const R2=bw.rules||{};
+      const ffBw=(dims,weight,upFloor)=>{
+        const dw=(dims&&dvHere>0)?Math.round(dims.l*dims.w*dims.h/dvHere*100)/100:0;
+        let ahsT=false,lpsT=false;
+        if(dims){
+          const g2=Math.round((dims.l+2*(dims.w+dims.h))*100)/100;
+          const cu=dims.l*dims.w*dims.h;
+          ahsT=(R2.use_ahs_longest&&dims.l>R2.ahs_longest_side)
+             ||(R2.use_ahs_second&&dims.w>R2.ahs_second_side)
+             ||(R2.use_ahs_cubic&&cu>R2.ahs_cubic_inches)
+             ||(R2.use_ahs_lg&&g2>R2.ahs_lg_limit);
+          lpsT=(R2.use_oversize_longest&&dims.l>R2.oversize_longest_side)
+             ||(R2.use_oversize_cubic&&cu>R2.oversize_cubic_inches)
+             ||(R2.use_oversize_lg&&g2>R2.oversize_length_girth
+                &&Math.abs(g2-R2.oversize_length_girth)>0.01);
+        }
+        if(R2.use_oversize_weight&&weight>R2.oversize_actual_weight) lpsT=true;
+        let pkgMin=0;
+        if(lpsT) pkgMin=toNum(R2.oversize_min_billable_weight);
+        else if(ahsT||upFloor) pkgMin=toNum(R2.ahs_min_billable_weight);
+        return Math.ceil(Math.max(weight,dw,pkgMin));
+      };
+      if(sameCA && !adjNoOwnWeight){
+        const bwC2=ffBw(s.dims, s.billedUPS, upsAhsFloor);
+        const bwA2=ffBw(dimsA0, entA, false);
+        const lkC2=lookupBaseRate(cfg, svc, residential, zone, bwC2);
+        const lkA2=lookupBaseRate(cfg, svcA, resA, zoneA, bwA2);
+        base=Math.round((lkC2.rate-lkA2.rate)*100)/100;
+        bw.billable=bwC2;               /* 報表的計費重照 py 印 C 側 */
+        bwA.billable=bwA2;
+        if(lkC2.missing||lkA2.missing)
+          issues.push(L("C−A 有一側查不到費率:","One side of C−A has no rate: ")
+            +(lkC2.why||lkA2.why||""));
+      }
       /* 1x1x1 是 UPS 沒量到尺寸時寫的預設值,不是真的量出來的。拿它當
          原始包裹會讓差額偏大,所以照算但標出來,不要無聲吃掉。 */
       if(dimsA0 && dimsA0.l<=1&&dimsA0.w<=1&&dimsA0.h<=1)
         issues.push(L("原始包裹尺寸是 1x1x1(UPS 未量測的預設值),差額可能偏大",
           "The original package is 1x1x1, UPS's placeholder for unmeasured, so the difference may be overstated"));
-      const lkA=lookupBaseRate(cfg, svcA, resA, zoneA, bwA.billable);
-      if(lkA.missing) issues.push(L("原始包裹查不到費率,抵掉的那一段當 0 算:",
-        "No rate for the original package, so 0 was netted off: ")+(lkA.why||""));
-      baseA=lkA.rate; base=Math.round((base-baseA)*100)/100;
+      if(!sameCA && !adjNoOwnWeight){
+        const lkA=lookupBaseRate(cfg, svcA, resA, zoneA, bwA.billable);
+        if(lkA.missing) issues.push(L("原始包裹查不到費率,抵掉的那一段當 0 算:",
+          "No rate for the original package, so 0 was netted off: ")+(lkA.why||""));
+        baseA=lkA.rate; base=Math.round((base-baseA)*100)/100;
+      }
     }
   }else baseWhy = !zone ? L("這一筆沒有 Zone","This line has no Zone")
                          : L("認不出服務別","Service not recognised");
