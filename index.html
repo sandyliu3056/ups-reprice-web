@@ -462,6 +462,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <span class="devby">DEVELOPED BY SANDY LIU</span>
   <div class="ctrls">
     <select id="langSel"  title="Language"></select>
+    <select id="zoomSel"  title="Display size"></select>
     <select id="brandSel" title="Theme"></select>
     <select id="themeSel" title="Colour"></select>
     <select id="tzSel"    title="Clock"></select>
@@ -7057,6 +7058,22 @@ function applyBrand(name){
   try{ localStorage.setItem(BRAND_KEY,BRAND); }catch(e){}
 }
 
+/* ---- 畫面縮放 ----
+   整頁縮小一點,一次看得到的東西就多一點。用 zoom 而不是 transform:
+   transform 會讓 position:fixed 的視窗跑掉,zoom 不會,版面照舊只是變小。
+   預設 90%;每個人自己挑的存在這台瀏覽器,跟主題同一個做法。 */
+const ZOOM_KEY="ups_reprice_zoom";
+const ZOOMS=[80,85,90,95,100,110];
+let ZOOM=90;
+function applyZoom(v){
+  ZOOM = ZOOMS.includes(+v) ? +v : 90;
+  document.body.style.zoom = (ZOOM/100);
+  try{ localStorage.setItem(ZOOM_KEY,String(ZOOM)); }catch(e){}
+  /* 畫布的尺寸是照元素量的,縮放之後要重量一次,不然時鐘和插圖會糊掉。 */
+  if(typeof sceneResize==="function"){ try{ sceneResize(); spreadActors(); }catch(e){} }
+  if(typeof drawClock==="function"){ try{ drawClock(); drawDateCard(); }catch(e){} }
+}
+
 const THEME_KEY="ups_reprice_theme";
 let THEME="Brown Gold";
 function applyTheme(name){
@@ -8409,6 +8426,9 @@ function fillSelects(){
     `<option value="${k}"${k===THEME?" selected":""}>${LANG?k:THEMES[k].zh}</option>`).join("");
   $("#tzSel").innerHTML=TZ.map((z,i)=>
     `<option value="${i}"${i===TZI?" selected":""}>${z[LANG]}</option>`).join("");
+  $("#zoomSel") && ($("#zoomSel").innerHTML=ZOOMS.map(z=>
+    `<option value="${z}"${z===ZOOM?" selected":""}>${
+      z}%${z===100?(LANG?" (normal)":"(原始)"):""}</option>`).join(""));
 }
 function fillThemeSel(){ fillSelects(); }
 
@@ -8430,9 +8450,12 @@ $("#themeSel").onchange=e=>{ applyTheme(e.target.value); drawClock(); drawDateCa
 $("#tzSel").onchange=e=>{ TZI=+e.target.value; drawClock(); drawDateCard();
   if(WX.live) fetchWx(); };
 
+$("#zoomSel") && ($("#zoomSel").onchange=e=>applyZoom(e.target.value));
+
 try{ const t=localStorage.getItem(THEME_KEY); if(t) THEME=t; }catch(e){}
 try{ const b=localStorage.getItem(BRAND_KEY); if(b) BRAND=b; }catch(e){}
-applyTheme(THEME); applyBrand(BRAND); fillSelects();
+try{ const z=localStorage.getItem(ZOOM_KEY); if(z) ZOOM=+z||90; }catch(e){}
+applyTheme(THEME); applyBrand(BRAND); applyZoom(ZOOM); fillSelects();
 
 /* 歷史是綁帳號的,開機時還不知道是誰,所以這裡不讀 —— 由 setMe 之後的
    histLoad() 讀那個帳號自己的那份。 */
