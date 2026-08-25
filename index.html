@@ -484,6 +484,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
+  <button role="tab" aria-selected="false" data-p="setting" class="display" data-i18n="tab.setting">Settings</button>
   <button role="tab" aria-selected="false" data-p="admin"  class="display" data-i18n="tab.admin">Admin</button>
 </div>
 
@@ -806,20 +807,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     </div>
     <p class="hint" id="histStats" style="margin:0 0 12px"></p>
 
-    <!-- 住/商判定來源:系統設定 或 API -->
-    <div class="sketch-soft" style="padding:12px 14px;margin:0 0 14px">
-      <div class="subhd" style="margin-top:0" data-i18n="hd.resisrc">🔄 Residential / Commercial · Source</div>
-      <label class="bulkchk" style="margin-top:6px"><input type="radio" name="resiSrc" value="system" id="resiSrcSys">
-        <span data-i18n="lb.resisys">Use system logic (invoice codes & service name; returns look up history)</span></label>
-      <label class="bulkchk" style="margin-top:4px"><input type="radio" name="resiSrc" value="api" id="resiSrcApi">
-        <span data-i18n="lb.resiapi">Look up the ship-to address by API (UPS Address Validation)</span></label>
-      <div id="resiApiBox" style="display:none;margin-top:9px">
-        <label class="inlab" style="margin-left:0" data-i18n="lb.resiapiurl">API proxy endpoint (Edge Function URL)</label>
-        <input id="resiApiUrl" class="cell" style="width:min(520px,100%);text-align:left" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
-      </div>
-      <p class="hint" style="margin:8px 0 0" data-i18n="hint.resisrc">System = the tool decides. API = classify the delivery address via a UPS proxy; falls back to system logic when unset or unavailable.</p>
-    </div>
-
     <div class="subhd" data-i18n="hd.findtrk">Find a Tracking</div>
     <div class="row sketch-soft" style="padding:11px 13px;margin-bottom:12px">
       <label class="inlab" style="margin-left:0" data-i18n="th.trk">Tracking</label>
@@ -845,6 +832,32 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <th data-i18n="th.keydim">Detail Keyed Dimensions</th>
       <th class="num" data-i18n="th.net">Net Amount</th>
     </tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ==================== Settings ==================== -->
+<section class="page" id="p-setting">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">⚙️</span><span data-i18n="hd.setting">Settings</span></h3>
+    <p class="hint" data-i18n="hint.setting">General repricing behaviour. Changes are saved to your account.</p>
+
+    <!-- 住/商判定來源:系統設定 或 API -->
+    <div class="sketch-soft" style="padding:14px 16px;margin:10px 0 14px">
+      <div class="subhd" style="margin-top:0" data-i18n="hd.resisrc">🔄 Residential / Commercial · Source</div>
+      <label class="bulkchk" style="margin-top:8px"><input type="radio" name="resiSrc" value="system" id="resiSrcSys">
+        <span data-i18n="lb.resisys">Use system logic (invoice codes &amp; service name; returns look up history)</span></label>
+      <label class="bulkchk" style="margin-top:5px"><input type="radio" name="resiSrc" value="api" id="resiSrcApi">
+        <span data-i18n="lb.resiapi">Look up the ship-to address by API (UPS Address Validation)</span></label>
+      <div id="resiApiBox" style="display:none;margin-top:10px">
+        <label class="inlab" style="margin-left:0" data-i18n="lb.resiapiurl">API proxy endpoint (Edge Function URL)</label>
+        <input id="resiApiUrl" class="cell" style="width:min(520px,100%);text-align:left" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
+      </div>
+      <p class="hint" style="margin:9px 0 0" data-i18n="hint.resisrc">System = the tool decides. API = classify the delivery address via a UPS proxy; falls back to system logic when unset or unavailable.</p>
+    </div>
+
+    <div class="row" style="margin-top:4px">
+      <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
+    </div>
   </div>
 </section>
 
@@ -7416,6 +7429,9 @@ const I18N={
   "tab.demand":["⚡ Demand 附加費","⚡ Demand Surcharge"],
   "tab.hist":["📚 帳單歷史","📚 Invoice History"],
   "tab.code":["🔎 代碼查詢","🔎 Code Lookup"],
+  "tab.setting":["⚙️ 設定","⚙️ Settings"],
+  "hd.setting":["設定","Settings"],
+  "hint.setting":["重新計價的一般行為設定,改動會存到你的帳號。","General repricing behaviour. Changes are saved to your account."],
   "hd.resisrc":["🔄 住宅／商業判定來源","🔄 Residential / Commercial · Source"],
   "lb.resisys":["沿用系統設定(依帳單代碼、服務名稱;退件回程查帳單歷史)","Use system logic (invoice codes & service name; returns look up history)"],
   "lb.resiapi":["用 API 查送達地址(UPS 地址驗證)","Look up the ship-to address by API (UPS Address Validation)"],
