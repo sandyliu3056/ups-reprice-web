@@ -846,7 +846,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <label class="bulkchk" style="margin-top:8px"><input type="radio" name="resiSrc" value="system" id="resiSrcSys">
         <span data-i18n="lb.resisys">System</span></label>
       <label class="bulkchk" style="margin-top:5px"><input type="radio" name="resiSrc" value="api" id="resiSrcApi">
-        <span data-i18n="lb.resiapi">API (UPS Address)</span></label>
+        <span data-i18n="lb.resiapi">Linked API</span></label>
       <div id="resiApiBox" style="display:none;margin-top:10px">
         <label class="inlab" style="margin-left:0" data-i18n="lb.resiapiurl">API proxy endpoint (Edge Function URL)</label>
         <input id="resiApiUrl" class="cell" style="width:min(520px,100%);text-align:left" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
@@ -7433,7 +7433,7 @@ const I18N={
   "hint.setting":["重新計價的一般行為設定,改動會存到你的帳號。","General repricing behaviour. Changes are saved to your account."],
   "hd.resisrc":["🔄 住宅／商業判定來源","🔄 Residential / Commercial · Source"],
   "lb.resisys":["沿用系統設定","System"],
-  "lb.resiapi":["API(UPS 地址)","API (UPS address)"],
+  "lb.resiapi":["連動 API","Linked API"],
   "lb.resiapiurl":["API 代理端點(Edge Function 網址)","API proxy endpoint (Edge Function URL)"],
   "hint.resisrc":["API 需自架 UPS 代理,未設定時退回系統。","API needs a UPS proxy; falls back to System when unset."],
   "hd.files":["匯入檔案","Import Files"],
