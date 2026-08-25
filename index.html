@@ -2724,17 +2724,26 @@ function priceShipment(cfg, s){
      這一單自己的底價,搬回 Base Rate(桌面版 _din_is_base)。 */
   const dinRow=s.allLines.find(l=>l.layer==="ADJ"
       && String(l.detail||"").toUpperCase()==="DIN");
+  /* 第二哩只在帳單真的有 DIN「運費行」時才收。ISW 是退回寄件人的固定
+     費用,不是運費 —— 單獨出現時(例如費用先開、回程運費下一期才到)
+     不能憑空合成一段運費,不然那筆運費會在兩期各收一次。五期實帳單裡
+     ISW 都伴隨 DIN 運費行(6/6),這個分辨在正常單子上沒有差別,
+     擋的是跨期與費用單獨出現的情況。桌面版 din_leg_seen 同一個語意。 */
+  const dinFrt=s.allLines.find(l=>l.layer==="ADJ"
+      && String(l.detail||"").toUpperCase()==="DIN" && isFreightLine(l));
   const rtsNet=s.allLines.filter(l=>String(l.code||"").toUpperCase()==="ISW")
       .reduce((a,l)=>a+l.net,0);
   const retZone=(dinRow&&dinRow.zone)||zone;
   if(dinRow||Math.round(rtsNet*100)!==0){
-    const lk2=lookupBaseRate(cfg, svc, residential, retZone, bw.billable);
-    if(lk2.missing) issues.push(L("第二哩查不到費率:","No rate for the second leg: ")+(lk2.why||""));
-    const v2=Math.round(lk2.rate*100)/100;
-    /* 本期沒有 SHP/RTN 的攔截單:沒有第一趟就沒有「第二」哩,那筆運費
-       就是這一單的底價,整個取代 —— 不是和主路徑各收一次。 */
-    if(dinRow && s.pureAdj){ base=v2; baseWhy=null; }
-    else if(v2) acc["2nd Mile Road Base Rate"]=v2;
+    if(dinFrt){
+      const lk2=lookupBaseRate(cfg, svc, residential, retZone, bw.billable);
+      if(lk2.missing) issues.push(L("第二哩查不到費率:","No rate for the second leg: ")+(lk2.why||""));
+      const v2=Math.round(lk2.rate*100)/100;
+      /* 本期沒有 SHP/RTN 的攔截單:沒有第一趟就沒有「第二」哩,那筆運費
+         就是這一單自己的底價,整個取代 —— 不是和主路徑各收一次。 */
+      if(s.pureAdj){ base=v2; baseWhy=null; }
+      else if(v2) acc["2nd Mile Road Base Rate"]=v2;
+    }
     /* 退回寄件人的附加費也照回程的 Zone 查。 */
     if(acc["Return To Sender"]!=null && retZone!==zone)
       acc["Return To Sender"]=accLookup(cfg,"Return To Sender",channel,retZone,issues,residential,noRate);
