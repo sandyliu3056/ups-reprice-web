@@ -5301,7 +5301,9 @@ function bkdSection(r){
   const s=r.s, esc2=x=>esc(String(x==null?"":x));
   const H=[];
   H.push(`<div class="strow" style="margin:6px 0 12px">`
-    +`<span>${esc2(r.channel)}</span> · Zone ${esc2(r.zoneUsed||s.zone)}`
+    /* 未設定的渠道印帳單上的服務名 —— 印 r.channel 會寫出 guessService()
+       退回去的預設渠道,那條線根本沒被拿來計價。 */
+    +`<span>${esc2(r.unknownChan||r.channel)}</span> · Zone ${esc2(r.zoneUsed||s.zone)}`
     +` · ${L("日期","date")} ${esc2(((s.groups||[]).find(g=>g.layer==="ADJ"&&g.shipDate)||{}).shipDate||s.shipDate)}</div>`);
 
   /* ---- 帳單行,依層分組(py:原始出貨 / 帳單調整) ---- */
