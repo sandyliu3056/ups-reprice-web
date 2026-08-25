@@ -3346,6 +3346,19 @@ function buildOriginals(allRows, need){
   }
   return out;
 }
+/* 住/商對照表是登入後在背景非同步學的,而產生報表不會等它。開頁之後
+   馬上按下去,跨期更正就用「服務名稱」判住/商 —— 同一張帳單、同一份
+   設定,跑兩次會得到兩個運費。計價前先確定它就緒:明細本來就在
+   IndexedDB,不必叫人重匯檔案。 */
+function ensureHistoryMap(){
+  if(HIST && !HIST_STALE) return Promise.resolve(0);
+  return idbAllRows().then(rows=>{
+    if(!rows || !rows.length) return 0;
+    saveHistoryMap(learnHistory(rows));
+    HIST_STALE=false;
+    return Object.keys(HIST||{}).length;
+  }).catch(()=>0);
+}
 function prefetchOriginals(ships){
   const need=new Set((ships||[]).filter(s=>s.pureAdj).map(s=>s.tracking));
   if(!need.size){ ORIG={}; return Promise.resolve(0); }
@@ -7339,7 +7352,8 @@ async function runReport(ing, ships){
     ROWS=ing.rows; SHIPS=ships;
     /* 跨期更正的原件先從 IndexedDB 撈成同步對照再計價。
        撈不到(沒有歷史、私密視窗)就空表照算,跨期單照舊標問題。 */
-    return prefetchOriginals(SHIPS)
+    return ensureHistoryMap()
+      .then(()=>prefetchOriginals(SHIPS))
       .then(()=>prefetchAddressClass(SHIPS).catch(()=>0))
       .then(()=>{
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
