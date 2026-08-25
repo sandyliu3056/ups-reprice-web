@@ -319,9 +319,26 @@ td.cells{white-space:normal}
   border:1.6px dashed var(--line);border-radius:var(--rad);padding:4px 8px}
 .flatitem{display:flex;align-items:center;gap:6px;font-size:12px}
 .flatitem .fl{flex:1;color:var(--text);line-height:1.25}
-/* 燃油小視窗:關掉的那一項用刪除線標出來 —— 一整片都是勾的時候,
+/* 燃油小視窗。說明和兩顆快捷鍵擠在同一行,清單才有位置。 */
+.afbar{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:14px;margin:0 0 10px}
+.afbar .hint{margin:0}
+.afacts{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.afcount{color:var(--muted);font-size:12px;white-space:nowrap;margin-right:2px}
+.act.sm{padding:3px 10px;font-size:12px}
+/* 一項一列,名字再長也不換行 —— 有一項是「Future Day Pickup - Alternate
+   Address - Web Request」,會換成三行,整片格線的節奏就散掉了。
+   截斷的用 title 補回全名。 */
+.afgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));
+  gap:1px 10px;max-height:46vh;overflow:auto}
+.aff{display:flex;align-items:center;gap:7px;font-size:12.5px;
+  padding:5px 8px;border-radius:6px;min-width:0;cursor:pointer}
+.aff:hover{background:var(--bg)}
+.aff input{flex-shrink:0;margin:0}
+.aff span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 關掉的那一項用刪除線標出來 —— 一整片都是勾的時候,
    沒勾的那一格光靠空白框太容易看漏。 */
-.aff.off{color:#b4441f;text-decoration:line-through}
+.aff.off span{color:#b4441f;text-decoration:line-through}
 /* Settings 頁那一行摘要。不能掛 .savenote —— paintSaveNote() 會把每一個
    .savenote 的文字和 class 一起覆蓋掉,摘要會被存檔提示蓋走。 */
 .affsum{color:var(--muted);font-size:12.5px}
@@ -1192,16 +1209,22 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <button class="mx" id="afX">✕</button>
     </div>
     <div class="modalbody">
-      <p class="hint" style="margin:0 0 10px" data-i18n="hint.accfuelmodal">Ticked = the surcharge goes into the fuel base. This is per surcharge, not per channel — whether a surcharge attracts fuel is UPS’s billing rule, not a property of the lane.</p>
-      <div class="row" style="margin-bottom:10px">
-        <button class="act ghost" id="bAfAll" data-i18n="btn.afall">All charge fuel</button>
-        <button class="act ghost" id="bAfNone" data-i18n="btn.afnone">None charge fuel</button>
-        <span id="afCount" style="color:var(--muted);font-size:12.5px"></span>
+      <div class="afbar">
+        <p class="hint" data-i18n="hint.accfuelmodal">Ticked = counts toward the fuel base.</p>
+        <div class="afacts">
+          <span id="afCount" class="afcount"></span>
+          <button class="act ghost sm" id="bAfAll" data-i18n="btn.afall">All</button>
+          <button class="act ghost sm" id="bAfNone" data-i18n="btn.afnone">None</button>
+        </div>
       </div>
-      <div id="afList" class="chkgrid" style="max-height:46vh;overflow:auto"></div>
+      <div id="afList" class="afgrid"></div>
     </div>
     <div class="modalft">
       <button class="act ghost" id="afClose" data-i18n="btn.close">Close</button>
+      <div class="row" style="gap:10px;align-items:center">
+        <span class="savenote"></span>
+        <button class="act" id="bAfSave" data-i18n="btn.save">Save Settings</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2701,17 +2724,26 @@ function priceShipment(cfg, s){
      這一單自己的底價,搬回 Base Rate(桌面版 _din_is_base)。 */
   const dinRow=s.allLines.find(l=>l.layer==="ADJ"
       && String(l.detail||"").toUpperCase()==="DIN");
+  /* 第二哩只在帳單真的有 DIN「運費行」時才收。ISW 是退回寄件人的固定
+     費用,不是運費 —— 單獨出現時(例如費用先開、回程運費下一期才到)
+     不能憑空合成一段運費,不然那筆運費會在兩期各收一次。五期實帳單裡
+     ISW 都伴隨 DIN 運費行(6/6),這個分辨在正常單子上沒有差別,
+     擋的是跨期與費用單獨出現的情況。桌面版 din_leg_seen 同一個語意。 */
+  const dinFrt=s.allLines.find(l=>l.layer==="ADJ"
+      && String(l.detail||"").toUpperCase()==="DIN" && isFreightLine(l));
   const rtsNet=s.allLines.filter(l=>String(l.code||"").toUpperCase()==="ISW")
       .reduce((a,l)=>a+l.net,0);
   const retZone=(dinRow&&dinRow.zone)||zone;
   if(dinRow||Math.round(rtsNet*100)!==0){
-    const lk2=lookupBaseRate(cfg, svc, residential, retZone, bw.billable);
-    if(lk2.missing) issues.push(L("第二哩查不到費率:","No rate for the second leg: ")+(lk2.why||""));
-    const v2=Math.round(lk2.rate*100)/100;
-    /* 本期沒有 SHP/RTN 的攔截單:沒有第一趟就沒有「第二」哩,那筆運費
-       就是這一單的底價,整個取代 —— 不是和主路徑各收一次。 */
-    if(dinRow && s.pureAdj){ base=v2; baseWhy=null; }
-    else if(v2) acc["2nd Mile Road Base Rate"]=v2;
+    if(dinFrt){
+      const lk2=lookupBaseRate(cfg, svc, residential, retZone, bw.billable);
+      if(lk2.missing) issues.push(L("第二哩查不到費率:","No rate for the second leg: ")+(lk2.why||""));
+      const v2=Math.round(lk2.rate*100)/100;
+      /* 本期沒有 SHP/RTN 的攔截單:沒有第一趟就沒有「第二」哩,那筆運費
+         就是這一單自己的底價,整個取代 —— 不是和主路徑各收一次。 */
+      if(s.pureAdj){ base=v2; baseWhy=null; }
+      else if(v2) acc["2nd Mile Road Base Rate"]=v2;
+    }
     /* 退回寄件人的附加費也照回程的 Zone 查。 */
     if(acc["Return To Sender"]!=null && retZone!==zone)
       acc["Return To Sender"]=accLookup(cfg,"Return To Sender",channel,retZone,issues,residential,noRate);
@@ -7041,15 +7073,16 @@ function renderAccFuel(){
   const box=$("#afList");
   if(box) box.innerHTML=fees.map(fee=>{
     const on=!off.has(fee);
-    return `<label class="bulkchk aff${on?"":" off"}">`
+    /* 名字太長會被截斷,title 補回全名 */
+    return `<label class="aff${on?"":" off"}" title="${esc(fee)}">`
       +`<input type="checkbox" class="accfuel" data-fee="${esc(fee)}"${on?" checked":""}>`
       +`<span>${esc(fee)}</span></label>`;
   }).join("")||`<div class="empty">—</div>`;
   const nOff=fees.filter(f=>off.has(f)).length;
-  if($("#afCount")) $("#afCount").textContent = nOff
-    ? (LANG?`${fees.length-nOff} of ${fees.length} charge fuel`
-           :`${fees.length} 項裡有 ${fees.length-nOff} 項收燃油`)
-    : (LANG?`all ${fees.length} charge fuel`:`${fees.length} 項全部都收`);
+  /* 數字擺前面,一眼看到的是「幾項收」而不是句子 */
+  if($("#afCount")) $("#afCount").textContent =
+    (LANG?`${fees.length-nOff} / ${fees.length}`
+        :`${fees.length-nOff} / ${fees.length}`);
   document.querySelectorAll("#afList input.accfuel").forEach(el=>{
     el.onchange=()=>setAccFuel(el.dataset.fee, el.checked);
   });
@@ -7061,9 +7094,8 @@ function paintAccFuelSum(){
   const el=$("#accFuelSum"); if(!el) return;
   const off=[...(CFG&&CFG.accFuelOff||[])].sort();
   el.textContent = off.length
-    ? (LANG ? "Not in the fuel base: "+off.join(", ")
-            : "不收燃油:"+off.join("、"))
-    : (LANG?"Every surcharge charges fuel.":"目前每一項都收燃油。");
+    ? (LANG ? "No fuel: "+off.join(", ") : "不收燃油:"+off.join("、"))
+    : (LANG?"All charge fuel":"全部都收燃油");
 }
 function openAccFuel(){ renderAccFuel(); $("#afBg").classList.add("on"); }
 function closeAccFuel(){ $("#afBg").classList.remove("on"); }
@@ -7072,6 +7104,8 @@ $("#afX")      && ($("#afX").onclick=closeAccFuel);
 $("#afClose")  && ($("#afClose").onclick=closeAccFuel);
 $("#bAfAll")   && ($("#bAfAll").onclick=()=>setAllAccFuel(true));
 $("#bAfNone")  && ($("#bAfNone").onclick=()=>setAllAccFuel(false));
+/* 存在小視窗裡就存得掉,不用關掉再去 Settings 頁按一次。 */
+$("#bAfSave")  && ($("#bAfSave").onclick=()=>saveSettings());
 
 /* 一次全開或全關。全開等於把整格設定清掉,不是寫一堆 true。 */
 function setAllAccFuel(on){
@@ -8310,19 +8344,13 @@ const I18N={
   "hd.rate":["重新計價","Repricing"],
   "lb.fuelsur":["燃油附加費","Fuel Surcharge"],
   "hd.accfuel":["⛽ 附加費 · 燃油計費底","⛽ Surcharges · Fuel Base"],
-  "hint.accfuelset":["每一項預設都收燃油,要關掉的在這裡設。",
-    "Every surcharge charges fuel unless you turn it off here."],
-  "btn.accfuel":["設定哪些附加費收燃油","Set which surcharges charge fuel"],
-  "hd.accfuelmodal":["哪些附加費收燃油","Which surcharges charge fuel"],
-  "hint.accfuelmodal":["打勾 = 這一項算進燃油的計費底。按費用項目設定,不分渠道 —— "
-    +"一項附加費收不收燃油是 UPS 的計費規則,不會因為走哪條線而不同。"
-    +"實測 UPS 對退回寄件人(ISW)不收燃油。",
-    "Ticked = the surcharge goes into the fuel base. This is per surcharge, "
-    +"not per channel \u2014 whether a surcharge attracts fuel is UPS\u2019s "
-    +"billing rule, not a property of the lane. UPS was measured not to charge "
-    +"fuel on Return To Sender (ISW)."],
-  "btn.afall":["全部都收","All charge fuel"],
-  "btn.afnone":["全部都不收","None charge fuel"],
+  "hint.accfuelset":["預設每一項都收燃油。","Every surcharge charges fuel by default."],
+  "btn.accfuel":["設定","Configure"],
+  "hd.accfuelmodal":["附加費 · 燃油計費底","Surcharges · Fuel Base"],
+  "hint.accfuelmodal":["打勾 = 算進燃油計費底。按項目設定,不分渠道。",
+    "Ticked = counts toward the fuel base. Per surcharge, not per channel."],
+  "btn.afall":["全選","All"],
+  "btn.afnone":["全不選","None"],
   "hd.flat":["固定金額","Flat amounts"],
   "hd.dv":["申報價值級距","Declared value tiers"],
   "lb.dvfree":["免收上限","Free up to"], "lb.dvmin":["最低收費","Minimum charge"],

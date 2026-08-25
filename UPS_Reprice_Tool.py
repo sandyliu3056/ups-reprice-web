@@ -19647,7 +19647,12 @@ class UPSRepricingTool:
                     1 if (din_leg_seen and tracking not in shp_rtn_freight_A)
                     else 0)
                 _return_zone = zone_din or zone
-                if din_leg_seen or raw_rts_net != 0:
+                # The second mile is the DIN freight line repriced. The RTS fee
+                # alone (ISW with no DIN freight row -- e.g. the fee billed a
+                # period before the return leg) must not synthesize a freight
+                # leg, or the same return gets a base rate in both periods.
+                # din_leg_seen already requires an actual ADJ/DIN FRT row.
+                if din_leg_seen:
                     second_mile_base, _ = lookup_base_rate(
                         shipment_type, _return_zone, billable_weight, tracking)
                     row_result["2nd Mile Road Base"] = round(second_mile_base, 2)
