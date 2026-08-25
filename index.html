@@ -491,13 +491,13 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
 <div class="tabstrip" role="tablist" id="tabs">
   <button role="tab" aria-selected="true"  data-p="files"  class="display" data-i18n="tab.files">Import Files</button>
-  <button role="tab" aria-selected="false" data-p="dash"   class="display" data-i18n="tab.dash">Dashboard</button>
   <button role="tab" aria-selected="false" data-p="rules"  class="display" data-i18n="tab.rules">Surcharge Setup</button>
   <button role="tab" aria-selected="false" data-p="size"   class="display" data-i18n="tab.size">Size Rules</button>
   <button role="tab" aria-selected="false" data-p="chan"   class="display" data-i18n="tab.chan">Channels</button>
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
+  <button role="tab" aria-selected="false" data-p="dash"   class="display" data-i18n="tab.dash">Dashboard</button>
   <button role="tab" aria-selected="false" data-p="setting" class="display" data-i18n="tab.setting">Settings</button>
   <button role="tab" aria-selected="false" data-p="admin"  class="display" data-i18n="tab.admin">Admin</button>
 </div>
@@ -854,14 +854,11 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <style>
 /* 儀表板:所有顏色走 App 的主題變數,切主題整頁跟著變。圓角膠囊風,配合 Scoobi。 */
 #p-dash .dwrap{max-width:1060px;margin:0 auto}
-#p-dash .dhead{display:flex;align-items:center;gap:12px;margin:0 0 14px}
-#p-dash .dmascot{width:44px;height:44px;border-radius:14px;background:var(--run2);
-  display:grid;place-items:center;font-size:22px;flex:none;box-shadow:0 4px 12px rgba(0,0,0,.10)}
+#p-dash .dhead{margin:0 0 14px}
 #p-dash .dtitle{font-family:var(--titlefam);font-size:20px;font-weight:700;margin:0;color:var(--accent)}
 #p-dash .dsub{font-size:12.5px;color:var(--muted);margin-top:1px}
 #p-dash .dempty{background:var(--panel);border:2px dashed var(--line);border-radius:16px;
   padding:34px 22px;text-align:center;color:var(--muted);font-size:14px;line-height:1.7}
-#p-dash .dempty .big{font-size:30px;margin-bottom:8px}
 #p-dash .dcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;
   padding:15px 17px;box-shadow:0 2px 3px rgba(0,0,0,.03),0 8px 22px rgba(0,0,0,.05)}
 #p-dash .dcard + .dcard{margin-top:12px}
@@ -869,16 +866,12 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .kpi{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 15px;
   box-shadow:0 2px 3px rgba(0,0,0,.03),0 8px 22px rgba(0,0,0,.05);transition:transform .16s ease}
 #p-dash .kpi:hover{transform:translateY(-2px)}
-#p-dash .kbadge{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;font-size:18px;
-  margin-bottom:9px;background:var(--stripe);background:color-mix(in srgb,var(--run2) 15%,var(--panel))}
-#p-dash .klab{font-size:11.5px;color:var(--muted);font-weight:600}
+#p-dash .klab{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 #p-dash .kbig{font-family:var(--titlefam);font-size:25px;font-weight:700;margin-top:2px;line-height:1.05;color:var(--accent)}
 #p-dash .kbig.pos{color:var(--run2)}
 #p-dash .kfoot{font-size:11.5px;color:var(--muted);margin-top:5px}
 #p-dash .dgrid{display:grid;grid-template-columns:1.4fr 1fr;gap:12px}
-#p-dash .ch{display:flex;align-items:center;gap:9px;margin-bottom:13px}
-#p-dash .chi{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;font-size:15px;flex:none;
-  background:var(--stripe);background:color-mix(in srgb,var(--run2) 15%,var(--panel))}
+#p-dash .ch{display:flex;align-items:baseline;gap:9px;margin-bottom:13px}
 #p-dash .ch h3{font-family:var(--titlefam);font-size:15px;font-weight:600;margin:0;flex:1;color:var(--accent)}
 #p-dash .ch .cnote{font-size:11.5px;color:var(--muted)}
 #p-dash .bars{display:flex;flex-direction:column;gap:9px}
@@ -6511,12 +6504,12 @@ function renderDashboard(){
   try{
   const d=dashAgg();
   if(!d){
-    body.innerHTML=`<div class="dhead"><div class="dmascot">📊</div>
+    body.innerHTML=`<div class="dhead">
       <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
-      <div class="dsub">${L("本期報表概覽","This run at a glance")}</div></div></div>
-      <div class="dempty"><div class="big">🧾</div>
-      ${L("還沒有報表。先到「匯入檔案」跑一次,這裡就會長出來。","No report yet. Run one from Import Files and this fills in.")}
-      <div style="margin-top:12px"><button class="act" onclick="showTab('files')">${L("去匯入檔案","Go to Import Files")}</button></div></div>`;
+      <div class="dsub">${L("本期報表摘要","Current run summary")}</div></div></div>
+      <div class="dempty">
+      ${L("尚無報表資料。請先於「匯入檔案」執行重算。","No report yet. Run a reprice from Import Files.")}
+      <div style="margin-top:12px"><button class="act" onclick="showTab('files')">${L("前往匯入檔案","Go to Import Files")}</button></div></div>`;
     return;
   }
   const hasBill=d.billed>0.005;
@@ -6545,61 +6538,61 @@ function renderDashboard(){
     :`<div class="dsub">${L("沒有 Zone 資料","No zone data")}</div>`;
   const rcTot=(d.resiAmt+d.comAmt)||1;
   const kSave=hasBill
-    ? `<div class="kpi"><div class="kbadge">💸</div><div class="klab">${L("節省 vs UPS 實收","Savings vs UPS")}</div>
+    ? `<div class="kpi"><div class="klab">${L("較 UPS 實收節省","Savings vs UPS")}</div>
         <div class="kbig pos">${money(d.savings)}</div><div class="kfoot">${savePct>=0?"▼ ":"▲ "}${Math.abs(savePct).toFixed(1)}% · ${L("實收","billed")} ${money(d.billed)}</div></div>`
-    : `<div class="kpi"><div class="kbadge">📦</div><div class="klab">${L("平均每件","Avg / package")}</div>
+    : `<div class="kpi"><div class="klab">${L("平均每件","Avg per shipment")}</div>
         <div class="kbig">${money(avg)}</div><div class="kfoot">${L("總額 ÷ 貨件數","Total ÷ shipments")}</div></div>`;
   const cmpCard=hasBill?`
     <div class="dcard" style="margin-top:12px">
-      <div class="ch"><div class="chi">💸</div><h3>${L("UPS 實收 vs 重算","UPS billed vs Repriced")}</h3><span class="cnote">${d.n} ${L("筆","shipments")}</span></div>
+      <div class="ch"><h3>${L("UPS 實收 vs 合約重算","UPS billed vs Repriced")}</h3><span class="cnote">${d.n} ${L("筆","shipments")}</span></div>
       <div class="cmp">
         <div class="cmprow"><span class="cl">${L("UPS 實收","UPS billed")}</span>
           <div class="cmptrack"><div class="cmpfill billed" data-w="100"></div></div><span class="cv">${money(d.billed)}</span></div>
         <div class="cmprow"><span class="cl">${L("合約重算","Repriced")}</span>
           <div class="cmptrack"><div class="cmpfill repriced" data-w="${(d.repriced/Math.max(1,d.billed)*100).toFixed(1)}"></div></div><span class="cv">${money(d.repriced)}</span></div>
       </div>
-      <div class="savenote">${savePct>=0?L("這期用合約價可省 ","Contract pricing saves "):L("這期比實收多 ","Over UPS billed by ")}<b>${money(Math.abs(d.savings))}</b>（${Math.abs(savePct).toFixed(1)}%）</div>
+      <div class="savenote">${savePct>=0?L("本期合約價較 UPS 實收節省 ","Contract pricing saves "):L("本期較 UPS 實收超出 ","Over UPS billed by ")}<b>${money(Math.abs(d.savings))}</b>（${Math.abs(savePct).toFixed(1)}%）</div>
     </div>`:"";
   body.innerHTML=`
-    <div class="dhead"><div class="dmascot">📊</div>
+    <div class="dhead">
       <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
-      <div class="dsub">${L("本期報表概覽","This run at a glance")} · ${d.n} ${L("筆貨件","shipments")}</div></div></div>
+      <div class="dsub">${L("本期報表摘要","Current run summary")} · ${d.n} ${L("筆貨件","shipments")}</div></div></div>
     <div class="kpis">
-      <div class="kpi"><div class="kbadge">💰</div><div class="klab">${L("重算金額","Repriced total")}</div>
-        <div class="kbig">${money(d.repriced)}</div><div class="kfoot">${L("合約價","Contract price")} · ${d.n} ${L("筆","")}</div></div>
+      <div class="kpi"><div class="klab">${L("重算金額","Repriced total")}</div>
+        <div class="kbig">${money(d.repriced)}</div><div class="kfoot">${L("合約重算","Contract price")} · ${d.n} ${L("筆","")}</div></div>
       ${kSave}
-      <div class="kpi"><div class="kbadge">🏠</div><div class="klab">${L("住宅佔比","Residential")}</div>
+      <div class="kpi"><div class="klab">${L("住宅件佔比","Residential")}</div>
         <div class="kbig">${resiPct}%</div><div class="kfoot">${d.resiN} ${L("住宅","resi")} · ${d.comN} ${L("商業","comm")}</div></div>
-      <div class="kpi"><div class="kbadge">⛽</div><div class="klab">${L("燃油佔比","Fuel share")}</div>
+      <div class="kpi"><div class="klab">${L("燃油費佔比","Fuel share")}</div>
         <div class="kbig">${fuelPct.toFixed(1)}%</div><div class="kfoot">${money(d.fuel)}</div></div>
     </div>
     <div class="dgrid">
       <div class="dcard">
-        <div class="ch"><div class="chi">🧾</div><h3>${L("錢都花在哪","Where the money goes")}</h3><span class="cnote">${L("佔重算","of")} ${money(d.repriced)}</span></div>
+        <div class="ch"><h3>${L("費用組成","Cost breakdown")}</h3><span class="cnote">${L("佔重算總額","of")} ${money(d.repriced)}</span></div>
         <div class="bars">${compHTML}</div>
       </div>
       <div>
         <div class="dcard">
-          <div class="ch"><div class="chi">🏠</div><h3>${L("住宅 / 商業","Resi / Comm")}</h3><span class="cnote">${L("依金額","by amount")}</span></div>
+          <div class="ch"><h3>${L("住宅 / 商業","Residential / Commercial")}</h3><span class="cnote">${L("依金額","by amount")}</span></div>
           <div class="split">
             <div class="splitbar" role="img" aria-label="${L("住宅","Residential")} ${money(d.resiAmt)}, ${L("商業","Commercial")} ${money(d.comAmt)}">
-              <div class="seg resi" data-w="${(d.resiAmt/rcTot*100).toFixed(1)}">🏠 ${money(d.resiAmt)}</div>
-              <div class="seg com" data-w="${(d.comAmt/rcTot*100).toFixed(1)}">🏢</div>
+              <div class="seg resi" data-w="${(d.resiAmt/rcTot*100).toFixed(1)}">${L("住宅","Resi")} ${money(d.resiAmt)}</div>
+              <div class="seg com" data-w="${(d.comAmt/rcTot*100).toFixed(1)}">${L("商業","Comm")}</div>
             </div>
             <div class="legend">
-              <div><span class="sw" style="background:var(--run2)"></span>🏠 ${L("住宅","Resi")} <b>${d.resiN}</b></div>
-              <div><span class="sw" style="background:color-mix(in srgb,var(--run2) 42%,var(--panel))"></span>🏢 ${L("商業","Comm")} <b>${d.comN}</b> · ${money(d.comAmt)}</div>
+              <div><span class="sw" style="background:var(--run2)"></span>${L("住宅","Resi")} <b>${d.resiN}</b></div>
+              <div><span class="sw" style="background:color-mix(in srgb,var(--run2) 42%,var(--panel))"></span>${L("商業","Comm")} <b>${d.comN}</b> · ${money(d.comAmt)}</div>
             </div>
           </div>
         </div>
         <div class="dcard">
-          <div class="ch"><div class="chi">🗺️</div><h3>Zone ${L("分布","split")}</h3><span class="cnote">${L("金額","amount")}</span></div>
+          <div class="ch"><h3>${L("Zone 分布","Zone distribution")}</h3><span class="cnote">${L("金額","amount")}</span></div>
           <div>${zoneHTML}</div>
         </div>
       </div>
     </div>
     ${cmpCard}
-    <div class="dfoot">${L("數字與匯出的報表一致;切右上角主題,整頁顏色跟著換。","Figures match the exported report; switch the theme (top-right) and the page recolors.")}</div>`;
+    <div class="dfoot">${L("本頁數字與匯出報表一致;切換右上角主題,整頁配色隨之調整。","Figures match the exported report; switching the theme recolours the page.")}</div>`;
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     body.querySelectorAll(".bfill,.zfill,.seg,.cmpfill").forEach(el=>{
       if(el.dataset.w!=null) el.style.width=el.dataset.w+"%"; });
