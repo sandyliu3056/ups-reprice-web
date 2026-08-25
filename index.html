@@ -1730,9 +1730,10 @@ const LPS_COM  = new Set(["LPS","LCT","LCC","LWC"]);
 /* 附加費費率表可以用哪些 Zone 當鍵。桌面版 :17119 —— 標準那一組
    加上每個渠道自己宣告的 Zone,其他一律併進「8」。
    不併的話 Zone 9/10/53 這種線路上,每一筆按 Zone 收的附加費都會變成 0。 */
-let _ACC_ZONE_KEYS=null;
 function accZoneKeys(cfg){
-  if(_ACC_ZONE_KEYS) return _ACC_ZONE_KEYS;
+  /* 快取掛在 cfg 物件上:每次 readConfig 都是新物件,改設定或換檔
+     就自動失效。掛在全域的話,換一份設定檔之後還會用到舊的 Zone 集合。 */
+  if(cfg.__accZones) return cfg.__accZones;
   const s=new Set(["2","3","4","5","6","7","8","44","45","46"]);
   const bz=(cfg.raw||{}).builtin_service_zones||{};
   const cs=(cfg.raw||{}).custom_service_registry||{};
@@ -1741,7 +1742,7 @@ function accZoneKeys(cfg){
   });
   Object.values(bz).forEach(eat);
   Object.values(cs).forEach(c=>{ if(c&&c.zones!=null) eat(c.zones); });
-  _ACC_ZONE_KEYS=s;
+  cfg.__accZones=s;
   return s;
 }
 function accZoneKey(cfg, zone){
@@ -7653,7 +7654,12 @@ step("auth",()=>{
 step("language",()=>applyLang());
 /* 開機時還不知道是誰,先給預設值。真正的費率在 setMe 之後才抓 ——
    restoreConfig() 讀的是綁 user id 的快取,這裡讀等於讀 anon 那份。 */
-step("config",  ()=>{ applyConfig(JSON.stringify(DEFAULT_CONFIG),
+step("config",  ()=>{ /* 本機帳號的 session 還原是「同步」的:step("auth") 裡的
+                         setMe 已經先把這個帳號存過的費率載回來了。這裡再無條件
+                         套預設值,會把剛載入的費率整個蓋掉 —— 「重新整理後
+                         saved 的費率跑掉」就是這樣來的。只有還沒有任何設定時
+                         (未登入、或 Supabase 模式的非同步還原還沒回來)才給預設值。 */
+                      if(!CFG) applyConfig(JSON.stringify(DEFAULT_CONFIG),
                                   LANG?"defaults":"預設值", false);
                       setStatus(""); });
 step("codes",   ()=>renderCode());
