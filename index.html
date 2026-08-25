@@ -2144,6 +2144,9 @@ function priceShipment(cfg, s){
   const channel = svc==="Ground Commercial"||svc==="Ground Residential"
       ? (residential?"Ground Residential":"Ground Commercial")
       : svc;
+  /* 服務名稱配不到任何 SERVICE_PATTERNS = 設定裡沒有這條渠道。
+     空白的服務名不算(純附加費的 ADJ 本來就沒有服務名)。 */
+  const chanUnknown = !!String(s.service||"").trim() && !serviceRecognised(s.service);
 
   /* AHS-Weight 用磅秤重量,不是計費重也不是 SCC 更正後的重量。 */
   let ahsScale;
@@ -2211,6 +2214,30 @@ function priceShipment(cfg, s){
   if(bw.dimSrc==="tariff" && s.dims)
     issues.push(L("這條渠道與預設都沒有 DIM 除數,用了公告的 139:",
                   "No DIM factor on this channel or in the default, used the published 139: ")+channel);
+  /* ===== 渠道不在設定裡:整筆不出價 =====
+     guessService() 認不出服務名時會退回 base_rate_service(預設
+     Ground Commercial),於是這筆貨會拿「別條渠道」的費率算出一個
+     看起來正常的數字。那比算不出來更糟 —— 沒有人會去查一個看起來
+     對的數字。
+
+     所以整筆歸零:運費、附加費、Demand、燃油全部不算,連設定裡已經
+     有費率的附加費也不算 —— 那些費率是別條渠道的,套在這條線上沒有
+     依據。UPS 收的錢整筆記進「未認得」,在報表上看得見,不會消失。 */
+  if(chanUnknown){
+    issues.push(L("這個服務名稱不在設定裡,整筆沒有計價(包含附加費)——"
+                  +"請先到「渠道」分頁新增這條渠道並匯入費率:",
+                  "This service name is not configured, so nothing was priced for it "
+                  +"(surcharges included) — add the channel on the Channels tab and "
+                  +"import its rates: ")+String(s.service||""));
+    return {s, bw, bwA:null, residential, resBasis, channel,
+            base:0, baseA:null, netCA:false, baseWhy:null, demand:null,
+            acc:{}, accInfo:{}, accTotal:0, fuel:0, fuelPct:0,
+            total:null, issues, npb:null, rtn:null, notRepriced:0,
+            unknownAcc:{}, unknownAmt:Math.round((s.upsTotal||0)*100)/100,
+            unknownChan:String(s.service||""),
+            dinIsBase:false, retZone:s.zone, zoneUsed:s.zone, diff:null};
+  }
+
   /* ZONE 調整:整筆的 Zone 會取到 ZONE 行上的「舊」Zone。
      C 側要用更正後(SCC 行)的 Zone;舊的留給 A 側(zRow)。 */
   let zone=s.zone;
@@ -5342,8 +5369,10 @@ function bkdSection(r){
   rowH(L("UPS 實收","UPS billed"),s.upsTotal);
   /* 認不出來的代碼放在 Total 底下,和「UPS 實收」同一區 —— 它不是
      重新計價的組成,擺進上面那疊會讓那一欄加不起來。 */
-  if(r.unknownAmt) rowH(L("認不出來的代碼(未計價)","Unrecognised codes (not repriced)"),
-                        r.unknownAmt);
+  if(r.unknownAmt) rowH(r.unknownChan
+      ? L("渠道未設定,整筆未計價","Channel not configured — nothing priced")
+      : L("認不出來的代碼(未計價)","Unrecognised codes (not repriced)"),
+    r.unknownAmt);
   /* 最後一列:Reprice − UPS,附 (Reprice−UPS) ÷ Reprice 的百分比(兩位)。 */
   const bkDiff=(r.total||0)-s.upsTotal;
   const bkPct=(r.total&&Math.abs(r.total)>1e-9)?(bkDiff/r.total*100):null;
@@ -6166,7 +6195,11 @@ const REPORT_COLS=["Date","Tracking","Shipment Reference Number 1",
  /* 認不出來的代碼收了多少。這一欄不進 Total —— 它是 UPS 收了、
     但這套設定算不出來的錢,放進 Total 等於編一個沒有依據的數字。
     列出來是為了讓看報表的人知道差額從哪來。 */
- "Unrecognised (not repriced)","Total"];
+ "Unrecognised (not repriced)",
+ /* UPS 這筆實際收了多少,以及為什麼沒有計價。渠道不在設定裡的單子
+    整列金額都是 0,不寫出來的話看報表的人只會看到一列 0,
+    不知道那是「不用收」還是「漏掉了」。 */
+ "UPS Billed","Not Repriced Reason","Total"];
 const REPORT_COL_OF={
   "AHS Weight":"Additional Handling Surcharge - Weight",
   "AHS Dimension":"Additional Handling Surcharge - Dimension",
@@ -6183,7 +6216,8 @@ function reportRows(){
     const s=r.s, o={};
     /* 數字欄沒有值就是 0,不是留白 —— 桌面版整份活頁簿沒有一格是空的。
        日期、追蹤號、Zone、Shipment Type 這些是文字,留白照舊。 */
-    const TEXTCOL=new Set(["Date","Tracking","Zone","Shipment Type"]);
+    const TEXTCOL=new Set(["Date","Tracking","Zone","Shipment Type",
+                           "Not Repriced Reason"]);
     for(const c of REPORT_COLS) o[c]=TEXTCOL.has(c)?"":0;
     /* Date 欄照 py 的 iv()(:20562):有 ADJ 主層就用 ADJ 層自己的
        Transaction Date,沒有才用 SHP / RTN。 */
@@ -6194,7 +6228,10 @@ function reportRows(){
     o["Shipment Reference Number 1"]=s.ref1||0;
     o["Shipment Reference Number 2"]=s.ref2||0;
     o["Zone"]=(r.zoneUsed!=null&&r.zoneUsed!=="")?r.zoneUsed:(s.zone||"");
-    o["Shipment Type"]=r.channel||"";
+    /* 未設定的渠道印帳單上的原始服務名。印 r.channel 會寫出
+       guessService() 退回去的預設渠道(Ground Commercial),那條線根本
+       沒有被拿來計價,寫出來只會讓人以為算過了。 */
+    o["Shipment Type"]=r.unknownChan||r.channel||"";
     o["Entered Weight"]=(s.enteredShown!=null?s.enteredShown:s.entered)||0;
     o["Billable Weight"]=r.bw.billable||0;
     /* 顯示用的尺寸照 py:1x1x1 佔位值計價當沒有,報表照印 —— py 的
@@ -6221,6 +6258,12 @@ function reportRows(){
     put(r);
     o["Fuel Surcharge"]=r.fuel||0;
     o["Unrecognised (not repriced)"]=r.unknownAmt||0;
+    o["UPS Billed"]=s.upsTotal||0;
+    /* 原因只在真的沒計價時才寫,其餘留白 —— 每一列都寫一句話,
+       那一欄就沒有人看了。 */
+    o["Not Repriced Reason"]=r.unknownChan
+      ? (LANG?"channel not configured: ":"渠道未設定:")+r.unknownChan
+      : "";
     /* 退件回程併回同一列:運費進 Undeliverable Return,附加費與燃油相加。
        桌面版合併後也是一個追蹤號一列。 */
     if(r.rtn){
