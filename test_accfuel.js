@@ -58,9 +58,16 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
     scan(){
       return [...scanCharges(this.ship().lines, CFG.dynMap, CFG.accFuelOff).nonFuel];
     },
-    boxes(){ return [...document.querySelectorAll("#app input.accfuel")]; },
+    open(){ document.getElementById("bAccFuel").click(); },
+    shown(){ return document.getElementById("afBg").classList.contains("on"); },
+    close(){ document.getElementById("afClose").click(); },
+    boxes(){ return [...document.querySelectorAll("#afList input.accfuel")]; },
     box(fee){ return this.boxes().find(b=>b.dataset.fee===fee); },
     toggle(fee,on){ const b=this.box(fee); b.checked=on; b.onchange(); },
+    all(){ document.getElementById("bAfAll").click(); },
+    none(){ document.getElementById("bAfNone").click(); },
+    count(){ return document.getElementById("afCount").textContent; },
+    summary(){ return document.getElementById("accFuelSum").textContent; },
     cfgKey(){ return JSON.stringify(CFG.raw.accessorial_fuel_eligible||{}); },
     off(){ return [...(CFG.accFuelOff||[])]; }
   };`);
@@ -70,9 +77,17 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   ck("測試掛鉤就緒", !!T);
   T.seed();
 
+  /* ---- 小視窗:Settings 頁按鈕開得起來 ---- */
+  ck("一開始小視窗是關的", T.shown() === false);
+  ck("Settings 頁按鈕存在", !!d.getElementById("bAccFuel"));
+  T.open();
+  ck("按下去小視窗打開", T.shown() === true);
+
   /* ---- 預設 ---- */
   const boxes = T.boxes();
-  ck("設定頁長出燃油勾選格", boxes.length > 0, boxes.length);
+  ck("小視窗列出附加費項目", boxes.length > 0, boxes.length);
+  ck("清單含 Return To Sender", !!T.box("Return To Sender"));
+  ck("清單含還沒填費率的 AHS Weight", !!T.box("AHS Weight"));
   ck("預設每一格都是勾的（都吃燃油）", boxes.every(b => b.checked),
      boxes.filter(b => !b.checked).map(b => b.dataset.fee).join());
   ck("預設設定檔那一格是空的", T.cfgKey() === "{}", T.cfgKey());
@@ -93,6 +108,13 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   ck("關掉後 scanCharges 把它列入不計燃油",
      T.scan().indexOf("Return To Sender") >= 0, T.scan().join());
   ck("關掉後畫面那一格變成未勾", T.box("Return To Sender").checked === false);
+  ck("關掉後那一列標成刪除線",
+     T.box("Return To Sender").parentElement.className.indexOf("off") >= 0,
+     T.box("Return To Sender").parentElement.className);
+  ck("小視窗計數扣掉關掉的那一項",
+     /26 of 27|27 項裡有 26 項/.test(T.count()), T.count());
+  ck("Settings 頁摘要列出被關的項目",
+     /Return To Sender/.test(T.summary()), T.summary());
 
   const off = T.price();
   ck("關掉後:退回寄件人仍然收 18(費用本身照收)", Math.abs(off.rts - 18) < 0.005, off.rts);
@@ -110,13 +132,26 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
 
   /* 說明文字兩種語言都要有,而且 data-i18n 要真的換得掉 */
   run(`window.__h = {
-    zh(){ LANG=0; applyLang(); return document.querySelector('[data-i18n="hint.accfuel"]').textContent; },
-    en(){ LANG=1; applyLang(); return document.querySelector('[data-i18n="hint.accfuel"]').textContent; }
+    zh(){ LANG=0; applyLang(); return document.querySelector('[data-i18n="hint.accfuelmodal"]').textContent; },
+    en(){ LANG=1; applyLang(); return document.querySelector('[data-i18n="hint.accfuelmodal"]').textContent; }
   };`);
   const H = w.__h;
   ck("說明文字有中文", /燃油/.test(H.zh()), H.zh().slice(0, 30));
   ck("說明文字有英文", /fuel/i.test(H.en()) && !/燃油/.test(H.en()), H.en().slice(0, 30));
   H.zh();
+
+  /* ---- 全開 / 全關 ---- */
+  T.none();
+  ck("全關:每一格都未勾", T.boxes().every(b => !b.checked));
+  ck("全關:燃油變成 0", Math.abs(T.price().fuel) < 0.005, T.price().fuel);
+  T.all();
+  ck("全開:每一格都勾起來", T.boxes().every(b => b.checked));
+  ck("全開:設定檔清乾淨", T.cfgKey() === "{}", T.cfgKey());
+  ck("全開:燃油回到 4.60", Math.abs(T.price().fuel - 4.60) < 0.005, T.price().fuel);
+  ck("全開:摘要說全部都收", /都收|Every/.test(T.summary()), T.summary());
+
+  T.close();
+  ck("關得掉", T.shown() === false);
 
   const scriptErrs = errs.filter(e => !/resource|Could not load|ENOENT|css|canvas|getContext/i.test(e));
   ck("頁面無腳本錯誤", scriptErrs.length === 0, scriptErrs.slice(0, 3).join(" | "));

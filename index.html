@@ -319,13 +319,12 @@ td.cells{white-space:normal}
   border:1.6px dashed var(--line);border-radius:var(--rad);padding:4px 8px}
 .flatitem{display:flex;align-items:center;gap:6px;font-size:12px}
 .flatitem .fl{flex:1;color:var(--text);line-height:1.25}
-/* 這一項吃不吃燃油。關掉的用刪除線標出來 —— 一整欄都是勾的時候,
+/* 燃油小視窗:關掉的那一項用刪除線標出來 —— 一整片都是勾的時候,
    沒勾的那一格光靠空白框太容易看漏。 */
-.fuelchk{display:inline-flex;align-items:center;gap:3px;font-size:11px;
-  color:var(--muted);white-space:nowrap;cursor:pointer}
-.fuelchk input{margin:0}
-.fuelchk.off{color:#b4441f;text-decoration:line-through}
-.zonecol .zfuel{font-size:11.5px;margin:-2px 0 7px}
+.aff.off{color:#b4441f;text-decoration:line-through}
+/* Settings 頁那一行摘要。不能掛 .savenote —— paintSaveNote() 會把每一個
+   .savenote 的文字和 class 一起覆蓋掉,摘要會被存檔提示蓋走。 */
+.affsum{color:var(--muted);font-size:12.5px}
 #dvRow{gap:14px;flex-wrap:wrap}
 #dvRow label{font-size:12.5px;color:var(--accent);font-weight:600}
 
@@ -663,7 +662,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     </div>
 
     <div id="accChanName" class="subhd"></div>
-    <p class="hint" data-i18n="hint.accfuel">Every surcharge charges fuel unless you untick its "fuel" box. That setting is per surcharge, not per channel.</p>
     <div id="accZoneCols" class="zonecols"></div>
     <div class="subhd" data-i18n="hd.flat">Flat amounts</div>
     <div id="accFlat" class="flatgrid"></div>
@@ -941,6 +939,16 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <p class="hint" style="margin:9px 0 0" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
     </div>
 
+    <!-- 附加費的燃油底 -->
+    <div class="sketch-soft" style="padding:14px 16px;margin:0 0 14px">
+      <div class="subhd" style="margin-top:0" data-i18n="hd.accfuel">⛽ Surcharges · Fuel Base</div>
+      <p class="hint" style="margin:8px 0 10px" data-i18n="hint.accfuelset">Every surcharge charges fuel unless you turn it off here.</p>
+      <div class="row">
+        <button class="act ghost" id="bAccFuel" data-i18n="btn.accfuel">Set which surcharges charge fuel</button>
+        <span id="accFuelSum" class="affsum"></span>
+      </div>
+    </div>
+
     <div class="row" style="margin-top:4px">
       <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
     </div>
@@ -1173,6 +1181,27 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <button class="act" id="bkApply" data-i18n="btn.applyticked">Apply to Ticked Channels</button>
         <button class="act ghost" id="bkClose" data-i18n="btn.close">Close</button>
       </span>
+    </div>
+  </div>
+</div>
+
+<div id="afBg" class="modalbg">
+  <div class="modal sketch" id="afModal" style="width:min(720px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.accfuelmodal">Which surcharges charge fuel</span>
+      <button class="mx" id="afX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p class="hint" style="margin:0 0 10px" data-i18n="hint.accfuelmodal">Ticked = the surcharge goes into the fuel base. This is per surcharge, not per channel — whether a surcharge attracts fuel is UPS’s billing rule, not a property of the lane.</p>
+      <div class="row" style="margin-bottom:10px">
+        <button class="act ghost" id="bAfAll" data-i18n="btn.afall">All charge fuel</button>
+        <button class="act ghost" id="bAfNone" data-i18n="btn.afnone">None charge fuel</button>
+        <span id="afCount" style="color:var(--muted);font-size:12.5px"></span>
+      </div>
+      <div id="afList" class="chkgrid" style="max-height:46vh;overflow:auto"></div>
+    </div>
+    <div class="modalft">
+      <button class="act ghost" id="afClose" data-i18n="btn.close">Close</button>
     </div>
   </div>
 </div>
@@ -5796,18 +5825,6 @@ function renderConfigTabs(){
   const ro = "";
   /* 分隔符不能用 | —— 附加費的鍵本身就含 |||,切出來會全錯。 */
   const numIn=(id,val)=>`<input class="cell num" data-k="${esc(id)}" value="${val==null?"":esc(val)}"${ro}>`;
-  /* 「這一項要不要進燃油底」的勾選格。設定是按費用項目存的,不分渠道 ——
-     一項附加費收不收燃油是 UPS 的計費規則,不會因為走哪條線而不同。
-     沒設過就是勾起來(收),所以什麼都不動的設定檔算出來跟以前一樣。 */
-  const fuelOffSet=CFG.accFuelOff||new Set();
-  const fuelChk=fee=>{
-    const on=!fuelOffSet.has(fee);
-    return `<label class="fuelchk${on?"":" off"}" title="${
-      LANG?"Whether this surcharge is included in the fuel base"
-          :"這一項要不要算進燃油的計費底"}">`
-      +`<input type="checkbox" class="accfuel" data-fee="${esc(fee)}"${on?" checked":""}${ro}>`
-      +(LANG?"fuel":"燃油")+`</label>`;
-  };
 
   /* ---- 附加費:Zone 分級的直欄區塊 + 固定金額網格 + 申報價值級距 ---- */
   const t=CFG.raw.accessorial_rate_table||{};
@@ -5876,7 +5893,6 @@ function renderConfigTabs(){
           <div class="zt">${esc(fee)}</div>
           <div class="zsel"><label><input type="checkbox" class="accc" value="${esc(k)}"${ro}>
             ${LANG?"Select":"勾選"}</label></div>
-          <div class="zfuel">${fuelChk(fee)}</div>
           ${zs.map(z=>`<div class="zrow"><span class="zl">Zone ${z}</span>
             <span>$</span>${numIn("acc\u241F"+k+"\u241F"+z, have?(v[z]??""):"")}</div>`).join("")}
         </div>`;
@@ -5890,7 +5906,7 @@ function renderConfigTabs(){
     return `<div class="flatitem">
       <input type="checkbox" class="accc" value="${esc(k)}"${ro}>
       <span class="fl">${esc(fee)}</span><span>$</span>${
-        numIn("acc\u241F"+k, k in t ? t[k] : "")}${fuelChk(fee)}</div>`;
+        numIn("acc\u241F"+k, k in t ? t[k] : "")}</div>`;
   }).join("")||`<div class="empty">—</div>`;
 
   if($("#accCount")) $("#accCount").textContent = LANG
@@ -5993,11 +6009,12 @@ function renderConfigTabs(){
   if($("#resiApiBox")) $("#resiApiBox").style.display=(_rs==="api")?"":"none";
   renderDemand();
 
+  /* Settings 頁那一行摘要跟著設定走 —— 匯入別份設定檔之後,
+     那一行還停在舊的內容會看起來像沒吃進去。 */
+  paintAccFuelSum();
+
   document.querySelectorAll("#app input.cell").forEach(el=>{
     el.onchange=()=>editCell(el.dataset.k, el.value);
-  });
-  document.querySelectorAll("#app input.accfuel").forEach(el=>{
-    el.onchange=()=>setAccFuel(el.dataset.fee, el.checked);
   });
   /* 換渠道就是把整列費率搬到新的 Shipment Type 底下 */
   document.querySelectorAll("#app select.chansel").forEach(el=>{
@@ -6986,6 +7003,88 @@ const BULK_LAB={dim_factor:["DIM 除數","DIM factor"],
   oversize_length_girth:["LPS 長+圍","LPS L+G"],
   oversize_min_billable_weight:["LPS 最低計費重","LPS min billable"]};
 
+/* =====================================================================
+   附加費的燃油計費底(Settings 頁 → 小視窗)
+   ---------------------------------------------------------------------
+   一項附加費收不收燃油是 UPS 的計費規則,不是渠道的屬性,所以這裡按
+   「費用項目」設定,不分渠道 —— 同一項在 Ground Commercial 和 Ground
+   Residential 底下不會一個收一個不收。
+
+   預設全部都收,設定檔裡那一格是空的 {},所以沒動過這一頁的設定算出來
+   的數字跟以前完全一樣,也和桌面版一致。
+   ===================================================================== */
+/* 畫面上要列哪些項目:費率表已經有的、內建代碼對照裡的、加上自訂註冊表
+   的。只看費率表的話,還沒填過費率的項目就不會出現在清單上,但它其實
+   收得到錢也吃得到燃油。 */
+function allFeeTypes(){
+  const out=new Set();
+  for(const k of Object.keys((CFG&&CFG.raw.accessorial_rate_table)||{}))
+    out.add(k.split("|||")[0]);
+  for(const c in ACC_CODE_MAP){
+    const m=ACC_CODE_MAP[c];
+    if(m && m.fee) out.add(m.fee);
+  }
+  out.add("AHS Weight"); out.add("AHS Dimension");
+  out.add("AHS Packaging"); out.add("Large Package");
+  for(const c in ((CFG&&CFG.raw.dynamic_surcharge_mapping)||{})){
+    const d=CFG.raw.dynamic_surcharge_mapping[c];
+    if(d && d.enabled!==false && String(d.name||"").trim())
+      out.add(String(d.name).trim());
+  }
+  return [...out].filter(Boolean).sort();
+}
+function renderAccFuel(){
+  const off=CFG.accFuelOff||new Set();
+  const fees=allFeeTypes();
+  const box=$("#afList");
+  if(box) box.innerHTML=fees.map(fee=>{
+    const on=!off.has(fee);
+    return `<label class="bulkchk aff${on?"":" off"}">`
+      +`<input type="checkbox" class="accfuel" data-fee="${esc(fee)}"${on?" checked":""}>`
+      +`<span>${esc(fee)}</span></label>`;
+  }).join("")||`<div class="empty">—</div>`;
+  const nOff=fees.filter(f=>off.has(f)).length;
+  if($("#afCount")) $("#afCount").textContent = nOff
+    ? (LANG?`${fees.length-nOff} of ${fees.length} charge fuel`
+           :`${fees.length} 項裡有 ${fees.length-nOff} 項收燃油`)
+    : (LANG?`all ${fees.length} charge fuel`:`${fees.length} 項全部都收`);
+  document.querySelectorAll("#afList input.accfuel").forEach(el=>{
+    el.onchange=()=>setAccFuel(el.dataset.fee, el.checked);
+  });
+  paintAccFuelSum();
+}
+/* Settings 頁按鈕旁邊那一行。關掉的項目要列出名字 —— 只寫「有 2 項不收」
+   的話,還要開視窗才知道是哪兩項。 */
+function paintAccFuelSum(){
+  const el=$("#accFuelSum"); if(!el) return;
+  const off=[...(CFG&&CFG.accFuelOff||[])].sort();
+  el.textContent = off.length
+    ? (LANG ? "Not in the fuel base: "+off.join(", ")
+            : "不收燃油:"+off.join("、"))
+    : (LANG?"Every surcharge charges fuel.":"目前每一項都收燃油。");
+}
+function openAccFuel(){ renderAccFuel(); $("#afBg").classList.add("on"); }
+function closeAccFuel(){ $("#afBg").classList.remove("on"); }
+$("#bAccFuel") && ($("#bAccFuel").onclick=openAccFuel);
+$("#afX")      && ($("#afX").onclick=closeAccFuel);
+$("#afClose")  && ($("#afClose").onclick=closeAccFuel);
+$("#bAfAll")   && ($("#bAfAll").onclick=()=>setAllAccFuel(true));
+$("#bAfNone")  && ($("#bAfNone").onclick=()=>setAllAccFuel(false));
+
+/* 一次全開或全關。全開等於把整格設定清掉,不是寫一堆 true。 */
+function setAllAccFuel(on){
+  const m=CFG.raw.accessorial_fuel_eligible||(CFG.raw.accessorial_fuel_eligible={});
+  for(const k of Object.keys(m)) delete m[k];
+  if(!on) for(const fee of allFeeTypes()) m[fee]=false;
+  CFG=readConfig(CFG.raw);
+  DIRTY=true;
+  renderAccFuel();
+  saveNoteKey(true,"changed");
+  setStatus(on?(LANG?"Every surcharge charges fuel":"全部附加費都收燃油")
+              :(LANG?"No surcharge charges fuel":"全部附加費都不收燃油"));
+  if(RATED && ROWS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+}
+
 /* 某一項附加費要不要進燃油底。收 = 不留任何一筆設定(預設就是收),
    這樣沒動過的設定檔匯出去仍然是空的 {},桌面版讀了也不會有差。 */
 function setAccFuel(fee,on){
@@ -6993,7 +7092,7 @@ function setAccFuel(fee,on){
   if(on) delete m[fee]; else m[fee]=false;
   CFG=readConfig(CFG.raw);
   DIRTY=true;
-  renderConfigTabs();
+  renderAccFuel();
   saveNoteKey(true,"changed");
   setStatus(fee+(on?(LANG?": charges fuel":":收燃油")
                   :(LANG?": no fuel":":不收燃油")));
@@ -8157,11 +8256,20 @@ const I18N={
   "hd.sum":["這張帳單","This Invoice"],
   "hd.rate":["重新計價","Repricing"],
   "lb.fuelsur":["燃油附加費","Fuel Surcharge"],
-  "hint.accfuel":["每一項預設都收燃油。不收的把那一格「燃油」的勾拿掉 —— "
-    +"這是按費用項目設定的,不分渠道。實測 UPS 對退回寄件人(ISW)不收燃油。",
-    "Every surcharge charges fuel unless you untick its \u201cfuel\u201d box. "
-    +"The setting is per surcharge, not per channel. UPS was measured not to "
-    +"charge fuel on Return To Sender (ISW)."],
+  "hd.accfuel":["⛽ 附加費 · 燃油計費底","⛽ Surcharges · Fuel Base"],
+  "hint.accfuelset":["每一項預設都收燃油,要關掉的在這裡設。",
+    "Every surcharge charges fuel unless you turn it off here."],
+  "btn.accfuel":["設定哪些附加費收燃油","Set which surcharges charge fuel"],
+  "hd.accfuelmodal":["哪些附加費收燃油","Which surcharges charge fuel"],
+  "hint.accfuelmodal":["打勾 = 這一項算進燃油的計費底。按費用項目設定,不分渠道 —— "
+    +"一項附加費收不收燃油是 UPS 的計費規則,不會因為走哪條線而不同。"
+    +"實測 UPS 對退回寄件人(ISW)不收燃油。",
+    "Ticked = the surcharge goes into the fuel base. This is per surcharge, "
+    +"not per channel \u2014 whether a surcharge attracts fuel is UPS\u2019s "
+    +"billing rule, not a property of the lane. UPS was measured not to charge "
+    +"fuel on Return To Sender (ISW)."],
+  "btn.afall":["全部都收","All charge fuel"],
+  "btn.afnone":["全部都不收","None charge fuel"],
   "hd.flat":["固定金額","Flat amounts"],
   "hd.dv":["申報價值級距","Declared value tiers"],
   "lb.dvfree":["免收上限","Free up to"], "lb.dvmin":["最低收費","Minimum charge"],
@@ -8242,6 +8350,11 @@ function applyLang(){
   document.querySelectorAll("[data-i18n]").forEach(el=>{
     el.textContent=T(el.dataset.i18n);
   });
+  /* 這兩處是算出來的字,不是 data-i18n,切語言要自己重寫 */
+  if(typeof CFG!=="undefined" && CFG){
+    paintAccFuelSum();
+    if($("#afBg") && $("#afBg").classList.contains("on")) renderAccFuel();
+  }
   /* 輸入框的提示字也要跟著換 —— 介面切成英文了、格子裡還寫著中文,
      那一塊看起來就像沒做完。 */
   document.querySelectorAll("[data-i18n-ph]").forEach(el=>{
