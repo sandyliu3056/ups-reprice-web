@@ -904,8 +904,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .cmptrack{height:22px;border-radius:999px;overflow:hidden;background:var(--stripe);
   background:color-mix(in srgb,var(--line) 45%,var(--panel))}
 #p-dash .cmpfill{height:100%;border-radius:999px;width:0;transition:width .85s cubic-bezier(.34,1.25,.5,1)}
-#p-dash .cmpfill.billed{background:var(--muted);background:color-mix(in srgb,var(--run2) 40%,var(--panel))}
-#p-dash .cmpfill.repriced{background:var(--run2)}
+#p-dash .cmpfill.billed{background:var(--run2)}
+#p-dash .cmpfill.repriced{background:var(--muted);background:color-mix(in srgb,var(--run2) 40%,var(--panel))}
 #p-dash .cmprow .cv{font-size:13px;font-weight:700;text-align:right;font-family:var(--titlefam);color:var(--text)}
 #p-dash .savenote{margin-top:4px;font-size:13px;color:var(--muted);font-weight:600}
 #p-dash .savenote b{color:var(--run2);font-family:var(--titlefam);font-size:15px}
@@ -6589,8 +6589,8 @@ function renderDashboard(){
     :`<div class="dsub">${L("沒有 Zone 資料","No zone data")}</div>`;
   const rcTot=(d.resiAmt+d.comAmt)||1;
   const kSave=hasBill
-    ? `<div class="kpi"><div class="klab">${L("較 UPS 實收節省","Savings vs UPS")}</div>
-        <div class="kbig pos">${money(d.savings)}</div><div class="kfoot">${savePct>=0?"▼ ":"▲ "}${Math.abs(savePct).toFixed(1)}% · ${L("實收","billed")} ${money(d.billed)}</div></div>`
+    ? `<div class="kpi"><div class="klab">${d.savings>=0?L("UPS 多收","UPS overcharge"):L("UPS 少收","UPS undercharge")}</div>
+        <div class="kbig pos">${money(Math.abs(d.savings))}</div><div class="kfoot">${L("佔實收","of billed")} ${Math.abs(savePct).toFixed(1)}% · ${L("實收","billed")} ${money(d.billed)}</div></div>`
     : `<div class="kpi"><div class="klab">${L("平均每件","Avg per shipment")}</div>
         <div class="kbig">${money(avg)}</div><div class="kfoot">${L("總額 ÷ 貨件數","Total ÷ shipments")}</div></div>`;
   const cmpCard=hasBill?`
@@ -6602,7 +6602,7 @@ function renderDashboard(){
         <div class="cmprow"><span class="cl">${L("合約重算","Repriced")}</span>
           <div class="cmptrack"><div class="cmpfill repriced" data-w="${(d.repriced/Math.max(1,d.billed)*100).toFixed(1)}"></div></div><span class="cv">${money(d.repriced)}</span></div>
       </div>
-      <div class="savenote">${savePct>=0?L("本期合約價較 UPS 實收節省 ","Contract pricing saves "):L("本期較 UPS 實收超出 ","Over UPS billed by ")}<b>${money(Math.abs(d.savings))}</b>（${Math.abs(savePct).toFixed(1)}%）</div>
+      <div class="savenote">${d.savings>0?L("UPS 較合約多收 ","UPS overcharged "):d.savings<0?L("UPS 較合約少收 ","UPS undercharged "):L("與合約相符","Matches contract")}${d.savings!==0?`<b>${money(Math.abs(d.savings))}</b>（${Math.abs(savePct).toFixed(1)}%）`:""}</div>
     </div>`:"";
   body.innerHTML=`
     <div class="dhead">
