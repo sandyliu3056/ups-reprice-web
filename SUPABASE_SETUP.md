@@ -90,6 +90,14 @@ the login hashes stored in the repository. Pressing **Save settings** uploads
 the settings under that key; signing in on any other computer with the same
 account and password downloads them again.
 
+The same SQL also creates `local_history` (plus its RPCs), which syncs stored
+invoice history the same way: every invoice period filed on one computer is
+compressed (gzip) in the browser and uploaded under the account's sync key,
+and signing in elsewhere downloads any periods that computer does not have
+yet (or that were re-imported more recently). Periods are only added or
+replaced — deleting local browser data on one computer does not delete the
+account's cloud copy.
+
 Changing a password changes the key — settings saved under the old password
 stay behind, so save once more after a password change.
 

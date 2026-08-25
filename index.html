@@ -2871,6 +2871,8 @@ function fileInvoices(rows, how){
   idbPutInvoices(rows).catch(e=>{
     console.warn("history detail not stored:", e && e.message);
   });
+  /* 同一批也送上雲端,跟著帳號走。histCloudPush 自己會檢查登入與鑰匙。 */
+  try{ histCloudPush(rows); }catch(e){}
   return {added, replaced, stored, count:Object.keys(seen).length};
 }
 /* 目前這張帳單已經歸檔過了嗎 */
@@ -3380,6 +3382,85 @@ function cfgPull(){
     })
     .catch(()=>{ restoreConfig(); return false; });
 }
+/* ---- 帳單歷史:也跟著帳號走 ----
+   明細動輒幾十 MB,直接上傳太肥,先 gzip 再轉 base64(通常剩十分之一)。
+   一期一列,期號當鍵,同期重傳就覆蓋 —— 跟本機 IndexedDB 同一條規則。 */
+async function gzipText(text){
+  if(!window.CompressionStream) return {z:0, data:text};
+  const st=new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  const buf=new Uint8Array(await new Response(st).arrayBuffer());
+  let s="";
+  for(let i=0;i<buf.length;i+=0x8000)
+    s+=String.fromCharCode.apply(null, buf.subarray(i,i+0x8000));
+  return {z:1, data:btoa(s)};
+}
+async function gunzipText(z,data){
+  if(!z) return data;
+  const bin=atob(data), u=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
+  const st=new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Response(st).text();
+}
+/* 歸檔一批帳單列之後,把牽涉到的每一期整期上傳。背景進行、失敗只記在
+   console —— 歸檔本身已經寫進本機,同步失敗不該打斷計價流程。 */
+function histCloudPush(rows){
+  if(!LOCAL_MODE||!SYNC||!ME||!ME.sync) return;
+  const by={};
+  for(const r of rows||[]){
+    const k=(r.invoice||"").trim();
+    if(k) (by[k]=by[k]||[]).push(r);
+  }
+  const inv=histInv();
+  for(const k of Object.keys(by)){
+    (async()=>{
+      try{
+        const packed=await gzipText(JSON.stringify(by[k]));
+        const meta=Object.assign({z:packed.z}, inv[k]||{});
+        const {error}=await SYNC.rpc("local_history_put",
+          {k:ME.sync, inv:k, m:meta, d:packed.data});
+        if(error) console.warn("invoice history sync failed:", k, error.message);
+      }catch(e){ console.warn("invoice history sync failed:", k, e&&e.message); }
+    })();
+  }
+}
+/* 登入時把雲端有、本機沒有(或雲端比較新)的那幾期抓回來。
+   回傳抓到的期數,0 = 沒有新東西。 */
+async function histCloudPull(){
+  if(!LOCAL_MODE||!SYNC||!ME||!ME.sync) return 0;
+  let list=[];
+  try{
+    const {data,error}=await SYNC.rpc("local_history_list",{k:ME.sync});
+    if(error||!Array.isArray(data)) return 0;
+    list=data;
+  }catch(e){ return 0; }
+  const inv=histInv();
+  const want=list.filter(r=>{
+    const mine=inv[r.invoice];
+    const at=String((r.meta&&r.meta.at)||"");
+    return !mine || (at && at>String(mine.at||""));
+  });
+  let got=0;
+  for(const r of want){
+    try{
+      const {data,error}=await SYNC.rpc("local_history_get",{k:ME.sync,inv:r.invoice});
+      const row=Array.isArray(data)?data[0]:data;
+      if(error||!row||!row.data) continue;
+      const rows=JSON.parse(await gunzipText(row.meta&&row.meta.z, row.data));
+      if(!Array.isArray(rows)||!rows.length) continue;
+      await idbPutInvoices(rows);
+      const m=row.meta||{};
+      inv[r.invoice]={date:m.date||"", rows:m.rows||rows.length,
+                      trk:m.trk||0, at:m.at||"", how:m.how||"cloud"};
+      got++;
+    }catch(e){ console.warn("invoice history fetch failed:", r.invoice); }
+  }
+  if(got){
+    HISTINV=inv;
+    try{ localStorage.setItem(histInvKey(), JSON.stringify(inv)); }catch(e){}
+  }
+  return got;
+}
+
 /* 換人登入(或登出)時把上一個帳號的費率清掉。留著的話,
    下一個人看到的是別人的合約價,而且看不出來。 */
 function cfgReset(){
@@ -3484,7 +3565,21 @@ function restoreHistoryDetail(){
     setStatus((LANG?"History restored · ":"歷史已還原 · ")+inv
       +(LANG?" invoice(s) · ":" 期 · ")+rows.length.toLocaleString()
       +(LANG?" lines":" 列"));
-  }).catch(()=>{ /* 沒有 IndexedDB 就只是沒有明細,索引照樣在 */ });
+  }).catch(()=>{ /* 沒有 IndexedDB 就只是沒有明細,索引照樣在 */ })
+  /* 本機的先上,再去雲端補「別台電腦歸檔的那幾期」。有補到才重畫。 */
+  .then(()=>histCloudPull())
+  .then(got=>{
+    if(!got) return;
+    return idbAllRows().then(rows=>{
+      HISTROWS=rows;
+      saveHistoryMap(learnHistory(rows));
+      if(RATED&&SHIPS&&CFG){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+      renderHist();
+      setStatus((LANG?"Synced ":"已從帳號同步 ")+got
+        +(LANG?" invoice(s) from this account":" 期帳單歷史"));
+    });
+  })
+  .catch(()=>{});
 }
 
 function setMe(m){
@@ -4119,18 +4214,29 @@ function renderDimModal(){
   const m=CFG.raw.channel_dim_factors||{};
   const was=new Set(dimTicked());
   const box=$("#dimChans");
-  if(box) box.innerHTML=Object.keys(zn).map(c=>
+  if(box) box.innerHTML=Object.keys(zn).sort(chanSort).map(c=>
     `<label class="bulkchk"><input type="checkbox" class="dimc" value="${esc(c)}"${
       was.has(c)?" checked":""}> ${esc(c)}</label>`).join("");
   const def=defaultDimDivisor(CFG);
   const body=$("#tDimForce")&&$("#tDimForce").tBodies[0];
-  if(body) body.innerHTML=Object.keys(zn).map(c=>{
+  if(body) body.innerHTML=Object.keys(zn).sort(chanSort).map(c=>{
     const own=String(m[c]==null?"":m[c]).trim();
     return `<tr><td>${esc(c)}</td><td>${own
       ? esc(own)
       : esc(String(def))+`<span style="color:var(--muted)"> (${
           LANG?"default":"預設"})</span>`}</td></tr>`;
   }).join("")||`<tr><td colspan="2" class="empty">—</td></tr>`;
+}
+/* 渠道排序:不管在哪個畫面,UPS Ground 一律排最上面(商業在住宅前),
+   其餘照字母。照字母排的話 "2nd Day Air AM" 永遠在第一個,
+   但每天要看的是 Ground。 */
+function chanRank(c){
+  const s=String(c||"");
+  if(/^Ground\b/i.test(s)) return /residential/i.test(s)?1:0;
+  return 5;
+}
+function chanSort(a,b){
+  return (chanRank(a)-chanRank(b)) || String(a).localeCompare(String(b));
 }
 /* 載進來的運費表長什麼樣。沒有這個視窗,只能看到「已載入 (150)」這幾個字,
    看不出裡面是哪些 Zone、哪個重量對到多少錢。 */
@@ -4139,8 +4245,13 @@ function renderLoadedRates(){
   const tabs=CFG.tables||[];
   const sel=$("#rvPick");
   const cur=(sel&&sel.value)||"";
+  /* 顯示順序 Ground 在前,value 仍是 CFG.tables 的原始索引,資料不動。 */
+  const ord=tabs.map((t,i)=>i).sort((a,b)=>
+    chanSort(tabs[a].service,tabs[b].service)
+    || ((tabs[a].residential?1:0)-(tabs[b].residential?1:0)));
   if(sel) sel.innerHTML=tabs.length
-    ? tabs.map((t,i)=>{
+    ? ord.map(i=>{
+        const t=tabs[i];
         const lab=t.service+" — "+(t.residential?(LANG?"Residential":"住宅")
                                                 :(LANG?"Commercial":"商業"));
         return `<option value="${i}"${String(i)===cur?" selected":""}>${esc(lab)}</option>`;
@@ -4233,7 +4344,7 @@ function renderBulkChan(){
   const zn=CFG.raw.builtin_service_zones||{};
   const was=new Set(bkTicked());
   const box=$("#bkChans");
-  if(box) box.innerHTML=Object.keys(zn).map(c=>
+  if(box) box.innerHTML=Object.keys(zn).sort(chanSort).map(c=>
     `<label class="bulkchk"><input type="checkbox" class="bkc" value="${esc(c)}"${
       was.has(c)?" checked":""}> ${esc(c)}</label>`).join("");
   bkFields("#bkLps", BK_LPS); bkFields("#bkAhs", BK_AHS);
@@ -4575,7 +4686,7 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
      (欄位對不上,硬塞會錯格)。 */
   const zstr=members.map(znStr).find(z=>z)||"";
   const zones=zstr.split(",").filter(Boolean);
-  const family=members.filter(c=>znStr(c)===zstr).sort();
+  const family=members.filter(c=>znStr(c)===zstr).sort(chanSort);
   const ch=family[0]||"";
   if(!family.length||!zones.length){
     setStatus(LANG?"That channel has no zones configured":"這個渠道沒有設定 Zone");
@@ -5154,7 +5265,7 @@ function shipmentTypeOptions(){
   }
   for(const k of Object.keys((CFG&&CFG.raw.accessorial_rate_table)||{}))
     out.add(k.split("|||")[1]);
-  return [...out].filter(Boolean).sort();
+  return [...out].filter(Boolean).sort(chanSort);
 }
 
 function renderConfigTabs(){
@@ -5169,7 +5280,7 @@ function renderConfigTabs(){
   const t=CFG.raw.accessorial_rate_table||{};
   const zonesOf=v=>Object.keys(v).sort((a,b)=>(+a||999)-(+b||999));
   const withRates=new Set(Object.keys(t).map(k=>k.split("|||")[1]));
-  const allChans=[...new Set([...shipmentTypeOptions(),...withRates])].sort();
+  const allChans=[...new Set([...shipmentTypeOptions(),...withRates])].sort(chanSort);
   const sel=$("#accFilter");
   if(sel){
     /* 第一次開的預設值。照字母排會停在 "2nd Day Air AM Residential",
@@ -5185,7 +5296,7 @@ function renderConfigTabs(){
   const tsel=$("#tplChan");
   if(tsel){
     const fams=[...new Set(allChans.map(c=>
-      String(c).replace(/\s+(Commercial|Residential)$/i,"").trim()))].sort();
+      String(c).replace(/\s+(Commercial|Residential)$/i,"").trim()))].sort(chanSort);
     const cf=String((sel&&sel.value)||"").replace(/\s+(Commercial|Residential)$/i,"").trim();
     const tcur=(tsel.value&&fams.includes(tsel.value))?tsel.value:(cf||fams[0]||"");
     tsel.innerHTML=fams.map(c=>
@@ -5266,7 +5377,7 @@ function renderConfigTabs(){
     "ahs_weight_threshold","ahs_longest_side","ahs_second_side",
     "ahs_cubic_inches","ahs_lg_limit","ahs_min_billable_weight"];
   const ovr2=CFG.raw.channel_rule_overrides||{};
-  const zn2=Object.keys(CFG.raw.builtin_service_zones||{});
+  const zn2=Object.keys(CFG.raw.builtin_service_zones||{}).sort(chanSort);
   const sf=$("#sizeFilter");
   if(sf){
     const cur=sf.value||"__all";
@@ -5300,7 +5411,7 @@ function renderConfigTabs(){
   }
   const isRes=s=>/residential/i.test(s);
   const rows=[];
-  for(const svc of Object.keys(zn)){
+  for(const svc of Object.keys(zn).sort(chanSort)){
     for(const res of (isRes(svc)||/commercial/i.test(svc)?[isRes(svc)]:[false,true])){
       rows.push({svc,res,zones:zn[svc],
         n:loaded[svc+(res?"|R":"|C")]||0, on:!disabled.has(svc)});
@@ -5963,7 +6074,7 @@ function openFuel(){
   fuelFoldOptions();
   $("#fuelPctFold") && ($("#fuelPctFold").value="");
   fuelEffPaint();
-  const chans=Object.keys(CFG.raw.builtin_service_zones||{});
+  const chans=Object.keys(CFG.raw.builtin_service_zones||{}).sort(chanSort);
   $("#fuelChans").innerHTML=chans.map(c=>
     `<label><input type="checkbox" class="fchan" value="${esc(c)}"> ${esc(c)}</label>`).join("");
   renderFuelRows();
@@ -6013,7 +6124,7 @@ function renderFuelRows(){
     (Array.isArray(list)?list:[]).forEach((r,i)=>all.push({ch,i,...r}));
   const sel=$("#fuelFChan");
   if(sel){
-    const chans=Object.keys(CFG.raw.builtin_service_zones||{});
+    const chans=Object.keys(CFG.raw.builtin_service_zones||{}).sort(chanSort);
     if(FUEL_FCH && !chans.includes(FUEL_FCH)) FUEL_FCH="";
     sel.innerHTML=`<option value="">${L("全部渠道","All channels")}</option>`
       +chans.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");

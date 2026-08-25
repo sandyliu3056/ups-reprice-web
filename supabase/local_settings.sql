@@ -63,3 +63,79 @@ revoke all on function public.local_settings_get(text) from public;
 revoke all on function public.local_settings_put(text, jsonb, text) from public;
 grant execute on function public.local_settings_get(text) to anon, authenticated;
 grant execute on function public.local_settings_put(text, jsonb, text) to anon, authenticated;
+
+-- ------------------------------------------------------------ 帳單歷史同步
+-- 跟 local_settings 同一套置物櫃設計:同一把鑰匙,一期帳單一列。
+-- data 是瀏覽器 gzip 後轉 base64 的明細(通常只剩原本的十分之一),
+-- meta 記期別資訊(日期、列數、歸檔時間、z=是否壓縮)。
+
+create table if not exists public.local_history (
+  sync_key   text not null,
+  invoice    text not null,
+  meta       jsonb,
+  data       text,
+  updated_at timestamptz not null default now(),
+  primary key (sync_key, invoice)
+);
+
+alter table public.local_history enable row level security;
+revoke all on table public.local_history from anon, authenticated;
+
+-- 列出這把鑰匙存過哪幾期(只回期號與 meta,不回明細,清單才輕)。
+create or replace function public.local_history_list(k text)
+returns table(invoice text, meta jsonb)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select h.invoice, h.meta
+  from public.local_history h
+  where h.sync_key = k
+    and k ~ '^[0-9a-f]{64}$';
+$$;
+
+-- 抓某一期的明細。
+create or replace function public.local_history_get(k text, inv text)
+returns table(meta jsonb, data text)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select h.meta, h.data
+  from public.local_history h
+  where h.sync_key = k
+    and h.invoice = inv
+    and k ~ '^[0-9a-f]{64}$';
+$$;
+
+-- 寫入一期。同期再寫就整期覆蓋,跟本機 IndexedDB 同一條規則。
+create or replace function public.local_history_put(k text, inv text, m jsonb, d text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if k !~ '^[0-9a-f]{64}$' then
+    raise exception 'bad key';
+  end if;
+  if inv is null or length(inv) = 0 or length(inv) > 64 then
+    raise exception 'bad invoice';
+  end if;
+  insert into public.local_history (sync_key, invoice, meta, data, updated_at)
+  values (k, inv, m, d, now())
+  on conflict (sync_key, invoice) do update
+    set meta = excluded.meta,
+        data = excluded.data,
+        updated_at = now();
+end;
+$$;
+
+revoke all on function public.local_history_list(text) from public;
+revoke all on function public.local_history_get(text, text) from public;
+revoke all on function public.local_history_put(text, text, jsonb, text) from public;
+grant execute on function public.local_history_list(text) to anon, authenticated;
+grant execute on function public.local_history_get(text, text) to anon, authenticated;
+grant execute on function public.local_history_put(text, text, jsonb, text) to anon, authenticated;
