@@ -771,6 +771,14 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     </div>
     <p class="hint" id="histStats" style="margin:0 0 12px"></p>
 
+    <!-- 退件回程住/商判定開關 -->
+    <div class="sketch-soft" style="padding:12px 14px;margin:0 0 14px">
+      <div class="subhd" style="margin-top:0" data-i18n="hd.rtnresi">🔄 Returns · Residential / Commercial</div>
+      <label class="bulkchk" style="margin-top:6px"><input type="checkbox" id="rtnResiHist">
+        <span data-i18n="lb.rtnresi">Returns inherit the original shipment (look up invoice history)</span></label>
+      <p class="hint" style="margin:8px 0 0" data-i18n="hint.rtnresi">When on, an Undeliverable Return uses the original shipment's Residential/Commercial status from Invoice History.</p>
+    </div>
+
     <div class="subhd" data-i18n="hd.findtrk">Find a Tracking</div>
     <div class="row sketch-soft" style="padding:11px 13px;margin-bottom:12px">
       <label class="inlab" style="margin-left:0" data-i18n="th.trk">Tracking</label>
@@ -1966,6 +1974,10 @@ function quoteDeclaredValue(cfg, value){
 function priceShipment(cfg, s){
   const issues=[];
   const scan=scanCharges(s.lines, cfg.dynMap);
+  /* 退件回程(RTN)是否沿用原始出貨的住/商判定(查帳單歷史)。
+     預設關閉:退件送回寄件人倉庫,照退件本身判(通常商業)。
+     打開後 RTN 比照跨期 ADJ 去查歷史 —— 開關在「帳單歷史」頁。 */
+  const rtnUseHist = !!((cfg.raw||{}).global_rules||{}).rtn_resi_from_history;
   /* 住宅/商業:帳單自己的代碼優先,和原始碼同一條規則。
      兩邊都沒有代碼時只能看服務名稱 —— 跨期 ADJ 這時會不準,標出來。 */
   let residential, resBasis;
@@ -1991,20 +2003,27 @@ function priceShipment(cfg, s){
   else if(scan.commercialAdj){ residential=false; resBasis=LANG?"commercial adjustment":"商業重分類"; }
   else if(svcSaysRes!==svcSaysCom){ residential=svcSaysRes;
     resBasis=L("服務名稱明講住/商","Service name states residential/commercial"); }
-  else if(s.layer==="ADJ"){
-    /* 只有跨期 ADJ 才查歷史。純 RTN(Undeliverable Return)不查 ——
-       退件送回寄件人,不因原出貨是住宅就套住宅費率,照服務名稱判。 */
+  else if(s.layer==="ADJ" || (rtnUseHist && s.layer==="RTN")){
+    /* 跨期 ADJ 一律查歷史。純 RTN(Undeliverable Return)預設不查 ——
+       退件送回寄件人,不因原出貨是住宅就套住宅費率,照服務名稱判;
+       但「退件沿用原始出貨」開關打開時,RTN 也比照跨期 ADJ 查歷史。 */
     /* 跨期單:先查歷史,查不到才退回服務名稱。
        這是桌面版 history_service_for() 存在的唯一理由 —— SCC 那一行
        沒有任何 RES/COM 字樣,不查歷史就一定被當成商業。 */
+    const isRtn=s.layer==="RTN";
     const h=typeof historyServiceFor==="function"?historyServiceFor(s.tracking):null;
     if(h){ residential = h==="Ground Residential";
-      resBasis=L("歷史(原始出貨)","History (original shipment)"); }
+      resBasis=isRtn?L("歷史(退件沿用原始出貨)","History (return follows original shipment)")
+                    :L("歷史(原始出貨)","History (original shipment)"); }
     else if(!byCode()){
       residential=svcSaysRes;
-      resBasis=L("服務名稱(跨期,無歷史)","Service name (cross-period, no history)");
-      issues.push(L("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯",
-        "Cross-period line: this tracking number is not in the history, so Residential/Commercial may be wrong"));
+      resBasis=isRtn?L("服務名稱(退件,查無歷史)","Service name (return, no history)")
+                    :L("服務名稱(跨期,無歷史)","Service name (cross-period, no history)");
+      issues.push(isRtn
+        ? L("退件單:帳單歷史裡查不到原始出貨,住宅/商業可能判錯;請先在「帳單歷史」頁匯入含原始出貨的舊帳單",
+            "Return leg: the original shipment is not in Invoice History, so Residential/Commercial may be wrong — import the past invoice that contains it")
+        : L("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯",
+            "Cross-period line: this tracking number is not in the history, so Residential/Commercial may be wrong"));
     }
   }
   else if(!byCode()){
@@ -4259,6 +4278,13 @@ $("#demandOn") && ($("#demandOn").onchange=e=>{
   CFG=readConfig(CFG.raw); DIRTY=true;
   setStatus(LANG?("Demand "+e.target.value):("Demand 已"+(e.target.value==="on"?"開啟":"關閉")));
 });
+$("#rtnResiHist") && ($("#rtnResiHist").onchange=e=>{
+  (CFG.raw.global_rules||(CFG.raw.global_rules={})).rtn_resi_from_history=e.target.checked;
+  CFG=readConfig(CFG.raw); DIRTY=true; saveSettings();
+  setStatus(LANG
+    ? ("Returns "+(e.target.checked?"follow the original shipment (history)":"judged by the return itself"))
+    : ("退件改為"+(e.target.checked?"沿用原始出貨(查歷史)":"依退件本身判定")));
+});
 $("#chanSearch") && ($("#chanSearch").oninput=()=>renderConfigTabs());
 $("#rateChan") && ($("#rateChan").onchange=()=>renderConfigTabs());
 $("#bAddChan") && ($("#bAddChan").onclick=()=>{
@@ -5271,6 +5297,7 @@ function renderConfigTabs(){
   /* ---- Demand:四個子分頁 ---- */
   const dcfg=CFG.raw.demand_config||{};
   if($("#demandOn")) $("#demandOn").value=dcfg.enabled?"on":"off";
+  if($("#rtnResiHist")) $("#rtnResiHist").checked=!!g.rtn_resi_from_history;
   renderDemand();
 
   document.querySelectorAll("#app input.cell").forEach(el=>{
@@ -6941,6 +6968,9 @@ const I18N={
   "tab.demand":["⚡ Demand 附加費","⚡ Demand Surcharge"],
   "tab.hist":["📚 帳單歷史","📚 Invoice History"],
   "tab.code":["🔎 代碼查詢","🔎 Code Lookup"],
+  "hd.rtnresi":["🔄 退件住／商判定","🔄 Returns · Residential / Commercial"],
+  "lb.rtnresi":["退件沿用原始出貨的判定(查帳單歷史)","Returns inherit the original shipment (look up invoice history)"],
+  "hint.rtnresi":["開啟後,退件回程(Undeliverable Return)會依原始出貨在「帳單歷史」裡的住宅／商業判定 —— 請先在本頁匯入含原始出貨的舊帳單。關閉(預設)則依退件本身的服務名稱與代碼判定;退件送回商業倉庫,通常判為商業。","When on, an Undeliverable Return uses the original shipment's Residential/Commercial status from Invoice History — import the past invoice that contains the original shipment first. When off (default), the return is judged by its own service name and codes; a return to a commercial warehouse is usually Commercial."],
   "hd.files":["匯入檔案","Import Files"],
   "hd.sum":["這張帳單","This Invoice"],
   "hd.rate":["重新計價","Repricing"],
