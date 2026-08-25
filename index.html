@@ -1261,6 +1261,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="modalft">
       <span class="row" style="gap:10px">
         <button class="act ghost" id="nwAddChan" data-i18n="btn.addchanshort">Add channel…</button>
+        <button class="act ghost" id="nwRates" data-i18n="btn.fillrates">Import rates…</button>
         <button class="act ghost" id="nwAddCode" data-i18n="btn.addcodeshort">Register code…</button>
         <button class="act ghost" id="nwExport" data-i18n="btn.exportlist">Export list</button>
       </span>
@@ -7350,8 +7351,17 @@ function renderNewGate(){
       + `</div>`
     : "";
 }
+/* 「沒渠道」和「有渠道但沒費率」要做的事不一樣:前者去新增渠道,
+   後者去匯出模板、填好、再匯入。所以按鈕分成兩顆,而且只在用得到的
+   時候出現 —— 一顆按了沒有意義的按鈕比沒有按鈕更誤導。 */
+function gateNoRateChan(){
+  const c=((NEWQ&&NEWQ.chans)||[]).find(x=>x.why==="norates");
+  return c?c.service:"";
+}
 function openNewGate(ing, ships){
   renderNewGate();
+  const nr=gateNoRateChan();
+  if($("#nwRates")) $("#nwRates").style.display=nr?"":"none";
   /* 「仍要產生」必須在自己的 click 裡呼叫 runReport —— showSaveFilePicker
      要使用者手勢,Generate 那一下的授權到這裡已經過期了。 */
   $("#nwGo").onclick=()=>{
@@ -7387,6 +7397,32 @@ $("#nwAddCode") && ($("#nwAddCode").onclick=()=>{
 $("#nwAddChan") && ($("#nwAddChan").onclick=()=>{
   closeNewGate(); showTab("chan");
   const el=$("#newChanName"); if(el) el.focus();
+});
+/* 帶到「費率表狀態」那一區,而且先把選單切到缺費率的那條渠道 ——
+   不切的話使用者到了頁面還要自己在幾十條裡找。 */
+$("#nwRates") && ($("#nwRates").onclick=()=>{
+  const want=gateNoRateChan();
+  closeNewGate(); showTab("chan");
+  const rc=$("#rateChan");
+  if(rc && want){
+    /* 選單的值是「渠道|C」或「渠道|R」。先找商業,沒有再找住宅,
+       都沒有就維持原樣 —— 選不到不要靜靜跳過,狀態列會講。 */
+    const hit=[...rc.options].find(o=>o.value===want+"|C")
+           || [...rc.options].find(o=>o.value===want+"|R")
+           || [...rc.options].find(o=>o.value.split("|")[0]===want);
+    if(hit){ rc.value=hit.value; renderConfigTabs(); }
+  }
+  const box=$("#bExpRate");
+  if(box){
+    box.scrollIntoView({block:"center"});
+    box.classList.remove("justset"); void box.offsetWidth; box.classList.add("justset");
+    setTimeout(()=>box.classList.remove("justset"),1400);
+  }
+  setStatus(want
+    ? (LANG?"Export the template for "+want+", fill it in, then import it back"
+           :want+":匯出模板、填好金額、再匯入")
+    : (LANG?"Pick a channel, export the template, fill it in, then import"
+           :"選渠道、匯出模板、填好、再匯入"));
 });
 $("#nwExport") && ($("#nwExport").onclick=()=>{
   const q=NEWQ; if(!q) return;
@@ -8109,6 +8145,7 @@ const I18N={
   "hint.newthings":["一列一個追蹤號。每個沒見過的收費代碼各占一欄,格子裡是 UPS 收的錢。這些代碼目前不會進重新計價的總額,等於那筆錢沒有轉嫁給客戶。",
     "One row per tracking number. Each unrecognised charge code gets its own column, and the cell is what UPS billed for it. Unrecognised codes are dropped from the repriced total today, so that money is not billed on to the customer."],
   "btn.addchanshort":["新增渠道…","Add channel…"],
+  "btn.fillrates":["去填這條的費率…","Import rates…"],
   "btn.addcodeshort":["註冊代碼…","Register code…"],
   "btn.exportlist":["匯出清單","Export list"],
   "btn.cancel":["取消","Cancel"],
