@@ -897,9 +897,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .cmprow .cl{font-size:12.5px;color:var(--muted);font-weight:600}
 #p-dash .cmptrack{height:22px;border-radius:999px;overflow:hidden;background:var(--stripe);
   background:color-mix(in srgb,var(--line) 45%,var(--panel))}
-#p-dash .cmpfill{height:100%;border-radius:999px;width:0;transition:width .85s cubic-bezier(.34,1.25,.5,1)}
-#p-dash .cmpfill.billed{background:var(--run2)}
-#p-dash .cmpfill.repriced{background:var(--muted);background:color-mix(in srgb,var(--run2) 40%,var(--panel))}
+#p-dash .cmpfill{height:100%;border-radius:999px;width:0;background:var(--run2);
+  transition:width .85s cubic-bezier(.34,1.25,.5,1)}
 #p-dash .cmprow .cv{font-size:13px;font-weight:700;text-align:right;font-family:var(--titlefam);color:var(--text)}
 #p-dash .savenote{margin-top:4px;font-size:13px;color:var(--muted);font-weight:600}
 #p-dash .savenote b{color:var(--run2);font-family:var(--titlefam);font-size:15px}
@@ -3378,6 +3377,9 @@ const SYNC=AUTH || ((window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
   : null);
 let ME=null;
 const ADMIN_ONLY=["admin"];
+/* 暫時隱藏的分頁:按鈕不畫出來,showTab 也擋掉,程式碼與畫面都留著。
+   要重新開啟,把名字從這個陣列拿掉就好。 */
+const HIDDEN_TABS=["dash"];
 let LOGIN_ROWS=[];
 
 function authIdentity(user){
@@ -3950,7 +3952,8 @@ function setMe(m){
 function applyRole(){
   const admin = ME && ME.role==="admin";
   document.querySelectorAll("#tabs button[data-p]").forEach(b=>{
-    b.style.display = (!ME || (ADMIN_ONLY.includes(b.dataset.p)&&!admin))
+    b.style.display = (!ME || HIDDEN_TABS.includes(b.dataset.p)
+      || (ADMIN_ONLY.includes(b.dataset.p)&&!admin))
       ? "none" : "";
   });
   const gate=$("#gate"), app=$("#app");
@@ -3962,7 +3965,8 @@ function applyRole(){
                                                     :(LANG?"user":"使用者"))) : "";
   const logout=$("#bLogout");
   if(logout) logout.style.display=ME?"":"none";
-  if(ME && ADMIN_ONLY.includes(currentTab()) && !admin) showTab("files");
+  if(ME && (HIDDEN_TABS.includes(currentTab())
+        || (ADMIN_ONLY.includes(currentTab()) && !admin))) showTab("files");
 }
 
 /* 一句話講完:這一頁登不了,原因是設定沒帶到。檔名對開這一頁的人沒有
@@ -4017,6 +4021,7 @@ function showTab(p){
   /* 管理分頁只有管理者能進。分頁按鈕本來就藏起來了,這裡是第二道 ——
      showTab() 是唯一的入口,擋在這裡,任何呼叫端都繞不過去。 */
   if(ADMIN_ONLY.includes(p) && !(ME && ME.role==="admin")) p="files";
+  if(HIDDEN_TABS.includes(p)) p="files";
   document.querySelectorAll("#tabs button[data-p]").forEach(b=>
     b.setAttribute("aria-selected", b.dataset.p===p));
   document.querySelectorAll(".page").forEach(s=>
@@ -6401,7 +6406,13 @@ function renderDashboard(){
     return;
   }
   const hasBill=d.billed>0.005;
-  const savePct=hasBill?(d.savings/d.billed*100):0;
+  /* 長條:兩條都以「較大者」為基準,較大的滿格、另一條照比例。以前實收
+     寫死 100%、重算用「重算/實收」,重算較高時算出 >100% 被軌道裁掉,
+     兩條都變滿格 —— 畫面看起來一樣長,和旁邊的數字矛盾。
+     百分比:分母用「合約重算」——「UPS 偏離應收價多少 %」。用實收或用
+     較大者當分母,基準會隨哪邊比較大而跳動,期與期之間就沒得比。 */
+  const cmpMax=Math.max(d.billed, d.repriced, 1);
+  const savePct=d.repriced>0.005?(d.savings/d.repriced*100):0;
   const resiPct=d.n?Math.round(d.resiN/d.n*100):0;
   const fuelPct=d.repriced?(d.fuel/d.repriced*100):0;
   const avg=d.n?d.repriced/d.n:0;
@@ -6428,7 +6439,7 @@ function renderDashboard(){
   const rcTot=(d.resiAmt+d.comAmt)||1;
   const kSave=hasBill
     ? `<div class="kpi"><div class="klab">${d.savings>=0?L("UPS 多收","UPS overcharge"):L("UPS 少收","UPS undercharge")}</div>
-        <div class="kbig pos">${money(Math.abs(d.savings))}</div><div class="kfoot">${L("佔實收","of billed")} ${Math.abs(savePct).toFixed(1)}% · ${L("實收","billed")} ${money(d.billed)}</div></div>`
+        <div class="kbig pos">${money(Math.abs(d.savings))}</div><div class="kfoot">${L("佔合約","of contract")} ${Math.abs(savePct).toFixed(1)}% · ${L("實收","billed")} ${money(d.billed)}</div></div>`
     : `<div class="kpi"><div class="klab">${L("平均每件","Avg per shipment")}</div>
         <div class="kbig">${money(avg)}</div><div class="kfoot">${L("總額 ÷ 貨件數","Total ÷ shipments")}</div></div>`;
   const cmpCard=hasBill?`
@@ -6436,9 +6447,9 @@ function renderDashboard(){
       <div class="ch"><h3>${L("UPS 實收 vs 合約重算","UPS billed vs Repriced")}</h3><span class="cnote">${d.n} ${L("筆","shipments")}</span></div>
       <div class="cmp">
         <div class="cmprow"><span class="cl">${L("UPS 實收","UPS billed")}</span>
-          <div class="cmptrack"><div class="cmpfill billed" data-w="100"></div></div><span class="cv">${money(d.billed)}</span></div>
+          <div class="cmptrack"><div class="cmpfill" data-w="${(d.billed/cmpMax*100).toFixed(1)}"></div></div><span class="cv">${money(d.billed)}</span></div>
         <div class="cmprow"><span class="cl">${L("合約重算","Repriced")}</span>
-          <div class="cmptrack"><div class="cmpfill repriced" data-w="${(d.repriced/Math.max(1,d.billed)*100).toFixed(1)}"></div></div><span class="cv">${money(d.repriced)}</span></div>
+          <div class="cmptrack"><div class="cmpfill" data-w="${(d.repriced/cmpMax*100).toFixed(1)}"></div></div><span class="cv">${money(d.repriced)}</span></div>
       </div>
       <div class="savenote">${d.savings>0?L("UPS 較合約多收 ","UPS overcharged "):d.savings<0?L("UPS 較合約少收 ","UPS undercharged "):L("與合約相符","Matches contract")}${d.savings!==0?`<b>${money(Math.abs(d.savings))}</b>（${Math.abs(savePct).toFixed(1)}%）`:""}</div>
     </div>`:"";
