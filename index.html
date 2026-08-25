@@ -1920,6 +1920,10 @@ function accLookup(cfg, feeType, channel, zone, issues, residential){
 function scanCharges(lines, dynMap){
   const seen={}, net={};
   let resCode=false, comCode=false, notRepriced=0;
+  /* 認不出來的代碼。以前這種行整個跳過,金額無聲消失 ——
+     重新計價的總額少一筆,而且沒有任何地方講。金額不動(照舊不進總額),
+     但要記下來,讓明細、報表和 issue 都講得出「少的是哪一筆」。 */
+  const unknown={}; let unknownAmt=0;
   let declared=0, commercialAdj=false, residentialAdj=false;
   /* 自訂附加費裡標 Fuel Eligible = NO 的,算進合約總額但不進燃油底。
      桌面版 dynamic_acc_nonfuel_names() + fuel_base 那一段。
@@ -2014,10 +2018,15 @@ function scanCharges(lines, dynMap){
         if(l.net<-0.001) famCredit[fam]=true;
         else if(l.net>0.001) famCharge[fam]=true;
       }
+    }else{
+      /* 這裡是唯一的落空出口:代碼不是主線、不是不重算、不在註冊表、
+         不在內建對照、也不屬於 AHS/LPS 家族。 */
+      unknown[c]=(unknown[c]||0)+l.net;
+      unknownAmt+=l.net;
     }
   }
   return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj,
-          residentialAdj,
+          residentialAdj, unknown, unknownAmt:Math.round(unknownAmt*100)/100,
           nonFuel, dynMode, resBucket, ovrUpsNet, famCredit, famCharge};
 }
 
@@ -2540,9 +2549,20 @@ function priceShipment(cfg, s){
     for(const m of npb.issues) issues.push(L("第二段運送:","Second movement: ")+m);
   }
 
+  /* 認不出來的代碼:金額照舊不進總額(不知道費率,編一個數字更糟),
+     但一定要講出來。少的就是這筆錢,不講的話帳面上只會看到一個
+     對不起來的 diff。 */
+  if(scan.unknownAmt||Object.keys(scan.unknown||{}).length){
+    const lst=Object.entries(scan.unknown||{})
+      .map(([c,v])=>c+" "+money(v)).join(LANG?", ":"、");
+    issues.push(L("認不出來的收費代碼,沒有算進重新計價:",
+                  "Unrecognised charge codes, not included in the reprice: ")+lst);
+  }
+
   return {s, bw, bwA, residential, resBasis, channel, base, baseA, netCA, baseWhy, demand,
           acc, accInfo, accTotal, fuel, fuelPct:fp.pct, total, issues, npb, rtn,
           notRepriced:scan.notRepriced,
+          unknownAcc:scan.unknown||{}, unknownAmt:scan.unknownAmt||0,
           dinIsBase:!!(dinRow&&s.pureAdj), retZone:retZone, zoneUsed:zone,
           diff: total===null?null: total-s.upsTotal};
 }
@@ -5163,6 +5183,10 @@ function bkdSection(r){
     +`<td class="num" style="text-align:right;font-family:monospace;padding:5px 6px;`
     +`border-top:1.5px solid var(--accent);font-size:13.5px"><b>${money2(r.total||0)}</b></td></tr>`);
   rowH(L("UPS 實收","UPS billed"),s.upsTotal);
+  /* 認不出來的代碼放在 Total 底下,和「UPS 實收」同一區 —— 它不是
+     重新計價的組成,擺進上面那疊會讓那一欄加不起來。 */
+  if(r.unknownAmt) rowH(L("認不出來的代碼(未計價)","Unrecognised codes (not repriced)"),
+                        r.unknownAmt);
   /* 最後一列:Reprice − UPS,附 (Reprice−UPS) ÷ Reprice 的百分比(兩位)。 */
   const bkDiff=(r.total||0)-s.upsTotal;
   const bkPct=(r.total&&Math.abs(r.total)>1e-9)?(bkDiff/r.total*100):null;
@@ -5976,7 +6000,11 @@ const REPORT_COLS=["Date","Tracking","Shipment Reference Number 1",
  /* Demand 四欄。桌面版 :17400 / :20335 有,這裡以前沒有 ——
     金額進了 Total,報表上卻沒有任何一欄能解釋那筆錢。 */
  "Demand - AHS","Demand - Large Package","Demand - Over Maximum","Demand - Service",
- "Fuel Surcharge","Total"];
+ "Fuel Surcharge",
+ /* 認不出來的代碼收了多少。這一欄不進 Total —— 它是 UPS 收了、
+    但這套設定算不出來的錢,放進 Total 等於編一個沒有依據的數字。
+    列出來是為了讓看報表的人知道差額從哪來。 */
+ "Unrecognised (not repriced)","Total"];
 const REPORT_COL_OF={
   "AHS Weight":"Additional Handling Surcharge - Weight",
   "AHS Dimension":"Additional Handling Surcharge - Dimension",
@@ -6030,12 +6058,15 @@ function reportRows(){
     };
     put(r);
     o["Fuel Surcharge"]=r.fuel||0;
+    o["Unrecognised (not repriced)"]=r.unknownAmt||0;
     /* 退件回程併回同一列:運費進 Undeliverable Return,附加費與燃油相加。
        桌面版合併後也是一個追蹤號一列。 */
     if(r.rtn){
       o["Undeliverable Return"]=(toNum(o["Undeliverable Return"])||0)+(r.rtn.base||0);
       put(r.rtn);
       o["Fuel Surcharge"]=(toNum(o["Fuel Surcharge"])||0)+(r.rtn.fuel||0);
+      o["Unrecognised (not repriced)"]=
+        (toNum(o["Unrecognised (not repriced)"])||0)+(r.rtn.unknownAmt||0);
     }
     o["Total"]=r.total==null?0:r.total;
     /* 第二段運送另外一列,不要把兩段的錢疊在同一格。 */
