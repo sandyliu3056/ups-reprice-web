@@ -111,8 +111,7 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   ck("關掉後那一列標成刪除線",
      T.box("Return To Sender").parentElement.className.indexOf("off") >= 0,
      T.box("Return To Sender").parentElement.className);
-  ck("小視窗計數扣掉關掉的那一項",
-     /26 of 27|27 項裡有 26 項/.test(T.count()), T.count());
+  ck("小視窗計數扣掉關掉的那一項", T.count() === "26 / 27", T.count());
   ck("Settings 頁摘要列出被關的項目",
      /Return To Sender/.test(T.summary()), T.summary());
 
@@ -148,7 +147,9 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   ck("全開:每一格都勾起來", T.boxes().every(b => b.checked));
   ck("全開:設定檔清乾淨", T.cfgKey() === "{}", T.cfgKey());
   ck("全開:燃油回到 4.60", Math.abs(T.price().fuel - 4.60) < 0.005, T.price().fuel);
-  ck("全開:摘要說全部都收", /都收|Every/.test(T.summary()), T.summary());
+  ck("全開:摘要說全部都收", /都收|All charge/.test(T.summary()), T.summary());
+  ck("全開:計數回到 27 / 27", T.count() === "27 / 27", T.count());
+  ck("小視窗裡有 Save 按鈕", !!d.getElementById("bAfSave"));
 
   T.close();
   ck("關得掉", T.shown() === false);
