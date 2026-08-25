@@ -6573,12 +6573,13 @@ function renderDashboard(){
   const compRows=items.slice(0,8);
   const restN=items.length-8, restSum=items.slice(8).reduce((a,[,v])=>a+v,0);
   if(restN>0) compRows.push([L(`其他 ${restN} 項`,`Other (${restN})`),restSum,true]);
-  const cmax=Math.max(1,...compRows.map(r=>r[1]));
+  /* 長條長度 = 佔總額的百分比(和旁邊標的 % 同一個數),整條軌道代表 100%。
+     以前是「相對最大項」畫的,燃油標 19.5% 卻畫到基本運費的 38%,比例對不上。 */
   const compHTML=compRows.map(([col,v,isOther])=>{
-    const name=isOther?col:dashLabel(col), pct=d.repriced?v/d.repriced*100:0;
+    const name=isOther?col:dashLabel(col), pct=d.repriced?Math.max(0,v/d.repriced*100):0;
     return `<div class="bar" title="${esc(name)}: ${money(v)} (${pct.toFixed(1)}%)">
       <span class="bname">${esc(name)}</span>
-      <div class="btrack"><div class="bfill" data-w="${(v/cmax*100).toFixed(1)}"></div></div>
+      <div class="btrack"><div class="bfill" data-w="${pct.toFixed(1)}"></div></div>
       <span class="bval">${money(v)}<span class="pct">${pct.toFixed(1)}%</span></span></div>`;
   }).join("");
   const zEntries=Object.entries(d.zoneAgg).sort((a,b)=>(+a[0])-(+b[0]));
