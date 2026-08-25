@@ -2219,6 +2219,13 @@ function priceShipment(cfg, s){
        (含負額),不是看我們收了沒。 */
     const carried=!!(scan.seen["AHS Weight"]||scan.seen["AHS Dimension"]
                    ||scan.seen["AHS Packaging"]||scan.seen["Large Package"]);
+    if(!carried){
+      /* py :19832:「純運費/燃油更正」(C/A 兩組尺寸都有、但帳單上沒有任何
+         AH / LPS 代碼)不得產生尺寸驅動的費用 —— 原出貨已經結清了。
+         閘門是按門檻判的,會在這裡誤寫一筆,整組清掉。 */
+      for(const k of AHSCOLS) delete acc[k];
+      delete acc["Large Package"];
+    }
     if(carried){
       /* 是不是大包裹,看我們自己的門檻判 C 和 A,不是看 UPS 開了什麼代碼
          —— UPS 開 LPS 可能只是在沖掉 A 的那一筆。 */
