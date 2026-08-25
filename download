@@ -5,3 +5,7 @@ ups_history.sqlite3
 *.xlsx
 Invoice_*
 *_Repriced.*
+
+# 測試用的 jsdom,不進 git
+node_modules/
+package-lock.json
