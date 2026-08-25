@@ -2144,9 +2144,9 @@ function priceShipment(cfg, s){
   const channel = svc==="Ground Commercial"||svc==="Ground Residential"
       ? (residential?"Ground Residential":"Ground Commercial")
       : svc;
-  /* 服務名稱配不到任何 SERVICE_PATTERNS = 設定裡沒有這條渠道。
-     空白的服務名不算(純附加費的 ADJ 本來就沒有服務名)。 */
-  const chanUnknown = !!String(s.service||"").trim() && !serviceRecognised(s.service);
+  /* 設定裡沒有這條渠道。判斷見 channelUnidentified():要有運費行、
+     字面認不出渠道、而且帳單歷史也查不到,三個同時成立才算。 */
+  const chanUnknown=channelUnidentified(s);
 
   /* AHS-Weight 用磅秤重量,不是計費重也不是 SCC 更正後的重量。 */
   let ahsScale;
@@ -2234,7 +2234,7 @@ function priceShipment(cfg, s){
             acc:{}, accInfo:{}, accTotal:0, fuel:0, fuelPct:0,
             total:null, issues, npb:null, rtn:null, notRepriced:0,
             unknownAcc:{}, unknownAmt:Math.round((s.upsTotal||0)*100)/100,
-            unknownChan:String(s.service||""),
+            unknownChan:chanUnknown,
             dinIsBase:false, retZone:s.zone, zoneUsed:s.zone, diff:null};
   }
 
@@ -6808,8 +6808,7 @@ function scanNewThings(ships){
   const codes=new Map(), chans=new Map(), rows=[];
   const r2=v=>Math.round(v*100)/100;
   for(const s of ships||[]){
-    /* 沒有服務描述的層不判 —— 純附加費的 ADJ 本來就沒有服務名。 */
-    const svcNew=!!String(s.service||"").trim() && !serviceRecognised(s.service);
+    const svcNew=!!channelUnidentified(s);
     const mine={};
     let amt=0;
     for(const l of (s.allLines||[])){
@@ -7428,6 +7427,34 @@ const SERVICE_PATTERNS=[
 function serviceRecognised(d0){
   const d=String(d0==null?"":d0).trim().toLowerCase();
   return SERVICE_PATTERNS.some(p=>d.indexOf(p[0])>=0);
+}
+/* SERVICE_PATTERNS 尾巴那幾條是「什麼都配不到時的最後手段」,配到它們
+   不代表認出了渠道 —— "Shipping Charge Correction Hyperloop Overnight"
+   會配到 "shipping charge correction" 然後被當成 Ground Commercial,
+   算出一個看起來正常、其實用錯費率的數字。 */
+const SERVICE_GENERIC=new Set(["commercial adjustment",
+                               "shipping charge correction","residential"]);
+function serviceIdentified(d0){
+  const d=String(d0==null?"":d0).trim().toLowerCase();
+  return SERVICE_PATTERNS.some(p=>!SERVICE_GENERIC.has(p[0]) && d.indexOf(p[0])>=0);
+}
+/* 這一筆的渠道認不認得出來。回傳認不出來的那個服務名,認得出來回空字串。
+   計價和「這期有新東西」的關卡共用這一個判斷 —— 兩邊各寫一份,
+   遲早出現「關卡沒警告、報表卻整筆是 0」這種對不起來的情況。 */
+function channelUnidentified(s){
+  const lines=(s&&(s.allLines||s.lines))||[];
+  /* 沒有運費行就沒有服務名可以判。純附加費的跨期更正屬於這一類 ——
+     它的 s.service 取到的是附加費說明(例如 "Additional Handling
+     Surcharge - Weight"),那不是渠道,拿去比對只會誤判。 */
+  if(!lines.some(isFreightLine)) return "";
+  const desc=String((s&&s.service)||"").trim();
+  if(!desc) return "";
+  if(serviceIdentified(desc)) return "";
+  /* 跨期更正常常只寫 "Shipping Charge Correction",從字面認不出渠道,
+     但帳單歷史知道這個追蹤號原本走哪一條。查得到就照歷史算,
+     這正是歷史存在的理由,不該因為字面認不出來就整筆不計價。 */
+  if(typeof historyServiceFor==="function" && historyServiceFor(s.tracking)) return "";
+  return desc;
 }
 function guessService(d0){
   const d=String(d0==null?"":d0).trim().toLowerCase();
