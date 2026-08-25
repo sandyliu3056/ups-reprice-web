@@ -4937,6 +4937,11 @@ class UPSRepricingTool:
         # percentage, not a per-variant rate). Empty means "use the global
         # schedule above", which is what every existing setup does.
         self.channel_fuel_schedules = {}
+        # Surcharges the user has taken out of the fuel base, keyed by the
+        # fee-type name the rate table uses ("Large Package"). Empty = every
+        # surcharge charges fuel, which is the long-standing behaviour, so an
+        # untouched config changes nothing.
+        self.accessorial_fuel_eligible = {}
         self.channel_fuel_percents = {}
         # Demand periods and their two rate categories. See the tab.
         self.demand_config = self.demand_config_default()
@@ -5674,11 +5679,29 @@ class UPSRepricingTool:
         return names
 
     def dynamic_acc_nonfuel_names(self):
-        """Custom ACC names explicitly flagged Fuel Eligible = NO."""
+        """Surcharge names that stay out of the fuel base.
+
+        Two sources: a custom ACC flagged Fuel Eligible = NO in the registry,
+        and any surcharge the web tool's accessorial page has unticked. The
+        second is keyed by column name and covers the built-in surcharges,
+        which the registry cannot reach. Absent from both = charges fuel.
+        """
         blocked = set()
         for _as_code, name, fuel_ok, _mode in self.dynamic_acc_columns():
             if not fuel_ok:
                 blocked.add(name)
+        # The web page stores these under the fee-type name the rate table
+        # uses ("Large Package"), but the fuel base is summed over report
+        # columns ("Large Package Surcharge"). Five rows differ; translate
+        # them, and keep the original too so either spelling works.
+        col_of_fee = {fee: col for col, fee in ACC_COLUMN_FEE_TYPE.items()}
+        for name, eligible in (
+                getattr(self, "accessorial_fuel_eligible", {}) or {}).items():
+            if eligible is False:
+                key = str(name).strip()
+                blocked.add(key)
+                if key in col_of_fee:
+                    blocked.add(col_of_fee[key])
         return blocked
 
     def channel_rate_labels(self):
@@ -15130,6 +15153,8 @@ class UPSRepricingTool:
                 "fuel_schedule": self.fuel_schedule,
                 "channel_fuel_schedules": getattr(self, "channel_fuel_schedules", {}),
                 "channel_fuel_percents": getattr(self, "channel_fuel_percents", {}),
+                "accessorial_fuel_eligible": getattr(
+                    self, "accessorial_fuel_eligible", {}),
                 "demand_config": getattr(self, "demand_config", {}),
                 "channel_rule_overrides": getattr(self, "channel_rule_overrides", {}),
                 "channel_dim_factors": getattr(self, "channel_dim_factors", {}),
@@ -15309,6 +15334,14 @@ class UPSRepricingTool:
                     self.channel_fuel_schedules[str(_cname).strip()] = _clean
                 if _probs:
                     print(f"Fuel schedule warnings for {_cname}:", _probs)
+            # Only an explicit False takes a surcharge out of the fuel base.
+            # Anything else -- missing, True, a stray string -- means it
+            # charges fuel, so a hand-edited config cannot silently drop one.
+            self.accessorial_fuel_eligible = {
+                str(k).strip(): False
+                for k, v in (cfg.get("accessorial_fuel_eligible", {}) or {}).items()
+                if v is False
+            }
             self.channel_fuel_percents = {
                 str(k).strip(): str(v).strip()
                 for k, v in (cfg.get("channel_fuel_percents", {}) or {}).items()
