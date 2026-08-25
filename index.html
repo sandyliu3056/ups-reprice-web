@@ -7359,10 +7359,15 @@ function gateNoRateChan(){
   const c=((NEWQ&&NEWQ.chans)||[]).find(x=>x.why==="norates");
   return c?c.service:"";
 }
+function gateUnsetChan(){
+  const c=((NEWQ&&NEWQ.chans)||[]).find(x=>x.why!=="norates");
+  return c?c.service:"";
+}
 function openNewGate(ing, ships){
   renderNewGate();
-  const nr=gateNoRateChan();
+  const nr=gateNoRateChan(), un=gateUnsetChan();
   if($("#nwRates")) $("#nwRates").style.display=nr?"":"none";
+  if($("#nwAddChan")) $("#nwAddChan").style.display=un?"":"none";
   /* 「仍要產生」必須在自己的 click 裡呼叫 runReport —— showSaveFilePicker
      要使用者手勢,Generate 那一下的授權到這裡已經過期了。 */
   $("#nwGo").onclick=()=>{
@@ -7395,9 +7400,19 @@ $("#nwAddCode") && ($("#nwAddCode").onclick=()=>{
   if(typeof dynLoad==="function") dynLoad();
   $("#dynBg") && $("#dynBg").classList.add("on");
 });
+/* 名稱直接帶進去 —— 使用者剛在關卡上看到的字,不該再手抄一次,
+   抄錯一個字就變成另一條渠道,下一期還是會被擋。Zones 留空,
+   新增時會自動沿用 Ground Commercial 的分區。 */
 $("#nwAddChan") && ($("#nwAddChan").onclick=()=>{
+  const want=gateUnsetChan();
   closeNewGate(); showTab("chan");
-  const el=$("#newChanName"); if(el) el.focus();
+  const el=$("#newChanName");
+  if(el){ if(want) el.value=want; el.focus(); el.select&&el.select();
+    el.scrollIntoView({block:"center"}); }
+  if(want) setStatus(L("① 按「新增渠道」建立「"+want+"」→ ② 在下面「費率表狀態」選它 →"
+      +" 匯出空白費率表 → 填好金額 → 匯入 → 儲存設定",
+    "① Press Add channel to create \""+want+"\" → ② pick it under Rate table state →"
+      +" export the blank template → fill in the amounts → import → save settings"));
 });
 /* 帶到「費率表狀態」那一區,而且先把選單切到缺費率的那條渠道 ——
    不切的話使用者到了頁面還要自己在幾十條裡找。 */
