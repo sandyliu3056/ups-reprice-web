@@ -1792,7 +1792,7 @@ function accLookup(cfg, feeType, channel, zone, issues, residential){
 function scanCharges(lines, dynMap){
   const seen={}, net={};
   let resCode=false, comCode=false, notRepriced=0;
-  let declared=0, commercialAdj=false;
+  let declared=0, commercialAdj=false, residentialAdj=false;
   /* 自訂附加費裡標 Fuel Eligible = NO 的,算進合約總額但不進燃油底。
      桌面版 dynamic_acc_nonfuel_names() + fuel_base 那一段。
      內建的附加費一律計燃油 —— 桌面版的 ACC_FUEL_ELIGIBLE 只拿來決定
@@ -1803,20 +1803,35 @@ function scanCharges(lines, dynMap){
   /* 每個自訂桶子的 Type。REPRICE 查合約費率;COPY INVOICE 和
      REPORT ONLY 都用 UPS 實收的金額,差別只在算不算進合約總額。 */
   const dynMode={};
+  const famCredit={ahs:false,lps:false}, famCharge={ahs:false,lps:false};
   const dyn=dynMap||{};
   /* UPS 對超大件實收多少。查不到合約費率時桌面版 :19985 用它當退路。 */
   let ovrUpsNet=0;
   for(const l of lines){
     const c=(l.code||"").toUpperCase();
-    /* ADC / DIN 是寫在 ADJ 明細碼欄(AJ)的附加費,分類欄卻是 FRT,
-       所以一定要在 MAIN_LINE 那道關卡之前先攔下來。桌面版 :19136。 */
+    /* 重分類行:ADJ + AR=FRT + 說明寫 Residential / Commercial Adjustment。
+       py :19142-:19147 —— 這是「UPS 說這件其實是住宅(或商業)」,
+       整筆改判,凌駕服務名稱與其他代碼。AS=RES 的 FRT 行是住宅重分類,
+       不是住宅附加費。 */
+    if(l.layer==="ADJ" && String(l.cls||"").toUpperCase()==="FRT"){
+      const dsc=String(l.desc||"").toUpperCase();
+      if(dsc.indexOf("RESIDENTIAL ADJUSTMENT")>=0){ residentialAdj=true; continue; }
+      if(dsc.indexOf("COMMERCIAL ADJUSTMENT")>=0 || c==="COM"){ commercialAdj=true; continue; }
+    }
+    /* ADC / DIN 只攔「那一行本身」:ADC 的費用行(AR=FRT)記進地址更正;
+       DIN 的運費行跳過(第二哩另外算)。同一段上的其他行 —— 退件費 ISW、
+       燃油 FSC、FTP —— 照常按代碼分派,py 也是這樣(:19136 只認費用行、
+       :19148 只 continue 運費行)。之前把整段全吞,DIN 段的 RTS 費就不見了。 */
     if(isAccessorialAdjLine(l)){
       const d=String(l.detail||"").toUpperCase();
-      if(d==="ADC"){
+      const k=String(l.cls||"").toUpperCase();
+      if(d==="ADC" && (k==="FRT"||c==="003"||c==="FRT")){
         seen["Address Correction"]=true;
         net["Address Correction"]=(net["Address Correction"]||0)+l.net;
+        continue;
       }
-      continue;
+      if(d==="DIN" && (k==="FRT"||c==="003"||c==="FRT")) continue;
+      /* 其他行往下走,不要吞。 */
     }
     if(!c || MAIN_LINE.has(c)) continue;
     if(NOT_REPRICED.has(c)){ notRepriced+=l.net; continue; }
@@ -1862,10 +1877,20 @@ function scanCharges(lines, dynMap){
     if(bucket){
       seen[bucket]=true;
       net[bucket]=(net[bucket]||0)+l.net;
+      /* py :17630-:17649:ADJ 層每個家族分別記「有退款行 / 有收費行」。
+         兩者都有 = 重開價(例如 Zone 8 改 5),要寫 C 的正額;
+         只有退款 = 真沖銷,寫負額。淨額的正負分不出這兩種。 */
+      const fam = bucket==="Large Package" ? "lps"
+                : (bucket.indexOf("AHS")===0 ? "ahs" : null);
+      if(fam && l.layer==="ADJ" && l.zone){
+        if(l.net<-0.001) famCredit[fam]=true;
+        else if(l.net>0.001) famCharge[fam]=true;
+      }
     }
   }
   return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj,
-          nonFuel, dynMode, resBucket, ovrUpsNet};
+          residentialAdj,
+          nonFuel, dynMode, resBucket, ovrUpsNet, famCredit, famCharge};
 }
 
 /* 一筆貨的完整計價 */
@@ -1907,7 +1932,8 @@ function priceShipment(cfg, s){
       resBasis=L("帳單商業代碼","Commercial code on the invoice"); return true; }
     return false;
   };
-  if(scan.commercialAdj){ residential=false; resBasis=LANG?"commercial adjustment":"商業重分類"; }
+  if(scan.residentialAdj){ residential=true; resBasis=LANG?"residential adjustment":"住宅重分類"; }
+  else if(scan.commercialAdj){ residential=false; resBasis=LANG?"commercial adjustment":"商業重分類"; }
   else if(svcSaysRes!==svcSaysCom){ residential=svcSaysRes;
     resBasis=L("服務名稱明講住/商","Service name states residential/commercial"); }
   else if(s.layer==="ADJ"){
@@ -2093,20 +2119,67 @@ function priceShipment(cfg, s){
     const mode=modes[bucket];
     if(mode==="COPY INVOICE"){ acc[bucket]=scan.net[bucket]; continue; }
     if(mode==="REPORT ONLY"){ accInfo[bucket]=scan.net[bucket]; continue; }
-    if(bucket==="AHS Dimension"&&!bw.ahsDim){
-      issues.push(L("UPS 收了 AHS-Dimension,但尺寸未達門檻",
-      "UPS charged AHS-Dimension but the dimensions are under the threshold"));
+    /* AHS / LPS 四桶不在這裡收 —— 下面的系統判定閘門統一處理
+       (py :19674-:19969)。 */
+    if(AHS_LPS_SIGNED.has(bucket)) continue;
+    acc[bucket]=accLookup(cfg,bucket,channel,zone,issues,residential);
+  }
+
+  /* ===== AHS / LPS 系統判定閘門,整段照 py :19674-:19969 =====
+     LPS:純看門檻(system_should_lps = large_package_trigger),
+         UPS 收沒收都一樣 —— 門檻沒到就是 0,不會有負的 LPS。
+     AHS:① LPR 轉 AHS(LPS 淨額為負且任一 AHS 淨額為正):退掉 LPS,
+           照正額的 AHS 型別收。
+         ② UPS 正額收過哪一型,那一型就是答案(Weight > Dim > Pkg),
+           門檻只是我們的近似,UPS 摸過實體的箱子。
+         ③ 沒有正額代碼、但有實測尺寸(>1x1x1):照門檻重判 ——
+           沖銷之後的箱子常常什麼都不觸發,這就是沖銷寫 0 的來源。
+         ④ 沒尺寸但重量觸發:收 Weight(重量不需要尺寸)。
+         ⑤ 都沒有、但帳單帶過 AH 代碼(含負額):照代碼型別。
+     寫入:「有退又有收」= 重開價,寫正額;「只有退款」= 真沖銷,
+     寫 -abs(費率)。其餘正額。 */
+  {
+    const nW=scan.net["AHS Weight"]||0, nD=scan.net["AHS Dimension"]||0,
+          nP=scan.net["AHS Packaging"]||0, nL=scan.net["Large Package"]||0;
+    let applyLps=!!bw.oversize, applyW=false, applyD=false, applyP=false;
+    const lprToAhs = nL<-0.01 && (nW>0.01||nD>0.01||nP>0.01);
+    if(lprToAhs){
+      applyLps=false;
+      applyW=nW>0.01; applyD=nD>0.01; applyP=nP>0.01;
+    }else if(!applyLps){
+      const billedW=nW>0.01, billedD=nD>0.01, billedP=nP>0.01;
+      const haveDims=!!(s.dims && s.dims.l>1 && s.dims.l*s.dims.w*s.dims.h>1);
+      const carriedAhs=!!(scan.seen["AHS Weight"]||scan.seen["AHS Dimension"]
+                          ||scan.seen["AHS Packaging"]);
+      if(billedW||billedD||billedP){
+        if(billedW) applyW=true;
+        else if(billedD) applyD=true;
+        else applyP=true;
+      }else if(haveDims){
+        if(bw.ahsWeight) applyW=true;
+        else if(bw.ahsDim) applyD=true;
+        else if(scan.seen["AHS Packaging"]) applyP=true;
+      }else if(bw.ahsWeight){ applyW=true; }
+      else if(carriedAhs){
+        if(scan.seen["AHS Weight"]) applyW=true;
+        else if(scan.seen["AHS Dimension"]) applyD=true;
+        else if(scan.seen["AHS Packaging"]) applyP=true;
+      }
     }
-    if(bucket==="AHS Weight"&&!bw.ahsWeight){
-      issues.push(L("UPS 收了 AHS-Weight,但重量未達門檻",
-      "UPS charged AHS-Weight but the weight is under the threshold"));
-    }
-    /* 沖銷行要給負值。桌面版 _signed(:19939):UPS 這一行的淨額是負的,
-       就寫 -abs(費率)。以前正負號只被拿來判斷「是不是 0」,實際寫進去的
-       永遠是費率表上的正數 —— 一筆 $27 的沖銷會變成 +$27,反向誤差 $54。
-       住宅 / DAS / 偏遠不做符號翻轉,桌面版也沒有。 */
-    const sgn=(AHS_LPS_SIGNED.has(bucket) && (scan.net[bucket]||0)<-0.001) ? -1 : 1;
-    acc[bucket]=sgn*accLookup(cfg,bucket,channel,zone,issues,residential);
+    const rerated=f=>!!(scan.famCredit&&scan.famCredit[f]&&scan.famCharge[f]);
+    const signedAmt=(bucket,rawNet)=>{
+      const amt=accLookup(cfg,bucket,channel,zone,issues,residential);
+      if(rerated("ahs")) return amt;              /* 重開價:寫 C 的正額 */
+      return rawNet<-0.001 ? -Math.abs(amt) : amt;
+    };
+    if(applyW) acc["AHS Weight"]=signedAmt("AHS Weight",nW);
+    if(applyD) acc["AHS Dimension"]=signedAmt("AHS Dimension",nD);
+    if(applyP) acc["AHS Packaging"]=signedAmt("AHS Packaging",nP);
+    if(applyLps) acc["Large Package"]=accLookup(cfg,"Large Package",channel,zone,issues,residential);
+    s.__gate={applyLps:applyLps,applyW:applyW,applyD:applyD,applyP:applyP};
+    if((scan.seen["Large Package"]&&!applyLps)||(scan.seen["AHS Dimension"]&&!applyD&&!applyW&&!applyP))
+      issues.push(L("UPS 帳單上有 AHS/大包裹代碼,但更正後的門檻判定不收(或改收別型)",
+        "The invoice carries an AHS/Large Package code, but the threshold re-rate assigns none (or a different type)"));
   }
   /* 超大件查不到合約費率時退回 UPS 實收,並講出來。桌面版 :19980。 */
   if(scan.seen["Over Maximum Size Surcharge"]
@@ -2142,7 +2215,10 @@ function priceShipment(cfg, s){
     const AHSCOLS=["AHS Weight","AHS Dimension","AHS Packaging"];
     /* 這一筆的 ADJ 上有沒有 AHS / LPS 代碼。沒有就整段不做 —— 沒有代碼
        就是 UPS 沒收,不是我們該補收。 */
-    const carried=AHSCOLS.some(k=>acc[k]!=null)||acc["Large Package"]!=null;
+    /* py _adj_carried_ahs_ca(:19826):看帳單有沒有帶 AH / LPS 代碼
+       (含負額),不是看我們收了沒。 */
+    const carried=!!(scan.seen["AHS Weight"]||scan.seen["AHS Dimension"]
+                   ||scan.seen["AHS Packaging"]||scan.seen["Large Package"]);
     if(carried){
       /* 是不是大包裹,看我們自己的門檻判 C 和 A,不是看 UPS 開了什麼代碼
          —— UPS 開 LPS 可能只是在沖掉 A 的那一筆。 */
@@ -2156,12 +2232,13 @@ function priceShipment(cfg, s){
         bwA.ahsWeight?amtA("AHS Weight"):0,
         bwA.ahsDim   ?amtA("AHS Dimension"):0);
 
-      if(!bw.oversize){
-        /* 一件只收一個 AHS,取費率最高的那一個。 */
+      const G=s.__gate||{applyLps:bw.oversize,applyW:bw.ahsWeight,applyD:bw.ahsDim,applyP:false};
+      if(!G.applyLps){
+        /* 一件只收一個 AHS,取費率最高的那一個(py c_ahs_amount)。 */
         const cands=[];
-        if(bw.ahsWeight) cands.push(["AHS Weight",amtC("AHS Weight")]);
-        if(bw.ahsDim)    cands.push(["AHS Dimension",amtC("AHS Dimension")]);
-        if(acc["AHS Packaging"]!=null) cands.push(["AHS Packaging",acc["AHS Packaging"]]);
+        if(G.applyW) cands.push(["AHS Weight",amtC("AHS Weight")]);
+        if(G.applyD) cands.push(["AHS Dimension",amtC("AHS Dimension")]);
+        if(G.applyP) cands.push(["AHS Packaging",amtC("AHS Packaging")]);
         let cCol=null,cVal=0;
         for(const [k,v] of cands) if(cCol===null||v>cVal){ cCol=k; cVal=v; }
         for(const k of AHSCOLS) delete acc[k];
@@ -2197,7 +2274,9 @@ function priceShipment(cfg, s){
     const lk2=lookupBaseRate(cfg, svc, residential, retZone, bw.billable);
     if(lk2.missing) issues.push(L("第二哩查不到費率:","No rate for the second leg: ")+(lk2.why||""));
     const v2=Math.round(lk2.rate*100)/100;
-    if(dinRow && s.pureAdj && !toNum(base)) base=v2;
+    /* 本期沒有 SHP/RTN 的攔截單:沒有第一趟就沒有「第二」哩,那筆運費
+       就是這一單的底價,整個取代 —— 不是和主路徑各收一次。 */
+    if(dinRow && s.pureAdj){ base=v2; baseWhy=null; }
     else if(v2) acc["2nd Mile Road Base Rate"]=v2;
     /* 退回寄件人的附加費也照回程的 Zone 查。 */
     if(acc["Return To Sender"]!=null && retZone!==zone)
@@ -2292,12 +2371,17 @@ function ingest(text){
   /* 申報金額那一欄可以在設定裡換位置,所以不放進固定對照表就好,
      這裡每次讀帳單時解析一次。有標題列時仍以標題為準。 */
   if(idx["Declared Value"]===undefined || !hasHdr) idx["Declared Value"]=declaredValueColIndex();
-  const rows=body.map(r=>{
+  const rows=body.map((r,ri)=>{
     const cls=g(r,"Charge Classification Code").toUpperCase();
     const cat=g(r,"Charge Category Code").toUpperCase();
     let layer=cat||cls;
-    if(!["SHP","ADJ","RTN"].includes(layer)) layer="MIS";
+    /* 桌面版 :17369:AI 不是 SHP/RTN/ADJ 就當 SHP —— 但 MIS(雜項)與
+       MSC(帳號層級週結調整)例外,那兩種整行不屬於任何包裹,
+       在 shipmentsOf 會被移到 Account Charges。 */
+    if(!["SHP","ADJ","RTN"].includes(layer))
+      layer=(cat==="MIS"||cls==="MSC")?"MIS":"SHP";
     return {
+      ai:cat, idx:ri+(hasHdr?2:1),
       invoice:g(r,"Invoice Number"), invDate:g(r,"Invoice Date"),
       shipDate:g(r,"Transaction Date"),
       tracking:g(r,"Tracking Number"), lead:g(r,"Lead Shipment Number"),
@@ -2364,10 +2448,22 @@ function layerGroup(lines){
 }
 
 /* ---- 服務名稱:從 FRT 行的說明推出來,住宅與否看有沒有住宅附加費 ---- */
+/* 帳號層級的行(Account Charges)。桌面版 :17346:tracking 空白、AI=MIS、
+   或 AR=MSC 都算 —— MSC 是「Billing Adjustment for W/E ...」這種整週的
+   帳務調整,UPS 有時會隨手釘一個追蹤號上去,照追蹤號分組就會把一整週
+   的調整(例如 -$4,460)倒在一件包裹上。:19095 同時把它排除在該追蹤號
+   的 UPS 實收之外。這裡直接不讓它進包裹,兩件事一次成立。 */
+let ACCT_LINES=[];
+function isAccountLevelLine(r){
+  return String(r.cls||"").toUpperCase()==="MSC"
+      || String(r.ai||"").toUpperCase()==="MIS"
+      || !r.tracking;
+}
 function shipmentsOf(rows){
   const by=new Map();
+  ACCT_LINES=[];
   for(const r of rows){
-    if(!r.tracking) continue;
+    if(isAccountLevelLine(r)){ ACCT_LINES.push(r); continue; }
     if(!by.has(r.tracking)) by.set(r.tracking,{tracking:r.tracking,lines:[]});
     by.get(r.tracking).lines.push(r);
   }
@@ -5253,7 +5349,10 @@ function reportRows(){
        日期、追蹤號、Zone、Shipment Type 這些是文字,留白照舊。 */
     const TEXTCOL=new Set(["Date","Tracking","Zone","Shipment Type"]);
     for(const c of REPORT_COLS) o[c]=TEXTCOL.has(c)?"":0;
-    o["Date"]=s.shipDate||"";
+    /* Date 欄照 py 的 iv()(:20562):有 ADJ 主層就用 ADJ 層自己的
+       Transaction Date,沒有才用 SHP / RTN。 */
+    const adjGd=(s.groups||[]).find(g=>g.layer==="ADJ"&&g.shipDate);
+    o["Date"]=(adjGd&&adjGd.shipDate)||s.shipDate||"";
     o["Tracking"]=s.tracking||"";
     /* 沒有參考號就填 0,不是留白 —— 跟桌面版同一個樣子。 */
     o["Shipment Reference Number 1"]=s.ref1||0;
@@ -5262,7 +5361,17 @@ function reportRows(){
     o["Shipment Type"]=r.channel||"";
     o["Entered Weight"]=(s.enteredShown!=null?s.enteredShown:s.entered)||0;
     o["Billable Weight"]=r.bw.billable||0;
-    if(s.dims){ o["Length"]=s.dims.l; o["Width"]=s.dims.w; o["Height"]=s.dims.h; }
+    /* 顯示用的尺寸照 py:1x1x1 佔位值計價當沒有,報表照印 —— py 的
+       parse_dim_raw 沒有過濾佔位值,報表兩邊才會長一樣。 */
+    const dShow=s.dims||(function(){
+      const t=(s.allLines.find(l=>l.dimsC)||{}).dimsC
+            ||(s.allLines.find(l=>l.dimsA)||{}).dimsA||"";
+      const m=String(t).match(/(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)/);
+      if(!m) return null;
+      const d=[+m[1],+m[2],+m[3]].sort((a,b)=>b-a);
+      return {l:d[0],w:d[1],h:d[2]};
+    })();
+    if(dShow){ o["Length"]=dShow.l; o["Width"]=dShow.w; o["Height"]=dShow.h; }
     /* 附加費要疊加,先確定底是數字 */
     /* 退貨那一層的運費不記在 Base Rate。 */
     const freightCol = s.layer==="RTN" ? "Undeliverable Return" : "Base Rate";
@@ -5339,6 +5448,26 @@ function exportReport(){
     }
     const wb=X.utils.book_new();
     X.utils.book_append_sheet(wb, ws, "Shipment Detail");
+    /* 帳號層級的調整照桌面版放自己的分頁,錢沒有不見,只是不屬於任何
+       追蹤號。欄位照桌面版 account_rows,外加 Tracking —— UPS 釘上去的
+       追蹤號留著看得到,才知道當初是黏在哪一單上。 */
+    if(ACCT_LINES.length){
+      const AC=["Row","Charge Description","Charge Description Code",
+        "Charge Classification Code","Type Code 1","Type Detail Code 1",
+        "Tracking","Amount"];
+      const aoa2=[AC,...ACCT_LINES.map(l=>[l.idx||"",l.desc||l.code||"",
+        l.code||"",l.cls||"",l.ai||"",l.detail||"",l.tracking||"",l.net])];
+      const ws2=X.utils.aoa_to_sheet(aoa2);
+      const ref2=X.utils.decode_range(ws2["!ref"]);
+      const AMT=AC.indexOf("Amount");
+      for(let r2=1;r2<=ref2.e.r;r2++){
+        const cell=ws2[X.utils.encode_cell({r:r2,c:AMT})];
+        if(cell&&typeof cell.v==="number"){
+          cell.v=Number(cell.v.toFixed(2)); cell.z="$#,##0.00";
+        }
+      }
+      X.utils.book_append_sheet(wb, ws2, "Account Charges");
+    }
     dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
       {type:"application/octet-stream"}), name).then(ok=>{
       toast(ok?((LANG?"Report exported · ":"報表已匯出 · ")+rows.length
@@ -5742,8 +5871,20 @@ function renderSummary(){
     <div class="v${neg?" neg":""}">${v}</div>
     <div class="sub">${esc(sub)||"&nbsp;"}</div></div>`).join("");
 
+  const acct=ACCT_LINES||[];
+  const acctAmt=acct.reduce((a,l)=>a+l.net,0);
+  if(acct.length){
+    $("#tiles").innerHTML+=`<div class="tile sketch-soft"><div class="k">`
+      +(LANG?"Account-level (MSC/MIS)":"帳號層級調整 (MSC/MIS)")
+      +`</div><div class="v${acctAmt<0?" neg":""}">${money(acctAmt)}</div>
+      <div class="sub">${acct.length}`
+      +(LANG?" rows · not tied to any tracking · see the Account Charges sheet"
+             :" 筆 · 不屬於任何追蹤號 · 匯出在 Account Charges 分頁")
+      +`</div></div>`;
+  }
   const by={};
   ROWS.forEach(r=>{
+    if(isAccountLevelLine(r)) return;   /* 這些行已經不在任何一層裡 */
     (by[r.layer]=by[r.layer]||{n:0,amt:0,trk:new Set()});
     by[r.layer].n++; by[r.layer].amt+=r.net;
     if(r.tracking) by[r.layer].trk.add(r.tracking);
