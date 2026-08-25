@@ -444,6 +444,7 @@ td.cells{white-space:normal}
 .plegend td{padding:3px 0;white-space:nowrap;border-bottom:none}
 .plegend td.pnm{width:100%;white-space:normal;padding-right:8px}
 .plegend td.pamt{text-align:right;font-family:Consolas,monospace}
+.plegend tr.pfold td{opacity:.6;font-size:11.5px}
 .plegend td.ppct{text-align:right;font-family:Consolas,monospace;color:var(--muted);
   width:52px;padding-left:10px}
 .pdot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;
@@ -971,7 +972,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <style>
 /* 儀表板:所有顏色走 App 的主題變數,切主題整頁跟著變。圓角膠囊風,配合 Scoobi。 */
 #p-dash .dwrap{max-width:1060px;margin:0 auto}
-#p-dash .dhead{margin:0 0 14px}
+#p-dash .dhead{margin:0 0 14px;display:flex;align-items:flex-start;gap:12px}
+#p-dash .dhead>button{margin-left:auto}
 #p-dash .dtitle{font-family:var(--titlefam);font-size:20px;font-weight:700;margin:0;color:var(--accent)}
 #p-dash .dsub{font-size:12.5px;color:var(--muted);margin-top:1px}
 #p-dash .dempty{background:var(--panel);border:2px dashed var(--line);border-radius:16px;
@@ -1380,6 +1382,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <th data-i18n="th.rows">Rows</th>
         <th data-i18n="th.trkcount">Trackings</th>
         <th data-i18n="th.filedat">Filed</th>
+        <th style="width:70px"></th>
       </tr></thead><tbody></tbody></table></div>
     </div>
     <div class="modalft">
@@ -2277,6 +2280,40 @@ function scanCharges(lines, dynMap, fuelOff){
           nonFuel, dynMode, resBucket, ovrUpsNet, famCredit, famCharge};
 }
 
+/* 拿現在的設定重算目前這一批,不重新讀檔、不重新歸檔、不匯出。
+   改完費率或門檻之後想看新結果,按一下就好。 */
+function repriceNow(){
+  if(!(RATED&&SHIPS&&CFG)) return false;
+  RATED=SHIPS.map(x=>priceShipment(CFG,x));
+  renderSummary(); renderRate(); renderCode(); renderHist(); renderDashboard();
+  try{ renderRateGaps(); }catch(e){}
+  ready();
+  return true;
+}
+/* 歷史裡存過的某一期,拿出來重算一次。明細本來就在 IndexedDB,
+   不必叫人再去翻檔案。 */
+async function repriceStored(key){
+  setStatus(L("讀取 "+key+" 的明細…","Loading detail for "+key+"…"));
+  const rows=await idbRowsFor(key);
+  if(!rows.length){
+    setStatus(L("這一期沒有存明細,只有索引 —— 請重新匯入這張帳單。",
+               "Only the index was kept for this period, not the detail — import that invoice again."));
+    return false;
+  }
+  ROWS=rows; INV_NAME=""; SHIPS=shipmentsOf(rows);
+  await ensureHistoryMap();
+  await prefetchOriginals(SHIPS);
+  await prefetchAddressClass(SHIPS).catch(()=>0);
+  RATED=SHIPS.map(x=>priceShipment(CFG,x));
+  renderSummary(); renderRate(); renderCode(); renderHist(); renderDashboard();
+  try{ renderRateGaps(); }catch(e){}
+  ready();
+  setStatus(L(key+" 已重算 · "+rows.length.toLocaleString()+" 列 / "
+              +SHIPS.length.toLocaleString()+" 個追蹤號",
+              key+" repriced · "+rows.length.toLocaleString()+" lines / "
+              +SHIPS.length.toLocaleString()+" tracking numbers"));
+  return true;
+}
 /* 一筆貨的完整計價 */
 /* 宣告價值。超過免費額度就整筆計費,含第一單位 —— $950 是 10 單位不是 9。
    沒宣告或級距沒設定就回 null,讓呼叫端決定,而不是給一個看起來算過的 0。 */
@@ -3204,6 +3241,14 @@ function idbAllRows(){
     rq.onerror=()=>rej(rq.error);
   }));
 }
+/* 只取一期的明細。store 的 keyPath 就是期號,所以直接 get。 */
+function idbRowsFor(key){
+  return idbTx("readonly").then(st=>new Promise((res,rej)=>{
+    const rq=st.get(String(key));
+    rq.onsuccess=()=>res((rq.result&&rq.result.rows)||[]);
+    rq.onerror=()=>rej(rq.error);
+  })).catch(()=>[]);
+}
 function idbClear(){
   return idbTx("readwrite").then(st=>new Promise((res,rej)=>{
     const rq=st.clear(); rq.onsuccess=()=>res(true); rq.onerror=()=>rej(rq.error);
@@ -3346,6 +3391,19 @@ function buildOriginals(allRows, need){
   }
   return out;
 }
+/* 住/商對照表是登入後在背景非同步學的,而產生報表不會等它。開頁之後
+   馬上按下去,跨期更正就用「服務名稱」判住/商 —— 同一張帳單、同一份
+   設定,跑兩次會得到兩個運費。計價前先確定它就緒:明細本來就在
+   IndexedDB,不必叫人重匯檔案。 */
+function ensureHistoryMap(){
+  if(HIST && !HIST_STALE) return Promise.resolve(0);
+  return idbAllRows().then(rows=>{
+    if(!rows || !rows.length) return 0;
+    saveHistoryMap(learnHistory(rows));
+    HIST_STALE=false;
+    return Object.keys(HIST||{}).length;
+  }).catch(()=>0);
+}
 function prefetchOriginals(ships){
   const need=new Set((ships||[]).filter(s=>s.pureAdj).map(s=>s.tracking));
   if(!need.size){ ORIG={}; return Promise.resolve(0); }
@@ -3365,6 +3423,9 @@ function prefetchOriginals(ships){
    ===================================================================== */
 let ADDRCLASS={};        /* 追蹤號 -> "R" | "C" */
 let API_NOTE="";         /* 這次跑批的一次性提示(端點沒填、呼叫失敗等) */
+/* 「選了 API 卻沒填端點」是設定沒填完,不是這一次跑批出事 —— 每產一次報表
+   就跳一次,跳到後來沒有人會看。一個工作階段講一次就夠。 */
+let API_NOURL_SHOWN=false;
 const ADDRCLASS_CACHE_KEY="ups_addrclass_v1";
 function addressClassFor(s){ return (s&&ADDRCLASS[s.tracking])||null; }
 function addrKey(a){
@@ -3394,8 +3455,11 @@ async function prefetchAddressClass(ships){
   const gr=(CFG&&CFG.raw&&CFG.raw.global_rules)||{};
   if((gr.resi_source||"system")!=="api") return 0;      /* 系統模式:完全不打 */
   const url=String(gr.resi_api_url||"").trim();
-  if(!url){ API_NOTE=L("已選 API 判定,但沒有填代理端點 —— 這次改用系統判定。",
-                       "API source selected but no proxy endpoint is set — using system logic this run."); return 0; }
+  if(!url){
+    if(!API_NOURL_SHOWN){ API_NOURL_SHOWN=true;
+      API_NOTE=L("已選「連動 API」但沒有填代理端點 —— 一律用系統判定。要改回去請到「設定」分頁。",
+                 "\u201cLinked API\u201d is selected with no proxy endpoint — system logic is used. Change it on the Settings tab."); }
+    return 0; }
   /* 收齊不重複的地址,對回追蹤號 */
   const groups=new Map();
   for(const s of ships||[]){
@@ -4388,6 +4452,16 @@ const ACC_FLAT_FEES=["DAS Commercial","DAS Residential","DAS Extended Commercial
 function feeDisplay(k){ const n=String(k||"").trim(); return FEE_DISPLAY[n]||n; }
 function feeKey(d){ const n=String(d||"").trim(); return FEE_KEY_BY_DISPLAY[n]||n; }
 
+/* 檔案讀不到最常見的原因是它還在 Excel 裡開著 —— Windows 鎖住之後
+   FileReader 回 NotReadableError。只說「讀不到」沒有人會想到要先關 Excel。 */
+function readErr(rd, file){
+  const n=(rd && rd.error && rd.error.name)||"";
+  if(n==="NotReadableError" || n==="NotFoundError")
+    return new Error(L(
+      "讀不到「"+file.name+"」—— 這個檔可能還在 Excel 裡開著,或是被移動、改名了。請先關掉 Excel 再試一次。",
+      "Could not read \u201c"+file.name+"\u201d \u2014 it is probably still open in Excel, or it was moved or renamed. Close Excel and try again."));
+  return new Error((LANG?"could not read ":"讀不到 ")+file.name+(n?" ("+n+")":""));
+}
 /* 整本活頁簿:每個工作表各自轉成列陣列。readInvoiceFile() 只回第一個
    有資料的表,而共用模板要同時看 _ChannelInfo / AHS_LPS / FLAT_CHARGES,
    所以另開一個入口。CSV / TXT 當成一張無名工作表,上層邏輯不必分兩套。 */
@@ -4398,7 +4472,7 @@ function readWorkbookRows(file){
       const rd=new FileReader();
       rd.onload=()=>{ const rows=parseCSV(String(rd.result));
         res({kind:kind,order:[""],sheets:{"":rows}}); };
-      rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+      rd.onerror=()=>rej(readErr(rd,file));
       rd.readAsText(file,"utf-8");
     });
   }
@@ -4416,7 +4490,7 @@ function readWorkbookRows(file){
         res({kind:kind,order:order,sheets:sheets});
       }catch(e){ rej(e); }
     };
-    rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+    rd.onerror=()=>rej(readErr(rd,file));
     rd.readAsArrayBuffer(file);
   }));
 }
@@ -4509,7 +4583,7 @@ function readInvoiceFile(file){
     return new Promise((res,rej)=>{
       const rd=new FileReader();
       rd.onload=()=>res({text:String(rd.result),kind:kind,sheet:""});
-      rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+      rd.onerror=()=>rej(readErr(rd,file));
       rd.readAsText(file,"utf-8");
     });
   }
@@ -4530,7 +4604,7 @@ function readInvoiceFile(file){
         res({text:text,kind:kind,sheet:nm});
       }catch(e){ rej(e); }
     };
-    rd.onerror=()=>rej(new Error((LANG?"could not read ":"讀不到 ")+file.name));
+    rd.onerror=()=>rej(readErr(rd,file));
     rd.readAsArrayBuffer(file);
   }));
 }
@@ -5654,8 +5728,10 @@ function openStored(){
     ? list.map(([k,v])=>`<tr><td><input type="checkbox" class="stc" value="${esc(k)}"></td>
         <td>${esc(k)}</td><td>${esc(v.date||"—")}</td>
         <td>${(v.rows||0).toLocaleString()}</td><td>${(v.trk||0).toLocaleString()}</td>
-        <td>${esc((v.at||"").replace("T"," "))}</td></tr>`).join("")
-    : `<tr><td colspan="6" class="empty">${
+        <td>${esc((v.at||"").replace("T"," "))}</td>
+        <td><button class="act ghost stRe" data-inv="${esc(k)}" style="padding:3px 11px;font-size:12px">${
+          LANG?"Reprice":"重算"}</button></td></tr>`).join("")
+    : `<tr><td colspan="7" class="empty">${
         LANG?"No invoices filed yet.":"還沒有任何帳單存進歷史。"}</td></tr>`;
   const all=$("#stAll"); if(all) all.checked=false;
   stPaintDelete();
@@ -5676,6 +5752,14 @@ function stPaintDelete(){
 }
 $("#tStored") && ($("#tStored").addEventListener("change",e=>{
   if(e.target.classList.contains("stc")) stPaintDelete();
+}));
+/* 「重算」:關掉視窗、拿這一期的明細重跑,跳到儀表板看結果。 */
+$("#tStored") && ($("#tStored").addEventListener("click",e=>{
+  const b2=e.target.closest(".stRe"); if(!b2) return;
+  const k=b2.dataset.inv;
+  $("#stBg") && $("#stBg").classList.remove("on");
+  repriceStored(k).then(ok=>{ if(ok) showTab("dash"); })
+    .catch(err=>setStatus(String((err&&err.message)||err)));
 }));
 $("#stAll") && ($("#stAll").onchange=()=>{
   const on=$("#stAll").checked;
@@ -6605,10 +6689,11 @@ function renderDashboard(){
     return segs;
   };
   const pieBlock=(items,total,centerBig,centerSmall)=>{
-    const rows=items.map(([n,v,col])=>`<tr><td class="pnm"><span class="pdot" style="background:${col}"></span>${esc(n)}</td>`
+    const rows=items.map(([n,v,col,fold])=>`<tr${fold?' class="pfold"':""}>`
+      +`<td class="pnm"><span class="pdot" style="background:${col}"></span>${fold?"↳ ":""}${esc(n)}</td>`
       +`<td class="pamt">${money(v)}</td><td class="ppct">${total?(Math.abs(v)/total*100).toFixed(1):"0.0"}%</td></tr>`).join("");
     return `<div class="pie"><svg viewBox="0 0 150 150" width="150" height="150" role="img" aria-label="${esc(centerSmall)}">`
-      +donut(items,total)
+      +donut(items.filter(x=>x[3]!=="fold"),total)
       +`<text class="phole" x="75" y="71" text-anchor="middle" font-size="17" font-weight="700">${esc(centerBig)}</text>`
       +`<text class="phole" x="75" y="88" text-anchor="middle" font-size="10" opacity=".7">${esc(centerSmall)}</text>`
       +`</svg><div class="plegend"><table>${rows}</table></div></div>`;
@@ -6620,9 +6705,18 @@ function renderDashboard(){
     const ent=Object.entries(obj)
       .filter(([k,v])=>k!==DASH_RECLASS&&k!==DASH_UNKNOWN&&Math.abs(v)>0.005)
       .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
-    const out=ent.slice(0,7).map(([c,v],i)=>[dashLabel(c),v,PIE[i]]);
-    const restN=ent.length-7, restSum=ent.slice(7).reduce((a,[,v])=>a+v,0);
-    if(restN>0) out.push([L(`其他 ${restN} 項`,`Other (${restN})`),restSum,PIE[7]]);
+    /* 圓餅畫得下的只有前 10 塊,但圖例把每一項都列出來 —— $8 的 AHS 包裝
+       併進「其他」就等於查無此項。折進去的共用「其他」的顏色、標成 fold,
+       畫圓的時候跳過,只出現在圖例。 */
+    const TOP=10;
+    const out=ent.slice(0,TOP).map(([c,v],i)=>[dashLabel(c),v,PIE[i%PIE.length]]);
+    const rest=ent.slice(TOP);
+    if(rest.length){
+      const col=PIE[TOP%PIE.length];
+      out.push([L(`其他 ${rest.length} 項`,`Other (${rest.length})`),
+                rest.reduce((a,[,v])=>a+v,0), col]);
+      for(const [c,v] of rest) out.push([dashLabel(c),v,col,"fold"]);
+    }
     const rc=toNum(obj[DASH_RECLASS]);
     if(Math.abs(rc)>0.005) out.push([L("改判 AHS/大包裹","Reclassified AHS/LP"),rc,RECLCOL]);
     const uk=toNum(obj[DASH_UNKNOWN])+toNum(extraUnknown);
@@ -6630,7 +6724,8 @@ function renderDashboard(){
     return out;
   };
   const oneP=(obj,extra,cap,sum)=>{
-    const it=pieItems(obj,extra), t=it.reduce((a,[,v])=>a+Math.abs(v),0);
+    const it=pieItems(obj,extra);
+    const t=it.filter(x=>x[3]!=="fold").reduce((a,[,v])=>a+Math.abs(v),0);
     const bf=(obj["Base Rate"]||0)+(obj["Undeliverable Return"]||0)+(obj["Fuel Surcharge"]||0);
     return `<div><div class="pcap">${esc(cap)}<b>${money(sum)}</b></div>`
       +pieBlock(it,t,(t?Math.round(Math.abs(bf)/t*100):0)+"%",L("運費 + 燃油","freight + fuel"))
@@ -6671,7 +6766,8 @@ function renderDashboard(){
   body.innerHTML=`
     <div class="dhead">
       <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
-      <div class="dsub">${d.n} ${L("筆貨件","shipments")}</div></div></div>
+      <div class="dsub">${d.n} ${L("筆貨件","shipments")}</div></div>
+      <button class="act ghost" id="bDashRe">${L("重新整理","Refresh")}</button></div>
     <div class="dflow">
       <div class="dcell"><div class="dk">${L("向客戶收","Charge customer")}</div>
         <div class="dv">${money(d.repriced)}</div></div>
@@ -6698,6 +6794,9 @@ function renderDashboard(){
     body.querySelectorAll(".bfill,.zfill,.seg,.cmpfill").forEach(el=>{
       if(el.dataset.w!=null) el.style.width=el.dataset.w+"%"; });
   }));
+  const rb=$("#bDashRe");
+  if(rb) rb.onclick=()=>{ if(!repriceNow())
+    setStatus(L("還沒有可以重算的資料","Nothing to reprice yet")); };
   }catch(e){ console.warn("dashboard render failed",e); }
 }
 function exportReport(){
@@ -7339,7 +7438,8 @@ async function runReport(ing, ships){
     ROWS=ing.rows; SHIPS=ships;
     /* 跨期更正的原件先從 IndexedDB 撈成同步對照再計價。
        撈不到(沒有歷史、私密視窗)就空表照算,跨期單照舊標問題。 */
-    return prefetchOriginals(SHIPS)
+    return ensureHistoryMap()
+      .then(()=>prefetchOriginals(SHIPS))
       .then(()=>prefetchAddressClass(SHIPS).catch(()=>0))
       .then(()=>{
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
