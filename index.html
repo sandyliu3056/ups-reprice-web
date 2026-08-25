@@ -163,8 +163,29 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   color:var(--muted)}
 .meterline b{color:var(--ink);font-size:13.5px}
 #tDimForce td:nth-child(2),#tDimForce th:nth-child(2){text-align:right}
-#tStored td:nth-child(3),#tStored td:nth-child(4),
-#tStored th:nth-child(3),#tStored th:nth-child(4){text-align:right}
+#tStored td:nth-child(4),#tStored td:nth-child(5),
+#tStored th:nth-child(4),#tStored th:nth-child(5){text-align:right}
+/* 歷史帳單的勾選框與刪除鈕。刪除是紅字空心,滑過才填色 ——
+   跟主要動作的實心金色分開,不會誤按。 */
+.stc,.stcAll{accent-color:var(--run2);width:15px;height:15px;cursor:pointer;margin:0}
+#tStored tr.sel td{background:var(--select)}
+button.act.danger{background:transparent;color:var(--neg);border-color:var(--neg)}
+button.act.danger:hover:not(:disabled){background:var(--neg);color:#fff}
+button.act.danger:disabled{opacity:.45;cursor:default}
+/* 登入頁的「保持登入」開關。畫成小滑軌,勾選變金色 ——
+   比原生方框好看,也比較像「開/關」這件事。 */
+.remember{display:inline-flex;align-items:center;gap:9px;margin-top:12px;
+  font-size:13px;color:var(--accent);cursor:pointer;user-select:none}
+.remember input{appearance:none;-webkit-appearance:none;width:36px;height:20px;
+  border-radius:11px;border:2px solid var(--line);background:var(--panel);
+  position:relative;cursor:pointer;margin:0;flex:none;
+  transition:background .15s,border-color .15s}
+.remember input::after{content:"";position:absolute;top:1.5px;left:2px;
+  width:13px;height:13px;border-radius:50%;background:var(--muted);
+  transition:left .15s,background .15s}
+.remember input:checked{background:var(--run2);border-color:var(--run2)}
+.remember input:checked::after{left:17px;background:#fff}
+.remember input:focus-visible{outline:2px solid var(--run2);outline-offset:2px}
 .dpsteps{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:13px}
 .dpsteps .st{flex:1;padding:8px 10px;border:2px solid var(--line);border-radius:9px;
   background:transparent;color:var(--muted);line-height:1.35}
@@ -473,6 +494,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <input id="inUser" type="text" autocomplete="username"></div>
     <div class="frow"><label data-i18n="lb.pw">Password</label>
       <input id="inPw" type="password" autocomplete="current-password"></div>
+    <label class="remember"><input type="checkbox" id="inRemember">
+      <span data-i18n="lb.remember">Keep me signed in</span></label>
     <div class="row" style="margin-top:11px">
       <button class="act" id="bLogin" data-i18n="btn.login">Sign in</button>
     </div>
@@ -1089,6 +1112,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <div class="strow" id="stSum"></div>
       <div id="stStorage" class="storagebox"></div>
       <div class="tablewrap" style="max-height:52vh"><table id="tStored"><thead><tr>
+        <th style="width:34px"><input type="checkbox" class="stcAll" id="stAll" title="Select all"></th>
         <th data-i18n="th.invno">Invoice Number</th>
         <th data-i18n="th.invdt">Invoice Date</th>
         <th data-i18n="th.rows">Rows</th>
@@ -1097,6 +1121,10 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       </tr></thead><tbody></tbody></table></div>
     </div>
     <div class="modalft">
+      <span class="row" style="gap:10px">
+        <button class="act danger" id="stDelete" disabled>🗑 <span data-i18n="btn.delinv">Delete selected</span></button>
+        <span id="stDelNote" style="font-size:12.5px;color:var(--muted)"></span>
+      </span>
       <button class="act ghost" id="stClose" data-i18n="btn.close">Close</button>
     </div>
   </div>
@@ -2837,6 +2865,18 @@ function idbClear(){
     const rq=st.clear(); rq.onsuccess=()=>res(true); rq.onerror=()=>rej(rq.error);
   }));
 }
+/* 刪掉指定期別的明細(一期一筆,key 就是期號)。 */
+function idbDeleteInvoices(keys){
+  if(!keys||!keys.length) return Promise.resolve(0);
+  return idbTx("readwrite").then(st=>new Promise((res,rej)=>{
+    let done=0;
+    for(const k of keys){
+      const rq=st.delete(k);
+      rq.onsuccess=()=>{ if(++done===keys.length) res(keys.length); };
+      rq.onerror=()=>rej(rq.error);
+    }
+  }));
+}
 let HISTINV=null;
 
 function histInv(){
@@ -3019,6 +3059,9 @@ const LOCAL_ACCOUNTS=[
     name:"Geniqua", role:"user" },
 ];
 const LOCAL_SESSION_KEY="ups_reprice_local_session";
+/* 「保持登入」勾了才寫這把 —— localStorage 關瀏覽器也留著,下次開站免登入。
+   沒勾就維持原本的規則:session 只活在這個分頁。 */
+const LOCAL_REMEMBER_KEY="ups_reprice_local_remember";
 async function sha256Hex(text){
   if(!(window.crypto&&crypto.subtle))
     /* WebCrypto 只在 https 或 localhost 提供。真的碰到,幾乎都是
@@ -3088,8 +3131,13 @@ async function login(email,pw){
                  所以放在 repo 裡的登入雜湊推不出這把鑰匙。 */
               sync:await sha256Hex("cfg-sync::"+id+"::"+String(pw))};
     /* sessionStorage:關掉分頁就要重新登入。這道門本來就薄,
-       不留長效的登入狀態。 */
+       預設不留長效的登入狀態 —— 除非本人勾了「保持登入」。 */
     try{ sessionStorage.setItem(LOCAL_SESSION_KEY,JSON.stringify(me)); }catch(e){}
+    const keep=$("#inRemember") && $("#inRemember").checked;
+    try{
+      if(keep) localStorage.setItem(LOCAL_REMEMBER_KEY,JSON.stringify(me));
+      else localStorage.removeItem(LOCAL_REMEMBER_KEY);
+    }catch(e){}
     return me;
   }
   if(!AUTH) return {err:authMissing()};
@@ -3423,6 +3471,16 @@ function histCloudPush(rows){
     })();
   }
 }
+/* 刪除同步:本機刪了哪幾期,帳號雲端那份也跟著刪。失敗只記 console ——
+   下次在別台電腦看到那期還在,重刪一次就好。 */
+function histCloudDelete(keys){
+  if(!LOCAL_MODE||!SYNC||!ME||!ME.sync) return;
+  for(const k of keys||[]){
+    SYNC.rpc("local_history_del",{k:ME.sync,inv:k})
+      .then(({error})=>{ if(error) console.warn("cloud delete failed:", k, error.message); })
+      .catch(()=>{});
+  }
+}
 /* 登入時把雲端有、本機沒有(或雲端比較新)的那幾期抓回來。
    回傳抓到的期數,0 = 沒有新東西。 */
 async function histCloudPull(){
@@ -3632,7 +3690,15 @@ async function initAuth(){
   if(LOCAL_MODE){
     let saved=null;
     try{ saved=JSON.parse(sessionStorage.getItem(LOCAL_SESSION_KEY)); }catch(e){}
-    /* 只認得名單裡的帳號 —— sessionStorage 被手動塞東西也沒用。 */
+    /* 分頁的 session 沒有,再看「保持登入」那份 —— 勾過的人關掉瀏覽器
+       再開,也不用重打密碼。 */
+    if(!saved){
+      try{ saved=JSON.parse(localStorage.getItem(LOCAL_REMEMBER_KEY)); }catch(e){}
+      if(saved){
+        try{ sessionStorage.setItem(LOCAL_SESSION_KEY,JSON.stringify(saved)); }catch(e){}
+      }
+    }
+    /* 只認得名單裡的帳號 —— storage 被手動塞東西也沒用。 */
     if(saved && LOCAL_ACCOUNTS.some(a=>a.user===saved.user && a.role===saved.role))
       setMe(saved);
     else setMe(null);
@@ -5146,14 +5212,63 @@ function openStored(){
     + stat(LANG?"Rows":"帳單筆數", allRows.toLocaleString())
     + stat(LANG?"Trackings":"追蹤號", allTrk.toLocaleString());
   $("#tStored").tBodies[0].innerHTML = list.length
-    ? list.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${esc(v.date||"—")}</td>
+    ? list.map(([k,v])=>`<tr><td><input type="checkbox" class="stc" value="${esc(k)}"></td>
+        <td>${esc(k)}</td><td>${esc(v.date||"—")}</td>
         <td>${(v.rows||0).toLocaleString()}</td><td>${(v.trk||0).toLocaleString()}</td>
         <td>${esc((v.at||"").replace("T"," "))}</td></tr>`).join("")
-    : `<tr><td colspan="5" class="empty">${
+    : `<tr><td colspan="6" class="empty">${
         LANG?"No invoices filed yet.":"還沒有任何帳單存進歷史。"}</td></tr>`;
+  const all=$("#stAll"); if(all) all.checked=false;
+  stPaintDelete();
   renderStorageMeter();
   $("#stBg").classList.add("on");
 }
+/* 勾了幾期、刪除鈕能不能按、勾中的列亮底色 —— 三件事一起畫。 */
+function stTicked(){ return [...document.querySelectorAll(".stc:checked")].map(c=>c.value); }
+function stPaintDelete(){
+  const n=stTicked().length;
+  const b=$("#stDelete"); if(b) b.disabled=!n;
+  const note=$("#stDelNote");
+  if(note) note.textContent=n?(LANG?n+" selected":"已勾選 "+n+" 期"):"";
+  document.querySelectorAll("#tStored tbody tr").forEach(tr=>{
+    const c=tr.querySelector(".stc");
+    tr.classList.toggle("sel", !!(c&&c.checked));
+  });
+}
+$("#tStored") && ($("#tStored").addEventListener("change",e=>{
+  if(e.target.classList.contains("stc")) stPaintDelete();
+}));
+$("#stAll") && ($("#stAll").onchange=()=>{
+  const on=$("#stAll").checked;
+  document.querySelectorAll(".stc").forEach(c=>c.checked=on);
+  stPaintDelete();
+});
+/* 刪掉勾選的期別:索引、IndexedDB 明細、記憶體、雲端四個地方一起刪,
+   對照表用剩下的明細重學。桌面版沒有這顆按鈕 —— 匯錯期只能整個重來。 */
+$("#stDelete") && ($("#stDelete").onclick=async()=>{
+  const keys=stTicked();
+  if(!keys.length) return;
+  if(!confirm(LANG
+    ? "Delete "+keys.length+" invoice period(s) from history?\n\n"+keys.join(", ")
+      +"\n\nThis removes them from this account's cloud copy too. It cannot be undone."
+    : "確定要刪除這 "+keys.length+" 期帳單歷史?\n\n"+keys.join("、")
+      +"\n\n雲端帳號那份也會一起刪除,無法復原。")) return;
+  const inv=histInv();
+  for(const k of keys) delete inv[k];
+  HISTINV=inv;
+  try{ localStorage.setItem(histInvKey(), JSON.stringify(inv)); }catch(e){}
+  try{ await idbDeleteInvoices(keys); }catch(e){}
+  const kset=new Set(keys);
+  HISTROWS=(HISTROWS||[]).filter(r=>!kset.has((r.invoice||"").trim()));
+  saveHistoryMap(learnHistory(HISTROWS));
+  if(RATED&&SHIPS&&CFG){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+  renderHist();
+  histCloudDelete(keys);
+  logAdd("delete invoices", keys.join(", "));
+  openStored();   /* 重畫視窗,數字與清單立刻反映 */
+  toast((LANG?"Deleted ":"已刪除 ")+keys.length+(LANG?" invoice period(s).":" 期帳單歷史。"), true);
+  setStatus((LANG?"Deleted ":"已刪除 ")+keys.length+(LANG?" period(s)":" 期"));
+});
 function closeStored(){ $("#stBg").classList.remove("on"); }
 $("#bHistStored") && ($("#bHistStored").onclick=openStored);
 $("#stX") && ($("#stX").onclick=closeStored);
@@ -7041,6 +7156,7 @@ const I18N={
   "th.fuelpct":["燃油 %","Fuel %"], "th.defpct":["預設 %","Default %"],
   "btn.delticked":["刪除勾選","Delete Ticked"],
   "btn.close":["關閉","Close"],
+  "btn.delinv":["刪除勾選的帳單","Delete selected"],
   "btn.imphist":["匯入歷史帳單","Import Past Invoices"],
   "btn.refresh":["重新整理","Refresh"],
   "btn.stored":["已存帳單","Stored Invoices"],
@@ -7171,6 +7287,7 @@ const I18N={
   "hd.signin":["登入","Sign in"],
   "lb.username":["帳號","Username"], "lb.email":["Email","Email"],
   "lb.name":["姓名","Name"], "lb.pw":["密碼","Password"],
+  "lb.remember":["保持登入","Keep me signed in"],
   "none":["尚未選擇","Nothing chosen"],
   "hint.files":["設定檔記在這台瀏覽器裡,重整不用重挑。帳單每期換。兩個檔案都只在本機讀取。",
     "Settings are kept in this browser, so a refresh does not mean picking them again. The invoice changes each period. Both files are read locally."],
@@ -8363,10 +8480,17 @@ step("auth",()=>{
     }finally{ button.disabled=false; }
   };
   $("#inPw").onkeydown=e=>{ if(e.key==="Enter") $("#bLogin").click(); };
+  /* 上次勾過就先幫他打勾 —— 勾了「保持登入」的人,換到登入頁時
+     看到開關是關的,會以為設定沒生效。 */
+  if($("#inRemember")){
+    try{ $("#inRemember").checked=!!localStorage.getItem(LOCAL_REMEMBER_KEY); }catch(e){}
+  }
 
   $("#bLogout").onclick=async()=>{
     logAdd("sign out","");
-    try{ sessionStorage.removeItem(LOCAL_SESSION_KEY); }catch(e){}
+    /* 登出就是登出:兩份都清掉,不然下次開站又自己登進來。 */
+    try{ sessionStorage.removeItem(LOCAL_SESSION_KEY);
+         localStorage.removeItem(LOCAL_REMEMBER_KEY); }catch(e){}
     if(AUTH) await AUTH.auth.signOut();
     setMe(null);
     setStatus(LANG?"Signed out":"已登出");

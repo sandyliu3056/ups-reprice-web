@@ -133,9 +133,27 @@ begin
 end;
 $$;
 
+-- 刪除一期。本人在「已存的帳單」視窗勾選刪除時呼叫,同一把鑰匙才刪得掉。
+create or replace function public.local_history_del(k text, inv text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if k !~ '^[0-9a-f]{64}$' then
+    raise exception 'bad key';
+  end if;
+  delete from public.local_history h
+   where h.sync_key = k and h.invoice = inv;
+end;
+$$;
+
 revoke all on function public.local_history_list(text) from public;
 revoke all on function public.local_history_get(text, text) from public;
 revoke all on function public.local_history_put(text, text, jsonb, text) from public;
+revoke all on function public.local_history_del(text, text) from public;
 grant execute on function public.local_history_list(text) to anon, authenticated;
 grant execute on function public.local_history_get(text, text) to anon, authenticated;
 grant execute on function public.local_history_put(text, text, jsonb, text) to anon, authenticated;
+grant execute on function public.local_history_del(text, text) to anon, authenticated;
