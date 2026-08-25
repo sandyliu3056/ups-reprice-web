@@ -172,12 +172,6 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 button.act.danger{background:transparent;color:var(--neg);border-color:var(--neg)}
 button.act.danger:hover:not(:disabled){background:var(--neg);color:#fff}
 button.act.danger:disabled{opacity:.45;cursor:default}
-/* 沒見過的渠道:紅框標出來。這一格的意思是「這筆會被算成別條渠道」,
-   不是「少一筆附加費」,所以標得比其他欄位重。 */
-.newtag{display:inline-block;padding:1px 7px;border:1.6px solid var(--neg);
-  border-radius:5px;color:var(--neg);font-weight:600;font-size:12px}
-#tNew td,#tNew th{white-space:nowrap}
-#tNew td.num,#tNew th.num{text-align:right}
 /* 登入頁的「保持登入」開關。畫成小滑軌,勾選變金色 ——
    比原生方框好看,也比較像「開/關」這件事。 */
 .remember{display:inline-flex;align-items:center;gap:9px;margin-top:12px;
@@ -358,14 +352,6 @@ td.cells{white-space:normal}
 .subpanel .hint{margin:0 0 10px}
 
 /* 燃油視窗 */
-/* 從關卡跳去設定時,關卡本身會被關掉 —— 這條浮動列是回去的路。
-   沒有它,使用者設定完就得重選帳單、重按一次產生,才看得到還剩什麼。 */
-#nwBack{position:fixed;right:18px;bottom:44px;z-index:45;display:none;
-  align-items:center;gap:10px;padding:9px 12px;
-  border:2px solid var(--line);border-radius:12px;background:var(--panel);
-  box-shadow:0 6px 20px rgba(0,0,0,.28)}
-#nwBack.on{display:flex}
-#nwBackTxt{font-weight:700}
 .modalbg{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.35);
   align-items:flex-start;justify-content:center;padding:26px 16px;overflow:auto}
 .modalbg.on{display:flex}
@@ -1253,40 +1239,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   </div>
 </div>
 
-<div id="nwBg" class="modalbg">
-  <div class="modal sketch" id="nwModal" style="width:min(1040px,100%);height:min(76vh,900px)">
-    <div class="modalhd">
-      <span data-i18n="hd.newthings">New in this invoice</span>
-      <span><button class="mx" id="nwMax">⤢</button><button class="mx" id="nwX">✕</button></span>
-    </div>
-    <div class="modalbody" style="display:flex;flex-direction:column;min-height:0">
-      <div class="strow" id="nwSum"></div>
-      <div id="nwChans"></div>
-      <p class="hint" style="margin:0 0 10px" data-i18n="hint.newthings">One row per tracking number. Each unrecognised charge code gets its own column, and the cell is what UPS billed for it. Unrecognised codes are dropped from the repriced total today, so that money is not billed on to the customer.</p>
-      <div class="tablewrap" style="flex:1;min-height:120px;max-height:none"><table id="tNew">
-        <thead><tr></tr></thead><tbody></tbody></table></div>
-    </div>
-    <div class="modalft">
-      <span class="row" style="gap:10px">
-        <button class="act ghost" id="nwAddChan" data-i18n="btn.addchanshort">Add channel…</button>
-        <button class="act ghost" id="nwRates" data-i18n="btn.fillrates">Import rates…</button>
-        <button class="act ghost" id="nwAddCode" data-i18n="btn.addcodeshort">Register code…</button>
-        <button class="act ghost" id="nwExport" data-i18n="btn.exportlist">Export list</button>
-      </span>
-      <span class="row" style="gap:10px">
-        <button class="act ghost" id="nwCancel" data-i18n="btn.cancel">Cancel</button>
-        <button class="act" id="nwGo" data-i18n="btn.goanyway">Generate anyway</button>
-      </span>
-    </div>
-  </div>
-</div>
-
-<div id="nwBack">
-  <span id="nwBackTxt"></span>
-  <button class="act" id="nwBackGo" data-i18n="btn.backlist">Back to the list</button>
-  <button class="mx" id="nwBackX">✕</button>
-</div>
-
 <div id="stBg" class="modalbg">
   <div class="modal sketch" id="stModal" style="width:min(760px,100%)">
     <div class="modalhd">
@@ -1674,31 +1626,6 @@ function calcDemand(cfg, shipDate, service, flags){
   return out;
 }
 
-/* 這條渠道的基本運費表。查表與「這條渠道到底有沒有匯入費率」共用同一套
-   候選規則 —— 兩邊各寫一份,遲早出現「查得到表卻說沒匯入」這種矛盾。
-
-   住/商候選順序照桌面版 :16961:最要緊的是「名字對、旗標相反」那一段,
-   只匯入一張商業卡的帳號(多數空運線都是),住宅件不走這條就完全查不到表。
-   residential 為 null 是舊格式的字串鍵,兩種旗標都收。 */
-function rateTableFor(cfg, service, residential){
-  const s=String(service||"").trim();
-  const cands=[s, svcOfChan(s)];
-  if(/^ground/i.test(s)) cands.push(residential?"Ground Residential":"Ground Commercial");
-  const nameHit=x=>cands.some(c=>c&&String(x.service).trim().toLowerCase()===String(c).toLowerCase());
-  for(const want of [!!residential, !residential]){
-    const t=(cfg.tables||[]).find(x=>nameHit(x)
-      && (x.residential===null||x.residential===want));
-    if(t) return t;
-  }
-  return null;
-}
-/* 有沒有匯入這條渠道的費率(表存在而且有列)。空表等於沒匯入 ——
-   匯出的模板本身就是一張沒有金額的空表。 */
-function channelHasRates(cfg, service, residential){
-  const t=rateTableFor(cfg, service, residential);
-  return !!(t && (t.rows||[]).length);
-}
-
 /* ---- 基本費率查表:service × residential × zone × 計費重量 ---- */
 function lookupBaseRate(cfg, service, residential, zone, billWeight){
   /* Ground 的兩張表用名字分商/住("Ground Commercial" / "Ground Residential"),
@@ -1711,7 +1638,17 @@ function lookupBaseRate(cfg, service, residential, zone, billWeight){
      總額仍然成立,問題另外記在 issue 清單。回 null 會讓整列 Total 歸零,
      連帶把那一筆的附加費從報表上抹掉。 */
   const miss=(why)=>({rate:0, why:why, missing:true});
-  const t=rateTableFor(cfg, s, residential);
+  const cands=[s, svcOfChan(s)];
+  if(/^ground/i.test(s)) cands.push(residential?"Ground Residential":"Ground Commercial");
+  const nameHit=x=>cands.some(c=>c&&String(x.service).trim().toLowerCase()===String(c).toLowerCase());
+  /* 住/商候選順序。桌面版 :16961 有六段候選,最要緊的是「名字對、旗標
+     相反」那一段 —— 只匯入一張商業卡的帳號(多數空運線都是),住宅件
+     不走這條就完全查不到表。null 代表舊格式的字串鍵,兩種旗標都收。 */
+  let t=null;
+  for(const want of [!!residential, !residential]){
+    t=cfg.tables.find(x=>nameHit(x) && (x.residential===null||x.residential===want));
+    if(t) break;
+  }
   if(!t) return miss(L("設定檔沒有這個服務的費率表:","No rate table for this service in the settings: ")
         +s+(residential?L("(住宅)"," (Residential)"):L("(商業)"," (Commercial)")));
   const zi=t.columns.findIndex(c=>String(c).trim()==="Zone "+zone
@@ -2057,7 +1994,7 @@ function accZoneKey(cfg, zone){
    記進去。呼叫端據此把 UPS 實收的那筆錢標成未計價 —— 收 0 而且不講,
    等於少收客戶的錢卻沒有人知道。
    注意「費率設成 0」不算 miss:那是有意義的設定(這項免費),不是漏填。 */
-function accLookup(cfg, feeType, channel, zone, issues, residential, miss){
+function accLookup(cfg, feeType, channel, zone, issues, residential){
   const t=cfg.raw.accessorial_rate_table||{};
   /* 舊範本的住宅費鍵名。桌面版 :17184 有這條退路,少了它,用舊 ACC 表
      匯出的設定會讓住宅費整批收 0。 */
@@ -2077,7 +2014,6 @@ function accLookup(cfg, feeType, channel, zone, issues, residential, miss){
   if(!(key in t)){
     issues.push(feeType+" @ "+channel+L(":這個管道沒有這項附加費的費率",
       ": this channel has no rate for that surcharge"));
-    if(miss) miss.add(feeType);
     return 0;
   }
   const e=t[key];
@@ -2090,7 +2026,6 @@ function accLookup(cfg, feeType, channel, zone, issues, residential, miss){
     }
     issues.push(feeType+" @ "+channel+L(":沒有 Zone ",": no rate for Zone ")+zk
       +L(" 的費率",""));
-    if(miss) miss.add(feeType);
     return 0;
   }
   const v=toNum(e);
@@ -2102,10 +2037,6 @@ function accLookup(cfg, feeType, channel, zone, issues, residential, miss){
 function scanCharges(lines, dynMap, fuelOff){
   const seen={}, net={};
   let resCode=false, comCode=false, notRepriced=0;
-  /* 認不出來的代碼。以前這種行整個跳過,金額無聲消失 ——
-     重新計價的總額少一筆,而且沒有任何地方講。金額不動(照舊不進總額),
-     但要記下來,讓明細、報表和 issue 都講得出「少的是哪一筆」。 */
-  const unknown={}; let unknownAmt=0;
   let declared=0, commercialAdj=false, residentialAdj=false;
   /* 自訂附加費裡標 Fuel Eligible = NO 的,算進合約總額但不進燃油底。
      桌面版 dynamic_acc_nonfuel_names() + fuel_base 那一段。
@@ -2207,15 +2138,10 @@ function scanCharges(lines, dynMap, fuelOff){
         if(l.net<-0.001) famCredit[fam]=true;
         else if(l.net>0.001) famCharge[fam]=true;
       }
-    }else{
-      /* 這裡是唯一的落空出口:代碼不是主線、不是不重算、不在註冊表、
-         不在內建對照、也不屬於 AHS/LPS 家族。 */
-      unknown[c]=(unknown[c]||0)+l.net;
-      unknownAmt+=l.net;
     }
   }
   return {seen, net, resCode, comCode, notRepriced, declared, commercialAdj,
-          residentialAdj, unknown, unknownAmt:Math.round(unknownAmt*100)/100,
+          residentialAdj,
           nonFuel, dynMode, resBucket, ovrUpsNet, famCredit, famCharge};
 }
 
@@ -2302,17 +2228,6 @@ function priceShipment(cfg, s){
   const channel = svc==="Ground Commercial"||svc==="Ground Residential"
       ? (residential?"Ground Residential":"Ground Commercial")
       : svc;
-  /* 這一筆能不能計價,兩種擋法:
-       ① 渠道認不出來 —— 見 channelUnidentified()
-       ② 渠道認得出來,但這條線的基本運費表根本沒匯入
-     ②之所以也要整筆擋下來:沒有運費表就算不出運費,只收附加費和燃油
-     會產生一個「看起來有算、其實少了大半」的金額,那比 0 更危險。
-     純附加費的跨期更正不在此限 —— 它本來就沒有運費可算。 */
-  const chanUnknown=channelUnidentified(s);
-  const hasFreightHere=s.lines.some(l=>isFreightLine(l)&&!isReclassLine(l));
-  const noRates = (!chanUnknown && hasFreightHere && !channelHasRates(cfg, svc, residential))
-    ? channel : "";
-
   /* AHS-Weight 用磅秤重量,不是計費重也不是 SCC 更正後的重量。 */
   let ahsScale;
   if(s.layer==="ADJ") ahsScale = s.refEntered>0 ? s.refEntered
@@ -2388,27 +2303,6 @@ function priceShipment(cfg, s){
      所以整筆歸零:運費、附加費、Demand、燃油全部不算,連設定裡已經
      有費率的附加費也不算 —— 那些費率是別條渠道的,套在這條線上沒有
      依據。UPS 收的錢整筆記進「未認得」,在報表上看得見,不會消失。 */
-  if(chanUnknown||noRates){
-    if(noRates)
-      issues.push(L("這條渠道還沒有匯入基本運費表,整筆沒有計價(包含附加費)——"
-                    +"請到「渠道」分頁匯入費率:",
-                    "No base rate table has been imported for this channel, so nothing "
-                    +"was priced for it (surcharges included) — import its rates on the "
-                    +"Channels tab: ")+channel);
-    else
-    issues.push(L("這個服務名稱不在設定裡,整筆沒有計價(包含附加費)——"
-                  +"請先到「渠道」分頁新增這條渠道並匯入費率:",
-                  "This service name is not configured, so nothing was priced for it "
-                  +"(surcharges included) — add the channel on the Channels tab and "
-                  +"import its rates: ")+String(s.service||""));
-    return {s, bw, bwA:null, residential, resBasis, channel,
-            base:0, baseA:null, netCA:false, baseWhy:null, demand:null,
-            acc:{}, accInfo:{}, accTotal:0, fuel:0, fuelPct:0,
-            total:null, issues, npb:null, rtn:null, notRepriced:0,
-            unknownAcc:{}, unknownAmt:Math.round((s.upsTotal||0)*100)/100,
-            unknownChan:chanUnknown, noRateChan:noRates,
-            dinIsBase:false, retZone:s.zone, zoneUsed:s.zone, diff:null};
-  }
 
   /* ZONE 調整:整筆的 Zone 會取到 ZONE 行上的「舊」Zone。
      C 側要用更正後(SCC 行)的 Zone;舊的留給 A 側(zRow)。 */
@@ -2543,9 +2437,6 @@ function priceShipment(cfg, s){
 
   /* 附加費:UPS 收了才收 */
   const acc={}, accInfo={};
-  /* 這條渠道沒設定費率的費用項目。收 0 是不得已,但一定要記下來 ——
-     UPS 收了那筆錢,我們沒轉嫁,帳面上那是憑空少掉的收入。 */
-  const noRate=new Set();
   const modes=scan.dynMode||{};
   for(const [bucket,on] of Object.entries(scan.seen)){
     if(!on) continue;
@@ -2562,7 +2453,7 @@ function priceShipment(cfg, s){
     /* AHS / LPS 四桶不在這裡收 —— 下面的系統判定閘門統一處理
        (py :19674-:19969)。 */
     if(AHS_LPS_SIGNED.has(bucket)) continue;
-    acc[bucket]=accLookup(cfg,bucket,channel,zone,issues,residential,noRate);
+    acc[bucket]=accLookup(cfg,bucket,channel,zone,issues,residential);
   }
 
   /* ===== AHS / LPS 系統判定閘門,整段照 py :19674-:19969 =====
@@ -2608,14 +2499,14 @@ function priceShipment(cfg, s){
     }
     const rerated=f=>!!(scan.famCredit&&scan.famCredit[f]&&scan.famCharge[f]);
     const signedAmt=(bucket,rawNet)=>{
-      const amt=accLookup(cfg,bucket,channel,zone,issues,residential,noRate);
+      const amt=accLookup(cfg,bucket,channel,zone,issues,residential);
       if(rerated("ahs")) return amt;              /* 重開價:寫 C 的正額 */
       return rawNet<-0.001 ? -Math.abs(amt) : amt;
     };
     if(applyW) acc["AHS Weight"]=signedAmt("AHS Weight",nW);
     if(applyD) acc["AHS Dimension"]=signedAmt("AHS Dimension",nD);
     if(applyP) acc["AHS Packaging"]=signedAmt("AHS Packaging",nP);
-    if(applyLps) acc["Large Package"]=accLookup(cfg,"Large Package",channel,zone,issues,residential,noRate);
+    if(applyLps) acc["Large Package"]=accLookup(cfg,"Large Package",channel,zone,issues,residential);
     s.__gate={applyLps:applyLps,applyW:applyW,applyD:applyD,applyP:applyP};
     if((scan.seen["Large Package"]&&!applyLps)||(scan.seen["AHS Dimension"]&&!applyD&&!applyW&&!applyP))
       issues.push(L("UPS 帳單上有 AHS/大包裹代碼,但更正後的門檻判定不收(或改收別型)",
@@ -2634,11 +2525,11 @@ function priceShipment(cfg, s){
      (通常是負的)。桌面版 :19430 / :19474。以前只是「不收」,退款不見了。 */
   if(scan.commercialAdj && s.pureAdj){
     acc["Residential Surcharge"]=-accLookup(cfg,"Residential Surcharge",
-      "Ground Residential",zone,issues,true,noRate);
+      "Ground Residential",zone,issues,true);
     if(scan.seen["DAS Commercial"]||scan.seen["DAS Residential"]){
       acc["DAS Commercial"]=Math.round((
-          accLookup(cfg,"DAS Commercial","Ground Commercial",zone,issues,false,noRate)
-         -accLookup(cfg,"DAS Residential","Ground Residential",zone,issues,true,noRate))*100)/100;
+          accLookup(cfg,"DAS Commercial","Ground Commercial",zone,issues,false)
+         -accLookup(cfg,"DAS Residential","Ground Residential",zone,issues,true))*100)/100;
       delete acc["DAS Residential"];
     }
   }
@@ -2672,8 +2563,8 @@ function priceShipment(cfg, s){
       const chA=(typeof historyServiceFor==="function"
                  && historyServiceFor(s.tracking))||channel;
       const zA=(bwA&&bwA.zoneA)||zone;
-      const amtA=fee=>accLookup(cfg,fee,chA,zA,issues,(bwA&&bwA.resA),noRate);
-      const amtC=fee=>accLookup(cfg,fee,channel,zone,issues,undefined,noRate);
+      const amtA=fee=>accLookup(cfg,fee,chA,zA,issues,(bwA&&bwA.resA));
+      const amtC=fee=>accLookup(cfg,fee,channel,zone,issues,undefined);
       const r2=v=>Math.round(v*100)/100;
       /* AHS 與 LPS 互斥:A 觸發 LPS 時它的 AHS 貢獻是 0。 */
       const aAhs = bwA.oversize ? 0 : Math.max(
@@ -2728,7 +2619,7 @@ function priceShipment(cfg, s){
     else if(v2) acc["2nd Mile Road Base Rate"]=v2;
     /* 退回寄件人的附加費也照回程的 Zone 查。 */
     if(acc["Return To Sender"]!=null && retZone!==zone)
-      acc["Return To Sender"]=accLookup(cfg,"Return To Sender",channel,retZone,issues,residential,noRate);
+      acc["Return To Sender"]=accLookup(cfg,"Return To Sender",channel,retZone,issues,residential);
   }
 
   /* 宣告價值:UPS 收了才算,金額用合約級距重算 */
@@ -2798,42 +2689,9 @@ function priceShipment(cfg, s){
     for(const m of npb.issues) issues.push(L("第二段運送:","Second movement: ")+m);
   }
 
-  /* 沒有轉嫁出去的錢,兩個來源放同一個桶:認不出來的代碼,以及代碼認得
-     但這條渠道沒設費率的項目。對看報表的人來說是同一件事 ——
-     UPS 收了、我們沒收 —— 所以報表也只印一欄。 */
-  const unpriced=Object.assign({}, scan.unknown||{});
-  let unpricedAmt=toNum(scan.unknownAmt);
-
-  /* 認不出來的代碼:金額照舊不進總額(不知道費率,編一個數字更糟),
-     但一定要講出來。少的就是這筆錢,不講的話帳面上只會看到一個
-     對不起來的 diff。 */
-  if(scan.unknownAmt||Object.keys(scan.unknown||{}).length){
-    const lst=Object.entries(scan.unknown||{})
-      .map(([c,v])=>c+" "+money(v)).join(LANG?", ":"、");
-    issues.push(L("認不出來的收費代碼,沒有算進重新計價:",
-                  "Unrecognised charge codes, not included in the reprice: ")+lst);
-  }
-  /* 沒設費率的費用項目同理:代碼認得、UPS 也收了,但這條渠道沒有它的
-     費率,所以收 0。金額跟未知代碼放同一個桶 —— 對看報表的人來說,
-     兩者是同一件事:UPS 收了、我們沒收。 */
-  const noRateFees=[...noRate].filter(f=>Math.abs(toNum((scan.net||{})[f]))>0.005);
-  if(noRateFees.length){
-    let add=0;
-    for(const f of noRateFees){
-      const v=Math.round(toNum(scan.net[f])*100)/100;
-      unpriced[f]=(unpriced[f]||0)+v;
-      add+=v;
-    }
-    unpricedAmt=Math.round((unpricedAmt+add)*100)/100;
-    issues.push(L("這條渠道沒有這幾項的費率,收了 0:",
-                  "No rate on this channel for these, charged 0: ")
-      +noRateFees.map(f=>feeDisplay(f)+" "+money(toNum(scan.net[f]))).join(LANG?", ":"、"));
-  }
-
   return {s, bw, bwA, residential, resBasis, channel, base, baseA, netCA, baseWhy, demand,
           acc, accInfo, accTotal, fuel, fuelPct:fp.pct, total, issues, npb, rtn,
           notRepriced:scan.notRepriced,
-          unknownAcc:unpriced, unknownAmt:unpricedAmt,
           dinIsBase:!!(dinRow&&s.pureAdj), retZone:retZone, zoneUsed:zone,
           diff: total===null?null: total-s.upsTotal};
 }
@@ -5500,9 +5358,7 @@ function bkdSection(r){
   const s=r.s, esc2=x=>esc(String(x==null?"":x));
   const H=[];
   H.push(`<div class="strow" style="margin:6px 0 12px">`
-    /* 未設定的渠道印帳單上的服務名 —— 印 r.channel 會寫出 guessService()
-       退回去的預設渠道,那條線根本沒被拿來計價。 */
-    +`<span>${esc2(r.unknownChan||r.channel)}</span> · Zone ${esc2(r.zoneUsed||s.zone)}`
+    +`<span>${esc2(r.channel)}</span> · Zone ${esc2(r.zoneUsed||s.zone)}`
     +` · ${L("日期","date")} ${esc2(((s.groups||[]).find(g=>g.layer==="ADJ"&&g.shipDate)||{}).shipDate||s.shipDate)}</div>`);
 
   /* ---- 帳單行,依層分組(py:原始出貨 / 帳單調整) ---- */
@@ -5568,17 +5424,6 @@ function bkdSection(r){
     +`<td class="num" style="text-align:right;font-family:monospace;padding:5px 6px;`
     +`border-top:1.5px solid var(--accent);font-size:13.5px"><b>${money2(r.total||0)}</b></td></tr>`);
   rowH(L("UPS 實收","UPS billed"),s.upsTotal);
-  /* 認不出來的代碼放在 Total 底下,和「UPS 實收」同一區 —— 它不是
-     重新計價的組成,擺進上面那疊會讓那一欄加不起來。 */
-  if(r.unknownAmt) rowH(r.noRateChan
-      ? L("這條渠道沒有匯入運費表,整筆未計價",
-          "No base rates imported for this channel — nothing priced")
-    : r.unknownChan
-      ? L("渠道未設定,整筆未計價","Channel not configured — nothing priced")
-      /* 這一桶裝兩種:認不出來的代碼,以及沒設費率的項目。
-         標籤只寫「代碼」會讓後者看起來像另一回事。 */
-      : L("未計價(UPS 收了)","Not repriced (UPS billed)"),
-    r.unknownAmt);
   /* 最後一列:Reprice − UPS,附 (Reprice−UPS) ÷ Reprice 的百分比(兩位)。 */
   const bkDiff=(r.total||0)-s.upsTotal;
   const bkPct=(r.total&&Math.abs(r.total)>1e-9)?(bkDiff/r.total*100):null;
@@ -6401,15 +6246,7 @@ const REPORT_COLS=["Date","Tracking","Shipment Reference Number 1",
  /* Demand 四欄。桌面版 :17400 / :20335 有,這裡以前沒有 ——
     金額進了 Total,報表上卻沒有任何一欄能解釋那筆錢。 */
  "Demand - AHS","Demand - Large Package","Demand - Over Maximum","Demand - Service",
- "Fuel Surcharge",
- /* 認不出來的代碼收了多少。這一欄不進 Total —— 它是 UPS 收了、
-    但這套設定算不出來的錢,放進 Total 等於編一個沒有依據的數字。
-    列出來是為了讓看報表的人知道差額從哪來。 */
- "Not Repriced",
- /* UPS 這筆實際收了多少,以及為什麼沒有計價。渠道不在設定裡的單子
-    整列金額都是 0,不寫出來的話看報表的人只會看到一列 0,
-    不知道那是「不用收」還是「漏掉了」。 */
- "UPS Billed","Not Repriced Reason","Total"];
+ "Fuel Surcharge","Total"];
 const REPORT_COL_OF={
   "AHS Weight":"Additional Handling Surcharge - Weight",
   "AHS Dimension":"Additional Handling Surcharge - Dimension",
@@ -6420,33 +6257,13 @@ const REPORT_COL_OF={
   "Demand OVR":"Demand - Over Maximum",
   "Demand Service":"Demand - Service"
 };
-/* 這一列為什麼有錢沒轉嫁。三種原因寫成一句話 —— 一欄 0 而不說原因,
-   看報表的人分不出那是「不用收」還是「漏掉了」。 */
-function reasonFor(r){
-  if(r.unknownChan)
-    return (LANG?"channel not configured: ":"渠道未設定:")+r.unknownChan;
-  if(r.noRateChan)
-    return (LANG?"no base rates imported: ":"未匯入基本運費表:")+r.noRateChan;
-  const keys=Object.keys(r.unknownAcc||{});
-  if(!keys.length) return "";
-  /* 代碼是三碼大寫(UPS 的 AS code),費用名稱是一整串英文字。
-     兩者分開講,因為要做的事不一樣:一個要註冊代碼,一個要填費率。 */
-  const codes=keys.filter(k=>/^[A-Z0-9]{2,4}$/.test(k));
-  const fees=keys.filter(k=>codes.indexOf(k)<0);
-  const out=[];
-  if(codes.length) out.push((LANG?"unregistered code: ":"代碼未註冊:")+codes.join(", "));
-  if(fees.length)  out.push((LANG?"no rate on this channel: ":"這條渠道未設費率:")
-    +fees.map(feeDisplay).join(", "));
-  return out.join(" / ");
-}
 function reportRows(){
   const known=new Set(REPORT_COLS);
   return (RATED||[]).map(r=>{
     const s=r.s, o={};
     /* 數字欄沒有值就是 0,不是留白 —— 桌面版整份活頁簿沒有一格是空的。
        日期、追蹤號、Zone、Shipment Type 這些是文字,留白照舊。 */
-    const TEXTCOL=new Set(["Date","Tracking","Zone","Shipment Type",
-                           "Not Repriced Reason"]);
+    const TEXTCOL=new Set(["Date","Tracking","Zone","Shipment Type"]);
     for(const c of REPORT_COLS) o[c]=TEXTCOL.has(c)?"":0;
     /* Date 欄照 py 的 iv()(:20562):有 ADJ 主層就用 ADJ 層自己的
        Transaction Date,沒有才用 SHP / RTN。 */
@@ -6457,10 +6274,7 @@ function reportRows(){
     o["Shipment Reference Number 1"]=s.ref1||0;
     o["Shipment Reference Number 2"]=s.ref2||0;
     o["Zone"]=(r.zoneUsed!=null&&r.zoneUsed!=="")?r.zoneUsed:(s.zone||"");
-    /* 未設定的渠道印帳單上的原始服務名。印 r.channel 會寫出
-       guessService() 退回去的預設渠道(Ground Commercial),那條線根本
-       沒有被拿來計價,寫出來只會讓人以為算過了。 */
-    o["Shipment Type"]=r.unknownChan||r.channel||"";
+    o["Shipment Type"]=r.channel||"";
     o["Entered Weight"]=(s.enteredShown!=null?s.enteredShown:s.entered)||0;
     o["Billable Weight"]=r.bw.billable||0;
     /* 顯示用的尺寸照 py:1x1x1 佔位值計價當沒有,報表照印 —— py 的
@@ -6486,18 +6300,12 @@ function reportRows(){
     };
     put(r);
     o["Fuel Surcharge"]=r.fuel||0;
-    o["Not Repriced"]=r.unknownAmt||0;
-    o["UPS Billed"]=s.upsTotal||0;
-    /* 原因只在真的沒計價時才寫,其餘留白 —— 每一列都寫一句話,
-       那一欄就沒有人看了。 */
-    o["Not Repriced Reason"]=reasonFor(r);
     /* 退件回程併回同一列:運費進 Undeliverable Return,附加費與燃油相加。
        桌面版合併後也是一個追蹤號一列。 */
     if(r.rtn){
       o["Undeliverable Return"]=(toNum(o["Undeliverable Return"])||0)+(r.rtn.base||0);
       put(r.rtn);
       o["Fuel Surcharge"]=(toNum(o["Fuel Surcharge"])||0)+(r.rtn.fuel||0);
-      o["Not Repriced"]=(toNum(o["Not Repriced"])||0)+(r.rtn.unknownAmt||0);
     }
     o["Total"]=r.total==null?0:r.total;
     /* 第二段運送另外一列,不要把兩段的錢疊在同一格。 */
@@ -7273,242 +7081,12 @@ function codeKnown(code, cls, dyn){
      && normArCode(cls)===normArCode(d.ar||"ACC")) return true;
   return false;
 }
-let NEWQ=null;          /* 最近一次掃描的結果。關卡、匯出、續跑都讀它 */
-function scanNewThings(ships){
-  const dyn=(CFG&&CFG.raw&&CFG.raw.dynamic_surcharge_mapping)||{};
-  const codes=new Map(), chans=new Map(), rows=[];
-  const r2=v=>Math.round(v*100)/100;
-  for(const s of ships||[]){
-    /* 兩種都要擋在報表之前:渠道認不出來,以及渠道認得但沒匯入費率。
-       住/商要到計價時才定案,所以這裡兩張表都沒有才算「沒匯入」——
-       只有一張(多數空運線就是這樣)不該被誤報。 */
-    const unident=channelUnidentified(s);
-    const svcGuess=guessService(s.service);
-    const hasFrt=(s.allLines||[]).some(l=>isFreightLine(l)&&!isReclassLine(l));
-    const noRates = !unident && hasFrt && CFG
-      && !channelHasRates(CFG,svcGuess,false) && !channelHasRates(CFG,svcGuess,true)
-      ? svcGuess : "";
-    const svcNew=!!unident||!!noRates;
-    const mine={};
-    let amt=0;
-    for(const l of (s.allLines||[])){
-      if(codeKnown(l.code,l.cls,dyn)) continue;
-      const c=String(l.code||"").toUpperCase();
-      mine[c]=(mine[c]||0)+l.net;
-      amt+=l.net;
-      const e=codes.get(c)||{desc:"",n:0,amt:0};
-      e.n++; e.amt+=l.net;
-      if(!e.desc) e.desc=l.desc||"";
-      codes.set(c,e);
-    }
-    if(svcNew){
-      const nm=unident||noRates;
-      const e=chans.get(nm)||{n:0,amt:0,why:unident?"unset":"norates"};
-      e.n++; e.amt+=(s.upsTotal||0);
-      chans.set(nm,e);
-    }
-    if(svcNew||Object.keys(mine).length)
-      rows.push({tracking:s.tracking||"",
-                 invoice:((s.allLines&&s.allLines[0])||{}).invoice||"",
-                 service:s.service||"", svcNew, codes:mine,
-                 newAmt:r2(amt), ups:r2(s.upsTotal||0)});
-  }
-  return {
-    rows,
-    codes:[...codes.entries()].map(([c,v])=>({code:c,desc:v.desc,n:v.n,amt:r2(v.amt)}))
-            .sort((a,b)=>a.code.localeCompare(b.code)),
-    chans:[...chans.entries()].map(([c,v])=>({service:c,n:v.n,amt:r2(v.amt),why:v.why}))
-            .sort((a,b)=>String(a.service).localeCompare(String(b.service)))
-  };
-}
-function renderNewGate(){
-  const q=NEWQ; if(!q) return;
-  const cols=q.codes.map(c=>c.code);
-  const stat=(lab,val)=>`<div class="stat"><i>${lab}</i><b>${val}</b></div>`;
-  const totalNew=q.rows.reduce((a,r)=>a+r.newAmt,0);
-  $("#nwSum").innerHTML =
-      stat(L("沒見過的渠道","New channels"), q.chans.length.toLocaleString())
-    + stat(L("沒見過的代碼","New codes"), q.codes.length.toLocaleString())
-    + stat(L("影響追蹤號","Trackings"), q.rows.length.toLocaleString())
-    + stat(L("未認得金額","Unrecognised"), money(totalNew));
-  const head=$("#tNew").tHead.rows[0], body=$("#tNew").tBodies[0];
-  head.innerHTML=`<th>${L("追蹤號","Tracking")}</th>`
-    +`<th>${L("期別","Invoice")}</th>`
-    +`<th>${L("新渠道","New channel")}</th>`
-    +cols.map(c=>{
-        const m=q.codes.find(x=>x.code===c)||{};
-        return `<th class="num" title="${esc(m.desc||"")}">${esc(c)}</th>`;
-      }).join("")
-    +`<th class="num">${L("未認得合計","Unrecognised")}</th>`
-    +`<th class="num">${L("UPS 實收","UPS billed")}</th>`;
-  const cell=v=>v?money(v):`<span style="color:var(--muted)">—</span>`;
-  body.innerHTML=q.rows.map(r=>
-    `<tr><td style="font-family:monospace">${esc(r.tracking)}</td>`
-    +`<td>${esc(r.invoice)}</td>`
-    +`<td>${r.svcNew
-        ? `<span class="newtag">${esc(r.service||L("(無服務名)","(no service)"))}</span>`
-        : `<span style="color:var(--muted)">—</span>`}</td>`
-    +cols.map(c=>`<td class="num">${cell(r.codes[c])}</td>`).join("")
-    +`<td class="num"><b>${money(r.newAmt)}</b></td>`
-    +`<td class="num">${money(r.ups)}</td></tr>`).join("")
-    ||`<tr><td colspan="${cols.length+5}" class="empty">—</td></tr>`;
-  /* 新渠道用粗體紅字列在表格上面 —— 它比新代碼嚴重得多:
-     整筆運費會被算成別條渠道的價,不是少一筆附加費而已。 */
-  $("#nwChans").innerHTML = q.chans.length
-    ? `<div class="note warn"><b>${L("這幾條渠道整筆不會計價:",
-        "Nothing will be priced for these channels:")}</b><br>`
-      + q.chans.map(c=>`· ${esc(c.service||L("(無服務名)","(no service)"))} — `
-          + (c.why==="norates"
-              ? L("沒有匯入基本運費表","no base rate table imported")
-              : L("設定裡沒有這條渠道","not configured"))
-          + L("、共 ",", ") + c.n + L(" 筆,UPS 收 "," shipment(s), UPS billed ")
-          + money(c.amt)).join("<br>")
-      + `</div>`
-    : "";
-}
-/* 「沒渠道」和「有渠道但沒費率」要做的事不一樣:前者去新增渠道,
-   後者去匯出模板、填好、再匯入。所以按鈕分成兩顆,而且只在用得到的
-   時候出現 —— 一顆按了沒有意義的按鈕比沒有按鈕更誤導。 */
-function gateNoRateChan(){
-  const c=((NEWQ&&NEWQ.chans)||[]).find(x=>x.why==="norates");
-  return c?c.service:"";
-}
-function gateUnsetChan(){
-  const c=((NEWQ&&NEWQ.chans)||[]).find(x=>x.why!=="norates");
-  return c?c.service:"";
-}
-/* 這張帳單已經讀好了,關卡關掉也不要丟。使用者按捷徑去設定的時候,
-   舊做法是連同它一起丟 —— 設定完只能重選檔案、重按一次產生,
-   而且回不到剛才那張清單,不知道還剩幾項沒處理。 */
-let GATEPEND=null;
-function openNewGate(ing, ships){
-  GATEPEND={ing:ing, ships:ships};
-  hideGateBack();
-  renderNewGate();
-  const nr=gateNoRateChan(), un=gateUnsetChan();
-  if($("#nwRates")) $("#nwRates").style.display=nr?"":"none";
-  if($("#nwAddChan")) $("#nwAddChan").style.display=un?"":"none";
-  /* 「仍要產生」必須在自己的 click 裡呼叫 runReport —— showSaveFilePicker
-     要使用者手勢,Generate 那一下的授權到這裡已經過期了。 */
-  $("#nwGo").onclick=()=>{
-    GATEPEND=null; hideGateBack();
-    $("#nwBg").classList.remove("on");
-    logAdd("report with unknowns",
-      NEWQ.chans.length+" channel(s) / "+NEWQ.codes.length+" code(s)");
-    runReport(ing, ships);
-  };
-  $("#nwBg").classList.add("on");
-  setStatus(L("這期有設定裡沒有的東西","This period has items not in your settings"));
-}
-function closeNewGate(){ $("#nwBg").classList.remove("on"); }
-/* 真的不做了:連暫存的那張帳單一起丟掉,浮動列也收起來。 */
-function dropNewGate(){ GATEPEND=null; hideGateBack(); closeNewGate(); }
-function hideGateBack(){ $("#nwBack") && $("#nwBack").classList.remove("on"); }
-/* 捷徑用這個關窗:窗收起來,帳單留著,右下角留一條回去的路。 */
-function gateAway(){
-  closeNewGate();
-  const bar=$("#nwBack"); if(!bar||!GATEPEND) return;
-  const n=((NEWQ&&NEWQ.chans)||[]).length+((NEWQ&&NEWQ.codes)||[]).length;
-  const t=$("#nwBackTxt");
-  if(t) t.textContent=L("這期還有 "+n+" 項沒設定","This period still has "+n+" unset item(s)");
-  bar.classList.add("on");
-}
-/* 設定完按這裡:拿同一張帳單重掃一次。還有沒設定的就把清單再開起來
-   （這次少了剛處理掉的那幾項）;全部處理完了就直接產生報表 ——
-   這一下是使用者手勢,showSaveFilePicker 叫得動。 */
-$("#nwBackGo") && ($("#nwBackGo").onclick=()=>{
-  if(!GATEPEND) { hideGateBack(); return; }
-  const {ing, ships}=GATEPEND;
-  NEWQ=scanNewThings(ships);
-  if(NEWQ.rows.length){ openNewGate(ing, ships); return; }
-  GATEPEND=null; hideGateBack();
-  setStatus(L("都設定好了,開始產生報表","All set — generating the report"));
-  runReport(ing, ships);
-});
-$("#nwBackX") && ($("#nwBackX").onclick=()=>{
-  GATEPEND=null; hideGateBack();
-  setStatus(L("已取消","Cancelled"));
-});
-$("#nwX") && ($("#nwX").onclick=gateAway);
-$("#nwMax") && ($("#nwMax").onclick=()=>{
-  const m=$("#nwModal");
-  m.classList.toggle("max");
-  m.style.removeProperty("width"); m.style.removeProperty("height");
-  if(!m.classList.contains("max")){
-    m.style.width="min(1040px,100%)"; m.style.height="min(76vh,900px)";
-  }
-  $("#nwMax").textContent=m.classList.contains("max")?"⤡":"⤢";
-});
-$("#nwCancel") && ($("#nwCancel").onclick=()=>{
-  dropNewGate(); setStatus(L("已取消","Cancelled"));
-});
-$("#nwBg") && ($("#nwBg").onclick=e=>{ if(e.target===$("#nwBg")) gateAway(); });
-/* 兩個捷徑:代碼去自訂附加費、渠道去渠道分頁。當場處理,不用記下來事後找。 */
-$("#nwAddCode") && ($("#nwAddCode").onclick=()=>{
-  gateAway(); showTab("rules");
-  if(typeof dynLoad==="function") dynLoad();
-  $("#dynBg") && $("#dynBg").classList.add("on");
-});
-/* 名稱直接帶進去 —— 使用者剛在關卡上看到的字,不該再手抄一次,
-   抄錯一個字就變成另一條渠道,下一期還是會被擋。Zones 留空,
-   新增時會自動沿用 Ground Commercial 的分區。 */
-$("#nwAddChan") && ($("#nwAddChan").onclick=()=>{
-  const want=gateUnsetChan();
-  gateAway(); showTab("chan");
-  const el=$("#newChanName");
-  if(el){ if(want) el.value=want; el.focus(); el.select&&el.select();
-    el.scrollIntoView({block:"center"}); }
-  if(want) setStatus(L("① 按「新增渠道」建立「"+want+"」→ ② 在下面「費率表狀態」選它 →"
-      +" 匯出空白費率表 → 填好金額 → 匯入 → 儲存設定",
-    "① Press Add channel to create \""+want+"\" → ② pick it under Rate table state →"
-      +" export the blank template → fill in the amounts → import → save settings"));
-});
-/* 帶到「費率表狀態」那一區,而且先把選單切到缺費率的那條渠道 ——
-   不切的話使用者到了頁面還要自己在幾十條裡找。 */
-$("#nwRates") && ($("#nwRates").onclick=()=>{
-  const want=gateNoRateChan();
-  gateAway(); showTab("chan");
-  const rc=$("#rateChan");
-  if(rc && want){
-    /* 選單的值是「渠道|C」或「渠道|R」。先找商業,沒有再找住宅,
-       都沒有就維持原樣 —— 選不到不要靜靜跳過,狀態列會講。 */
-    const hit=[...rc.options].find(o=>o.value===want+"|C")
-           || [...rc.options].find(o=>o.value===want+"|R")
-           || [...rc.options].find(o=>o.value.split("|")[0]===want);
-    if(hit){ rc.value=hit.value; renderConfigTabs(); }
-  }
-  const box=$("#bExpRate");
-  if(box){
-    box.scrollIntoView({block:"center"});
-    box.classList.remove("justset"); void box.offsetWidth; box.classList.add("justset");
-    setTimeout(()=>box.classList.remove("justset"),1400);
-  }
-  setStatus(want
-    ? (LANG?"Export the template for "+want+", fill it in, then import it back"
-           :want+":匯出模板、填好金額、再匯入")
-    : (LANG?"Pick a channel, export the template, fill it in, then import"
-           :"選渠道、匯出模板、填好、再匯入"));
-});
-$("#nwExport") && ($("#nwExport").onclick=()=>{
-  const q=NEWQ; if(!q) return;
-  const cols=q.codes.map(c=>c.code);
-  const head=["Tracking","Invoice","New Channel",...cols,"Unrecognised","UPS Billed"];
-  const aoa=[head,...q.rows.map(r=>[r.tracking,r.invoice,r.svcNew?r.service:"",
-    ...cols.map(c=>r.codes[c]||0), r.newAmt, r.ups])];
-  saveSheet(aoa,"New This Period","new_this_period.xlsx",3)
-    .then(ok=>setStatus(ok?L("清單已匯出","List exported"):L("已取消存檔","Save cancelled")));
-});
-
 /* ---- 產生報表 ---- */
 $("#bRun").onclick=async ()=>{
   setStatus(L("讀取中…","Reading…"));
   try{
     const ing=ingest(INV);
     const ships=shipmentsOf(ing.rows);
-    /* 設定裡沒有的渠道或代碼,先擋一道再算。算完才發現沒有意義 ——
-       報表那時已經倒出去了。沒有新東西就直接往下跑,不多一次點擊。 */
-    NEWQ=scanNewThings(ships);
-    if(NEWQ.rows.length){ openNewGate(ing, ships); return; }
     await runReport(ing, ships);
   }catch(e){
     $("#cfgNote").innerHTML=`<div class="note warn"><b>`
@@ -7518,8 +7096,7 @@ $("#bRun").onclick=async ()=>{
 };
 
 /* 真正的產生報表。從「問要存哪裡」開始 —— showSaveFilePicker 需要
-   使用者手勢,所以這個函式一定要在某個 click 處理器裡呼叫:
-   沒有新東西時是 Generate 那一下,有新東西時是關卡上「仍要產生」那一下。 */
+   使用者手勢,所以這個函式一定要在 Generate 那一下的 click 處理器裡呼叫。 */
 async function runReport(ing, ships){
   try{
     SAVE_TO=await pickSave(reportName());
@@ -7998,89 +7575,9 @@ function serviceRecognised(d0){
   const d=String(d0==null?"":d0).trim().toLowerCase();
   return SERVICE_PATTERNS.some(p=>d.indexOf(p[0])>=0);
 }
-/* SERVICE_PATTERNS 尾巴那幾條是「什麼都配不到時的最後手段」,配到它們
-   不代表認出了渠道 —— "Shipping Charge Correction Hyperloop Overnight"
-   會配到 "shipping charge correction" 然後被當成 Ground Commercial,
-   算出一個看起來正常、其實用錯費率的數字。 */
-const SERVICE_GENERIC=["commercial adjustment",
-                       "shipping charge correction","residential"];
-/* 設定裡自己加的渠道名。SERVICE_PATTERNS 是寫死的清單,認不得使用者
-   新增的渠道 —— 少了這一段,照著關卡的指示把渠道加進去以後,下一次掃描
-   還是判它「沒設定」,整筆照樣不計價,而且看不出是哪裡沒生效。
-   同時比對到好幾條時取最長的那條:"Ground Commercial" 要贏過 "Ground"。 */
-function configuredService(d0){
-  const d=String(d0==null?"":d0).trim().toLowerCase();
-  if(!d) return "";
-  const zones=(CFG&&CFG.raw&&CFG.raw.builtin_service_zones)||{};
-  let best="";
-  for(const name of Object.keys(zones)){
-    const n=String(name).trim().toLowerCase();
-    if(!n) continue;
-    if(d===n || d.indexOf(n)>=0){
-      if(n.length>String(best).trim().length) best=name;
-    }
-  }
-  return best;
-}
-function serviceIdentified(d0){
-  const d=String(d0==null?"":d0).trim().toLowerCase();
-  if(!d) return true;
-  /* 先看有沒有配到「真的講出服務」的規則 */
-  if(SERVICE_PATTERNS.some(p=>SERVICE_GENERIC.indexOf(p[0])<0 && d.indexOf(p[0])>=0))
-    return true;
-  /* 使用者自己加的渠道也算認得出來 */
-  if(configuredService(d)) return true;
-  /* 只配到最後手段時,把那段字拿掉再看剩下什麼:
-       "Commercial Adjustment"                          -> 什麼都不剩
-       "Shipping Charge Correction"                     -> 什麼都不剩
-     這兩種本來就沒有講渠道,是重分類或一般更正,交給歷史與預設去判,
-     不能因此把整筆判成「沒設定的渠道」。
-       "Shipping Charge Correction Hyperloop Overnight" -> 剩 hyperloop overnight
-     剩下的字就是它講了一條我們不認得的服務。 */
-  let rest=d;
-  for(const g of SERVICE_GENERIC) rest=rest.split(g).join(" ");
-  return rest.replace(/[^a-z]+/g," ").trim()==="";
-}
-/* 住商重分類那一行(COM / Commercial Adjustment / Residential Adjustment)。
-   它掛在 AR=FRT 上,所以會被當成運費行,但它講的是「這件其實是商業」,
-   不是一條渠道 —— 判渠道時要跳過,判定條件與 scanCharges 那邊一致。 */
-function isReclassLine(l){
-  if(!l || String(l.layer||"")!=="ADJ") return false;
-  if(String(l.cls||"").toUpperCase()!=="FRT") return false;
-  const d=String(l.desc||"").toUpperCase();
-  return d.indexOf("COMMERCIAL ADJUSTMENT")>=0
-      || d.indexOf("RESIDENTIAL ADJUSTMENT")>=0
-      || String(l.code||"").toUpperCase()==="COM";
-}
-/* 這一筆的渠道認不認得出來。回傳認不出來的那個服務名,認得出來回空字串。
-   計價和「這期有新東西」的關卡共用這一個判斷 —— 兩邊各寫一份,
-   遲早出現「關卡沒警告、報表卻整筆是 0」這種對不起來的情況。 */
-function channelUnidentified(s){
-  const lines=(s&&(s.allLines||s.lines))||[];
-  /* 沒有運費行就沒有服務名可以判。純附加費的跨期更正屬於這一類 ——
-     它的 s.service 取到的是附加費說明(例如 "Additional Handling
-     Surcharge - Weight"),那不是渠道,拿去比對只會誤判。
-     重分類行同理:它掛在 AR=FRT 上,但講的是住商改判,不是渠道。 */
-  if(!lines.some(l=>isFreightLine(l) && !isReclassLine(l))) return "";
-  if(lines.some(isReclassLine) && !lines.some(l=>isFreightLine(l)&&!isReclassLine(l)))
-    return "";
-  const desc=String((s&&s.service)||"").trim();
-  if(!desc) return "";
-  if(serviceIdentified(desc)) return "";
-  /* 跨期更正常常只寫 "Shipping Charge Correction",從字面認不出渠道,
-     但帳單歷史知道這個追蹤號原本走哪一條。查得到就照歷史算,
-     這正是歷史存在的理由,不該因為字面認不出來就整筆不計價。 */
-  if(typeof historyServiceFor==="function" && historyServiceFor(s.tracking)) return "";
-  return desc;
-}
 function guessService(d0){
   const d=String(d0==null?"":d0).trim().toLowerCase();
   for(const [pat,name] of SERVICE_PATTERNS) if(d.indexOf(pat)>=0) return name;
-  /* 寫死的清單認不得,就看設定裡有沒有同名的渠道 —— 使用者為了這張帳單
-     新增的渠道要真的被用到,不然加了等於沒加。放在內建規則後面:
-     新增一條叫 "Air" 的渠道不該把所有空運件都搶過去。 */
-  const cs=configuredService(d);
-  if(cs) return cs;
   /* 全部落空時退回設定裡的預設服務,和桌面版 base_rate_service 一樣;
      以前回傳原始描述,結果是一個永遠配不到費率表的字串。 */
   const dflt=String((CFG&&CFG.raw&&CFG.raw.base_rate_service)||"").trim();
@@ -8231,16 +7728,6 @@ const I18N={
   "hd.dimf":["材積除數","DIM Factor"],
   "hd.rulesforce":["目前生效的規則","Rules in Force"],
   "lb.defdim":["預設材積除數","Default DIM factor"],
-  "hd.newthings":["這期有設定裡沒有的東西","New in this invoice"],
-  "hint.newthings":["一列一個追蹤號。每個沒見過的收費代碼各占一欄,格子裡是 UPS 收的錢。這些代碼目前不會進重新計價的總額,等於那筆錢沒有轉嫁給客戶。",
-    "One row per tracking number. Each unrecognised charge code gets its own column, and the cell is what UPS billed for it. Unrecognised codes are dropped from the repriced total today, so that money is not billed on to the customer."],
-  "btn.addchanshort":["新增渠道…","Add channel…"],
-  "btn.backlist":["回到清單","Back to the list"],
-  "btn.fillrates":["去填這條的費率…","Import rates…"],
-  "btn.addcodeshort":["註冊代碼…","Register code…"],
-  "btn.exportlist":["匯出清單","Export list"],
-  "btn.cancel":["取消","Cancel"],
-  "btn.goanyway":["仍要產生報表","Generate anyway"],
   "hd.loadedrates":["已載入的運費表","Loaded base rates"],
   "btn.viewrates":["檢視已載入的運費","View loaded rates"],
   "hd.bulkchan":["批量設定渠道門檻","Bulk Set Channels"],
