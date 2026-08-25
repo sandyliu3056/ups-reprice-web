@@ -340,6 +340,13 @@ td.cells{white-space:normal}
 .chkgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
   gap:4px 12px;max-height:150px;overflow:auto}
 .chkgrid label{display:flex;align-items:center;gap:6px;font-size:12.5px}
+/* 燃油排程篩選:渠道圓片,可多選;亮起 = 只看勾中的渠道 */
+.chiprow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fchip{font-size:12px;font-weight:600;color:var(--accent);background:var(--panel);
+  border:1.5px solid var(--accent);border-radius:999px;padding:4px 12px;
+  cursor:pointer;user-select:none;line-height:1.4;transition:background .12s}
+.fchip:hover{background:var(--select)}
+.fchip.on{background:var(--tab)}
 
 /* 場景與時鐘 */
 #scene{width:100%;height:200px;display:block;border-radius:0}
@@ -855,6 +862,18 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <div id="fuelChans" class="chkgrid"></div>
       </div>
       <div class="subhd" data-i18n="hd.fuelforce">Fuel Schedule in Effect</div>
+      <div class="sketch-soft" style="padding:8px 12px;margin-bottom:8px">
+        <div id="fuelFChans" class="chiprow" style="margin-bottom:8px"></div>
+        <div class="row" style="margin:0">
+          <input id="fuelFFrom" class="cell" style="width:120px;text-align:left">
+          <button class="act ghost pickBtn" data-for="fuelFFrom">📅</button>
+          <span class="inlab" style="margin-left:4px">~</span>
+          <input id="fuelFTo" class="cell" style="width:120px;text-align:left;margin-left:4px">
+          <button class="act ghost pickBtn" data-for="fuelFTo">📅</button>
+          <span id="fuelFCount" class="inlab" style="margin-left:auto"></span>
+          <button class="act ghost" id="bFuelFClear">✕</button>
+        </div>
+      </div>
       <div class="tablewrap" style="max-height:230px">
         <table id="tFuel"><thead><tr>
           <th style="width:30px"></th>
@@ -4694,29 +4713,110 @@ $("#bClearSearch") && ($("#bClearSearch").onclick=()=>{
   $("#codeSearch").value=""; renderCode(); });
 $("#codeFilter") && ($("#codeFilter").onchange=()=>renderCode());
 $("#bTrkSearch") && ($("#bTrkSearch").onclick=()=>renderHist());
-/* Rating Breakdown:照桌面版 open_explain_window 的原則 ——
-   「說明只複述重算算出來的數字,不會自行推算,否則兩邊會對不上。」
-   (py :12926 的教訓:第二顆引擎追不上第一顆,只能拿掉。)
-   所以這裡直接讀最近一次重算的 RATED 紀錄;不在裡面就請先重算。 */
+/* Rating Breakdown:同一顆引擎(shipmentsOf + priceShipment)對已存帳單現算,
+   不是另寫一顆說明用引擎(py :12926 的教訓仍然成立 —— 這裡沒有第二套算法)。
+   追蹤號存在於已存帳單(或本期匯入)就能看;每一期各算一次,
+   先列各期比對(Invoice / 日期 / Reprice / UPS 實收 / 差異 / %),再逐期展開明細。 */
 function openBreakdown(){
   const t=String(($("#trkSearch")||{}).value||"").trim().toUpperCase();
   const body=$("#bkdBody");
   const money2=v=>"$"+(Math.round((v||0)*100)/100).toLocaleString(undefined,
     {minimumFractionDigits:2,maximumFractionDigits:2});
+  const esc2=x=>esc(String(x==null?"":x));
   if(!t){ body.innerHTML=`<div class="note plain">`
       +L("先在上面輸入單號。","Enter a tracking number above first.")+`</div>`;
     $("#bkdBg").classList.add("on"); return; }
-  const r=(RATED||[]).find(o=>String(o.s.tracking).toUpperCase()===t);
-  if(!r){
+  /* 依期別收行:已存帳單優先,本期匯入只補還沒存進去的期別,同一期不重複。 */
+  const byInv=new Map();
+  const put=r=>{ if(String(r.tracking||"").toUpperCase()!==t) return;
+    const k=r.invoice||"(current)";
+    if(!byInv.has(k)) byInv.set(k,{invoice:r.invoice||"",invDate:r.invDate||"",rows:[]});
+    byInv.get(k).rows.push(r); };
+  for(const r of (HISTROWS||[])) put(r);
+  const seen=new Set(byInv.keys());
+  for(const r of (ROWS||[])){ if(!seen.has(r.invoice||"(current)")) put(r); }
+  if(!byInv.size){
     body.innerHTML=`<div class="note warn">`
-      +L("這筆不在最近一次重算的結果裡,因此無法說明它的金額。<br>請先對包含這筆單號的帳單執行 Generate Reprice Report,再回來查詢。<br><span style='opacity:.75'>(說明只複述重算算出來的數字,不會自行推算,否則兩邊會對不上。)</span>",
-         "This tracking is not in the last repricing run, so there is nothing to explain yet.<br>Run Generate Reprice Report on the invoice that contains it, then look it up again.<br><span style='opacity:.75'>(The explanation only restates what the run computed - it does not work the figures out a second time.)</span>")
+      +L("已存帳單裡沒有這個追蹤號。請先匯入(或儲存)包含這筆的帳單,再回來查詢。",
+         "This tracking number is not in any stored invoice. Import or store the invoice that contains it, then look it up again.")
       +`</div>`;
     $("#bkdBg").classList.add("on"); return;
   }
+  if(!CFG){
+    body.innerHTML=`<div class="note warn">`
+      +L("還沒匯入費率設定,無法重新計價。請先在 Import Files 匯入設定檔。",
+         "No rate configuration is loaded, so there is nothing to reprice with. Import the config file under Import Files first.")
+      +`</div>`;
+    $("#bkdBg").classList.add("on"); return;
+  }
+  /* 日期正規化成 YYYY-MM-DD 再排,2026/8/22 和 2026-08-01 混用也排得對。 */
+  const nd=d=>{ const m=String(d||"").replace(/\//g,"-").match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    return m ? m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0") : ""; };
+  const list=[...byInv.values()].sort((a,b)=>{
+    const da=nd(a.invDate), db=nd(b.invDate);
+    return da<db?-1:da>db?1:(a.invoice<b.invoice?-1:1); });
+  /* shipmentsOf 會清 ACCT_LINES,先存後還,不動報表那邊的狀態。 */
+  const keep=ACCT_LINES, out=[];
+  for(const g of list){
+    let r=null, err="";
+    try{
+      const s=shipmentsOf(g.rows).find(x=>String(x.tracking).toUpperCase()===t);
+      if(s) r=priceShipment(CFG,s);
+    }catch(e){ err=String((e&&e.message)||e); }
+    out.push({inv:g.invoice,invDate:g.invDate,r,err,
+      ups:g.rows.reduce((a,l)=>a+(l.net||0),0)});
+  }
+  ACCT_LINES=keep;
+  const H=[];
+  H.push(`<div style="font-family:Consolas,monospace;font-size:15px"><b>${esc2(t)}</b></div>`);
+  H.push(`<div class="subhd">${L("各期比對","Per-invoice comparison")}</div>`);
+  H.push(`<table style="width:100%;font-size:12.5px;margin-bottom:12px">`);
+  H.push(`<tr><td><b>Invoice</b></td><td><b>${L("帳單日期","Invoice date")}</b></td>`
+    +`<td style="text-align:right"><b>Reprice</b></td>`
+    +`<td style="text-align:right"><b>${L("UPS 實收","UPS billed")}</b></td>`
+    +`<td style="text-align:right"><b>${L("差異","Diff")}</b></td>`
+    +`<td style="text-align:right"><b>%</b></td></tr>`);
+  let tRe=0,tUp=0,allPriced=true;
+  for(const o of out){
+    const rp=(o.r&&o.r.total!=null)?o.r.total:null;
+    const up=o.r?o.r.s.upsTotal:o.ups;
+    const d=rp==null?null:rp-up;
+    const p=(rp!=null&&Math.abs(rp)>1e-9)?(d/rp*100):null;
+    if(rp!=null) tRe+=rp; else allPriced=false;
+    tUp+=up;
+    H.push(`<tr><td class="mono">${esc2(o.inv)}</td><td>${esc2(o.invDate)}</td>`
+      +`<td style="text-align:right;font-family:monospace">${rp==null?"—":money2(rp)}</td>`
+      +`<td style="text-align:right;font-family:monospace">${money2(up)}</td>`
+      +`<td style="text-align:right;font-family:monospace${d!=null&&d<0?";color:var(--neg)":""}">${d==null?"—":money2(d)}</td>`
+      +`<td style="text-align:right;font-family:monospace">${p==null?"—":p.toFixed(2)+"%"}</td></tr>`);
+  }
+  if(out.length>1){
+    const td=allPriced?tRe-tUp:null;
+    const tp=(allPriced&&Math.abs(tRe)>1e-9)?(td/tRe*100):null;
+    H.push(`<tr><td style="border-top:1px solid var(--line)"><b>${L("合計","Total")}</b></td>`
+      +`<td style="border-top:1px solid var(--line)"></td>`
+      +`<td style="text-align:right;font-family:monospace;border-top:1px solid var(--line)"><b>${allPriced?money2(tRe):"—"}</b></td>`
+      +`<td style="text-align:right;font-family:monospace;border-top:1px solid var(--line)"><b>${money2(tUp)}</b></td>`
+      +`<td style="text-align:right;font-family:monospace;border-top:1px solid var(--line)"><b>${td==null?"—":money2(td)}</b></td>`
+      +`<td style="text-align:right;font-family:monospace;border-top:1px solid var(--line)"><b>${tp==null?"—":tp.toFixed(2)+"%"}</b></td></tr>`);
+  }
+  H.push(`</table>`);
+  for(const o of out){
+    H.push(`<div style="border-top:1px solid var(--line);margin:12px 0 8px"></div>`);
+    H.push(`<div style="font-family:Consolas,monospace;font-size:13.5px;margin-bottom:6px">`
+      +`<b>${esc2(o.inv)}</b> · ${esc2(o.invDate)}</div>`);
+    if(o.r) H.push(bkdSection(o.r));
+    else H.push(`<div class="note warn">${esc2(o.err)||L("這一期無法計價。","Could not price this period.")}</div>`);
+  }
+  body.innerHTML=H.join("");
+  $("#bkdBg").classList.add("on");
+}
+/* 單一期的明細:讀 priceShipment 算出來的紀錄,原樣複述。 */
+function bkdSection(r){
+  const money2=v=>"$"+(Math.round((v||0)*100)/100).toLocaleString(undefined,
+    {minimumFractionDigits:2,maximumFractionDigits:2});
   const s=r.s, esc2=x=>esc(String(x==null?"":x));
   const H=[];
-  H.push(`<div style="font-family:Consolas,monospace;font-size:15px"><b>${esc2(s.tracking)}</b></div>`);
   H.push(`<div class="strow" style="margin:6px 0 12px">`
     +`<span>${esc2(r.channel)}</span> · Zone ${esc2(r.zoneUsed||s.zone)}`
     +` · ${L("日期","date")} ${esc2(((s.groups||[]).find(g=>g.layer==="ADJ"&&g.shipDate)||{}).shipDate||s.shipDate)}</div>`);
@@ -4793,8 +4893,7 @@ function openBreakdown(){
     H.push(`<div class="subhd">${L("注意事項","Notes")}</div>`);
     H.push(`<div style="font-size:12px;opacity:.85">`+r.issues.map(i=>"· "+esc2(i)).join("<br>")+`</div>`);
   }
-  body.innerHTML=H.join("");
-  $("#bkdBg").classList.add("on");
+  return H.join("");
 }
 $("#bTrkBreak") && ($("#bTrkBreak").onclick=openBreakdown);
 $("#bkdX") && ($("#bkdX").onclick=()=>$("#bkdBg").classList.remove("on"));
@@ -5242,7 +5341,9 @@ function flashField(id){
 }
 const DP_LABEL={
   fuelFrom:["開始日期","Start date"],
-  fuelTo:["結束日期","End date"]
+  fuelTo:["結束日期","End date"],
+  fuelFFrom:["篩選起日","Filter from"],
+  fuelFTo:["篩選迄日","Filter to"]
 };
 function openPicker(id){
   DP_TARGET=id;
@@ -5300,7 +5401,9 @@ function renderPicker(){
   $("#dpGrid").innerHTML=html;
   $("#dpGrid").querySelectorAll("button[data-d]").forEach(b=>b.onclick=()=>{
     const target=DP_TARGET;
-    if(target){ $("#"+target).value=b.dataset.d; flashField(target); }
+    if(target){ $("#"+target).value=b.dataset.d; flashField(target);
+      /* 篩選日期一挑就生效,不用再按任何東西 */
+      if(target==="fuelFFrom"||target==="fuelFTo") renderFuelRows(); }
     /* 一段區間要兩個日期。挑完開始直接換到結束 —— 關掉再開會閃一下,
        看起來像沒反應,所以視窗留著,只換目標並重畫。
        結束日期已經填過就不打擾,只想改開始日期的人不該被拉走。 */
@@ -5311,6 +5414,9 @@ function renderPicker(){
       if(m){ DP_Y=+m[1]; DP_M=+m[2]-1; }
       renderPicker();
       return;
+    }
+    if(target==="fuelFFrom" && !(($("#fuelFTo")||{}).value||"").trim()){
+      DP_TARGET="fuelFTo"; renderPicker(); return;
     }
     closePicker();
   });
@@ -5819,10 +5925,34 @@ function fuelEffPaint(){
 }
 $("#fuelPctFold") && ($("#fuelPctFold").onchange=fuelEffPaint);
 $("#fuelPct") && ($("#fuelPct").addEventListener("input",fuelEffPaint));
+/* 排程表的篩選只影響顯示,不動資料;勾選刪除用的 data-i 仍是原始索引。 */
+let FUEL_FCH=new Set();
 function renderFuelRows(){
-  const s=fuelSched(), rows=[];
+  const s=fuelSched(), all=[];
   for(const [ch,list] of Object.entries(s))
-    (Array.isArray(list)?list:[]).forEach((r,i)=>rows.push({ch,i,...r}));
+    (Array.isArray(list)?list:[]).forEach((r,i)=>all.push({ch,i,...r}));
+  /* 渠道圓片照排程裡出現的渠道長,多選;已消失的選取順手清掉。 */
+  const chans=[...new Set(all.map(r=>r.ch))];
+  for(const c of [...FUEL_FCH]) if(!chans.includes(c)) FUEL_FCH.delete(c);
+  const box=$("#fuelFChans");
+  if(box){
+    box.innerHTML=chans.map(c=>`<span class="fchip${
+      FUEL_FCH.has(c)?" on":""}" data-ch="${esc(c)}">${esc(c)}</span>`).join("");
+    box.querySelectorAll(".fchip").forEach(el=>el.onclick=()=>{
+      const c=el.dataset.ch;
+      FUEL_FCH.has(c)?FUEL_FCH.delete(c):FUEL_FCH.add(c);
+      renderFuelRows();
+    });
+  }
+  /* 日期用區間交集:區間有任何一天落在篩選範圍內就顯示。 */
+  const ff=schedDate(String((($("#fuelFFrom")||{}).value||"")).trim())||"";
+  const ft=schedDate(String((($("#fuelFTo")||{}).value||"")).trim())||"";
+  const rows=all.filter(r=>
+       (!FUEL_FCH.size || FUEL_FCH.has(r.ch))
+    && (!ff || !r.end   || String(r.end)>=ff)
+    && (!ft || !r.start || String(r.start)<=ft));
+  const cnt=$("#fuelFCount");
+  if(cnt) cnt.textContent=(FUEL_FCH.size||ff||ft)?rows.length+" / "+all.length:"";
   const def=(CFG.raw.global_rules||{}).fuel_percent;
   $("#tFuel").tBodies[0].innerHTML=rows.length
     ? rows.map(r=>`<tr>
@@ -5830,10 +5960,31 @@ function renderFuelRows(){
         <td>${esc(r.ch)}</td><td>${esc(r.start||"")}</td><td>${esc(r.end||"")}</td>
         <td class="num">${r.pct!==undefined?r.pct+"%":"—"}</td>
         <td class="num">${r.pct!==undefined?"—":(def?def+"%":"—")}</td></tr>`).join("")
-    : `<tr><td colspan="6" class="empty">${LANG
-        ?"No ranges. Every ship date uses the default percent."
-        :"沒有區間,所有出貨日都用預設 %。"}</td></tr>`;
+    : `<tr><td colspan="6" class="empty">${ all.length
+        ? (LANG?"No ranges match the filter.":"沒有符合篩選的區間。")
+        : (LANG?"No ranges. Every ship date uses the default percent."
+               :"沒有區間,所有出貨日都用預設 %。")}</td></tr>`;
 }
+/* 篩選日期:手打離開欄位時整理格式並即時套用;✕ 清掉全部篩選。 */
+["fuelFFrom","fuelFTo"].forEach(id=>{
+  const el=$("#"+id); if(!el) return;
+  const go=()=>{
+    const t=el.value.trim();
+    if(!t){ el.style.borderColor=""; renderFuelRows(); return; }
+    const iso=schedDate(t);
+    if(iso){ el.value=iso; el.style.borderColor=""; }
+    else el.style.borderColor="var(--neg)";
+    renderFuelRows();
+  };
+  el.addEventListener("blur",go);
+  el.addEventListener("keydown",e=>{ if(e.key==="Enter") go(); });
+});
+$("#bFuelFClear") && ($("#bFuelFClear").onclick=()=>{
+  FUEL_FCH.clear();
+  ["fuelFFrom","fuelFTo"].forEach(id=>{
+    const el=$("#"+id); if(el){ el.value=""; el.style.borderColor=""; } });
+  renderFuelRows();
+});
 /* From / To 開放手打(原本 readonly 只能按 📅)。離開欄位時用 schedDate()
    整理成 YYYY-MM-DD —— 2026/8/1、8/1/2026、20260801 都吃;認不得就
    紅框提醒,不擋人,按 Add 時再驗一次。 */
