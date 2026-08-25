@@ -1630,6 +1630,31 @@ function calcDemand(cfg, shipDate, service, flags){
   return out;
 }
 
+/* 這條渠道的基本運費表。查表與「這條渠道到底有沒有匯入費率」共用同一套
+   候選規則 —— 兩邊各寫一份,遲早出現「查得到表卻說沒匯入」這種矛盾。
+
+   住/商候選順序照桌面版 :16961:最要緊的是「名字對、旗標相反」那一段,
+   只匯入一張商業卡的帳號(多數空運線都是),住宅件不走這條就完全查不到表。
+   residential 為 null 是舊格式的字串鍵,兩種旗標都收。 */
+function rateTableFor(cfg, service, residential){
+  const s=String(service||"").trim();
+  const cands=[s, svcOfChan(s)];
+  if(/^ground/i.test(s)) cands.push(residential?"Ground Residential":"Ground Commercial");
+  const nameHit=x=>cands.some(c=>c&&String(x.service).trim().toLowerCase()===String(c).toLowerCase());
+  for(const want of [!!residential, !residential]){
+    const t=(cfg.tables||[]).find(x=>nameHit(x)
+      && (x.residential===null||x.residential===want));
+    if(t) return t;
+  }
+  return null;
+}
+/* 有沒有匯入這條渠道的費率(表存在而且有列)。空表等於沒匯入 ——
+   匯出的模板本身就是一張沒有金額的空表。 */
+function channelHasRates(cfg, service, residential){
+  const t=rateTableFor(cfg, service, residential);
+  return !!(t && (t.rows||[]).length);
+}
+
 /* ---- 基本費率查表:service × residential × zone × 計費重量 ---- */
 function lookupBaseRate(cfg, service, residential, zone, billWeight){
   /* Ground 的兩張表用名字分商/住("Ground Commercial" / "Ground Residential"),
@@ -1642,17 +1667,7 @@ function lookupBaseRate(cfg, service, residential, zone, billWeight){
      總額仍然成立,問題另外記在 issue 清單。回 null 會讓整列 Total 歸零,
      連帶把那一筆的附加費從報表上抹掉。 */
   const miss=(why)=>({rate:0, why:why, missing:true});
-  const cands=[s, svcOfChan(s)];
-  if(/^ground/i.test(s)) cands.push(residential?"Ground Residential":"Ground Commercial");
-  const nameHit=x=>cands.some(c=>c&&String(x.service).trim().toLowerCase()===String(c).toLowerCase());
-  /* 住/商候選順序。桌面版 :16961 有六段候選,最要緊的是「名字對、旗標
-     相反」那一段 —— 只匯入一張商業卡的帳號(多數空運線都是),住宅件
-     不走這條就完全查不到表。null 代表舊格式的字串鍵,兩種旗標都收。 */
-  let t=null;
-  for(const want of [!!residential, !residential]){
-    t=cfg.tables.find(x=>nameHit(x) && (x.residential===null||x.residential===want));
-    if(t) break;
-  }
+  const t=rateTableFor(cfg, s, residential);
   if(!t) return miss(L("設定檔沒有這個服務的費率表:","No rate table for this service in the settings: ")
         +s+(residential?L("(住宅)"," (Residential)"):L("(商業)"," (Commercial)")));
   const zi=t.columns.findIndex(c=>String(c).trim()==="Zone "+zone
@@ -2243,9 +2258,16 @@ function priceShipment(cfg, s){
   const channel = svc==="Ground Commercial"||svc==="Ground Residential"
       ? (residential?"Ground Residential":"Ground Commercial")
       : svc;
-  /* 設定裡沒有這條渠道。判斷見 channelUnidentified():要有運費行、
-     字面認不出渠道、而且帳單歷史也查不到,三個同時成立才算。 */
+  /* 這一筆能不能計價,兩種擋法:
+       ① 渠道認不出來 —— 見 channelUnidentified()
+       ② 渠道認得出來,但這條線的基本運費表根本沒匯入
+     ②之所以也要整筆擋下來:沒有運費表就算不出運費,只收附加費和燃油
+     會產生一個「看起來有算、其實少了大半」的金額,那比 0 更危險。
+     純附加費的跨期更正不在此限 —— 它本來就沒有運費可算。 */
   const chanUnknown=channelUnidentified(s);
+  const hasFreightHere=s.lines.some(l=>isFreightLine(l)&&!isReclassLine(l));
+  const noRates = (!chanUnknown && hasFreightHere && !channelHasRates(cfg, svc, residential))
+    ? channel : "";
 
   /* AHS-Weight 用磅秤重量,不是計費重也不是 SCC 更正後的重量。 */
   let ahsScale;
@@ -2322,7 +2344,14 @@ function priceShipment(cfg, s){
      所以整筆歸零:運費、附加費、Demand、燃油全部不算,連設定裡已經
      有費率的附加費也不算 —— 那些費率是別條渠道的,套在這條線上沒有
      依據。UPS 收的錢整筆記進「未認得」,在報表上看得見,不會消失。 */
-  if(chanUnknown){
+  if(chanUnknown||noRates){
+    if(noRates)
+      issues.push(L("這條渠道還沒有匯入基本運費表,整筆沒有計價(包含附加費)——"
+                    +"請到「渠道」分頁匯入費率:",
+                    "No base rate table has been imported for this channel, so nothing "
+                    +"was priced for it (surcharges included) — import its rates on the "
+                    +"Channels tab: ")+channel);
+    else
     issues.push(L("這個服務名稱不在設定裡,整筆沒有計價(包含附加費)——"
                   +"請先到「渠道」分頁新增這條渠道並匯入費率:",
                   "This service name is not configured, so nothing was priced for it "
@@ -2333,7 +2362,7 @@ function priceShipment(cfg, s){
             acc:{}, accInfo:{}, accTotal:0, fuel:0, fuelPct:0,
             total:null, issues, npb:null, rtn:null, notRepriced:0,
             unknownAcc:{}, unknownAmt:Math.round((s.upsTotal||0)*100)/100,
-            unknownChan:chanUnknown,
+            unknownChan:chanUnknown, noRateChan:noRates,
             dinIsBase:false, retZone:s.zone, zoneUsed:s.zone, diff:null};
   }
 
@@ -5497,7 +5526,10 @@ function bkdSection(r){
   rowH(L("UPS 實收","UPS billed"),s.upsTotal);
   /* 認不出來的代碼放在 Total 底下,和「UPS 實收」同一區 —— 它不是
      重新計價的組成,擺進上面那疊會讓那一欄加不起來。 */
-  if(r.unknownAmt) rowH(r.unknownChan
+  if(r.unknownAmt) rowH(r.noRateChan
+      ? L("這條渠道沒有匯入運費表,整筆未計價",
+          "No base rates imported for this channel — nothing priced")
+    : r.unknownChan
       ? L("渠道未設定,整筆未計價","Channel not configured — nothing priced")
       /* 這一桶裝兩種:認不出來的代碼,以及沒設費率的項目。
          標籤只寫「代碼」會讓後者看起來像另一回事。 */
@@ -6361,6 +6393,8 @@ const REPORT_COL_OF={
 function reasonFor(r){
   if(r.unknownChan)
     return (LANG?"channel not configured: ":"渠道未設定:")+r.unknownChan;
+  if(r.noRateChan)
+    return (LANG?"no base rates imported: ":"未匯入基本運費表:")+r.noRateChan;
   const keys=Object.keys(r.unknownAcc||{});
   if(!keys.length) return "";
   /* 代碼是三碼大寫(UPS 的 AS code),費用名稱是一整串英文字。
@@ -7130,7 +7164,16 @@ function scanNewThings(ships){
   const codes=new Map(), chans=new Map(), rows=[];
   const r2=v=>Math.round(v*100)/100;
   for(const s of ships||[]){
-    const svcNew=!!channelUnidentified(s);
+    /* 兩種都要擋在報表之前:渠道認不出來,以及渠道認得但沒匯入費率。
+       住/商要到計價時才定案,所以這裡兩張表都沒有才算「沒匯入」——
+       只有一張(多數空運線就是這樣)不該被誤報。 */
+    const unident=channelUnidentified(s);
+    const svcGuess=guessService(s.service);
+    const hasFrt=(s.allLines||[]).some(l=>isFreightLine(l)&&!isReclassLine(l));
+    const noRates = !unident && hasFrt && CFG
+      && !channelHasRates(CFG,svcGuess,false) && !channelHasRates(CFG,svcGuess,true)
+      ? svcGuess : "";
+    const svcNew=!!unident||!!noRates;
     const mine={};
     let amt=0;
     for(const l of (s.allLines||[])){
@@ -7144,9 +7187,10 @@ function scanNewThings(ships){
       codes.set(c,e);
     }
     if(svcNew){
-      const e=chans.get(s.service)||{n:0,amt:0};
+      const nm=unident||noRates;
+      const e=chans.get(nm)||{n:0,amt:0,why:unident?"unset":"norates"};
       e.n++; e.amt+=(s.upsTotal||0);
-      chans.set(s.service,e);
+      chans.set(nm,e);
     }
     if(svcNew||Object.keys(mine).length)
       rows.push({tracking:s.tracking||"",
@@ -7158,7 +7202,7 @@ function scanNewThings(ships){
     rows,
     codes:[...codes.entries()].map(([c,v])=>({code:c,desc:v.desc,n:v.n,amt:r2(v.amt)}))
             .sort((a,b)=>a.code.localeCompare(b.code)),
-    chans:[...chans.entries()].map(([c,v])=>({service:c,n:v.n,amt:r2(v.amt)}))
+    chans:[...chans.entries()].map(([c,v])=>({service:c,n:v.n,amt:r2(v.amt),why:v.why}))
             .sort((a,b)=>String(a.service).localeCompare(String(b.service)))
   };
 }
@@ -7196,10 +7240,14 @@ function renderNewGate(){
   /* 新渠道用粗體紅字列在表格上面 —— 它比新代碼嚴重得多:
      整筆運費會被算成別條渠道的價,不是少一筆附加費而已。 */
   $("#nwChans").innerHTML = q.chans.length
-    ? `<div class="note warn"><b>${L("這些服務名稱設定裡沒有,會被當成預設渠道計價:",
-        "These service names are not configured and will be priced as the default channel:")}</b><br>`
+    ? `<div class="note warn"><b>${L("這幾條渠道整筆不會計價:",
+        "Nothing will be priced for these channels:")}</b><br>`
       + q.chans.map(c=>`· ${esc(c.service||L("(無服務名)","(no service)"))} — `
-          + c.n + L(" 筆,UPS 收 "," shipment(s), UPS billed ") + money(c.amt)).join("<br>")
+          + (c.why==="norates"
+              ? L("沒有匯入基本運費表","no base rate table imported")
+              : L("設定裡沒有這條渠道","not configured"))
+          + L("、共 ",", ") + c.n + L(" 筆,UPS 收 "," shipment(s), UPS billed ")
+          + money(c.amt)).join("<br>")
       + `</div>`
     : "";
 }
@@ -7754,11 +7802,35 @@ function serviceRecognised(d0){
    不代表認出了渠道 —— "Shipping Charge Correction Hyperloop Overnight"
    會配到 "shipping charge correction" 然後被當成 Ground Commercial,
    算出一個看起來正常、其實用錯費率的數字。 */
-const SERVICE_GENERIC=new Set(["commercial adjustment",
-                               "shipping charge correction","residential"]);
+const SERVICE_GENERIC=["commercial adjustment",
+                       "shipping charge correction","residential"];
 function serviceIdentified(d0){
   const d=String(d0==null?"":d0).trim().toLowerCase();
-  return SERVICE_PATTERNS.some(p=>!SERVICE_GENERIC.has(p[0]) && d.indexOf(p[0])>=0);
+  if(!d) return true;
+  /* 先看有沒有配到「真的講出服務」的規則 */
+  if(SERVICE_PATTERNS.some(p=>SERVICE_GENERIC.indexOf(p[0])<0 && d.indexOf(p[0])>=0))
+    return true;
+  /* 只配到最後手段時,把那段字拿掉再看剩下什麼:
+       "Commercial Adjustment"                          -> 什麼都不剩
+       "Shipping Charge Correction"                     -> 什麼都不剩
+     這兩種本來就沒有講渠道,是重分類或一般更正,交給歷史與預設去判,
+     不能因此把整筆判成「沒設定的渠道」。
+       "Shipping Charge Correction Hyperloop Overnight" -> 剩 hyperloop overnight
+     剩下的字就是它講了一條我們不認得的服務。 */
+  let rest=d;
+  for(const g of SERVICE_GENERIC) rest=rest.split(g).join(" ");
+  return rest.replace(/[^a-z]+/g," ").trim()==="";
+}
+/* 住商重分類那一行(COM / Commercial Adjustment / Residential Adjustment)。
+   它掛在 AR=FRT 上,所以會被當成運費行,但它講的是「這件其實是商業」,
+   不是一條渠道 —— 判渠道時要跳過,判定條件與 scanCharges 那邊一致。 */
+function isReclassLine(l){
+  if(!l || String(l.layer||"")!=="ADJ") return false;
+  if(String(l.cls||"").toUpperCase()!=="FRT") return false;
+  const d=String(l.desc||"").toUpperCase();
+  return d.indexOf("COMMERCIAL ADJUSTMENT")>=0
+      || d.indexOf("RESIDENTIAL ADJUSTMENT")>=0
+      || String(l.code||"").toUpperCase()==="COM";
 }
 /* 這一筆的渠道認不認得出來。回傳認不出來的那個服務名,認得出來回空字串。
    計價和「這期有新東西」的關卡共用這一個判斷 —— 兩邊各寫一份,
@@ -7767,8 +7839,11 @@ function channelUnidentified(s){
   const lines=(s&&(s.allLines||s.lines))||[];
   /* 沒有運費行就沒有服務名可以判。純附加費的跨期更正屬於這一類 ——
      它的 s.service 取到的是附加費說明(例如 "Additional Handling
-     Surcharge - Weight"),那不是渠道,拿去比對只會誤判。 */
-  if(!lines.some(isFreightLine)) return "";
+     Surcharge - Weight"),那不是渠道,拿去比對只會誤判。
+     重分類行同理:它掛在 AR=FRT 上,但講的是住商改判,不是渠道。 */
+  if(!lines.some(l=>isFreightLine(l) && !isReclassLine(l))) return "";
+  if(lines.some(isReclassLine) && !lines.some(l=>isFreightLine(l)&&!isReclassLine(l)))
+    return "";
   const desc=String((s&&s.service)||"").trim();
   if(!desc) return "";
   if(serviceIdentified(desc)) return "";
