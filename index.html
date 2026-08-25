@@ -6618,7 +6618,8 @@ function renderDashboard(){
     return segs;
   };
   const pieBlock=(items,total,centerBig,centerSmall)=>{
-    const rows=items.map(([n,v,col])=>`<tr><td class="pnm"><span class="pdot" style="background:${col}"></span>${esc(n)}</td>`
+    const rows=items.map(([n,v,col,tip])=>`<tr${tip?` title="${esc(tip)}" style="cursor:help"`:""}>`
+      +`<td class="pnm"><span class="pdot" style="background:${col}"></span>${esc(n)}${tip?" ⓘ":""}</td>`
       +`<td class="pamt">${money(v)}</td><td class="ppct">${total?(Math.abs(v)/total*100).toFixed(1):"0.0"}%</td></tr>`).join("");
     return `<div class="pie"><svg viewBox="0 0 150 150" width="150" height="150" role="img" aria-label="${esc(centerSmall)}">`
       +donut(items,total)
@@ -6633,9 +6634,17 @@ function renderDashboard(){
     const ent=Object.entries(obj)
       .filter(([k,v])=>k!==DASH_RECLASS&&k!==DASH_UNKNOWN&&Math.abs(v)>0.005)
       .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
-    const out=ent.slice(0,7).map(([c,v],i)=>[dashLabel(c),v,PIE[i]]);
-    const restN=ent.length-7, restSum=ent.slice(7).reduce((a,[,v])=>a+v,0);
-    if(restN>0) out.push([L(`其他 ${restN} 項`,`Other (${restN})`),restSum,PIE[7]]);
+    /* 列到第 10 名。太小的併成「其他」,但滑過去要看得到裡面是什麼 ——
+       $8 的 AHS 包裝混在「其他 11 項」裡,等於查無此項。 */
+    const TOP=10;
+    const out=ent.slice(0,TOP).map(([c,v],i)=>[dashLabel(c),v,PIE[i%PIE.length]]);
+    const rest=ent.slice(TOP);
+    if(rest.length){
+      const restSum=rest.reduce((a,[,v])=>a+v,0);
+      out.push([L(`其他 ${rest.length} 項`,`Other (${rest.length})`),restSum,
+                PIE[TOP%PIE.length],
+                rest.map(([c,v])=>dashLabel(c)+"  "+money(v)).join("\n")]);
+    }
     const rc=toNum(obj[DASH_RECLASS]);
     if(Math.abs(rc)>0.005) out.push([L("改判 AHS/大包裹","Reclassified AHS/LP"),rc,RECLCOL]);
     const uk=toNum(obj[DASH_UNKNOWN])+toNum(extraUnknown);
