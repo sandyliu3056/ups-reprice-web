@@ -6796,6 +6796,7 @@ const DASH_LABEL={
   "Additional Handling Surcharge - Weight":["額外處理·重量","AHS · Weight"],
   "Additional Handling Surcharge - Packaging":["額外處理·包裝","AHS · Packaging"],
   "DAS Residential":["住宅 DAS","DAS Resi"],"DAS Commercial":["商業 DAS","DAS Comm"],
+  "__das__":["DAS 配送地區","DAS · delivery area"],
   "DAS Extended Residential":["延伸住宅 DAS","DAS Ext Resi"],"DAS Extended Commercial":["延伸商業 DAS","DAS Ext Comm"],
   "Undeliverable Return":["退件回程","Undeliverable Return"],"Return To Sender":["退回寄件人","Return To Sender"],
   "Remote Area Residential":["偏遠住宅","Remote Resi"],"Remote Area Commercial":["偏遠商業","Remote Comm"],
@@ -6817,6 +6818,13 @@ function dashLabel(col){ const m=DASH_LABEL[col]; return m?L(m[0],m[1]):col; }
    沒有 —— 照 scanCharges 同一組規則把原始行分桶,只讀不算。 */
 const DASH_RECLASS="__reclass__", DASH_UNKNOWN="__unknown__";
 const RECLASS_RE=/AHS\/Large Package|AHS\/大包裹/;
+/* DAS 的四個變體(住宅／商業／延伸住宅／延伸商業)是同一種費用的四種
+   收法。分開畫在圓餅上各是一小條,前兩條佔掉前十名的位置、後兩條掉進
+   「其他」—— 但四條加起來常常是這一期前五大的成本。拆著看等於看不見它。
+   合成一塊來排名,四項照「其他」的做法折在底下,錢一樣追得回去。 */
+const DAS_FAM="__das__";
+const DAS_MEMBERS=["DAS Residential","DAS Commercial",
+                   "DAS Extended Residential","DAS Extended Commercial"];
 const RECLASS_FEES=new Set(["AHS Weight","AHS Dimension","AHS Packaging","Large Package"]);
 const RECLASS_COLS=["Additional Handling Surcharge - Weight",
   "Additional Handling Surcharge - Dimension","Additional Handling Surcharge - Packaging",
@@ -7372,19 +7380,36 @@ function renderDashboard(){
   /* 兩張餅共用同一組分類,才對得起來。改判與未知固定用自己的顏色。 */
   const RECLCOL="#4a6fa5";
   const pieItems=(obj,extraUnknown)=>{
-    const ent=Object.entries(obj)
-      .filter(([k,v])=>k!==DASH_RECLASS&&k!==DASH_UNKNOWN&&Math.abs(v)>0.005)
-      .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
+    let ent=Object.entries(obj)
+      .filter(([k,v])=>k!==DASH_RECLASS&&k!==DASH_UNKNOWN&&Math.abs(v)>0.005);
+    /* DAS 四個變體先合成一塊再排名(見 DAS_MEMBERS 上面那段)。
+       只有一項時不合併 —— 合了只是把名字換掉,沒有任何好處。 */
+    const dasKids=ent.filter(([k])=>DAS_MEMBERS.indexOf(k)>=0)
+                     .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
+    if(dasKids.length>1){
+      ent=ent.filter(([k])=>DAS_MEMBERS.indexOf(k)<0);
+      ent.push([DAS_FAM, dasKids.reduce((a,[,v])=>a+v,0)]);
+    }
+    ent.sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
     /* 圓餅畫得下的只有前 10 塊,但圖例把每一項都列出來 —— $8 的 AHS 包裝
        併進「其他」就等於查無此項。折進去的共用「其他」的顏色、標成 fold,
        畫圓的時候跳過,只出現在圖例。 */
     const TOP=10;
-    const out=ent.slice(0,TOP).map(([c,v],i)=>[dashLabel(c),v,PIE[i%PIE.length]]);
+    const kidsOf=k=>(k===DAS_FAM&&dasKids.length>1)?dasKids:[];
+    const out=[];
+    ent.slice(0,TOP).forEach(([c,v],i)=>{
+      const col=PIE[i%PIE.length];
+      out.push([dashLabel(c),v,col]);
+      for(const [kk,kv] of kidsOf(c)) out.push([dashLabel(kk),kv,col,"fold"]);
+    });
     const rest=ent.slice(TOP);
     if(rest.length){
       out.push([L(`其他 ${rest.length} 項`,`Other (${rest.length})`),
                 rest.reduce((a,[,v])=>a+v,0), OTHERCOL]);
-      for(const [c,v] of rest) out.push([dashLabel(c),v,OTHERCOL,"fold"]);
+      for(const [c,v] of rest){
+        out.push([dashLabel(c),v,OTHERCOL,"fold"]);
+        for(const [kk,kv] of kidsOf(c)) out.push([dashLabel(kk),kv,OTHERCOL,"fold"]);
+      }
     }
     const rc=toNum(obj[DASH_RECLASS]);
     if(Math.abs(rc)>0.005) out.push([L("改判 AHS/大包裹","Reclassified AHS/LP"),rc,RECLCOL]);
