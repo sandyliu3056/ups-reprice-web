@@ -1,0 +1,40 @@
+# nginx —— 放進 server { } 區塊裡
+#
+# 重點只有兩個:走 https,而且 index.html 不要被瀏覽器快取住。
+# 整個工具就是那一份 index.html,快取住的話,你換了新版,開網頁的人
+# 還是拿到舊的 —— 症狀是「一整批功能不見了」。
+
+server {
+    listen 443 ssl http2;
+    server_name  ups.example.com;          # 換成你的網域
+
+    ssl_certificate     /etc/letsencrypt/live/ups.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ups.example.com/privkey.pem;
+
+    root  /var/www/ups;                    # 放 index.html 的資料夾
+    index index.html;
+
+    # index.html 與登入設定:每次都先問伺服器有沒有變。
+    # no-cache 不是不准快取,沒變的話回 304,幾乎不花流量。
+    location = / {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+    }
+    location = /auth-config.js {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+    }
+
+    # 其餘檔案帶版號、幾乎不會變,可以放心讓瀏覽器留著
+    location ~* \.(js|pdf|svg)$ {
+        add_header Cache-Control "public, max-age=604800" always;
+    }
+}
+
+# http 一律轉去 https —— 用 http 開的話登入會直接失敗(見 讀我.md)
+server {
+    listen 80;
+    server_name ups.example.com;
+    return 301 https://$host$request_uri;
+}

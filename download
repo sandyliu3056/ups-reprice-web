@@ -1,0 +1,22 @@
+# Apache —— 和 index.html 放在同一個資料夾。
+# 需要主機開啟 mod_headers 與 mod_rewrite。
+
+<IfModule mod_headers.c>
+    # index.html 與登入設定:每次都先問伺服器有沒有變。
+    # 整個工具就是那一份 index.html,快取住的話換了新版也看不到。
+    <FilesMatch "^(index\.html|auth-config\.js)$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+
+    # 其餘檔案帶版號、幾乎不會變
+    <FilesMatch "\.(js|pdf|svg)$">
+        Header set Cache-Control "public, max-age=604800"
+    </FilesMatch>
+</IfModule>
+
+# http 一律轉去 https —— 用 http 開的話登入會直接失敗(見 讀我.md)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>

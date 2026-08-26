@@ -53,11 +53,7 @@ table,table *,input,select,.tablewrap{filter:none !important}
   -webkit-text-stroke:var(--titlestroke,0) var(--tab);
   paint-order:stroke fill}
 .titlebar .devby{font-size:10.5px;letter-spacing:2px;opacity:.6;margin-left:20px}
-/* 這份檔案是哪一版。整個站是一個 index.html,瀏覽器留著舊的那一份時,畫面
-   會少掉整批功能 —— 而畫面上沒有任何地方看得出「我手上這份是舊的」,只能
-   一個一個功能去找哪裡不見了。 */
-.titlebar .build{font-size:10.5px;letter-spacing:1px;opacity:.45;margin-left:12px;
-  font-family:Consolas,monospace;cursor:help}
+.titlebar .devby{cursor:help}
 .titlebar .ctrls{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
 .titlebar select{font:inherit;font-size:11.5px;background:transparent;color:var(--tab);
   border:1px solid var(--tab);border-radius:5px;padding:3px 7px;cursor:pointer;opacity:.85;
@@ -691,8 +687,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
 <div class="titlebar">
   <b class="display" id="appTitle">UPS REPRICE PLATFORM</b>
-  <span class="devby">DEVELOPED BY SANDY LIU</span>
-  <span class="build" id="appBuild"></span>
+  <span class="devby" id="appBy">DEVELOPED BY SANDY LIU</span>
   <div class="ctrls">
     <select id="langSel"  title="Language"></select>
     <select id="zoomSel"  title="Display size"></select>
@@ -4568,12 +4563,17 @@ function buildStamp(){
   return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())
         +" "+p(d.getHours())+":"+p(d.getMinutes());
 }
+/* 版本不再印在畫面上 —— 平常沒有人要看它。但「我手上這份是不是舊的」
+   還是要有辦法問,不然又只能一個一個功能去找哪裡不見了。所以掛在
+   「DEVELOPED BY」那行的 tooltip 上,順便寫進 console:兩邊都不佔版面。 */
 function paintBuild(){
-  const el=document.getElementById("appBuild"); if(!el) return;
   const b=buildStamp(); if(!b) return;
-  el.textContent="BUILD "+b;
-  el.title=L("這份 index.html 的最後修改時間。日期停在舊的,表示瀏覽器用的是快取裡的舊檔 —— 按 Ctrl+Shift+R(Mac 為 Cmd+Shift+R)強制重新整理。",
-             "Last-modified time of this index.html. A stale date means the browser is serving a cached copy — force-reload with Ctrl+Shift+R (Cmd+Shift+R on Mac).");
+  const el=document.getElementById("appBy");
+  if(el) el.title=L("版本(這份 index.html 的最後修改時間):"+b
+                     +"\n日期停在舊的表示瀏覽器用的是快取裡的舊檔,按 Ctrl+Shift+R 強制重新整理。",
+                    "Build (last-modified time of this index.html): "+b
+                     +"\nA stale date means a cached copy — force-reload with Ctrl+Shift+R.");
+  try{ console.info("UPS Reprice — build "+b); }catch(e){}
 }
 
 

@@ -1,0 +1,17 @@
+# Caddy —— 最省事的一種:憑證自動申請、自動續期,不必碰 certbot。
+#
+# 換掉網域,把這幾行存成 Caddyfile,然後 caddy run。就這樣。
+
+ups.example.com {
+    root * /var/www/ups          # 放 index.html 的資料夾
+    file_server
+
+    # index.html 與登入設定:每次都先問伺服器有沒有變。
+    # 整個工具就是那一份 index.html,快取住的話換了新版也看不到。
+    @nocache path / /index.html /auth-config.js
+    header @nocache Cache-Control "no-cache, must-revalidate"
+
+    # 其餘檔案帶版號、幾乎不會變
+    @static path *.js *.pdf *.svg
+    header @static Cache-Control "public, max-age=604800"
+}
