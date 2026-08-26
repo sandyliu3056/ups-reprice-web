@@ -9,7 +9,7 @@ const mod = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { chromium } = mod.default || mod;
 
 const DIR = new URL('.', import.meta.url).pathname;
-const OUT = DIR + '../../UPS-API-Manual.pdf';
+const OUT = DIR + '../../UPS-API-Setup-Guide.pdf';
 /* 檔名刻意用 ASCII:Chromium 會把 <a download> 裡的非 ASCII 檔名整個丟掉,
    存下來會變成沒有副檔名的 "download"。設定頁那顆下載按鈕抓的就是這個檔。 */
 
