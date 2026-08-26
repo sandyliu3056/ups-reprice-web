@@ -1429,8 +1429,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="modalft">
       <button class="act ghost" id="afClose" data-i18n="btn.close">Close</button>
       <span class="afsp"></span>
-      <button class="act ghost" id="bAfAll" data-i18n="btn.afall">All charge fuel</button>
-      <button class="act ghost" id="bAfNone" data-i18n="btn.afnone">None charge fuel</button>
+      <button class="act ghost" id="bAfAll" data-i18n="btn.afall">Select All</button>
+      <button class="act ghost" id="bAfNone" data-i18n="btn.afnone">Unselect All</button>
       <button class="act" id="afSave" data-i18n="btn.save">Save Settings</button>
     </div>
   </div>
@@ -7241,10 +7241,13 @@ function renderDashboard(){
     }).join("");
     return segs;
   };
-  const pieBlock=(items,total,centerBig,centerSmall)=>{
+  /* noAmt:只講佔比,不列金額。渠道那一張要的是「生意怎麼分布」,
+     金額在上面的費用組成已經講過一次了。 */
+  const pieBlock=(items,total,centerBig,centerSmall,noAmt)=>{
     const rows=items.map(([n,v,col,fold])=>`<tr${fold?' class="pfold"':""}>`
       +`<td class="pnm"><span class="pdot" style="background:${col}"></span>${fold?"↳ ":""}${esc(n)}</td>`
-      +`<td class="pamt">${money(v)}</td><td class="ppct">${total?(Math.abs(v)/total*100).toFixed(1):"0.0"}%</td></tr>`).join("");
+      +(noAmt?"":`<td class="pamt">${money(v)}</td>`)
+      +`<td class="ppct">${total?(Math.abs(v)/total*100).toFixed(1):"0.0"}%</td></tr>`).join("");
     return `<div class="pie"><svg viewBox="0 0 150 150" width="150" height="150" role="img" aria-label="${esc(centerSmall)}">`
       +donut(items.filter(x=>x[3]!=="fold"),total)
       +`<text class="phole" x="75" y="71" text-anchor="middle" font-size="17" font-weight="700">${esc(centerBig)}</text>`
@@ -7291,7 +7294,7 @@ function renderDashboard(){
     /* 取模,不然渠道超過十條的人會拿到 undefined 當顏色,那一塊就不見了。 */
     .map(([n,v],i)=>[n,v,/unknown|未知/i.test(n)?MISSCOL:PIE[i%PIE.length]]);
   const chTot=chItems.reduce((a,[,v])=>a+Math.abs(v),0);
-  const chanHTML=pieBlock(chItems,chTot,String(chItems.length),L("渠道","channels"));
+  const chanHTML=pieBlock(chItems,chTot,String(chItems.length),L("渠道","channels"),true);
   const zEntries=Object.entries(d.zoneAgg).sort((a,b)=>(+a[0])-(+b[0]));
   const zItems=zEntries.map(([z,v],i)=>["Zone "+z, v, PIE[i%PIE.length]]);
   const zTot=zItems.reduce((a,[,v])=>a+Math.abs(v),0);
@@ -8975,8 +8978,11 @@ const I18N={
     "Every surcharge charges fuel unless you turn it off here."],
   "btn.accfuel":["設定哪些附加費收燃油","Set which surcharges charge fuel"],
   "hd.accfuelmodal":["哪些附加費收燃油","Which surcharges charge fuel"],
-  "btn.afall":["全部都收","All charge fuel"],
-  "btn.afnone":["全部都不收","None charge fuel"],
+  /* 這兩顆是勾選的批次操作,以前用結果來命名(「全部都收」/「None charge
+     fuel」),看的人得先想通「收燃油」和「打勾」是同一件事才知道會發生什麼。
+     照它們實際做的事命名。 */
+  "btn.afall":["全選","Select All"],
+  "btn.afnone":["取消全選","Unselect All"],
   "hd.flat":["固定金額","Flat amounts"],
   "hd.dv":["申報價值級距","Declared value tiers"],
   "lb.dvfree":["免收上限","Free up to"], "lb.dvmin":["最低收費","Minimum charge"],
