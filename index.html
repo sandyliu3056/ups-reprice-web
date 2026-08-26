@@ -395,7 +395,7 @@ td.cells{white-space:normal}
   border-top:1.5px solid var(--line)}
 .afbar{display:flex;align-items:center;gap:8px;margin:0 0 12px;
   padding-bottom:10px;border-bottom:1.5px solid var(--line)}
-#afModal .modalft{gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-start}
+#afModal .modalft,#rsModal .modalft{gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-start}
 .afsp{flex:1}
 .afcount{font-size:13px;font-weight:700;color:var(--accent)}
 .afgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:7px}
@@ -1159,20 +1159,13 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <div class="lf sketch">
     <h3 class="display"><span class="em">⚙️</span><span data-i18n="hd.setting">Settings</span></h3>
 
-    <!-- 住/商判定來源:系統設定 或 API -->
+    <!-- 住/商判定來源:和燃油底同一個形狀 —— 摘要一行,點進去設,裡面存 -->
     <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
       <div class="subhd" style="margin-top:0" data-i18n="hd.resisrc">🔄 Residential / Commercial · Source</div>
-      <label class="bulkchk" style="margin-top:8px"><input type="radio" name="resiSrc" value="system" id="resiSrcSys">
-        <span data-i18n="lb.resisys">System</span></label>
-      <label class="bulkchk" style="margin-top:5px"><input type="radio" name="resiSrc" value="api" id="resiSrcApi">
-        <span data-i18n="lb.resiapi">Linked API</span></label>
-      <div id="resiApiBox" style="display:none;margin-top:10px">
-        <label class="inlab" style="margin-left:0" data-i18n="lb.resiapiurl">API proxy endpoint (Edge Function URL)</label>
-        <input id="resiApiUrl" class="cell" style="width:min(520px,100%);text-align:left" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
-      </div>
-      <p class="hint" style="margin:9px 0 0" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
-      <div class="row" style="margin-top:12px;justify-content:flex-end">
-        <button class="act" id="bSaveResi" data-i18n="btn.save">Save Settings</button>
+      <p class="hint" style="margin:8px 0 10px" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
+      <div class="row">
+        <button class="act ghost" id="bResiSrc" data-i18n="btn.resisrc">Set the residential / commercial source</button>
+        <span id="resiSrcSum" class="affsum"></span>
       </div>
     </div>
 
@@ -1419,6 +1412,31 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   </div>
 </div>
 
+<div id="rsBg" class="modalbg">
+  <div class="modal sketch" id="rsModal" style="width:min(600px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.resisrc">Residential / Commercial · Source</span>
+      <button class="mx" id="rsX">✕</button>
+    </div>
+    <div class="modalbody">
+      <label class="bulkchk"><input type="radio" name="resiSrc" value="system" id="resiSrcSys">
+        <span data-i18n="lb.resisys">System</span></label>
+      <label class="bulkchk" style="margin-top:5px"><input type="radio" name="resiSrc" value="api" id="resiSrcApi">
+        <span data-i18n="lb.resiapi">Linked API</span></label>
+      <div id="resiApiBox" style="display:none;margin-top:12px">
+        <label class="inlab" style="margin-left:0" data-i18n="lb.resiapiurl">API proxy endpoint (Edge Function URL)</label>
+        <input id="resiApiUrl" class="cell" style="width:100%;text-align:left;margin-top:5px" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
+      </div>
+      <p class="hint" style="margin:12px 0 0" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
+    </div>
+    <div class="modalft">
+      <button class="act ghost" id="rsClose" data-i18n="btn.close">Close</button>
+      <span class="afsp"></span>
+      <button class="act" id="rsSave" data-i18n="btn.save">Save Settings</button>
+    </div>
+  </div>
+</div>
+
 <div id="afBg" class="modalbg">
   <div class="modal sketch" id="afModal" style="width:min(720px,100%)">
     <div class="modalhd">
@@ -1625,6 +1643,14 @@ function normZone(v){
 
 /* ---- 小工具 ---- */
 /* $ / money / num 由外殼提供,見下方畫面區 */
+/* 帳單上的日期兩種寫法都有:2026/8/22 和 2026-08-01。混著排會排錯
+   ——「/」和「-」的字碼不同,字串比較會把整組 slash 的排到另一邊去,
+   而且並排看也不齊。一律正規化成 YYYY-MM-DD,認不得的回空字串,
+   由呼叫端決定要顯示原文還是留白。 */
+function normYmd(d){
+  const m=String(d==null?"":d).trim().replace(/\//g,"-").match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0") : "";
+}
 function toNum(v){
   if(v===null||v===undefined)return 0;
   const s=String(v).replace(/[$,\s]/g,"");
@@ -5161,7 +5187,50 @@ $("#resiApiUrl") && ($("#resiApiUrl").onchange=e=>{
   CFG=readConfig(CFG.raw); DIRTY=true;
   setStatus(L("API 端點已更新 —— 尚未儲存","API endpoint updated — not saved yet"));
 });
-$("#bSaveResi") && ($("#bSaveResi").onclick=()=>saveSettings());
+/* 住/商來源的小視窗。和燃油底同一套規矩:改動立刻套進 CFG(計價要跟著
+   動),關閉 = 放棄,儲存 = 寫進去。 */
+let RS_SNAP=null;
+function paintResiSrcSum(){
+  const el=$("#resiSrcSum"); if(!el||!CFG) return;
+  const g=CFG.raw.global_rules||{};
+  const api=(g.resi_source==="api");
+  const url=String(g.resi_api_url||"").trim();
+  el.textContent = api
+    ? (url ? L("目前:連動 API · "+url, "Now: Linked API · "+url)
+           : L("目前:連動 API(還沒填端點,會退回系統判定)",
+               "Now: Linked API (no endpoint set, so it falls back to System)"))
+    : L("目前:沿用系統設定","Now: System");
+}
+function openResiSrc(){
+  if(!CFG) return;
+  const g=CFG.raw.global_rules||{};
+  RS_SNAP=JSON.stringify({s:g.resi_source||"system", u:g.resi_api_url||""});
+  renderConfigTabs();                 /* 單選鈕與網址由它同步 */
+  $("#rsBg").classList.add("on");
+}
+function closeResiSrc(keep){
+  if(keep!==true && RS_SNAP!=null && CFG){
+    const g=CFG.raw.global_rules||(CFG.raw.global_rules={});
+    const was=JSON.parse(RS_SNAP);
+    if((g.resi_source||"system")!==was.s || String(g.resi_api_url||"")!==was.u){
+      g.resi_source=was.s; g.resi_api_url=was.u;
+      CFG=readConfig(CFG.raw);
+      renderConfigTabs();
+      setStatus(L("已放棄住/商來源的變更","Residential/Commercial source changes discarded"));
+    }
+  }
+  RS_SNAP=null;
+  paintResiSrcSum();
+  $("#rsBg").classList.remove("on");
+}
+function saveResiSrc(){
+  if(saveSettings()===false) return;
+  closeResiSrc(true);
+}
+$("#bResiSrc") && ($("#bResiSrc").onclick=openResiSrc);
+$("#rsX")      && ($("#rsX").onclick=()=>closeResiSrc());
+$("#rsClose")  && ($("#rsClose").onclick=()=>closeResiSrc());
+$("#rsSave")   && ($("#rsSave").onclick=saveResiSrc);
 $("#chanSearch") && ($("#chanSearch").oninput=()=>renderConfigTabs());
 $("#rateChan") && ($("#rateChan").onchange=()=>renderConfigTabs());
 $("#bAddChan") && ($("#bAddChan").onclick=()=>{
@@ -5647,9 +5716,7 @@ function openBreakdown(){
       +`</div>`;
     $("#bkdBg").classList.add("on"); return;
   }
-  /* 日期正規化成 YYYY-MM-DD 再排,2026/8/22 和 2026-08-01 混用也排得對。 */
-  const nd=d=>{ const m=String(d||"").replace(/\//g,"-").match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-    return m ? m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0") : ""; };
+  const nd=normYmd;   /* 2026/8/22 和 2026-08-01 混用也排得對,見 normYmd */
   const list=[...byInv.values()].sort((a,b)=>{
     const da=nd(a.invDate), db=nd(b.invDate);
     return da<db?-1:da>db?1:(a.invoice<b.invoice?-1:1); });
@@ -6228,6 +6295,7 @@ function renderConfigTabs(){
   if($("#resiSrcSys")) $("#resiSrcSys").checked=(_rs==="system");
   if($("#resiSrcApi")) $("#resiSrcApi").checked=(_rs==="api");
   if($("#resiApiUrl")) $("#resiApiUrl").value=g.resi_api_url||"";
+  if(typeof paintResiSrcSum==="function") paintResiSrcSum();
   if($("#resiApiBox")) $("#resiApiBox").style.display=(_rs==="api")?"":"none";
   renderDemand();
 
@@ -6844,10 +6912,12 @@ function looksLikeInvKey(k){
 }
 /* 歸檔過的期別,新的排前面。沒有帳單日的用期號排,排在有日期的後面。 */
 function dashPeriods(){
-  return Object.entries(histInv()).filter(([k])=>looksLikeInvKey(k)).map(([k,v])=>({
-    key:k, date:(v&&v.date)||"", rows:(v&&v.rows)||0,
-    trk:(v&&v.trk)||0, at:(v&&v.at)||""
-  })).sort((a,b)=> String(b.date||"").localeCompare(String(a.date||""))
+  return Object.entries(histInv()).filter(([k])=>looksLikeInvKey(k)).map(([k,v])=>{
+    const raw=(v&&v.date)||"";
+    /* 正規化之後才排得對、並排也才齊。認不得的保留原文,不要憑空吃掉。 */
+    return {key:k, date:normYmd(raw)||raw, rows:(v&&v.rows)||0,
+            trk:(v&&v.trk)||0, at:(v&&v.at)||""};
+  }).sort((a,b)=> String(b.date||"").localeCompare(String(a.date||""))
                 || String(b.key).localeCompare(String(a.key)));
 }
 /* 被擋下來的有幾筆。無聲過濾會變成另一個謎題,所以選單底下要講一句。 */
@@ -6911,20 +6981,28 @@ function dashAllHTML(data){
   const tot=ok.reduce((a,d)=>({n:a.n+d.n, repriced:a.repriced+d.repriced,
     billed:a.billed+d.billed, account:a.account+d.account}),
     {n:0,repriced:0,billed:0,account:0});
+  /* 毛利 = 向客戶收 − UPS 收。毛利率用「向客戶收」當分母(收入),
+     這是毛利率的通用算法,也讓兩期之間比得起來 —— 用 UPS 當分母的話,
+     同樣賺一塊錢,成本低的那一期看起來比較賺。 */
   const gapOf=d=>d.repriced-d.billed;
   const maxGap=Math.max(1,...ok.map(d=>Math.abs(gapOf(d))));
   const cell=(v,cls)=>`<td class="num ${cls||""}">${money(v)}</td>`;
+  const pctCell=(profit,rev)=>{
+    if(!rev) return `<td class="num">—</td>`;   /* 沒有收入就沒有毛利率可言 */
+    const m=profit/Math.abs(rev)*100;
+    return `<td class="num ${m<0?"neg":"pos"}">${m.toFixed(1)}%</td>`;
+  };
   const rows=data.map(d=>{
     if(d.missing) return `<tr class="amiss"><td class="ak">${esc(d.key)}</td>`
       +`<td class="ad">${esc(d.date||"—")}</td>`
-      +`<td colspan="6">${L("只有索引,沒有明細 —— 請重新匯入這一期",
+      +`<td colspan="7">${L("只有索引,沒有明細 —— 請重新匯入這一期",
                             "index only, no detail — import this period again")}</td></tr>`;
     const g=gapOf(d);
     const w=Math.min(100, Math.abs(g)/maxGap*100);
     return `<tr><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`
       +`<td class="num">${d.n.toLocaleString()}</td>`
       +cell(d.repriced)+cell(d.billed)
-      +cell(g, g<0?"neg":"pos")
+      +cell(g, g<0?"neg":"pos")+pctCell(g, d.repriced)
       +cell(d.account, d.account<0?"neg":"")
       +`<td class="abar"><div class="abartrack">`
       +`<div class="abarfill${g<0?" neg":""}" data-w="${w.toFixed(1)}"></div></div></td></tr>`;
@@ -6939,18 +7017,18 @@ function dashAllHTML(data){
       <th>${L("期別","Invoice")}</th><th>${L("帳單日","Date")}</th>
       <th>${L("貨件","Shipments")}</th>
       <th>${L("向客戶收","Charge customer")}</th><th>UPS</th>
-      <th>${L("差額","Difference")}</th>
+      <th>${L("毛利","Profit")}</th><th>${L("毛利率","Margin")}</th>
       <th>${L("帳戶層費用","Account charges")}</th><th></th>
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td class="ak" colspan="2">${L("合計 "+ok.length+" 期",
         "Total · "+ok.length+" period"+(ok.length===1?"":"s"))}</td>
       <td class="num">${tot.n.toLocaleString()}</td>
       ${cell(tot.repriced)}${cell(tot.billed)}
-      ${cell(gt, gt<0?"neg":"pos")}${cell(tot.account, tot.account<0?"neg":"")}
+      ${cell(gt, gt<0?"neg":"pos")}${pctCell(gt, tot.repriced)}${cell(tot.account, tot.account<0?"neg":"")}
       <td></td></tr></tfoot></table></div>
     <div class="dfoot">${L(
-      "「差額」是向客戶收減去 UPS 收,不含帳戶層費用 —— 那一欄要不要算進毛利,由你的帳務決定。",
-      "Difference is charge-customer minus UPS, with account charges left out — whether those belong in margin is your accounting call.")}</div>
+      "毛利 = 向客戶收 − UPS 收;毛利率 = 毛利 ÷ 向客戶收。兩者都不含帳戶層費用 —— 那一欄要不要算進來,由你的帳務決定。",
+      "Profit is charge-customer minus UPS; margin is profit over charge-customer. Neither includes account charges — whether those belong in the figure is your accounting call.")}</div>
   </div>`;
 }
 /* 選單那一條。RATED 是空的時候也要畫 —— 沒資料的人正是最需要它的人。 */
@@ -9022,6 +9100,7 @@ const I18N={
   "hint.accfuelset":["每一項預設都收燃油,要關掉的在這裡設。",
     "Every surcharge charges fuel unless you turn it off here."],
   "btn.accfuel":["設定哪些附加費收燃油","Set which surcharges charge fuel"],
+  "btn.resisrc":["設定住/商判定來源","Set the residential / commercial source"],
   "hd.accfuelmodal":["哪些附加費收燃油","Which surcharges charge fuel"],
   /* 這兩顆是勾選的批次操作,以前用結果來命名(「全部都收」/「None charge
      fuel」),看的人得先想通「收燃油」和「打勾」是同一件事才知道會發生什麼。
