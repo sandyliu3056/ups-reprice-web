@@ -1073,14 +1073,22 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   border-right:2px solid var(--accent);border-bottom:2px solid var(--accent);
   transform:rotate(45deg) translate(-2px,-2px);transition:transform .18s}
 #p-dash .dsel[aria-expanded="true"] .dcar{transform:rotate(-135deg) translate(-1px,-1px)}
-#p-dash .dmenu{position:absolute;z-index:30;top:calc(100% + 7px);left:0;
+/* 選單開著的時候,底下鋪一層看不見的遮罩。沒有它的話,「點外面關掉選單」
+   那一下會穿透過去按到後面的東西 —— 想關個選單結果被帶去別頁。 */
+#p-dash .dscrim{position:fixed;inset:0;z-index:29;background:transparent}
+#p-dash .dmenu{position:absolute;z-index:30;top:calc(100% + 5px);left:0;
   min-width:100%;width:max-content;max-width:min(420px,86vw);
   background:var(--panel);border:2px solid var(--accent);border-radius:14px;
   box-shadow:0 12px 34px rgba(0,0,0,.2);padding:7px;
   opacity:0;transform:translateY(-6px) scale(.98);pointer-events:none;
   transition:opacity .15s ease,transform .15s ease}
 #p-dash .dmenu.on{opacity:1;transform:none;pointer-events:auto}
-#p-dash .dmlist{max-height:min(46vh,320px);overflow:auto}
+#p-dash .dmlist{max-height:min(38vh,260px);overflow:auto}
+/* 指向觸發鈕的小尖角:選單看起來就是「從這顆按鈕長出來的」。 */
+#p-dash .dmenu::before{content:"";position:absolute;top:-7px;left:22px;
+  width:12px;height:12px;background:var(--panel);
+  border-left:2px solid var(--accent);border-top:2px solid var(--accent);
+  transform:rotate(45deg)}
 #p-dash .dmhd{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
   color:var(--muted);padding:3px 10px 6px}
 #p-dash .dmfind{width:100%;font:inherit;font-size:12.5px;color:var(--text);
@@ -1174,6 +1182,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <p class="hint" style="margin:8px 0 10px" data-i18n="hint.resisrc">This field takes the proxy URL only — the UPS keys live on the proxy.</p>
       <div class="row">
         <button class="act ghost" id="bResiSrc" data-i18n="btn.resisrc">Set the residential / commercial source</button>
+        <button class="act ghost" id="bManual" data-i18n="btn.manual">Setup manual (PDF)</button>
         <span id="resiSrcSum" class="affsum"></span>
       </div>
     </div>
@@ -5266,6 +5275,28 @@ function saveResiSrc(){
   closeResiSrc(true);
 }
 $("#bResiSrc") && ($("#bResiSrc").onclick=openResiSrc);
+/* 手冊按鈕就擺在判定來源旁邊 —— 要設代理的人正站在這一格上,說明放在
+   別的分頁等於沒放。PDF 和 index.html 放同一層,連結是相對路徑;檔案
+   沒跟著搬過來的話 fetch 會先問一聲,才不會按下去只得到一個空白分頁。
+   file:// 開的時候 fetch 會被同源擋掉,那就直接讓瀏覽器去試。 */
+/* 檔名用 ASCII:Chromium 會把 <a download> 裡的非 ASCII 檔名整個丟掉,
+   換成沒有副檔名的 "download",存下來雙擊打不開。同事收到的檔案要能用,
+   名字就不能賭瀏覽器的清洗規則。按鈕上的字仍然是中文。 */
+const MANUAL_PDF="UPS-API-Manual.pdf";
+function pullFile(url,name){
+  const a=document.createElement("a");
+  a.href=url; a.download=name; a.style.display="none";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$("#bManual") && ($("#bManual").onclick=async()=>{
+  const url=new URL(MANUAL_PDF, location.href).href;
+  if(!/^https?:$/.test(location.protocol)){ pullFile(url,MANUAL_PDF); return; }
+  let ok=false;
+  try{ ok=(await fetch(url,{method:"HEAD"})).ok; }catch(e){ ok=false; }
+  if(ok) pullFile(url,MANUAL_PDF);
+  else toast(L("找不到 "+MANUAL_PDF+",它要和 index.html 放在同一個資料夾。",
+               "Can't find "+MANUAL_PDF+" — it has to sit in the same folder as index.html."));
+});
 $("#rsX")      && ($("#rsX").onclick=()=>closeResiSrc());
 $("#rsClose")  && ($("#rsClose").onclick=()=>closeResiSrc());
 $("#rsSave")   && ($("#rsSave").onclick=saveResiSrc);
@@ -6806,8 +6837,8 @@ const DASH_LABEL={
   "Additional Handling Surcharge - Weight":["額外處理·重量","AHS · Weight"],
   "Additional Handling Surcharge - Packaging":["額外處理·包裝","AHS · Packaging"],
   "DAS Residential":["住宅 DAS","DAS Resi"],"DAS Commercial":["商業 DAS","DAS Comm"],
-  "__das__":["DAS 配送地區","DAS · delivery area"],
-  "__ras__":["偏遠地區","Remote area"],
+  "__das__":["配送地區 DAS","DAS · delivery area"],
+  "__ahs__":["額外處理 AHS","AHS · additional handling"],
   "DAS Extended Residential":["延伸住宅 DAS","DAS Ext Resi"],"DAS Extended Commercial":["延伸商業 DAS","DAS Ext Comm"],
   "Undeliverable Return":["退件回程","Undeliverable Return"],"Return To Sender":["退回寄件人","Return To Sender"],
   "Remote Area Residential":["偏遠住宅","Remote Resi"],"Remote Area Commercial":["偏遠商業","Remote Comm"],
@@ -6830,18 +6861,29 @@ function dashLabel(col){ const m=DASH_LABEL[col]; return m?L(m[0],m[1]):col; }
 const DASH_RECLASS="__reclass__", DASH_UNKNOWN="__unknown__";
 const RECLASS_RE=/AHS\/Large Package|AHS\/大包裹/;
 /* 同一種附加費被 UPS 拆成多個變體收費的,在圓餅上合成一塊來排名。
-   DAS 有四種(住宅／商業／延伸住宅／延伸商業)、偏遠也有四種(住宅／
-   商業／AK／HI)。分開畫的話每一條都是細絲,幾條佔掉前十名的位置、
-   其餘掉進「其他」—— 但加起來常常是這一期前幾大的成本。拆著看等於
-   看不見它。合併後四項照「其他」的做法折在底下,錢一樣追得回去。
+   分開畫的話每一條都是細絲,幾條就佔掉前幾名的位置、其餘掉進「其他」
+   —— 但加起來常常是這一期前幾大的成本。拆著看等於看不見它。合併後每
+   個變體照「其他」的做法折在底下,錢一樣追得回去,只是不再各自佔一
+   塊餅。
 
-   AHS 不放進來:尺寸、重量、包裝的門檻不同、成因也不同(長箱子 vs 重
-   箱子 vs 包裝方式),合起來會蓋掉可以據以行動的資訊,不是揭露。 */
+   配送地區(__das__):DAS 四種(住宅／商業／延伸住宅／延伸商業)加偏遠
+   四種(住宅／商業／AK／HI)。偏遠在 UPS 帳單上是另一個名目(Remote
+   Area Surcharge,不是 Delivery Area Surcharge),併進來就看不出兩者
+   的差別 —— 但兩邊收的都是「送到哪裡」,要談的也是同一件事(投遞範
+   圍),所以算同一類。
+
+   額外處理(__ahs__):重量、尺寸、包裝三種。門檻和成因確實不同(重箱
+   子 vs 長箱子 vs 包裝方式),分開才知道要改哪一項 —— 但那是明細表的
+   工作,圓餅回答的是「這一期的錢花在哪幾件事上」。三個變體折在底下,
+   要追成因還是追得到。 */
 const PIE_FAMILIES=[
   {key:"__das__", members:["DAS Residential","DAS Commercial",
-                           "DAS Extended Residential","DAS Extended Commercial"]},
-  {key:"__ras__", members:["Remote Area Residential","Remote Area Commercial",
+                           "DAS Extended Residential","DAS Extended Commercial",
+                           "Remote Area Residential","Remote Area Commercial",
                            "Remote Area - AK","Remote Area - HI"]},
+  {key:"__ahs__", members:["Additional Handling Surcharge - Weight",
+                           "Additional Handling Surcharge - Dimension",
+                           "Additional Handling Surcharge - Packaging"]},
 ];
 const RECLASS_FEES=new Set(["AHS Weight","AHS Dimension","AHS Packaging","Large Package"]);
 const RECLASS_COLS=["Additional Handling Surcharge - Weight",
@@ -7228,6 +7270,7 @@ function dashPickInvoice(key){
 function dashMenuClose(back){
   const btn=$("#dashSel"), menu=$("#dashMenu");
   if(menu) menu.classList.remove("on");
+  const sc=$("#dashScrim"); if(sc) sc.remove();
   if(btn){ btn.setAttribute("aria-expanded","false"); if(back) btn.focus(); }
 }
 /* 每次重畫都會換掉這些節點,所以事件接在節點上;只有「點到外面就關」
@@ -7239,11 +7282,21 @@ function wireDashBar(){
   const open=()=>{
     menu.classList.add("on");
     btn.setAttribute("aria-expanded","true");
-    const find=$("#dashFind");
+    /* 遮罩只在開著的時候存在,關掉就移除,不留在 DOM 裡擋別人。 */
+    if(!$("#dashScrim")){
+      const sc=document.createElement("div");
+      sc.id="dashScrim"; sc.className="dscrim";
+      sc.addEventListener("mousedown",e=>{
+        /* 在這裡就吃掉:等到 click 才處理的話,底下那顆按鈕已經收到了。 */
+        e.preventDefault(); e.stopPropagation(); dashMenuClose(true);
+      });
+      menu.parentNode.appendChild(sc);
+    }
     const on=menu.querySelector(".dmi.on")||shown()[0];
-    if(on) on.scrollIntoView({block:"nearest"});
-    /* 有過濾框就先讓游標進去,直接打字就能找;沒有就跳到目前這一期。 */
-    if(find) find.focus(); else if(on) on.focus();
+    /* 焦點放在項目上,不是篩選框 —— 開選單的人多半是要用眼睛挑,
+       方向鍵馬上能用。要篩選就直接打字,下面的 keydown 會把字送過去。 */
+    if(on){ on.scrollIntoView({block:"nearest"}); on.focus(); }
+    else { const f=$("#dashFind"); if(f) f.focus(); }
   };
   btn.onclick=e=>{ e.stopPropagation();
     menu.classList.contains("on")?dashMenuClose():open(); };
@@ -7269,6 +7322,15 @@ function wireDashBar(){
         : (i<=0?0:i-1);
       list[n].focus(); list[n].scrollIntoView({block:"nearest"});
       return;
+    }
+    /* 焦點在項目上時打可見字元,就送進篩選框繼續打 —— 使用者不必先找到
+       那個輸入框。這是選單該有的行為,不是表單。 */
+    if(e.key.length===1 && !e.ctrlKey && !e.metaKey && !e.altKey){
+      const f=$("#dashFind");
+      if(f && document.activeElement!==f){
+        f.focus(); f.value+=e.key; f.dispatchEvent(new Event("input"));
+        e.preventDefault(); return;
+      }
     }
     if(e.key==="Home"||e.key==="End"){
       if(!list.length) return;
@@ -9267,7 +9329,7 @@ const I18N={
   "lb.resisys":["系統設定","System Configuration"],
   "lb.resiapi":["連動 API","Linked API"],
   "lb.resiapiurl":["API 代理端點(Edge Function 網址)","API proxy endpoint (Edge Function URL)"],
-  /* 為什麼金鑰不填在這裡、代理怎麼架,寫在手冊裡(UPS-API-手冊.pdf)。
+  /* 為什麼金鑰不填在這裡、代理怎麼架,寫在手冊裡(UPS-API-Manual.pdf)。
      那段完整說明擺在面板上太長,一句話帶到,想知道的人去看手冊。 */
   "hint.resisrc":["這一格只填代理的網址,UPS 金鑰設在代理那一端;沒填就退回系統設定。設定步驟見手冊。",
     "This field takes the proxy URL only — the UPS keys live on the proxy. Unset, it falls back to System configuration. See the setup manual."],
@@ -9280,6 +9342,7 @@ const I18N={
     "Every surcharge charges fuel unless you turn it off here."],
   "btn.accfuel":["設定哪些附加費收燃油","Set which surcharges charge fuel"],
   "btn.resisrc":["設定住/商判定來源","Set the residential / commercial source"],
+  "btn.manual":["📄 下載設定手冊（PDF）","📄 Setup manual (PDF)"],
   "hd.accfuelmodal":["哪些附加費收燃油","Which surcharges charge fuel"],
   /* 這兩顆是勾選的批次操作,以前用結果來命名(「全部都收」/「None charge
      fuel」),看的人得先想通「收燃油」和「打勾」是同一件事才知道會發生什麼。
