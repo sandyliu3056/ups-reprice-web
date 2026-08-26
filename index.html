@@ -9099,7 +9099,10 @@ const I18N={
   "lb.resisys":["系統設定","System Configuration"],
   "lb.resiapi":["連動 API","Linked API"],
   "lb.resiapiurl":["API 代理端點(Edge Function 網址)","API proxy endpoint (Edge Function URL)"],
-  "hint.resisrc":["API 需自架 UPS 代理,未設定時退回系統。","API needs a UPS proxy; falls back to System when unset."],
+  /* 這一行以前只寫「需自架 UPS 代理」,結果每個人都以為金鑰要填在畫面上。
+     說清楚為什麼不放這裡,比事後解釋一次省事。 */
+  "hint.resisrc":["UPS 的 Client ID / Secret 不填在這裡 —— 它們設在代理那一端(supabase secrets set)。瀏覽器存得下的東西,拿到這台電腦或那份設定檔的人就看得到。這一格只填代理的網址;沒填就退回系統設定。",
+    "The UPS Client ID and Secret do not go here — they are set on the proxy itself (supabase secrets set). Anything the browser can hold, anyone with the browser or a copy of the settings can read. This field takes only the proxy URL; unset, it falls back to System configuration."],
   "hd.files":["匯入檔案","Import Files"],
   "hd.sum":["這張帳單","This Invoice"],
   "hd.rate":["重新計價","Repricing"],
