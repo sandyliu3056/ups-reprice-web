@@ -395,6 +395,7 @@ td.cells{white-space:normal}
   border-top:1.5px solid var(--line)}
 .afbar{display:flex;align-items:center;gap:8px;margin:0 0 12px;
   padding-bottom:10px;border-bottom:1.5px solid var(--line)}
+#afModal .modalft{gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-start}
 .afsp{flex:1}
 .afcount{font-size:13px;font-weight:700;color:var(--accent)}
 .afgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));
@@ -1165,6 +1166,9 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <input id="resiApiUrl" class="cell" style="width:min(520px,100%);text-align:left" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
       </div>
       <p class="hint" style="margin:9px 0 0" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
+      <div class="row" style="margin-top:12px;justify-content:flex-end">
+        <button class="act" id="bSaveResi" data-i18n="btn.save">Save Settings</button>
+      </div>
     </div>
 
     <!-- 附加費的燃油底 -->
@@ -1177,9 +1181,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       </div>
     </div>
 
-    <div class="row" style="margin-top:4px">
-      <button class="act" onclick="saveSettings()" data-i18n="btn.save">Save Settings</button>
-    </div>
   </div>
 </section>
 
@@ -1422,14 +1423,15 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="modalbody">
       <div class="afbar">
         <span id="afCount" class="afcount"></span>
-        <span class="afsp"></span>
-        <button class="act ghost" id="bAfAll" data-i18n="btn.afall">All charge fuel</button>
-        <button class="act ghost" id="bAfNone" data-i18n="btn.afnone">None charge fuel</button>
       </div>
       <div id="afList" class="afgrid"></div>
     </div>
     <div class="modalft">
       <button class="act ghost" id="afClose" data-i18n="btn.close">Close</button>
+      <span class="afsp"></span>
+      <button class="act ghost" id="bAfAll" data-i18n="btn.afall">All charge fuel</button>
+      <button class="act ghost" id="bAfNone" data-i18n="btn.afnone">None charge fuel</button>
+      <button class="act" id="afSave" data-i18n="btn.save">Save Settings</button>
     </div>
   </div>
 </div>
@@ -4329,10 +4331,14 @@ function currentTab(){
   const b=document.querySelector("#tabs button[aria-selected=true]");
   return b?b.dataset.p:"files";
 }
+/* 你在看哪一頁。設定、費率、帳單歷史都是存著的,只有這件事以前每次
+   重新整理都被丟掉 —— 明明什麼都還在,人卻被丟回匯入檔案那一頁。 */
+const TAB_KEY="ups_reprice_tab";
 function showTab(p){
   /* 管理分頁只有管理者能進。分頁按鈕本來就藏起來了,這裡是第二道 ——
      showTab() 是唯一的入口,擋在這裡,任何呼叫端都繞不過去。 */
   if(ADMIN_ONLY.includes(p) && !(ME && ME.role==="admin")) p="files";
+  try{ localStorage.setItem(TAB_KEY,p); }catch(e){}
   document.querySelectorAll("#tabs button[data-p]").forEach(b=>
     b.setAttribute("aria-selected", b.dataset.p===p));
   document.querySelectorAll(".page").forEach(s=>
@@ -5137,15 +5143,20 @@ document.querySelectorAll('input[name="resiSrc"]').forEach(el=>{ el.onchange=()=
   const v=sel?sel.value:"system";
   (CFG.raw.global_rules||(CFG.raw.global_rules={})).resi_source=v;
   if($("#resiApiBox")) $("#resiApiBox").style.display=(v==="api")?"":"none";
-  CFG=readConfig(CFG.raw); DIRTY=true; saveSettings();
+  /* 這裡以前改一下就直接寫進儲存。整頁唯一那顆「儲存設定」拿掉之後,
+     這一區自己有一顆了 —— 和 Demand、附加費那幾頁同一個規矩:先改在
+     記憶體裡(計價立刻跟著動),按下儲存才寫入。 */
+  CFG=readConfig(CFG.raw); DIRTY=true;
   setStatus(LANG
-    ? ("Residential/Commercial source: "+(v==="api"?"API (address)":"System"))
-    : ("住/商判定來源:"+(v==="api"?"API(地址)":"系統設定")));
+    ? ("Residential/Commercial source: "+(v==="api"?"API (address)":"System")+" — not saved yet")
+    : ("住/商判定來源:"+(v==="api"?"API(地址)":"系統設定")+" —— 尚未儲存"));
 };});
 $("#resiApiUrl") && ($("#resiApiUrl").onchange=e=>{
   (CFG.raw.global_rules||(CFG.raw.global_rules={})).resi_api_url=String(e.target.value||"").trim();
-  CFG=readConfig(CFG.raw); DIRTY=true; saveSettings();
+  CFG=readConfig(CFG.raw); DIRTY=true;
+  setStatus(L("API 端點已更新 —— 尚未儲存","API endpoint updated — not saved yet"));
 });
+$("#bSaveResi") && ($("#bSaveResi").onclick=()=>saveSettings());
 $("#chanSearch") && ($("#chanSearch").oninput=()=>renderConfigTabs());
 $("#rateChan") && ($("#rateChan").onchange=()=>renderConfigTabs());
 $("#bAddChan") && ($("#bAddChan").onclick=()=>{
@@ -7774,11 +7785,40 @@ function paintAccFuelSum(){
             : "不收燃油:"+off.join("、"))
     : (LANG?"Every surcharge charges fuel.":"目前每一項都收燃油。");
 }
-function openAccFuel(){ renderAccFuel(); $("#afBg").classList.add("on"); }
-function closeAccFuel(){ $("#afBg").classList.remove("on"); }
+/* 勾選當下就套進 CFG(畫面要立刻跟著動),但那還沒寫進儲存。既然底下
+   多了一顆「儲存」,「關閉」就必須真的是放棄 —— 否則兩顆按鈕看起來
+   一個存一個不存,實際上都存,那顆儲存等於騙人。開啟時拍一份快照,
+   關閉時原樣放回去。 */
+let AF_SNAP=null;
+function openAccFuel(){
+  try{ AF_SNAP=JSON.stringify((CFG&&CFG.raw.accessorial_fuel_eligible)||{}); }
+  catch(e){ AF_SNAP=null; }
+  renderAccFuel(); $("#afBg").classList.add("on");
+}
+function closeAccFuel(keep){
+  if(keep!==true && AF_SNAP!=null && CFG){
+    let now="";
+    try{ now=JSON.stringify(CFG.raw.accessorial_fuel_eligible||{}); }catch(e){}
+    if(now!==AF_SNAP){
+      CFG.raw.accessorial_fuel_eligible=JSON.parse(AF_SNAP);
+      CFG=readConfig(CFG.raw);
+      paintAccFuelSum();
+      if(RATED&&SHIPS){ RATED=SHIPS.map(x=>priceShipment(CFG,x)); renderRate(); }
+      setStatus(L("已放棄燃油底的變更","Fuel-base changes discarded"));
+    }
+  }
+  AF_SNAP=null;
+  $("#afBg").classList.remove("on");
+}
+function saveAccFuel(){
+  if(saveSettings()===false) return;    /* 存不進去就別關,人還要能重試 */
+  closeAccFuel(true);
+  renderConfigTabs();
+}
 $("#bAccFuel") && ($("#bAccFuel").onclick=openAccFuel);
-$("#afX")      && ($("#afX").onclick=closeAccFuel);
-$("#afClose")  && ($("#afClose").onclick=closeAccFuel);
+$("#afX")      && ($("#afX").onclick=()=>closeAccFuel());
+$("#afClose")  && ($("#afClose").onclick=()=>closeAccFuel());
+$("#afSave")   && ($("#afSave").onclick=saveAccFuel);
 $("#bAfAll")   && ($("#bAfAll").onclick=()=>setAllAccFuel(true));
 $("#bAfNone")  && ($("#bAfNone").onclick=()=>setAllAccFuel(false));
 
@@ -10217,6 +10257,15 @@ step("codes",   ()=>renderCode());
 step("history", ()=>{ if(ME) restoreHistoryDetail(); });
 step("weather", ()=>{ if(WX.live) fetchWx(); });
 step("scene",   ()=>sceneInit());
+/* 分頁放在最後還原:showTab 會叫 sceneShow(),那要等 sceneInit 之後;
+   管理分頁的權限檢查在 showTab 裡面,ME 這時也已經就位。 */
+step("tab", ()=>{
+  let want="";
+  try{ want=localStorage.getItem(TAB_KEY)||""; }catch(e){}
+  if(!want||want==="files") return;
+  if(!document.getElementById("p-"+want)) return;   /* 舊的分頁名稱就忽略 */
+  showTab(want);
+});
 
 </script>
 </body>
