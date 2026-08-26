@@ -1,0 +1,19 @@
+# Netlify / Cloudflare Pages 的快取規則。
+#
+# 整個工具就是一份 index.html。靜態主機預設會讓瀏覽器把它快取住,於是合併、
+# 部署都完成了,開網頁的人還是拿到上一版 —— 症狀是「一整批功能不見了」,
+# 而畫面上看不出手上跑的是哪一版。
+#
+# no-cache 不是不准快取,是「每次都先問伺服器有沒有變」:沒變就回 304,
+# 幾乎不花流量;變了就馬上拿到新的。要即時更新的檔案就該是這個設定。
+#
+# 其餘檔案(supabase-js、xlsx、字型)帶版號或極少變動,照主機預設即可。
+
+/
+  Cache-Control: no-cache, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/auth-config.js
+  Cache-Control: no-cache, must-revalidate

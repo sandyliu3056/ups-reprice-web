@@ -7276,7 +7276,11 @@ function dashAcctOf(p){
   if(a) return {id:a, guessed:false};
   const k=String((p&&p.key)||"").trim();
   const stem=k.replace(/\d+$/,"");
-  return {id:stem||k, guessed:!!stem};
+  /* 去掉結尾數字之後什麼都不剩,表示這個期號整串都是數字 —— 那推不出帳號。
+     退回 k 的話,每一期都會變成自己一個「帳號」:帳號欄每列不同、走勢圖
+     每根柱子一個顏色、折線永遠連不起來。推不出來就說推不出來。 */
+  if(!stem) return {id:"", guessed:false};
+  return {id:stem, guessed:true};
 }
 /* 上一次畫出來的彙總。「重新整理」要能講出重算前後差多少,就得記得前一次
    算到什麼 —— 只為了這件事再跑一次 dashAgg() 是白算一遍。 */

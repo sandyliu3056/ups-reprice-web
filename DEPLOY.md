@@ -15,6 +15,8 @@
 | `supabase/schema.sql` | 不上傳網站,在 Supabase 後台執行一次 |
 | `supabase/functions/admin-users/` | 不上傳網站,部署成 Edge Function |
 | `.nojekyll` | 要,如果部署在 GitHub Pages |
+| `_headers` | 要,如果部署在 Netlify 或 Cloudflare Pages |
+| `vercel.json` | 要,如果部署在 Vercel |
 
 **不在包裡、也不該進 repo 的:**`ups_billing_tool_config.json`(你的合約費率)、`ups_history.sqlite3`、任何帳單 CSV 或 xlsx。費率是每次開工具時自己載進去的,不是打包進去的。
 
@@ -24,6 +26,31 @@
 2. 安裝 hook:`git config core.hooksPath .githooks`
 3. `auth-config.js` 只填 Project URL 與 anon/publishable key。**service_role 或任何 secret key 絕對不能進前端** —— hook 會擋 JWT 形狀的字串與 Supabase secret key 前綴,但別靠它。
 4. Supabase 那邊要先跑過 `supabase/login_history.sql`,不然登入紀錄那頁會顯示錯誤。這支 SQL 不在這個包裡。
+
+## 部署完要確認的一件事
+
+開網址,看標題列右邊的 **BUILD** 日期:
+
+```
+UPS REPRICE PLATFORM   DEVELOPED BY SANDY LIU   BUILD 2026-08-26 16:20
+```
+
+那是伺服器回報的 `index.html` 最後修改時間。**日期沒有跟著這次部署往前走,就是沒有拿到新檔**,不必再一個一個功能去找哪裡不見了。
+
+分兩種情況:
+
+| 現象 | 原因 | 處理 |
+|---|---|---|
+| 網址後面加 `?v=1` 就變新的 | 瀏覽器或 CDN 的快取 | `_headers` / `vercel.json` 已經把 `index.html` 設成 `no-cache`,重新部署一次即可;臨時可用 Ctrl+Shift+R(Mac 為 Cmd+Shift+R) |
+| 加了 `?v=1` 還是舊的 | 主機上的檔案本身就是舊的 | 部署沒有跑到。檢查主機是不是接在 `main`,或重新觸發一次部署 |
+
+`no-cache` 不是不准快取,是每次都先問伺服器有沒有變:沒變回 304 幾乎不花流量,變了就立刻拿到新的。
+
+### 部署額度
+
+Vercel 每天可建立的部署數有上限,用完會在 PR 的檢查上顯示 **Deployment rate limited — retry in 24 hours**,而且在額度恢復前,合併了也不會有新的線上版本 —— 網站會停在最後一次成功部署的那一版。
+
+主要的消耗來源是 **preview 部署**:推一次分支就建一個,而那些預覽沒有人會去看。要省下來,在 Vercel 專案的 **Settings → Git** 把非正式分支的 preview 部署關掉,正式分支照常。另一個做法是把改動累積起來一次推,不要每次 rebase 都 force-push。
 
 ## 每個帳號自己的費率
 
