@@ -3850,6 +3850,13 @@ const LOCAL_ACCOUNTS=[
   { user:"geniqua_log",
     hash:"9bb4feb1506bb39ba86de217f17f0ad20abb17a74b8cebf5526c27920de5c8a2",
     name:"Geniqua", role:"user" },
+  /* 測試帳號。每個帳號的資料是綁 ME.id 存的(localStorage、IndexedDB),
+     雲端那一份是綁 ME.sync(帳號+密碼推出來的鍵)—— 兩邊都不共用。所以用
+     這個帳號怎麼存、怎麼匯入、怎麼刪都碰不到真正的資料,測完不必收拾。
+     一開始是空的:費率從「匯入檔案」載一份設定檔進來就能開始算。 */
+  { user:"test",
+    hash:"dcb80535322bf94005c1d286e01a112fee9e6f9c5794b1e0ecf718b74be24994",
+    name:"Test", role:"admin" },
 ];
 const LOCAL_SESSION_KEY="ups_reprice_local_session";
 /* 「保持登入」勾了才寫這把 —— localStorage 關瀏覽器也留著,下次開站免登入。
