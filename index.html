@@ -6696,6 +6696,8 @@ function dashAgg(){
   const bucketCols=REPORT_COLS.filter(c=>!META.has(c));
   let repriced=0, billed=0, resiN=0, comN=0, resiAmt=0, comAmt=0;
   let unsureN=0, unsureAmt=0, notRepriced=0, unknownNet=0, missN=0, missAmt=0;
+  /* 服務名稱比對不到任何已知服務,渠道是退回預設服務來的 */
+  let svcUnsureN=0, svcUnsureAmt=0;
   const unknownCodes=new Set(), unsureBy={}, chanAgg={};
   const buckets={}, zoneAgg={}, upsBuckets={};
   let reclN=0;
@@ -6707,8 +6709,14 @@ function dashAgg(){
     const r=rated[i];
     if(r){ billed+=toNum(r.s&&r.s.upsTotal);
       if(r.residential){ resiN++; resiAmt+=tot; } else { comN++; comAmt+=tot; }
-      const ch = r.svcSure===false ? L("未知","Unknown") : (r.channel||L("未知","Unknown"));
+      /* 渠道就用重算實際採用的那一條。這筆 tot 正是拿那條渠道的費率表算出來的
+         —— 服務名稱認不出來時 guessService 會退回預設服務,那仍然是一條真的
+         渠道、也真的拿去計了價。標成「未知」等於畫面和帳算的東西各講各的:
+         錢用 Ground Commercial 算,圓餅卻說不知道哪一條。
+         「判不出來」這件事沒有被吞掉,它進下面的「未判定」卡片。 */
+      const ch = r.channel || L("未知","Unknown");
       chanAgg[ch]=(chanAgg[ch]||0)+tot;
+      if(r.svcSure===false){ svcUnsureN++; svcUnsureAmt+=tot; }
       if(r.baseMissing||(r.missFees&&r.missFees.length)){ missN++; missAmt+=tot; }
       if(r.resiSure===false){ unsureN++; unsureAmt+=tot;
         const k=r.resBasis||"";
@@ -6737,7 +6745,8 @@ function dashAgg(){
   });
   return {n:rated.length, repriced, billed, savings:billed-repriced,
     resiN, comN, resiAmt, comAmt, fuel:buckets["Fuel Surcharge"]||0, buckets, zoneAgg,
-    unsureN, unsureAmt, unsureBy, notRepriced, unknownNet, unknownCodes:[...unknownCodes],
+    unsureN, unsureAmt, unsureBy, svcUnsureN, svcUnsureAmt,
+    notRepriced, unknownNet, unknownCodes:[...unknownCodes],
     missN, missAmt, chanAgg, upsBuckets, reclN,
     account:(ACCT_LINES||[]).reduce((a,l)=>a+toNum(l.net),0)};
 }
@@ -7066,7 +7075,7 @@ function renderDashboard(){
         (zTot&&zTop?Math.round(Math.abs(zTop[1])/zTot*100):0)+"%",
         zTop?zTop[0]:L("Zone","Zone"))
     : `<div class="dsub">${L("沒有 Zone 資料","No zone data")}</div>`;
-  const hasU=d.unsureN>0||d.missN>0||Math.abs(uAmt)>0.005;
+  const hasU=d.unsureN>0||d.missN>0||d.svcUnsureN>0||Math.abs(uAmt)>0.005;
   const uCard=hasU?`
     <div class="dcard warn" style="margin-top:12px">
       <div class="ch"><h3>${L("未判定","Unclassified")}</h3>
@@ -7076,6 +7085,8 @@ function renderDashboard(){
       ${Object.entries(d.unsureBy||{}).sort((a,b)=>b[1].n-a[1].n).map(([k,v])=>
         `<div class="urow"><span>${esc(k)}</span><b>${v.n} ${L("筆","")}</b>
          <span class="uv">${money(v.amt)}</span></div>`).join("")}
+      ${d.svcUnsureN?`<div class="urow"><span>${L("服務名稱認不出來,已用預設服務的費率計價","Service name not recognised — priced with the default service's rates")}</span>
+        <b>${d.svcUnsureN} ${L("筆","")}</b><span class="uv">${money(d.svcUnsureAmt)}</span></div>`:""}
       ${Math.abs(d.notRepriced)>0.005?`<div class="urow"><span>${L("不重算代碼 (NPF / SCF)","Not repriced (NPF / SCF)")}</span>
         <b></b><span class="uv">${money(d.notRepriced)}</span></div>`:""}
       ${Math.abs(d.unknownNet)>0.005?`<div class="urow"><span>${L("未知代碼","Unknown codes")} ${esc(d.unknownCodes.join(" "))}</span>
