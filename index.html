@@ -1862,7 +1862,7 @@ function fuelPercentFor(cfg, channel, shipDate){
   if(!fs.sched.length) return {pct:fs.pct, note:""};
   const d=schedDate(shipDate);
   if(!d) return {pct:fs.pct,
-    note:L("燃油:這一筆沒有出貨日期,用了預設 ","Fuel: no ship date, used the default ")+fs.pct+"%"};
+    note:L("燃油:本筆無出貨日期,採用預設 ","Fuel: no ship date; used the default ")+fs.pct+"%"};
   for(const wnd of fs.sched){
     const a=schedDate(wnd.start), b=schedDate(wnd.end);
     if(a&&b&&a<=d&&d<=b)
@@ -2205,6 +2205,9 @@ const ACC_CODE_MAP = {
   SIG:{fee:"Signature"},
   ADS:{fee:"Adult Signature"},
   ASG:{fee:"Adult Signature"},
+  /* ASR 也是成人簽名(CODE_REF 就寫 Adult Signature Required)。這裡漏了它,
+     於是帶 ASR 的帳單兩側都當成未知代碼:重算不收這筆、圓餅畫成「未知」。 */
+  ASR:{fee:"Adult Signature"},
   /* 超大件。桌面版 :19302 認 OVR 與 OML,並用自己的費率表重算,
      查不到合約費率才退回 UPS 實收(:19972)。 */
   OVR:{fee:"Over Maximum Size Surcharge", ups_fallback:true},
@@ -2326,7 +2329,7 @@ function accLookup(cfg, feeType, channel, zone, issues, residential, missOut){
     if(alt in t) key=alt;
   }
   if(!(key in t)){
-    issues.push(feeType+" @ "+channel+L(":這個管道沒有這項附加費的費率",
+    issues.push(feeType+" @ "+channel+L(":此渠道未設定該附加費之費率",
       ": this channel has no rate for that surcharge"));
     if(missOut) missOut.add(feeType);
     return 0;
@@ -2555,7 +2558,7 @@ function priceShipment(cfg, s){
   else if(scan.residentialAdj){ residential=true; resBasis=LANG?"residential adjustment":"住宅重分類"; }
   else if(scan.commercialAdj){ residential=false; resBasis=LANG?"commercial adjustment":"商業重分類"; }
   else if(svcSaysRes!==svcSaysCom){ residential=svcSaysRes;
-    resBasis=L("服務名稱明講住/商","Service name states residential/commercial"); }
+    resBasis=L("服務名稱已載明住宅／商業","Service name states residential/commercial"); }
   else if(s.layer==="RTN"){
     if(!byCode()){
       residential=svcSaysRes;
@@ -2793,7 +2796,7 @@ function priceShipment(cfg, s){
         baseA=lkA.rate; base=Math.round((base-baseA)*100)/100;
       }
     }
-  }else baseWhy = !zone ? L("這一筆沒有 Zone","This line has no Zone")
+  }else baseWhy = !zone ? L("本筆無 Zone","This line has no Zone")
                          : L("認不出服務別","Service not recognised");
   if(baseWhy) issues.push(baseWhy);
 
@@ -3901,8 +3904,8 @@ async function loadLoginHistory(){
     /* 本機模式的登入寫在活動紀錄裡(Activity Log),這張表是 Supabase 的。 */
     const rows=logRead().filter(x=>x.w==="signed in").slice(-100).reverse();
     body.innerHTML=rows.length?rows.map(r=>`<tr><td>${esc(r.t)}</td><td>${esc(r.u)}</td><td>${esc(loginDevice(r.d))}</td></tr>`).join("")
-      :`<tr><td colspan="3" class="empty">${L("這台瀏覽器還沒有登入紀錄。","No sign-ins recorded on this browser yet.")}</td></tr>`;
-    if(note) note.innerHTML=`<div class="note">${L("本機帳號模式:只看得到這台瀏覽器的登入。","Local-account mode: sign-ins on this browser only.")}</div>`;
+      :`<tr><td colspan="3" class="empty">${L("本瀏覽器尚無登入紀錄。","No sign-ins recorded on this browser.")}</td></tr>`;
+    if(note) note.innerHTML=`<div class="note">${L("本機帳號模式:僅顯示本瀏覽器之登入紀錄。","Local-account mode: shows sign-ins on this browser only.")}</div>`;
     return;
   }
   if(!AUTH) return;
@@ -3982,7 +3985,7 @@ function renderUsers(){
   if(!tb) return;
   if(!USERS.length){
     tb.innerHTML=`<tr><td colspan="6" class="empty">${
-      L("還沒有帳號。用上面那一列新增。","No accounts yet — add one above.")}</td></tr>`;
+      L("尚無帳號。請於上方新增。","No accounts. Add one above.")}</td></tr>`;
     return;
   }
   tb.innerHTML=USERS.map(u=>{
@@ -5320,8 +5323,8 @@ $("#bManual") && ($("#bManual").onclick=async()=>{
   let ok=false;
   try{ ok=(await fetch(url,{method:"HEAD"})).ok; }catch(e){ ok=false; }
   if(ok) pullFile(url,MANUAL_PDF);
-  else toast(L("找不到 "+MANUAL_PDF+",它要和 index.html 放在同一個資料夾。",
-               "Can't find "+MANUAL_PDF+" — it has to sit in the same folder as index.html."));
+  else toast(L("找不到 "+MANUAL_PDF+"。該檔案須與 index.html 置於同一資料夾。",
+               "Cannot find "+MANUAL_PDF+". It must be placed in the same folder as index.html."));
 });
 $("#rsX")      && ($("#rsX").onclick=()=>closeResiSrc());
 $("#rsClose")  && ($("#rsClose").onclick=()=>closeResiSrc());
@@ -5922,7 +5925,7 @@ function bkdSection(r){
     for(const [k,v] of Object.entries(res.acc||{})){
       const m=missSet.has(k);
       P.push(`<tr class="${m?"bkdmissrow":""}"><td>${esc2(feeDisplay(k))}</td><td class="num">${
-        m?cellMiss(v,L("這個管道沒有這項附加費的費率","This channel has no rate for that surcharge")
+        m?cellMiss(v,L("此渠道未設定該附加費之費率","This channel has no rate for that surcharge")
                      +" — "+feeDisplay(k)+" @ "+(res.channel||"")):money(v)}</td></tr>`);
       psub+=v;
     }
@@ -6088,13 +6091,13 @@ function stPreviewHTML(key, rows){
     </div>
     <div class="pvcols">
       <div><div class="pvh">${L("渠道(依帳單服務名稱)","Channels (as billed)")}</div>${
-        chanRows||`<div class="pvr"><span>${L("這一期沒有運費行","No freight lines in this period")}</span></div>`}${
+        chanRows||`<div class="pvr"><span>${L("本期無運費行","No freight lines in this period")}</span></div>`}${
         more>0?`<div class="pvmore">${L("另有 "+more+" 條渠道","and "+more+" more")}</div>`:""}</div>
       <div><div class="pvh">${L("費用分類","Charge classes")}</div>${clsRows}</div>
     </div>
     <div class="pvnote">${L(
-      "以上直接加總存下來的帳單行,沒有經過重算。要用目前的費率跑這一期,請到儀表板上方的期別選單。",
-      "These are sums of the filed invoice lines — nothing was repriced. To run this period with the current rates, use the period picker at the top of the dashboard.")}</div>
+      "以上為已歸檔帳單行之加總,未經重算。如需以目前費率重算本期,請使用儀表板上方之期別選單。",
+      "Sums of the filed invoice lines. Nothing has been repriced. To reprice this period with the current rates, use the period picker at the top of the dashboard.")}</div>
   </div>`;
 }
 /* 帳單自己的分類代碼。攤開來看的人不必記得 FSC 是什麼。 */
@@ -6120,8 +6123,8 @@ $("#tStored") && ($("#tStored").addEventListener("click",async e=>{
   row.className="stprev";
   row.innerHTML=`<td colspan="7">${rows.length?stPreviewHTML(k,rows)
     :`<div class="stprevbox"><div class="pvnote">${L(
-      "這一期只留了索引,沒有存明細 —— 要看內容請重新匯入這張帳單。",
-      "Only the index was kept for this period, not the detail — import that invoice again to see inside.")}</div></div>`}`;
+      "本期僅保留索引,未存明細。如需檢視內容,請重新匯入該帳單。",
+      "Only the index was retained for this period, not the detail. Re-import the invoice to view its contents.")}</div></div>`}`;
   tr.after(row);
   b2.textContent=LANG?"Hide":"收合";
 }));
@@ -6721,7 +6724,7 @@ function dynRender(){
         <td>${r.fuel?"YES":"NO"}</td>
         <td>${r.on?"YES":"NO"}</td></tr>`).join("")
     : `<tr><td colspan="7" class="empty">`
-      +L("還沒有自訂附加費。","No custom surcharges yet.")+`</td></tr>`;
+      +L("尚未設定自訂附加費。","No custom surcharges configured.")+`</td></tr>`;
   const a=$("#dynAll");
   if(a) a.onclick=()=>document.querySelectorAll(".dynrow").forEach(c=>c.checked=a.checked);
 }
@@ -6933,6 +6936,9 @@ const DASH_LABEL={
   "Additional Handling Surcharge - Packaging":["額外處理·包裝","AHS · Packaging"],
   "DAS Residential":["住宅 DAS","DAS Resi"],"DAS Commercial":["商業 DAS","DAS Comm"],
   "__das__":["DAS／RAS","DAS / RAS"],
+  "__norepr__":["不重算代碼 (NPF / SCF)","Not repriced (NPF / SCF)"],
+  "Third Party Billing":["第三方付費","Third Party Billing"],
+  "Commercial Adjustment":["商業重分類","Commercial Adjustment"],
   "__ahs__":["AHS","AHS"],
   "DAS Extended Residential":["延伸住宅 DAS","DAS Ext Resi"],"DAS Extended Commercial":["延伸商業 DAS","DAS Ext Comm"],
   "Undeliverable Return":["退件回程","Undeliverable Return"],"Return To Sender":["退回寄件人","Return To Sender"],
@@ -6954,6 +6960,9 @@ function dashLabel(col){ const m=DASH_LABEL[col]; return m?L(m[0],m[1]):col; }
 /* UPS 帳單自己的費用分類。重算那邊有 reportRows() 的欄位可以用,UPS 這邊
    沒有 —— 照 scanCharges 同一組規則把原始行分桶,只讀不算。 */
 const DASH_RECLASS="__reclass__", DASH_UNKNOWN="__unknown__";
+/* NPF / SCF 是照設計就不重算的,不是認不得。以前兩張餅都把這筆錢併進
+   「未知代碼」—— 而查得到的東西被標成未知,看的人只會白跑一趟代碼查詢頁。 */
+const DASH_NOREPR="__norepr__";
 const RECLASS_RE=/AHS\/Large Package|AHS\/大包裹/;
 /* 同一種附加費被 UPS 拆成多個變體收費的,在圓餅上合成一塊來排名。
    分開畫的話每一條都是細絲,幾條就佔掉前幾名的位置、其餘掉進「其他」
@@ -6989,6 +6998,18 @@ const UPS_COLOF={"AHS Weight":"Additional Handling Surcharge - Weight",
   "AHS Dimension":"Additional Handling Surcharge - Dimension",
   "AHS Packaging":"Additional Handling Surcharge - Packaging",
   "Large Package":"Large Package Surcharge"};
+/* 標記行不是可計價的附加費,但它們都查得到是什麼。EVS 就是申報價值 ——
+   重算那一欄叫 Declared Value,右邊卻畫成「未知代碼」,兩張並排的餅對同一
+   筆錢講了兩種話。 */
+const MARKER_BUCKET={
+  declared_value:"Declared Value",
+  third_party:"Third Party Billing",
+  commercial_adj:"Commercial Adjustment",
+};
+/* UPS 這一側的分桶。順序要和 scanCharges 一致,否則同一行在兩張餅上會落在
+   不同的桶裡。以前這裡只問 gapFeeOf(),而 gapFeeOf 只讀 ACC_CODE_MAP 的
+   fee 欄 —— 標記行沒有 fee、NPF/SCF 沒有 fee、自訂附加費根本不在那張表裡,
+   十幾個查得出來的代碼因此全被畫成「未知」。 */
 function upsBucketOf(l, recl){
   const cls=String(l.cls||"").toUpperCase();
   if(cls==="INF") return null;
@@ -6999,7 +7020,18 @@ function upsBucketOf(l, recl){
   }
   if(cls==="FRT") return String(l.layer||"")==="RTN"?"Undeliverable Return":"Base Rate";
   if(cls==="FSC") return "Fuel Surcharge";
-  const fee=gapFeeOf(l.code);
+  const c=String(l.code||"").toUpperCase();
+  if(!c || MAIN_LINE.has(c)) return null;
+  /* 自訂附加費先看,條件和 scanCharges 同一組:代碼、啟用、AR 對得上、有名字 */
+  const dcfg=((CFG&&CFG.raw&&CFG.raw.dynamic_surcharge_mapping)||{})[c];
+  if(dcfg && dcfg.enabled!==false && AR_CODES.includes(normArCode(cls))
+     && normArCode(cls)===normArCode(dcfg.ar||"ACC")
+     && String(dcfg.name||"").trim()!=="")
+    return String(dcfg.name).trim();
+  if(NOT_REPRICED.has(c)) return DASH_NOREPR;
+  const cm=ACC_CODE_MAP[c];
+  if(cm&&cm.marker) return MARKER_BUCKET[cm.marker]||DASH_UNKNOWN;
+  const fee=gapFeeOf(c);
   if(fee) return (recl&&RECLASS_FEES.has(fee))?DASH_RECLASS:(UPS_COLOF[fee]||fee);
   return DASH_UNKNOWN;
 }
@@ -7069,6 +7101,9 @@ function dashAgg(){
         }
       } }
   });
+  /* 不重算的那幾個代碼在重算側也要有自己的一塊。以前它併進 uAmt、和真正
+     認不得的代碼一起畫成「未知」,兩件不同的事被說成同一件。 */
+  if(Math.abs(notRepriced)>0.005) buckets[DASH_NOREPR]=notRepriced;
   return {n:rated.length, repriced, billed, savings:billed-repriced,
     resiN, comN, resiAmt, comAmt, fuel:buckets["Fuel Surcharge"]||0, buckets, zoneAgg,
     unsureN, unsureAmt, unsureBy, svcUnsureN, svcUnsureAmt,
@@ -7254,7 +7289,7 @@ function dashBarHTML(){
   else if(cur.length===1){ big=cur[0]; small=L("尚未歸檔","not filed to history"); }
   else { big=L("選擇帳單期別","Choose an invoice");
          small=list.length?list.length+L(" 期可選"," available")
-                          :L("歷史裡還沒有帳單","nothing filed yet"); }
+                          :L("帳單歷史尚無資料","nothing filed yet"); }
   const chips=selP
     ? [[L("帳單日","Invoice date"), selP.date||"—"],
        [L("明細","Detail"), rowsL(selP.rows)],
@@ -7300,7 +7335,7 @@ function dashBarHTML(){
         <div class="dmhd" id="dashMhd">${L("歷史帳單 · ","In history · ")}${list.length}${L(" 期","")}</div>
         <div class="dmlist" id="dashMlist" role="listbox"
           aria-label="${L("帳單期別","Invoice")}">${allItem}${items
-          ||`<div class="dmempty">${L("歷史裡還沒有帳單。","Nothing filed to history yet.")}</div>`}</div>
+          ||`<div class="dmempty">${L("帳單歷史尚無資料。","Nothing filed to history.")}</div>`}</div>
         ${odd?`<div class="dmfoot">${L(
           "另有 "+odd+" 筆期號不像期號(多半是沒有標題列、欄位順序不同的檔案匯壞了),沒有列在這裡。要清掉請到「帳單歷史 → 已存帳單」。",
           odd+" filed entr"+(odd>1?"ies":"y")+" had no invoice-shaped number — usually a file that imported with the wrong columns. Not listed here; clear them from Invoice History → Stored Invoices.")}</div>`:""}
@@ -7575,7 +7610,8 @@ function renderDashboard(){
       +`<text class="phole" x="75" y="88" text-anchor="middle" font-size="10" opacity=".7">${esc(centerSmall)}</text>`
       +`</svg><div class="plegend"><table>${rows}</table></div></div>`;
   };
-  const uAmt=d.notRepriced+d.unknownNet;
+  /* 只有真的沒有歸類的錢才進「未歸類代碼」—— 不重算的那一份已經自成一塊。 */
+  const uAmt=d.unknownNet;
   /* 兩張餅共用同一組分類,才對得起來。改判與未知固定用自己的顏色。 */
   const RECLCOL=RECLCOL2;
   const pieItems=(obj,extraUnknown,unkBy)=>{
@@ -7619,11 +7655,14 @@ function renderDashboard(){
     if(Math.abs(rc)>0.005) out.push([L("改判 AHS/大包裹","Reclassified AHS/LP"),rc,RECLCOL]);
     const uk=toNum(obj[DASH_UNKNOWN])+toNum(extraUnknown);
     if(Math.abs(uk)>0.005){
-      out.push([L("未知代碼","Unknown codes"),uk,MISSCOL]);
+      out.push([L("未歸類代碼","Unclassified codes"),uk,MISSCOL]);
       /* 「未知 $7.65」講不出任何可以行動的事。把它拆回實際的帳單代碼,
          才知道要去代碼查詢頁查哪一個。折在底下,和 DAS、其他同一個做法。 */
       for(const [c,v] of Object.entries(unkBy||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])))
-        if(Math.abs(v)>0.005) out.push([esc(c),v,MISSCOL,"fold"]);
+        if(Math.abs(v)>0.005)
+          /* 查得到名字的就把名字寫出來 —— 只給三個字母,讀的人還是得再查一次。
+             這裡不要先 esc:pieBlock 自己會跳脫,跳兩次會把 & 變成 &amp;amp;。 */
+          out.push([CODE_REF[c]?c+" · "+CODE_REF[c]:c, v, MISSCOL, "fold"]);
     }
     return out;
   };
@@ -7636,8 +7675,8 @@ function renderDashboard(){
     return `<div><div class="pcap">${esc(cap)}<b>${money(sum)}</b></div>`
       +pieBlock(it,t,(t?Math.round(Math.abs(bf)/t*100):0)+"%",L("運費 + 燃油","freight + fuel"))
       +`<div class="pnote">${L(
-        "圓心:基本運費、退件回程與燃油合計,佔這一欄總額的比例;其餘是附加費。",
-        "Centre: base freight, return legs and fuel as a share of this column's total. The rest is surcharges.")}</div>`
+        "圓心:基本運費、退件回程與燃油合計佔本欄總額之比例;其餘為附加費。",
+        "Centre: base freight, return legs and fuel as a share of this column's total. The remainder is surcharges.")}</div>`
       +`</div>`;
   };
   const compHTML=`<div class="pie2">`
@@ -7657,7 +7696,7 @@ function renderDashboard(){
     ? pieBlock(zItems, zTot,
         (zTot&&zTop?Math.round(Math.abs(zTop[1])/zTot*100):0)+"%",
         zTop?zTop[0]:L("Zone","Zone"))
-    : `<div class="dsub">${L("沒有 Zone 資料","No zone data")}</div>`;
+    : `<div class="dsub">${L("無 Zone 資料","No zone data")}</div>`;
   /* 三張卡片講同一件事的時代結束了:這一張把「查不到費率」「判定不確定」
      「沒有重算」收在一起,由重到輕排,每一組都指得出帳單的哪幾列。
      內容和匯出都在 renderIssueCard()/exportIssues()。 */
@@ -7704,14 +7743,14 @@ function renderDashboard(){
   if(rb) rb.onclick=()=>{
     const was=DASH_LAST?DASH_LAST.repriced:null;
     if(!repriceNow()){
-      setStatus(L("還沒有可以重算的資料","Nothing to reprice yet")); return;
+      setStatus(L("目前無可重算之資料","No data available to reprice")); return;
     }
     const now=DASH_LAST?DASH_LAST.repriced:null;
     const msg=(was==null||now==null)
       ? L("已重新整理","Refreshed")
       : (Math.abs(now-was)<0.005
-          ? L("已用目前的設定重算,總額沒有變:"+money(now),
-              "Repriced with the current settings — unchanged at "+money(now))
+          ? L("已依目前設定重算,總額未變動:"+money(now),
+              "Repriced with the current settings; total unchanged at "+money(now))
           : L("已重算:"+money(was)+" → "+money(now),
               "Repriced: "+money(was)+" → "+money(now)));
     setStatus(msg); toast(msg,true);
@@ -8519,32 +8558,32 @@ function renderSummary(){
    ===================================================================== */
 const ISSUE_KIND={
   /* sev 3:整條渠道的錢都算錯了。2:單一項算成 0。1:錢有算,但可能歸錯類。 */
-  channel:{sev:3, basis:"billed", zh:"費率表沒有這條渠道",
-           en:"Rate table missing for this channel"},
-  unknown:{sev:3, basis:"billed", zh:"認不得的附加費代碼,完全沒有重算",
-           en:"Unrecognised surcharge code — not repriced at all"},
-  zone:   {sev:2, basis:"billed", zh:"費率表沒有這個 Zone",
-           en:"Zone not in the rate table"},
+  channel:{sev:3, basis:"billed", zh:"費率表未涵蓋此渠道",
+           en:"Channel not covered by the rate table"},
+  unknown:{sev:3, basis:"billed", zh:"未知附加費代碼,未納入重算",
+           en:"Unrecognised surcharge code; not included in repricing"},
+  zone:   {sev:2, basis:"billed", zh:"費率表未涵蓋此 Zone",
+           en:"Zone not covered by the rate table"},
   weight: {sev:2, basis:"billed", zh:"計費重超出費率表範圍",
-           en:"Billable weight outside the rate table"},
-  cell:   {sev:2, basis:"billed", zh:"費率表這一格是空的",
+           en:"Billable weight outside the rate table range"},
+  cell:   {sev:2, basis:"billed", zh:"費率表對應欄位為空值",
            en:"Rate table cell is empty"},
-  fee:    {sev:2, basis:"billed", zh:"附加費沒有匯入費率",
+  fee:    {sev:2, basis:"billed", zh:"此附加費未匯入費率",
            en:"No rate imported for this surcharge"},
-  resi:   {sev:1, basis:"atrisk", zh:"住/商判定不確定",
-           en:"Residential / commercial uncertain"},
-  svc:    {sev:1, basis:"atrisk", zh:"服務名稱認不出來,用預設服務的費率計價",
-           en:"Service name not recognised — priced with the default service"},
-  norepr: {sev:1, basis:"billed", zh:"照設計就不重算 (NPF / SCF)",
-           en:"Not repriced by design (NPF / SCF)"},
+  resi:   {sev:1, basis:"atrisk", zh:"住宅／商業判定不明確",
+           en:"Residential / commercial classification unresolved"},
+  svc:    {sev:1, basis:"atrisk", zh:"服務名稱無法辨識,以預設服務費率計價",
+           en:"Service name unrecognised; priced with the default service"},
+  norepr: {sev:1, basis:"billed", zh:"設計上不予重算 (NPF / SCF)",
+           en:"Excluded from repricing by design (NPF / SCF)"},
 };
 const SEV_TAG={3:["高","HIGH"],2:["中","MED"],1:["低","LOW"]};
 const SEV_NOTE={
-  3:["金額算錯了,而且不只一筆","the amount is wrong, and not only on one shipment"],
-  2:["這一項算成 0,其餘照算","this charge priced as 0, the rest still counted"],
-  1:["金額有算進總額,但可能歸錯類","counted in the total, but possibly under the wrong class"],
+  3:["金額計算有誤,且影響多筆貨件","amount is incorrect and affects multiple shipments"],
+  2:["該項以 0 計算,其餘項目不受影響","charge priced as 0; the remaining charges are unaffected"],
+  1:["金額已計入總額,惟分類可能有誤","included in the total; the classification may be incorrect"],
 };
-let ISSUES=[];
+let ISSUES=[], ISSUE_SEGS=new Map();
 
 /* 整段只有地址更正費那種,本來就沒有運費要查,不算漏。 */
 function segHasFreight(s){
@@ -8595,10 +8634,17 @@ function anchorLine(s){
 }
 function invoiceIssues(){
   const out=[]; let skipped=0;
-  if(!CFG||!RATED) return {rows:out, skipped:0};
+  /* 追蹤號 -> 這顆箱子的每一段(主段、退件回程、第二段)。匯出的第二張表
+     要「一個追蹤號一列」,而一個追蹤號的帳單行分散在好幾段上。 */
+  const segs=new Map();
+  if(!CFG||!RATED) return {rows:out, skipped:0, segs:segs};
   const walk=(r, root)=>{
     if(!r||!r.s) return;
     const s=r.s, fl=anchorLine(s);
+    if(s.tracking){
+      if(!segs.has(s.tracking)) segs.set(s.tracking,[]);
+      segs.get(s.tracking).push({r:r, root:root});
+    }
     const at=l=>({trk:s.tracking, date:s.shipDate||"", chan:r.channel,
                   zone:r.zoneUsed||"", wt:Math.ceil(toNum(r.bw&&r.bw.billable)),
                   line:toNum(l&&l.idx)||"", code:String((l&&(l.code||l.cls))||"").toUpperCase(),
@@ -8630,7 +8676,7 @@ function invoiceIssues(){
       if(String(l.cls||"").toUpperCase()!=="ACC") continue;
       if(!unk.has(c) || Math.abs(toNum(l.net))<0.005) continue;
       out.push(Object.assign(at(l),{kind:"unknown", item:l.desc||c,
-        note:L("代碼查詢頁查不到這個代碼","Not in the code reference"),
+        note:L("代碼查詢表無此代碼","Not listed in the code reference"),
         amt:toNum(l.net), repriced:0}));
     }
     /* 4. 照設計不重算的 */
@@ -8663,7 +8709,7 @@ function invoiceIssues(){
   RATED.forEach(r=>walk(r, true));
   const sev=x=>(ISSUE_KIND[x.kind]||{}).sev||0;
   out.sort((a,b)=>sev(b)-sev(a) || Math.abs(b.amt)-Math.abs(a.amt));
-  return {rows:out, skipped:skipped};
+  return {rows:out, skipped:skipped, segs:segs};
 }
 /* 同一種問題收成一組。畫面上要的是「哪一類、幾項、多少錢、在第幾列」。 */
 function issueGroups(rows){
@@ -8680,7 +8726,7 @@ function issueGroups(rows){
 }
 function renderIssueCard(){
   const g=invoiceIssues();
-  ISSUES=g.rows;
+  ISSUES=g.rows; ISSUE_SEGS=g.segs;
   if(!ISSUES.length) return "";
   const groups=issueGroups(ISSUES);
   const bad=ISSUES.filter(r=>ISSUE_KIND[r.kind].sev>=2).reduce((a,r)=>a+toNum(r.amt),0);
@@ -8690,9 +8736,9 @@ function renderIssueCard(){
     const ln=[...new Set(gr.lines)].sort((a,b)=>a-b);
     const head=ln.slice(0,4).join(L("、",", "));
     const rowTxt=!ln.length?"":(ln.length>4
-      ? L("帳單第 "+head+" 列 …共 "+ln.length+" 列",
-          "invoice rows "+head+" … "+ln.length+" in all")
-      : L("帳單第 "+head+" 列","invoice row"+(ln.length>1?"s":"")+" "+head));
+      ? L("帳單列 "+head+" …共 "+ln.length+" 列",
+          "invoice rows "+head+" … "+ln.length+" total")
+      : L("帳單列 "+head,"invoice row"+(ln.length>1?"s":"")+" "+head));
     const what=[...gr.what].filter(Boolean).slice(0,2).join(" · ");
     return `<div class="stat sketch-soft s${K.sev}">`
       +`<i><span class="tag">${L(tag[0],tag[1])}</span>${esc(L(K.zh,K.en))}</i>`
@@ -8704,17 +8750,17 @@ function renderIssueCard(){
   }).join("");
   return `
     <div class="dcard warn issbox" style="margin-top:12px">
-      <div class="ch"><h3>${L("這期需要注意","Worth a look")}</h3>
-        <span class="cnote">${L("由重到輕;每一組都指得出帳單的哪幾列",
-                                "worst first; each group names the invoice rows")}</span>
+      <div class="ch"><h3>${L("本期異常項目","Exceptions")}</h3>
+        <span class="cnote">${L("依嚴重度排序,各組標示對應之帳單列號",
+                                "sorted by severity; each group lists its invoice rows")}</span>
         <button class="act ghost" id="bIssXls" style="padding:3px 11px;font-size:12px">${
           L("下載明細 (.xlsx)","Download details (.xlsx)")}</button></div>
       <p class="isssub">${L(
-        "<b>"+ISSUES.length+"</b> 項 · 其中金額真的算錯的部分,UPS 收了 <b>"+money(bad)+"</b>",
-        "<b>"+ISSUES.length+"</b> item(s) · of these, UPS billed <b>"+money(bad)
-          +"</b> on the ones whose amount is actually wrong")}${
-        g.skipped?' <span style="opacity:.7">('+L("另有 "+g.skipped+" 筆沒有運費要算,不列入",
-          g.skipped+" with no freight to rate were skipped")+")</span>":""}</p>
+        "共 <b>"+ISSUES.length+"</b> 項;其中金額計算有誤者,UPS 實收 <b>"+money(bad)+"</b>",
+        "<b>"+ISSUES.length+"</b> item(s); UPS billed <b>"+money(bad)
+          +"</b> on those whose amount is incorrect")}${
+        g.skipped?' <span style="opacity:.7">('+L("另有 "+g.skipped+" 筆無運費可計,不予列入",
+          g.skipped+" with no freight to rate were excluded")+")</span>":""}</p>
       <div class="strow">${chips}</div>
       <div class="issleg">${groups.map(gr=>ISSUE_KIND[gr.kind].sev)
         .filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>b-a)
@@ -8723,28 +8769,77 @@ function renderIssueCard(){
     </div>`;
 }
 function exportIssues(){
-  if(!ISSUES.length){ setStatus(L("沒有可匯出的資料","Nothing to export")); return; }
+  if(!ISSUES.length){ setStatus(L("無可匯出之資料","No data to export")); return; }
   const kn=k=>L(ISSUE_KIND[k].zh, ISSUE_KIND[k].en);
   const sv=k=>L(SEV_TAG[ISSUE_KIND[k].sev][0], SEV_TAG[ISSUE_KIND[k].sev][1]);
-  const sum=[[L("嚴重度","Severity"),L("問題","Problem"),L("筆數","Count"),
-              L("金額","Amount"),L("金額是什麼","What the amount is"),
-              L("帳單列號","Invoice rows")]]
-    .concat(issueGroups(ISSUES).map(gr=>[sv(gr.kind),kn(gr.kind),gr.n,
-      Number(gr.amt.toFixed(2)),
-      ISSUE_KIND[gr.kind].basis==="billed"?L("UPS 收費","UPS billed"):L("涉及金額","At risk"),
-      [...new Set(gr.lines)].sort((a,b)=>a-b).join(", ")]));
-  /* 明細一行就是帳單的一行 —— 列號、代碼、UPS 自己寫的描述都留著,
-     打開原始帳單照著找就找得到。 */
-  const det=[[L("帳單列號","Invoice row"),L("嚴重度","Severity"),L("問題","Problem"),
+  const r2=v=>Number(toNum(v).toFixed(2));
+
+  /* ---- 第一張表:一列就是帳單的一列 ----------------------------------
+     同一個追蹤號出現好幾次是正常的 —— 一顆箱子上可以同時有查不到費率的
+     運費行和認不得的附加費行,那是兩個不同的問題,各自指向不同的列。
+     欄位順序照對帳的動作走:先講在哪一列、什麼問題,再講是什麼、多少錢。 */
+  const det=[[L("帳單列號","Invoice row"),L("追蹤號","Tracking"),
+              L("嚴重度","Severity"),L("問題","Problem"),
               L("代碼","Code"),L("帳單描述","Billed as"),L("項目","Item"),
-              L("說明","Detail"),L("追蹤號","Tracking"),L("日期","Date"),
-              L("判成的渠道","Channel used"),"Zone",L("計費重 lb","Billable lb"),
-              L("金額","Amount"),L("系統算的","Repriced"),
-              L("整筆 UPS 實收","Shipment total billed")]]
-    .concat(ISSUES.map(r=>[r.line,sv(r.kind),kn(r.kind),r.code,r.billdesc,r.item,r.note,
-      r.trk,r.date,r.chan,r.zone,r.wt,
-      Number(toNum(r.amt).toFixed(2)),Number(toNum(r.repriced).toFixed(2)),
-      Number(toNum(r.shipUps).toFixed(2))]));
+              L("說明","Detail"),L("金額","Amount"),L("系統算的","Repriced"),
+              L("日期","Date"),L("判成的渠道","Channel used"),"Zone",
+              L("計費重 lb","Billable lb"),L("整筆 UPS 實收","Shipment total billed")]]
+    .concat(ISSUES.map(x=>[x.line,x.trk,sv(x.kind),kn(x.kind),x.code,x.billdesc,x.item,
+      x.note,r2(x.amt),r2(x.repriced),x.date,x.chan,x.zone,x.wt,r2(x.shipUps)]));
+
+  /* ---- 第二張表:一個追蹤號一列,費用橫向展開 --------------------------
+     第一張表回答「哪一列出問題」,這一張回答「這顆箱子整筆長什麼樣」——
+     UPS 每一種費用各收多少擺成欄位,一眼看得出問題項在整筆裡的比重。
+     欄位取自這批貨實際出現過的桶,不是固定清單:沒收過的費用不佔一欄。 */
+  const trks=[...new Set(ISSUES.map(x=>x.trk))].filter(Boolean);
+  const perTrk=new Map(), colSum={};
+  for(const t of trks){
+    const row={trk:t, date:"", chan:"", zone:"", wt:0, ups:0, repriced:0,
+               by:{}, lines:new Set(), sev:0, probs:new Set()};
+    for(const {r,root} of (ISSUE_SEGS.get(t)||[])){
+      if(root){ row.date=r.s.shipDate||""; row.chan=r.channel||"";
+                row.zone=r.zoneUsed||""; row.wt=Math.ceil(toNum(r.bw&&r.bw.billable)); }
+      row.repriced+=toNum(r.total);
+      for(const l of (r.s.lines||[])){
+        const v=toNum(l.net); if(Math.abs(v)<0.005) continue;
+        row.ups+=v;
+        /* recl 傳 false:這張表要的是 UPS 實際收在哪一種費用上,不是重算
+           把它改判成什麼。改判的部分在第一張表和儀表板上都講過了。 */
+        const k=upsBucketOf(l,false); if(!k) continue;
+        row.by[k]=(row.by[k]||0)+v; colSum[k]=(colSum[k]||0)+Math.abs(v);
+      }
+    }
+    perTrk.set(t,row);
+  }
+  for(const x of ISSUES){
+    const row=perTrk.get(x.trk); if(!row) continue;
+    if(x.line!=="") row.lines.add(x.line);
+    row.n=(row.n||0)+1;            /* 問題數是問題的數量,不是列數 —— 同一列
+                                      可以同時是「判定不明確」和「查不到費率」。 */
+    row.sev=Math.max(row.sev, ISSUE_KIND[x.kind].sev);
+    row.probs.add(kn(x.kind));
+  }
+  /* 錢多的費用擺前面 —— 橫向欄位一多,右邊那幾欄沒有人會捲過去看。 */
+  const cols=Object.keys(colSum).sort((a,b)=>colSum[b]-colSum[a]);
+  const colName=k=>k===DASH_UNKNOWN?L("未歸類代碼","Unclassified codes")
+                  :k===DASH_RECLASS?L("改判 AHS/大包裹","Reclassified AHS/LP")
+                  :dashLabel(k);
+  const wide=[[L("追蹤號","Tracking"),L("嚴重度","Severity"),L("問題數","Issues"),
+               L("問題","Problems"),L("帳單列號","Invoice rows"),
+               L("日期","Date"),L("判成的渠道","Channel used"),"Zone",
+               L("計費重 lb","Billable lb")]
+              .concat(cols.map(colName))
+              .concat([L("UPS 實收合計","UPS billed"),L("系統重算合計","Repriced"),
+                       L("差額","Difference")])];
+  const order=[...perTrk.values()].sort((a,b)=>b.sev-a.sev || Math.abs(b.ups)-Math.abs(a.ups));
+  for(const row of order)
+    wide.push([row.trk, L(SEV_TAG[row.sev][0],SEV_TAG[row.sev][1]), row.n||0,
+               [...row.probs].join(" / "),
+               [...row.lines].sort((a,b)=>a-b).join(", "),
+               row.date, row.chan, row.zone, row.wt]
+      .concat(cols.map(k=>row.by[k]===undefined?"":r2(row.by[k])))
+      .concat([r2(row.ups), r2(row.repriced), r2(row.repriced-row.ups)]));
+
   const fname=baseName(".xlsx").replace("_Repriced","_Issues");
   loadXLSX().then(X=>{
     const money2=(ws,cols)=>{
@@ -8755,20 +8850,24 @@ function exportIssues(){
       }
       return ws;
     };
+    const money2From=(ws,from)=>{
+      const ref=X.utils.decode_range(ws["!ref"]);
+      const all=[]; for(let c=from;c<=ref.e.c;c++) all.push(c);
+      return money2(ws,all);
+    };
     const wb=X.utils.book_new();
-    X.utils.book_append_sheet(wb, money2(X.utils.aoa_to_sheet(sum),[3]),
-      L("摘要","Summary"));
-    X.utils.book_append_sheet(wb, money2(X.utils.aoa_to_sheet(det),[12,13,14]),
-      L("明細","Detail"));
+    X.utils.book_append_sheet(wb, money2(X.utils.aoa_to_sheet(det),[8,9,14]),
+      L("問題明細","Issues"));
+    X.utils.book_append_sheet(wb, money2From(X.utils.aoa_to_sheet(wide),9),
+      L("貨件展開","By shipment"));
     return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
       {type:"application/octet-stream"}), fname);
-  }).then(ok=>toast(ok?L("明細已匯出 · "+ISSUES.length+" 項",
-                         "Detail exported · "+ISSUES.length+" item(s)")
+  }).then(ok=>toast(ok?L("已匯出 "+ISSUES.length+" 項問題 / "+trks.length+" 個追蹤號",
+                         "Exported "+ISSUES.length+" issue(s) across "+trks.length+" shipment(s)")
                       :L("已取消存檔","Save cancelled"), ok))
     .catch(()=>toast(L("匯出失敗:xlsx 元件沒有載到",
                        "Export failed: the xlsx component did not load"), false));
 }
-
 
 function renderRate(){
   const priced=RATED.filter(o=>o.total!==null);
