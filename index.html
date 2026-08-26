@@ -1182,6 +1182,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <p class="hint" style="margin:8px 0 10px" data-i18n="hint.resisrc">This field takes the proxy URL only — the UPS keys live on the proxy.</p>
       <div class="row">
         <button class="act ghost" id="bResiSrc" data-i18n="btn.resisrc">Set the residential / commercial source</button>
+        <button class="act ghost" id="bManual" data-i18n="btn.manual">Setup manual (PDF)</button>
         <span id="resiSrcSum" class="affsum"></span>
       </div>
     </div>
@@ -5274,6 +5275,28 @@ function saveResiSrc(){
   closeResiSrc(true);
 }
 $("#bResiSrc") && ($("#bResiSrc").onclick=openResiSrc);
+/* 手冊按鈕就擺在判定來源旁邊 —— 要設代理的人正站在這一格上,說明放在
+   別的分頁等於沒放。PDF 和 index.html 放同一層,連結是相對路徑;檔案
+   沒跟著搬過來的話 fetch 會先問一聲,才不會按下去只得到一個空白分頁。
+   file:// 開的時候 fetch 會被同源擋掉,那就直接讓瀏覽器去試。 */
+/* 檔名用 ASCII:Chromium 會把 <a download> 裡的非 ASCII 檔名整個丟掉,
+   換成沒有副檔名的 "download",存下來雙擊打不開。同事收到的檔案要能用,
+   名字就不能賭瀏覽器的清洗規則。按鈕上的字仍然是中文。 */
+const MANUAL_PDF="UPS-API-Manual.pdf";
+function pullFile(url,name){
+  const a=document.createElement("a");
+  a.href=url; a.download=name; a.style.display="none";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$("#bManual") && ($("#bManual").onclick=async()=>{
+  const url=new URL(MANUAL_PDF, location.href).href;
+  if(!/^https?:$/.test(location.protocol)){ pullFile(url,MANUAL_PDF); return; }
+  let ok=false;
+  try{ ok=(await fetch(url,{method:"HEAD"})).ok; }catch(e){ ok=false; }
+  if(ok) pullFile(url,MANUAL_PDF);
+  else toast(L("找不到 "+MANUAL_PDF+",它要和 index.html 放在同一個資料夾。",
+               "Can't find "+MANUAL_PDF+" — it has to sit in the same folder as index.html."));
+});
 $("#rsX")      && ($("#rsX").onclick=()=>closeResiSrc());
 $("#rsClose")  && ($("#rsClose").onclick=()=>closeResiSrc());
 $("#rsSave")   && ($("#rsSave").onclick=saveResiSrc);
@@ -9306,7 +9329,7 @@ const I18N={
   "lb.resisys":["系統設定","System Configuration"],
   "lb.resiapi":["連動 API","Linked API"],
   "lb.resiapiurl":["API 代理端點(Edge Function 網址)","API proxy endpoint (Edge Function URL)"],
-  /* 為什麼金鑰不填在這裡、代理怎麼架,寫在手冊裡(UPS-API-手冊.pdf)。
+  /* 為什麼金鑰不填在這裡、代理怎麼架,寫在手冊裡(UPS-API-Manual.pdf)。
      那段完整說明擺在面板上太長,一句話帶到,想知道的人去看手冊。 */
   "hint.resisrc":["這一格只填代理的網址,UPS 金鑰設在代理那一端;沒填就退回系統設定。設定步驟見手冊。",
     "This field takes the proxy URL only — the UPS keys live on the proxy. Unset, it falls back to System configuration. See the setup manual."],
@@ -9319,6 +9342,7 @@ const I18N={
     "Every surcharge charges fuel unless you turn it off here."],
   "btn.accfuel":["設定哪些附加費收燃油","Set which surcharges charge fuel"],
   "btn.resisrc":["設定住/商判定來源","Set the residential / commercial source"],
+  "btn.manual":["📄 下載設定手冊（PDF）","📄 Setup manual (PDF)"],
   "hd.accfuelmodal":["哪些附加費收燃油","Which surcharges charge fuel"],
   /* 這兩顆是勾選的批次操作,以前用結果來命名(「全部都收」/「None charge
      fuel」),看的人得先想通「收燃油」和「打勾」是同一件事才知道會發生什麼。
