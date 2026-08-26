@@ -3629,14 +3629,21 @@ async function prefetchAddressClass(ships){
   if(!auth && typeof AUTH_CONFIG!=="undefined" && AUTH_CONFIG) auth=AUTH_CONFIG.anonKey||"";
   const cache=readAddrCache();
   const pend=[...groups.entries()].filter(([k])=>!(k in cache));
-  let ok=0, fail=0;
+  let ok=0, fail=0, lastErr="";
   /* 併發上限 6,避免一次打爆代理/UPS 的速率限制 */
   const LIMIT=6; let i=0;
   async function worker(){
     while(i<pend.length){
       const [k,info]=pend[i++];
       try{ cache[k]=await classifyOne(url,info.addr,auth); ok++; }
-      catch(e){ fail++; cache[k]="U"; }   /* 失敗當作判不出,退回系統判定 */
+      catch(e){
+        /* 呼叫失敗不是一個答案。以前這裡寫 cache[k]="U",於是端點打錯、
+           函式還沒部署、權限沒設好的那些地址全被記成「判不出」——
+           而快取是持久的,設定修好之後也不會再問一次,得手動清掉
+           localStorage 才會重試。這一輪照舊退回系統判定,但不留痕跡。 */
+        fail++;
+        if(!lastErr) lastErr=String((e&&e.message)||e);
+      }
     }
   }
   await Promise.all(Array.from({length:Math.min(LIMIT,pend.length)},worker));
@@ -3646,8 +3653,14 @@ async function prefetchAddressClass(ships){
     if(v==="R"||v==="C") for(const t of info.tracks) ADDRCLASS[t]=v;
   }
   const hit=Object.keys(ADDRCLASS).length;
-  if(fail && !ok) API_NOTE=L("API 代理呼叫失敗,這次改用系統判定。",
-                             "API proxy calls failed — using system logic this run.");
+  /* 講出是哪一種失敗。以前只說「呼叫失敗」,而 401(沒登入)、404(函式
+     沒部署)、500(UPS 金鑰沒設)要做的事完全不同,不講等於叫人自己猜。 */
+  if(fail && !ok)
+    API_NOTE=L("API 代理呼叫失敗("+lastErr+"),這次全部改用系統判定。",
+               "Every API proxy call failed ("+lastErr+") — using system logic this run.");
+  else if(fail)
+    API_NOTE=L(fail+" 個地址呼叫失敗("+lastErr+"),那幾筆用系統判定;下次重算會再試一次。",
+               fail+" address lookups failed ("+lastErr+") — those fall back to system logic and will be retried next run.");
   else if(!hit) API_NOTE=L("API 沒有回傳任何住/商分類(可能都判不出),改用系統判定。",
                            "API returned no Residential/Commercial classification — using system logic.");
   return hit;
@@ -3691,7 +3704,17 @@ function authMissing(){
    public,明文寫進來就等於公開。但要說清楚:這是純前端的鎖,擋君子
    不擋小人;費率和帳單都在各自的瀏覽器裡,不在這個檔案裡,所以真正
    要緊的東西本來就不經過這道門。密碼是暫時的,切回 Supabase 就作廢。 */
-const LOCAL_MODE=true;
+/* 登入模式由 auth-config.js 決定,不再寫死在這裡 —— 切換是設定的事,
+   不是改程式,也隨時退得回來。沒有指定就是本機帳號模式,所以現有部署
+   的行為完全不變;要切 Supabase 就加一行 authMode: "supabase"。
+
+   ⚠ 但先別切。每個帳號的資料是綁 ME.id 存的(whoKey / cfgKeys / idbName),
+   本機模式的 id 是 "local::<帳號>",Supabase 模式是一組 UUID —— 兩者不同,
+   所以切過去之後費率、帳單索引、IndexedDB 明細會全部「看起來不見了」。
+   東西還在舊 key 底下,但畫面上是空的。切之前要先做一次搬遷:登入後
+   若新 id 名下是空的、而這台機器上有同名帳號的舊資料,就認領過來
+   (claimLegacy() 是同一個形狀的東西,可以照著擴充)。那段還沒寫。 */
+const LOCAL_MODE = (AUTH_CONFIG.authMode !== "supabase");
 const LOCAL_ACCOUNTS=[
   { user:"sandyliu3056@gmail.com",
     hash:"ccfc40179aad9e5bf82c9bfa48503f59dadeec53970b17ebaa65ca48e076eb65",
