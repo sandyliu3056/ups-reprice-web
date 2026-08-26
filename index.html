@@ -1109,8 +1109,12 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .atbl td{padding:7px 9px;border-bottom:1px solid var(--line);
   border-bottom-color:color-mix(in srgb,var(--line) 45%,transparent);
   text-align:right;white-space:nowrap}
-#p-dash .atbl td.ak{text-align:left;font-family:var(--titlefam);font-weight:700;color:var(--accent)}
-#p-dash .atbl td.ad{text-align:left;color:var(--muted);font-size:11.5px}
+/* 期號和日期都是一串數字,用等寬數字才會一位對一位 —— 內文字型的
+   數字寬度不保證一致,同一欄長短一差就看得出來歪。 */
+#p-dash .atbl td.ak{text-align:left;font-family:var(--titlefam);font-weight:700;
+  color:var(--accent);font-variant-numeric:tabular-nums}
+#p-dash .atbl td.ad{text-align:left;color:var(--muted);font-size:11.5px;
+  font-variant-numeric:tabular-nums;letter-spacing:.01em}
 #p-dash .atbl tbody tr:hover{background:color-mix(in srgb,var(--run2) 7%,transparent)}
 #p-dash .atbl td.pos{color:var(--run2);font-weight:700}
 #p-dash .atbl td.neg{color:var(--neg);font-weight:700}
