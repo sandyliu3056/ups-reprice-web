@@ -53,6 +53,11 @@ table,table *,input,select,.tablewrap{filter:none !important}
   -webkit-text-stroke:var(--titlestroke,0) var(--tab);
   paint-order:stroke fill}
 .titlebar .devby{font-size:10.5px;letter-spacing:2px;opacity:.6;margin-left:20px}
+/* 這份檔案是哪一版。整個站是一個 index.html,瀏覽器留著舊的那一份時,畫面
+   會少掉整批功能 —— 而畫面上沒有任何地方看得出「我手上這份是舊的」,只能
+   一個一個功能去找哪裡不見了。 */
+.titlebar .build{font-size:10.5px;letter-spacing:1px;opacity:.45;margin-left:12px;
+  font-family:Consolas,monospace;cursor:help}
 .titlebar .ctrls{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
 .titlebar select{font:inherit;font-size:11.5px;background:transparent;color:var(--tab);
   border:1px solid var(--tab);border-radius:5px;padding:3px 7px;cursor:pointer;opacity:.85;
@@ -687,6 +692,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <div class="titlebar">
   <b class="display" id="appTitle">UPS REPRICE PLATFORM</b>
   <span class="devby">DEVELOPED BY SANDY LIU</span>
+  <span class="build" id="appBuild"></span>
   <div class="ctrls">
     <select id="langSel"  title="Language"></select>
     <select id="zoomSel"  title="Display size"></select>
@@ -4552,6 +4558,24 @@ const setStatus=t=>{ const a=$("#status"); if(a) a.textContent = ME ? t : ""; };
 /* 畫面上的字一律走這裡,不要直接寫死中文 —— 寫死的那些切成英文之後
    會原封不動留在畫面上,報表裡的「備註」「重量依據」都中過。 */
 const L=(zh,en)=>LANG?en:zh;
+/* 版本戳記用 document.lastModified —— 那是這一份 index.html 的最後修改時間,
+   由伺服器(或本機檔案系統)給的,不必手動維護,也不會忘記更新。停在舊日期
+   就表示瀏覽器拿的是快取裡的舊檔,強制重新整理即可。 */
+function buildStamp(){
+  const t=Date.parse(document.lastModified);
+  if(isNaN(t)) return "";
+  const d=new Date(t), p=n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())
+        +" "+p(d.getHours())+":"+p(d.getMinutes());
+}
+function paintBuild(){
+  const el=document.getElementById("appBuild"); if(!el) return;
+  const b=buildStamp(); if(!b) return;
+  el.textContent="BUILD "+b;
+  el.title=L("這份 index.html 的最後修改時間。日期停在舊的,表示瀏覽器用的是快取裡的舊檔 —— 按 Ctrl+Shift+R(Mac 為 Cmd+Shift+R)強制重新整理。",
+             "Last-modified time of this index.html. A stale date means the browser is serving a cached copy — force-reload with Ctrl+Shift+R (Cmd+Shift+R on Mac).");
+}
+
 
 /* 分頁切換 */
 $("#tabs").addEventListener("click",e=>{
@@ -10027,7 +10051,8 @@ function applyLang(){
   document.querySelectorAll("[data-i18n]").forEach(el=>{
     el.textContent=T(el.dataset.i18n);
   });
-  /* 這兩處是算出來的字,不是 data-i18n,切語言要自己重寫 */
+  /* 這幾處是算出來的字,不是 data-i18n,切語言要自己重寫 */
+  paintBuild();
   if(typeof CFG!=="undefined" && CFG){
     paintAccFuelSum();
     if($("#afBg") && $("#afBg").classList.contains("on")) renderAccFuel();
