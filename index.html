@@ -1166,7 +1166,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <!-- 住/商判定來源:和燃油底同一個形狀 —— 摘要一行,點進去設,裡面存 -->
     <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
       <div class="subhd" style="margin-top:0" data-i18n="hd.resisrc">🔄 Residential / Commercial · Source</div>
-      <p class="hint" style="margin:8px 0 10px" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
+      <p class="hint" style="margin:8px 0 10px" data-i18n="hint.resisrc">This field takes the proxy URL only — the UPS keys live on the proxy.</p>
       <div class="row">
         <button class="act ghost" id="bResiSrc" data-i18n="btn.resisrc">Set the residential / commercial source</button>
         <span id="resiSrcSum" class="affsum"></span>
@@ -1431,7 +1431,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <label class="inlab" style="margin-left:0" data-i18n="lb.resiapiurl">API proxy endpoint (Edge Function URL)</label>
         <input id="resiApiUrl" class="cell" style="width:100%;text-align:left;margin-top:5px" placeholder="https://xxxx.supabase.co/functions/v1/ups-address">
       </div>
-      <p class="hint" style="margin:12px 0 0" data-i18n="hint.resisrc">API needs a UPS proxy; falls back to System when unset.</p>
+      <p class="hint" style="margin:12px 0 0" data-i18n="hint.resisrc">This field takes the proxy URL only — the UPS keys live on the proxy.</p>
     </div>
     <div class="modalft">
       <button class="act ghost" id="rsClose" data-i18n="btn.close">Close</button>
@@ -9122,10 +9122,10 @@ const I18N={
   "lb.resisys":["系統設定","System Configuration"],
   "lb.resiapi":["連動 API","Linked API"],
   "lb.resiapiurl":["API 代理端點(Edge Function 網址)","API proxy endpoint (Edge Function URL)"],
-  /* 這一行以前只寫「需自架 UPS 代理」,結果每個人都以為金鑰要填在畫面上。
-     說清楚為什麼不放這裡,比事後解釋一次省事。 */
-  "hint.resisrc":["UPS 的 Client ID / Secret 不填在這裡 —— 它們設在代理那一端(supabase secrets set)。瀏覽器存得下的東西,拿到這台電腦或那份設定檔的人就看得到。這一格只填代理的網址;沒填就退回系統設定。",
-    "The UPS Client ID and Secret do not go here — they are set on the proxy itself (supabase secrets set). Anything the browser can hold, anyone with the browser or a copy of the settings can read. This field takes only the proxy URL; unset, it falls back to System configuration."],
+  /* 為什麼金鑰不填在這裡、代理怎麼架,寫在手冊裡(UPS-API-手冊.pdf)。
+     那段完整說明擺在面板上太長,一句話帶到,想知道的人去看手冊。 */
+  "hint.resisrc":["這一格只填代理的網址,UPS 金鑰設在代理那一端;沒填就退回系統設定。設定步驟見手冊。",
+    "This field takes the proxy URL only — the UPS keys live on the proxy. Unset, it falls back to System configuration. See the setup manual."],
   "hd.files":["匯入檔案","Import Files"],
   "hd.sum":["這張帳單","This Invoice"],
   "hd.rate":["重新計價","Repricing"],
