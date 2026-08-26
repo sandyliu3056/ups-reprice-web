@@ -1092,6 +1092,38 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .dmempty{padding:14px 10px;text-align:center;font-size:12.5px;color:var(--muted)}
 #p-dash .dmfoot{margin-top:6px;padding:7px 10px 3px;border-top:1px solid var(--line);
   font-size:11px;line-height:1.5;color:var(--muted)}
+/* 全部期別總攬:一期一列,和上面那條「向客戶收 − UPS − 帳戶層費用」同一組數字 */
+#p-dash .dmi.dmall .dmk{color:var(--run2)}
+#p-dash .dmall-sep{height:1px;background:var(--line);opacity:.6;margin:5px 8px}
+#p-dash .atbl{width:100%;border-collapse:collapse;font-size:12.5px;background:transparent}
+#p-dash .atbl th{background:transparent;color:var(--muted);font-size:11px;font-weight:700;
+  letter-spacing:.04em;text-transform:uppercase;text-align:right;white-space:nowrap;
+  padding:0 9px 7px;position:static;border-bottom:1px solid var(--line)}
+#p-dash .atbl th:first-child,#p-dash .atbl th:nth-child(2){text-align:left}
+#p-dash .atbl td{padding:7px 9px;border-bottom:1px solid var(--line);
+  border-bottom-color:color-mix(in srgb,var(--line) 45%,transparent);
+  text-align:right;white-space:nowrap}
+#p-dash .atbl td.ak{text-align:left;font-family:var(--titlefam);font-weight:700;color:var(--accent)}
+#p-dash .atbl td.ad{text-align:left;color:var(--muted);font-size:11.5px}
+#p-dash .atbl tbody tr:hover{background:color-mix(in srgb,var(--run2) 7%,transparent)}
+#p-dash .atbl td.pos{color:var(--run2);font-weight:700}
+#p-dash .atbl td.neg{color:var(--neg);font-weight:700}
+#p-dash .atbl tr.amiss td{color:var(--muted);font-style:italic}
+#p-dash .atbl tfoot td{border-top:2px solid var(--line);border-bottom:none;
+  font-family:var(--titlefam);font-weight:700;padding-top:9px;color:var(--accent)}
+#p-dash .atbl tfoot td.ak{font-size:12px}
+#p-dash .abar{width:120px;padding-left:0!important}
+#p-dash .abartrack{height:9px;border-radius:999px;overflow:hidden;
+  background:color-mix(in srgb,var(--line) 40%,var(--panel));position:relative}
+#p-dash .abarfill{height:100%;border-radius:999px;background:var(--run2);width:0;
+  transition:width .7s cubic-bezier(.34,1.25,.5,1)}
+#p-dash .abarfill.neg{background:var(--neg)}
+#p-dash .aprog{padding:26px 14px;text-align:center;color:var(--muted);font-size:13px;line-height:1.8}
+#p-dash .aprog b{color:var(--accent);font-family:var(--titlefam)}
+#p-dash .aprogtrack{max-width:320px;margin:11px auto 0;height:7px;border-radius:999px;overflow:hidden;
+  background:color-mix(in srgb,var(--line) 40%,var(--panel))}
+#p-dash .aprogfill{height:100%;background:var(--run2);border-radius:999px;transition:width .25s linear}
+@media (prefers-reduced-motion:reduce){#p-dash .abarfill,#p-dash .aprogfill{transition:none}}
 #p-dash .dchips{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto}
 #p-dash .dchip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;
   color:var(--muted);border-radius:999px;padding:3px 11px;
@@ -2417,6 +2449,8 @@ function priceShipment(cfg, s){
   /* 住宅/商業:帳單自己的代碼優先,和原始碼同一條規則。
      兩邊都沒有代碼時只能看服務名稱 —— 跨期 ADJ 這時會不準,標出來。 */
   let residential, resBasis, resiSure=true;
+  /* 跨期單查到原件時,原件說的就是渠道 —— 記下來給下面的 svcSure 用。 */
+  let histSvc=null;
   /* 判定順序照桌面版:
        1. 商業重分類(COM 那一行)—— reclass_service 直接改成商業
        2. 服務名稱自己就寫了 residential / commercial —— freight_for :18594
@@ -2453,7 +2487,7 @@ function priceShipment(cfg, s){
        這是桌面版 history_service_for() 存在的唯一理由 —— SCC 那一行
        沒有任何 RES/COM 字樣,不查歷史就一定被當成商業。 */
     const h=typeof historyServiceFor==="function"?historyServiceFor(s.tracking):null;
-    if(h){ residential = h==="Ground Residential";
+    if(h){ residential = h==="Ground Residential"; histSvc=h;
       resBasis=L("歷史(原始出貨)","History (original shipment)"); }
     else if(!byCode()){
       residential=svcSaysRes; resiSure=false;
@@ -2467,7 +2501,11 @@ function priceShipment(cfg, s){
     resBasis=L("服務名稱","Service name");
   }
   const svc=guessService(s.service);
-  const svcSure=serviceKnown(s.service);
+  /* 服務描述比對不到已知服務時,guessService 會退回預設服務 —— 那才是「猜的」。
+     但跨期單只要查到原件,渠道就是照原件定案的(上面那段 historyServiceFor,
+     residential 一路餵進下面的 channel),費率也是照那條查的。svcSure 只看
+     原始描述字串,不看這件事,結果是一筆已經定案的貨照樣被標成「判不出來」。 */
+  const svcSure=serviceKnown(s.service) || !!histSvc;
   const channel = svc==="Ground Commercial"||svc==="Ground Residential"
       ? (residential?"Ground Residential":"Ground Commercial")
       : svc;
@@ -6696,6 +6734,8 @@ function dashAgg(){
   const bucketCols=REPORT_COLS.filter(c=>!META.has(c));
   let repriced=0, billed=0, resiN=0, comN=0, resiAmt=0, comAmt=0;
   let unsureN=0, unsureAmt=0, notRepriced=0, unknownNet=0, missN=0, missAmt=0;
+  /* 服務名稱比對不到任何已知服務,渠道是退回預設服務來的 */
+  let svcUnsureN=0, svcUnsureAmt=0;
   const unknownCodes=new Set(), unsureBy={}, chanAgg={};
   const buckets={}, zoneAgg={}, upsBuckets={};
   let reclN=0;
@@ -6707,8 +6747,14 @@ function dashAgg(){
     const r=rated[i];
     if(r){ billed+=toNum(r.s&&r.s.upsTotal);
       if(r.residential){ resiN++; resiAmt+=tot; } else { comN++; comAmt+=tot; }
-      const ch = r.svcSure===false ? L("未知","Unknown") : (r.channel||L("未知","Unknown"));
+      /* 渠道就用重算實際採用的那一條。這筆 tot 正是拿那條渠道的費率表算出來的
+         —— 服務名稱認不出來時 guessService 會退回預設服務,那仍然是一條真的
+         渠道、也真的拿去計了價。標成「未知」等於畫面和帳算的東西各講各的:
+         錢用 Ground Commercial 算,圓餅卻說不知道哪一條。
+         「判不出來」這件事沒有被吞掉,它進下面的「未判定」卡片。 */
+      const ch = r.channel || L("未知","Unknown");
       chanAgg[ch]=(chanAgg[ch]||0)+tot;
+      if(r.svcSure===false){ svcUnsureN++; svcUnsureAmt+=tot; }
       if(r.baseMissing||(r.missFees&&r.missFees.length)){ missN++; missAmt+=tot; }
       if(r.resiSure===false){ unsureN++; unsureAmt+=tot;
         const k=r.resBasis||"";
@@ -6737,7 +6783,8 @@ function dashAgg(){
   });
   return {n:rated.length, repriced, billed, savings:billed-repriced,
     resiN, comN, resiAmt, comAmt, fuel:buckets["Fuel Surcharge"]||0, buckets, zoneAgg,
-    unsureN, unsureAmt, unsureBy, notRepriced, unknownNet, unknownCodes:[...unknownCodes],
+    unsureN, unsureAmt, unsureBy, svcUnsureN, svcUnsureAmt,
+    notRepriced, unknownNet, unknownCodes:[...unknownCodes],
     missN, missAmt, chanAgg, upsBuckets, reclN,
     account:(ACCT_LINES||[]).reduce((a,l)=>a+toNum(l.net),0)};
 }
@@ -6753,6 +6800,9 @@ function dashAgg(){
    在各家瀏覽器都不吃站上的主題色。
    ===================================================================== */
 let DASH_BUSY=false, DASH_DOCBOUND=false;
+/* 全部期別總攬。DASH_ALL 是模式,快取用「費率 + 期別清單」當印章:
+   費率一改、或多刪一期,印章就不同,自動重算。 */
+let DASH_ALL=false, DASH_ALL_CACHE=null, DASH_ALL_RUN=0;
 /* 上一次畫出來的彙總。「重新整理」要能講出重算前後差多少,就得記得前一次
    算到什麼 —— 只為了這件事再跑一次 dashAgg() 是白算一遍。 */
 let DASH_LAST=null;
@@ -6788,17 +6838,119 @@ function dashPeriods(){
 function dashOddCount(){
   return Object.keys(histInv()).filter(k=>!looksLikeInvKey(k)).length;
 }
+/* 這份總攬是拿「哪一套費率、算了哪幾期」算出來的。兩者任一變了就得重算,
+   不然畫面上那條趨勢反映的是設定在動,不是運費在動。 */
+function dashAllStamp(){
+  let cfgH=0;
+  try{
+    const t=JSON.stringify((CFG&&CFG.raw)||{});
+    for(let i=0;i<t.length;i++) cfgH=(cfgH*31+t.charCodeAt(i))|0;
+  }catch(e){ cfgH=-1; }
+  return cfgH+"|"+dashPeriods().map(p=>p.key+"@"+p.at).join(",");
+}
+/* 每一期都用「目前」的費率重跑一次,再取和單期儀表板同一個彙總函式。
+   換句話說:總攬上的每一列,都等於你點進那一期會看到的數字。這一點不能
+   省 —— 用各期歸檔當下算過的舊結果拼出來的趨勢,量到的是設定的變化。 */
+async function dashAllCompute(onStep){
+  const list=dashPeriods();
+  if(!list.length) return [];
+  await ensureHistoryMap();
+  /* 明細一次讀完。跨期更正的原件常常落在別期,分期各讀各的就會漏掉。 */
+  const all=await idbAllRows().catch(()=>[]);
+  const byInv={};
+  for(const r of all){
+    const k=(r.invoice||"").trim();
+    if(k) (byInv[k]=byInv[k]||[]).push(r);
+  }
+  /* 全域是單期儀表板在用的,借來算完要原封還回去。
+     shipmentsOf 會清掉 ACCT_LINES,所以它也要存 —— 同 renderRateGaps 的作法。 */
+  const keep={rows:ROWS, ships:SHIPS, rated:RATED, acct:ACCT_LINES, orig:ORIG};
+  const out=[];
+  try{
+    for(let i=0;i<list.length;i++){
+      const p=list[i];
+      if(onStep) await onStep(i, list.length, p.key);
+      const rows=byInv[p.key];
+      if(!rows||!rows.length){ out.push(Object.assign({},p,{missing:true})); continue; }
+      ROWS=rows; SHIPS=shipmentsOf(rows);
+      ORIG=buildOriginals(all, new Set(SHIPS.filter(x=>x.pureAdj).map(x=>x.tracking)));
+      RATED=SHIPS.map(x=>priceShipment(CFG,x));
+      const d=dashAgg();
+      out.push(d ? Object.assign({},p,{n:d.n, repriced:d.repriced, billed:d.billed,
+                                       account:d.account})
+                 : Object.assign({},p,{missing:true}));
+    }
+  } finally {
+    ROWS=keep.rows; SHIPS=keep.ships; RATED=keep.rated;
+    ACCT_LINES=keep.acct; ORIG=keep.orig;
+  }
+  return out;
+}
+/* 總攬表。欄位刻意和上面那條流程一模一樣(向客戶收 / UPS / 帳戶層費用),
+   多的只有兩期之間的差額 —— 這樣每一列都能對回你點進那一期看到的數字。
+   不自己發明一個「總結餘」:帳戶層費用要不要併進毛利是帳務問題,不是這頁
+   該替人決定的事,所以它自己一欄,擺著。 */
+function dashAllHTML(data){
+  const ok=data.filter(d=>!d.missing);
+  const tot=ok.reduce((a,d)=>({n:a.n+d.n, repriced:a.repriced+d.repriced,
+    billed:a.billed+d.billed, account:a.account+d.account}),
+    {n:0,repriced:0,billed:0,account:0});
+  const gapOf=d=>d.repriced-d.billed;
+  const maxGap=Math.max(1,...ok.map(d=>Math.abs(gapOf(d))));
+  const cell=(v,cls)=>`<td class="num ${cls||""}">${money(v)}</td>`;
+  const rows=data.map(d=>{
+    if(d.missing) return `<tr class="amiss"><td class="ak">${esc(d.key)}</td>`
+      +`<td class="ad">${esc(d.date||"—")}</td>`
+      +`<td colspan="6">${L("只有索引,沒有明細 —— 請重新匯入這一期",
+                            "index only, no detail — import this period again")}</td></tr>`;
+    const g=gapOf(d);
+    const w=Math.min(100, Math.abs(g)/maxGap*100);
+    return `<tr><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`
+      +`<td class="num">${d.n.toLocaleString()}</td>`
+      +cell(d.repriced)+cell(d.billed)
+      +cell(g, g<0?"neg":"pos")
+      +cell(d.account, d.account<0?"neg":"")
+      +`<td class="abar"><div class="abartrack">`
+      +`<div class="abarfill${g<0?" neg":""}" data-w="${w.toFixed(1)}"></div></div></td></tr>`;
+  }).join("");
+  const gt=tot.repriced-tot.billed;
+  return `<div class="dcard">
+    <div class="ch"><h3>${L("全部期別","All periods")}</h3>
+      <span class="cnote">${L("每一期都以目前的費率設定重算",
+                              "every period repriced with the current rate settings")}</span></div>
+    <div class="tablewrap" style="max-height:none;overflow-x:auto">
+    <table class="atbl"><thead><tr>
+      <th>${L("期別","Invoice")}</th><th>${L("帳單日","Date")}</th>
+      <th>${L("貨件","Shipments")}</th>
+      <th>${L("向客戶收","Charge customer")}</th><th>UPS</th>
+      <th>${L("差額","Difference")}</th>
+      <th>${L("帳戶層費用","Account charges")}</th><th></th>
+    </tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td class="ak" colspan="2">${L("合計 "+ok.length+" 期",
+        "Total · "+ok.length+" period"+(ok.length===1?"":"s"))}</td>
+      <td class="num">${tot.n.toLocaleString()}</td>
+      ${cell(tot.repriced)}${cell(tot.billed)}
+      ${cell(gt, gt<0?"neg":"pos")}${cell(tot.account, tot.account<0?"neg":"")}
+      <td></td></tr></tfoot></table></div>
+    <div class="dfoot">${L(
+      "「差額」是向客戶收減去 UPS 收,不含帳戶層費用 —— 那一欄要不要算進毛利,由你的帳務決定。",
+      "Difference is charge-customer minus UPS, with account charges left out — whether those belong in margin is your accounting call.")}</div>
+  </div>`;
+}
 /* 選單那一條。RATED 是空的時候也要畫 —— 沒資料的人正是最需要它的人。 */
 function dashBarHTML(){
   const list=dashPeriods();
   const odd=dashOddCount();
   const cur=dashCurKeys();
-  const sel=(cur.length===1 && list.some(p=>p.key===cur[0])) ? cur[0] : "";
+  const sel=DASH_ALL ? "" : ((cur.length===1 && list.some(p=>p.key===cur[0])) ? cur[0] : "");
   const selP=sel?list.find(p=>p.key===sel):null;
   const rowsL=n=>n.toLocaleString()+L(" 列"," lines");
   const trkL=n=>n.toLocaleString()+L(" 個追蹤號"," tracking numbers");
   let big, small;
-  if(selP){ big=selP.key; small=selP.date||L("沒有帳單日","no invoice date"); }
+  if(DASH_ALL){ big=L("全部期別","All periods");
+                small=list.length+L(" 期 · 以目前費率重算",
+                                    " periods · repriced with current rates"); }
+  else if(selP){ big=selP.key; small=selP.date||L("沒有帳單日","no invoice date"); }
   else if(cur.length>1){ big=L("本次匯入","This import");
                          small=cur.length+L(" 期 · ", " periods · ")+cur.join(", "); }
   else if(cur.length===1){ big=cur[0]; small=L("尚未歸檔","not filed to history"); }
@@ -6811,8 +6963,9 @@ function dashBarHTML(){
        [L("貨件","Shipments"), trkL(selP.trk)],
        [L("歸檔","Filed"), (selP.at||"—").replace("T"," ")]]
     : [];
-  /* 沒選任何一期的時候右邊是一片空的,順便把這條選單在做什麼講一句。 */
-  const hint=(!selP&&list.length)
+  /* 沒選任何一期的時候右邊是一片空的,順便把這條選單在做什麼講一句。
+     總攬模式不必講 —— 那時候已經選好了,而且卡片標題自己會說。 */
+  const hint=(!selP&&!DASH_ALL&&list.length)
     ? `<span class="dhint">${L("挑一期,就用現在的費率設定重跑那一期。",
         "Pick a period to re-run it with your current rates.")}</span>` : "";
   const items=list.map(p=>`<button type="button" class="dmi${p.key===sel?" on":""}"
@@ -6822,6 +6975,16 @@ function dashBarHTML(){
       <span class="dmk">${esc(p.key)}</span>
       <span class="dmd">${esc(p.date||"—")}</span>
       <span class="dmn">${rowsL(p.rows)} · ${trkL(p.trk)}</span></button>`).join("");
+  /* 兩期以上才給「全部期別」—— 只有一期的話,總攬就是那一期本身。 */
+  const allItem=list.length>1?`<button type="button" class="dmi dmall${DASH_ALL?" on":""}"
+      role="option" aria-selected="${DASH_ALL}" data-inv="__all__"
+      data-find="${esc(L("全部期別 all periods","all periods 全部期別"))}">
+      <span class="dmtick" aria-hidden="true">${DASH_ALL?"✓":""}</span>
+      <span class="dmk">${L("全部期別","All periods")}</span>
+      <span class="dmd">${list.length}${L(" 期"," periods")}</span>
+      <span class="dmn">${L("以目前費率把每一期重算,並排比較",
+        "every period repriced with the current rates, side by side")}</span></button>
+      <div class="dmall-sep"></div>`:"";
   /* 期數多的時候用眼睛找很慢,超過八期就給一個過濾框。 */
   const find=list.length>8
     ? `<input id="dashFind" class="dmfind" type="search" autocomplete="off"
@@ -6838,7 +7001,7 @@ function dashBarHTML(){
       <div class="dmenu" id="dashMenu">${find}
         <div class="dmhd" id="dashMhd">${L("歷史帳單 · ","In history · ")}${list.length}${L(" 期","")}</div>
         <div class="dmlist" id="dashMlist" role="listbox"
-          aria-label="${L("帳單期別","Invoice")}">${items
+          aria-label="${L("帳單期別","Invoice")}">${allItem}${items
           ||`<div class="dmempty">${L("歷史裡還沒有帳單。","Nothing filed to history yet.")}</div>`}</div>
         ${odd?`<div class="dmfoot">${L(
           "另有 "+odd+" 筆期號不像期號(多半是沒有標題列、欄位順序不同的檔案匯壞了),沒有列在這裡。要清掉請到「帳單歷史 → 已存帳單」。",
@@ -6864,23 +7027,35 @@ function dashBusyPaint(key){
     +`<span class="dsd">${L("讀取明細、重新計價…","Loading detail, repricing…")}</span></span>`
     +`<span class="dspin" aria-hidden="true"></span>`;
 }
+/* 沒有費率就算不出東西來。硬跑會得到一整頁「查不到費率」,看起來像工具
+   壞了 —— 講清楚缺什麼,別給一份算過但全是空的數字。 */
+function dashHasRates(){
+  if(CFG&&CFG.tableRowCount>0) return true;
+  const m=L("還沒有費率可用。請先到「匯入檔案」載入設定檔。",
+            "No rate table loaded. Load your settings from Import Files first.");
+  setStatus(m); toast(m,false);
+  return false;
+}
 /* 挑一期來跑。明細在 IndexedDB,重算走的是和「已存帳單」那顆按鈕
    同一條路(repriceStored),所以其他分頁也會一起換成這一期。 */
 function dashPickInvoice(key){
   if(DASH_BUSY||!key) return;
+  if(key==="__all__"){
+    if(!dashHasRates()) return;
+    DASH_ALL=true; renderDashboard();
+    logAdd("dashboard all periods", String(dashPeriods().length));
+    return;
+  }
+  /* 從總攬切回單期:這一期的資料可能還在記憶體裡,那就只是換個畫面。 */
+  const wasAll=DASH_ALL;
+  DASH_ALL=false;
   const cur=dashCurKeys();
   if(cur.length===1&&cur[0]===key){          /* 已經是這一期,不用再跑一次 */
-    setStatus(L(key+" 已經在畫面上",key+" is already on screen"));
+    if(wasAll) renderDashboard();
+    else setStatus(L(key+" 已經在畫面上",key+" is already on screen"));
     return;
   }
-  /* 沒有費率就算不出東西來。硬跑會得到一整頁「查不到費率」,
-     看起來像工具壞了 —— 講清楚缺什麼,別給一份算過但全是空的數字。 */
-  if(!CFG||!(CFG.tableRowCount>0)){
-    const m=L("還沒有費率可用。請先到「匯入檔案」載入設定檔。",
-              "No rate table loaded. Load your settings from Import Files first.");
-    setStatus(m); toast(m,false);
-    return;
-  }
+  if(!dashHasRates()) return;
   DASH_BUSY=true;
   dashBusyPaint(key);
   logAdd("dashboard reprice", key);
@@ -6962,12 +7137,61 @@ function wireDashBar(){
     });
   }
 }
+/* 總攬的繪製。算得久(每一期都要整批重算),所以先把畫面換成進度,
+   算完再整頁重畫;算到一半使用者切走就丟掉結果,不要蓋掉他現在在看的東西。 */
+function renderDashAll(body){
+  const list=dashPeriods();
+  const head=`<div class="dhead">
+    <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
+    <div class="dsub">${list.length}${L(" 期帳單"," invoice periods")}</div></div></div>`;
+  if(!CFG||!(CFG.tableRowCount>0)){
+    body.innerHTML=head+dashBarHTML()+`<div class="dempty">${
+      L("還沒有費率可用,沒辦法重算。請先到「匯入檔案」載入設定檔。",
+        "No rate table loaded, so nothing can be repriced. Load your settings from Import Files first.")
+    }</div>`;
+    wireDashBar(); return;
+  }
+  const paintBars=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    body.querySelectorAll(".abarfill").forEach(el=>{
+      if(el.dataset.w!=null) el.style.width=el.dataset.w+"%"; });
+  }));
+  const stamp=dashAllStamp();
+  if(DASH_ALL_CACHE&&DASH_ALL_CACHE.stamp===stamp){
+    body.innerHTML=head+dashBarHTML()+dashAllHTML(DASH_ALL_CACHE.data);
+    wireDashBar(); paintBars(); return;
+  }
+  body.innerHTML=head+dashBarHTML()
+    +`<div class="dcard"><div class="aprog" id="dashAllProg">`
+    +L("正在用目前的費率重算每一期…","Repricing every period with the current rates…")
+    +`</div></div>`;
+  wireDashBar();
+  const run=++DASH_ALL_RUN;
+  dashAllCompute(async (i,n,key)=>{
+    const el=$("#dashAllProg");
+    if(el) el.innerHTML=L("正在重算 ","Repricing ")+`<b>${esc(key)}</b>`
+      +`<div class="aprogtrack"><div class="aprogfill" style="width:${(i/n*100).toFixed(1)}%"></div></div>`
+      +`<div style="margin-top:8px;font-size:11.5px">${i+1} / ${n}</div>`;
+    /* 讓瀏覽器有機會把進度畫出來,否則整段跑完才更新等於沒有進度。 */
+    await new Promise(r=>setTimeout(r,0));
+  }).then(data=>{
+    if(run!==DASH_ALL_RUN||!DASH_ALL) return;   /* 算到一半被切走了,丟掉 */
+    DASH_ALL_CACHE={stamp:stamp, data:data};
+    renderDashboard();
+    setStatus(L("全部 "+data.length+" 期已用目前費率重算",
+                "All "+data.length+" periods repriced with the current rates"));
+  }).catch(e=>{
+    console.warn("all-periods failed",e);
+    const el=$("#dashAllProg");
+    if(el) el.textContent=L("算不出來:","Could not compute: ")+String((e&&e.message)||e);
+  });
+}
 function renderDashboard(){
   const body=$("#dashBody"); if(!body) return;
   /* 整頁重畫 = 上一次的等待已經結束(成功走 repriceStored,失敗走
      dashPickInvoice 的 catch),兩條路都會回到這裡。 */
   DASH_BUSY=false;
   try{
+  if(DASH_ALL){ renderDashAll(body); return; }
   const d=dashAgg();
   DASH_LAST=d;
   if(!d){
@@ -7066,7 +7290,7 @@ function renderDashboard(){
         (zTot&&zTop?Math.round(Math.abs(zTop[1])/zTot*100):0)+"%",
         zTop?zTop[0]:L("Zone","Zone"))
     : `<div class="dsub">${L("沒有 Zone 資料","No zone data")}</div>`;
-  const hasU=d.unsureN>0||d.missN>0||Math.abs(uAmt)>0.005;
+  const hasU=d.unsureN>0||d.missN>0||d.svcUnsureN>0||Math.abs(uAmt)>0.005;
   const uCard=hasU?`
     <div class="dcard warn" style="margin-top:12px">
       <div class="ch"><h3>${L("未判定","Unclassified")}</h3>
@@ -7076,6 +7300,8 @@ function renderDashboard(){
       ${Object.entries(d.unsureBy||{}).sort((a,b)=>b[1].n-a[1].n).map(([k,v])=>
         `<div class="urow"><span>${esc(k)}</span><b>${v.n} ${L("筆","")}</b>
          <span class="uv">${money(v.amt)}</span></div>`).join("")}
+      ${d.svcUnsureN?`<div class="urow"><span>${L("服務名稱認不出來,已用預設服務的費率計價","Service name not recognised — priced with the default service's rates")}</span>
+        <b>${d.svcUnsureN} ${L("筆","")}</b><span class="uv">${money(d.svcUnsureAmt)}</span></div>`:""}
       ${Math.abs(d.notRepriced)>0.005?`<div class="urow"><span>${L("不重算代碼 (NPF / SCF)","Not repriced (NPF / SCF)")}</span>
         <b></b><span class="uv">${money(d.notRepriced)}</span></div>`:""}
       ${Math.abs(d.unknownNet)>0.005?`<div class="urow"><span>${L("未知代碼","Unknown codes")} ${esc(d.unknownCodes.join(" "))}</span>
