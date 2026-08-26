@@ -1424,7 +1424,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     </div>
     <div class="modalbody">
       <label class="bulkchk"><input type="radio" name="resiSrc" value="system" id="resiSrcSys">
-        <span data-i18n="lb.resisys">System</span></label>
+        <span data-i18n="lb.resisys">System Configuration</span></label>
       <label class="bulkchk" style="margin-top:5px"><input type="radio" name="resiSrc" value="api" id="resiSrcApi">
         <span data-i18n="lb.resiapi">Linked API</span></label>
       <div id="resiApiBox" style="display:none;margin-top:12px">
@@ -5197,13 +5197,14 @@ let RS_SNAP=null;
 function paintResiSrcSum(){
   const el=$("#resiSrcSum"); if(!el||!CFG) return;
   const g=CFG.raw.global_rules||{};
-  const api=(g.resi_source==="api");
   const url=String(g.resi_api_url||"").trim();
-  el.textContent = api
-    ? (url ? L("目前:連動 API · "+url, "Now: Linked API · "+url)
-           : L("目前:連動 API(還沒填端點,會退回系統判定)",
-               "Now: Linked API (no endpoint set, so it falls back to System)"))
-    : L("目前:沿用系統設定","Now: System");
+  const wantApi=(g.resi_source==="api");
+  el.textContent = (wantApi&&url)
+    ? L("目前:連動 API · "+url, "Now: Linked API · "+url)
+    : (wantApi
+        ? L("目前:系統設定(選了連動 API,但端點還沒填,所以退回系統判定)",
+            "Now: System configuration (Linked API is selected but has no endpoint, so it falls back)")
+        : L("目前:系統設定","Now: System configuration"));
 }
 function openResiSrc(){
   if(!CFG) return;
@@ -6295,7 +6296,10 @@ function renderConfigTabs(){
   /* ---- Demand:四個子分頁 ---- */
   const dcfg=CFG.raw.demand_config||{};
   if($("#demandOn")) $("#demandOn").value=dcfg.enabled?"on":"off";
-  const _rs=(g.resi_source==="api")?"api":"system";
+  /* 選了 API 卻沒填端點時,prefetchAddressClass 會直接跳出 —— 實際跑的
+     是系統判定。畫面顯示「連動 API」就是在講一件沒有發生的事,所以這裡
+     看的是實際生效的來源,不是設定檔存了哪個字。 */
+  const _rs=(g.resi_source==="api" && String(g.resi_api_url||"").trim())?"api":"system";
   if($("#resiSrcSys")) $("#resiSrcSys").checked=(_rs==="system");
   if($("#resiSrcApi")) $("#resiSrcApi").checked=(_rs==="api");
   if($("#resiApiUrl")) $("#resiApiUrl").value=g.resi_api_url||"";
@@ -9092,7 +9096,7 @@ const I18N={
   "hd.setting":["設定","Settings"],
   "hint.setting":["重新計價的一般行為設定,改動會存到你的帳號。","General repricing behaviour. Changes are saved to your account."],
   "hd.resisrc":["🔄 住宅／商業判定來源","🔄 Residential / Commercial · Source"],
-  "lb.resisys":["沿用系統設定","System"],
+  "lb.resisys":["系統設定","System Configuration"],
   "lb.resiapi":["連動 API","Linked API"],
   "lb.resiapiurl":["API 代理端點(Edge Function 網址)","API proxy endpoint (Edge Function URL)"],
   "hint.resisrc":["API 需自架 UPS 代理,未設定時退回系統。","API needs a UPS proxy; falls back to System when unset."],
