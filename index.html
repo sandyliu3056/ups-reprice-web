@@ -1090,6 +1090,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .dmd{font-size:11.5px;color:var(--muted);text-align:right;white-space:nowrap}
 #p-dash .dmn{grid-column:2/4;font-size:11px;color:var(--muted)}
 #p-dash .dmempty{padding:14px 10px;text-align:center;font-size:12.5px;color:var(--muted)}
+#p-dash .dmfoot{margin-top:6px;padding:7px 10px 3px;border-top:1px solid var(--line);
+  font-size:11px;line-height:1.5;color:var(--muted)}
 #p-dash .dchips{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto}
 #p-dash .dchip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;
   color:var(--muted);border-radius:999px;padding:3px 11px;
@@ -6751,6 +6753,9 @@ function dashAgg(){
    在各家瀏覽器都不吃站上的主題色。
    ===================================================================== */
 let DASH_BUSY=false, DASH_DOCBOUND=false;
+/* 上一次畫出來的彙總。「重新整理」要能講出重算前後差多少,就得記得前一次
+   算到什麼 —— 只為了這件事再跑一次 dashAgg() 是白算一遍。 */
+let DASH_LAST=null;
 let DASH_KEYS_FOR=null, DASH_KEYS=[];
 /* 現在畫面上這批是哪幾期。直接看 ROWS,不另外記一個狀態 —— 記了就有
    兩份真相,換檔、重算、登出、換人各要維護一次,遲早有一次忘了。
@@ -6762,17 +6767,31 @@ function dashCurKeys(){
   DASH_KEYS_FOR=ROWS; DASH_KEYS=[...s].sort();
   return DASH_KEYS;
 }
+/* 期號要長得像期號:UPS 的是一串數字。沒有標題列、而欄位順序又和固定
+   欄位對不上的 CSV 匯進來時,期號欄讀到的可能是服務名稱 —— 於是歷史裡
+   就多出「Ground Residential」這種「期別」。那是壞掉的匯入留下的殘骸,
+   不是一期帳單,選單不列它。刪不刪由本人決定,所以只是不列,
+   「帳單歷史 → 已存帳單」那張表照舊看得到、也刪得掉。 */
+function looksLikeInvKey(k){
+  const s=String(k==null?"":k).trim();
+  return /^[0-9][0-9A-Za-z._\/-]*$/.test(s) && /\d{4}/.test(s);
+}
 /* 歸檔過的期別,新的排前面。沒有帳單日的用期號排,排在有日期的後面。 */
 function dashPeriods(){
-  return Object.entries(histInv()).map(([k,v])=>({
+  return Object.entries(histInv()).filter(([k])=>looksLikeInvKey(k)).map(([k,v])=>({
     key:k, date:(v&&v.date)||"", rows:(v&&v.rows)||0,
     trk:(v&&v.trk)||0, at:(v&&v.at)||""
   })).sort((a,b)=> String(b.date||"").localeCompare(String(a.date||""))
                 || String(b.key).localeCompare(String(a.key)));
 }
+/* 被擋下來的有幾筆。無聲過濾會變成另一個謎題,所以選單底下要講一句。 */
+function dashOddCount(){
+  return Object.keys(histInv()).filter(k=>!looksLikeInvKey(k)).length;
+}
 /* 選單那一條。RATED 是空的時候也要畫 —— 沒資料的人正是最需要它的人。 */
 function dashBarHTML(){
   const list=dashPeriods();
+  const odd=dashOddCount();
   const cur=dashCurKeys();
   const sel=(cur.length===1 && list.some(p=>p.key===cur[0])) ? cur[0] : "";
   const selP=sel?list.find(p=>p.key===sel):null;
@@ -6821,6 +6840,9 @@ function dashBarHTML(){
         <div class="dmlist" id="dashMlist" role="listbox"
           aria-label="${L("帳單期別","Invoice")}">${items
           ||`<div class="dmempty">${L("歷史裡還沒有帳單。","Nothing filed to history yet.")}</div>`}</div>
+        ${odd?`<div class="dmfoot">${L(
+          "另有 "+odd+" 筆期號不像期號(多半是沒有標題列、欄位順序不同的檔案匯壞了),沒有列在這裡。要清掉請到「帳單歷史 → 已存帳單」。",
+          odd+" filed entr"+(odd>1?"ies":"y")+" had no invoice-shaped number — usually a file that imported with the wrong columns. Not listed here; clear them from Invoice History → Stored Invoices.")}</div>`:""}
       </div>
     </div>
     ${hint}
@@ -6947,6 +6969,7 @@ function renderDashboard(){
   DASH_BUSY=false;
   try{
   const d=dashAgg();
+  DASH_LAST=d;
   if(!d){
     /* 歷史裡有東西的時候,這一頁不是死路:上面那個選單就能挑一期來跑。 */
     const filed=dashPeriods().length;
@@ -6962,7 +6985,14 @@ function renderDashboard(){
     wireDashBar();
     return;
   }
-  const PIE=["#351c15","#6b4b03","#8a6104","#a97c1a","#c39a3d","#d9b463","#e6c98c","#eedcb4","#f6eddc"];
+  /* 十個色階,剛好對上圖例畫得下的前十塊。以前只有九個,而 pieItems 最多
+     要發 11 個顏色(前十 + 其他),於是第 10 項和第 1 項同色、「其他」又
+     和第 2 項同色 —— 兩個圖例列一樣的圓點,分不出圓餅上哪一塊是哪一項。 */
+  const PIE=["#351c15","#4e2f14","#6b4b03","#8a6104","#a97c1a",
+             "#c39a3d","#d9b463","#e6c98c","#eedcb4","#f6eddc"];
+  /* 「其他」不是色階上的一階,是「以上皆非」,所以給它自己的中性色,
+     永遠不會和任何一項撞色。 */
+  const OTHERCOL="#9a8f80";
   const MISSCOL="var(--neg)";
   const donut=(items,total)=>{
     const R=56,C=2*Math.PI*R; let off=0;
@@ -7000,10 +7030,9 @@ function renderDashboard(){
     const out=ent.slice(0,TOP).map(([c,v],i)=>[dashLabel(c),v,PIE[i%PIE.length]]);
     const rest=ent.slice(TOP);
     if(rest.length){
-      const col=PIE[TOP%PIE.length];
       out.push([L(`其他 ${rest.length} 項`,`Other (${rest.length})`),
-                rest.reduce((a,[,v])=>a+v,0), col]);
-      for(const [c,v] of rest) out.push([dashLabel(c),v,col,"fold"]);
+                rest.reduce((a,[,v])=>a+v,0), OTHERCOL]);
+      for(const [c,v] of rest) out.push([dashLabel(c),v,OTHERCOL,"fold"]);
     }
     const rc=toNum(obj[DASH_RECLASS]);
     if(Math.abs(rc)>0.005) out.push([L("改判 AHS/大包裹","Reclassified AHS/LP"),rc,RECLCOL]);
@@ -7024,7 +7053,8 @@ function renderDashboard(){
     +oneP(d.upsBuckets||{},0,L("UPS 帳單","UPS BILLED"),d.billed)
     +`</div>`;
   const chItems=Object.entries(d.chanAgg||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]))
-    .map(([n,v],i)=>[n,v,/unknown|未知/i.test(n)?MISSCOL:PIE[i]]);
+    /* 取模,不然渠道超過十條的人會拿到 undefined 當顏色,那一塊就不見了。 */
+    .map(([n,v],i)=>[n,v,/unknown|未知/i.test(n)?MISSCOL:PIE[i%PIE.length]]);
   const chTot=chItems.reduce((a,[,v])=>a+Math.abs(v),0);
   const chanHTML=pieBlock(chItems,chTot,String(chItems.length),L("渠道","channels"));
   const zEntries=Object.entries(d.zoneAgg).sort((a,b)=>(+a[0])-(+b[0]));
@@ -7084,9 +7114,25 @@ function renderDashboard(){
     body.querySelectorAll(".bfill,.zfill,.seg,.cmpfill").forEach(el=>{
       if(el.dataset.w!=null) el.style.width=el.dataset.w+"%"; });
   }));
+  /* 「重新整理」原本按下去什麼都不說:重算完數字要是沒變,畫面一模一樣,
+     狀態列也沒有一個字 —— 從按的人的角度看,這顆按鈕就是壞的。改完費率
+     再按才是它的用途,所以它該回答的問題只有一個:有沒有變、變多少。 */
   const rb=$("#bDashRe");
-  if(rb) rb.onclick=()=>{ if(!repriceNow())
-    setStatus(L("還沒有可以重算的資料","Nothing to reprice yet")); };
+  if(rb) rb.onclick=()=>{
+    const was=DASH_LAST?DASH_LAST.repriced:null;
+    if(!repriceNow()){
+      setStatus(L("還沒有可以重算的資料","Nothing to reprice yet")); return;
+    }
+    const now=DASH_LAST?DASH_LAST.repriced:null;
+    const msg=(was==null||now==null)
+      ? L("已重新整理","Refreshed")
+      : (Math.abs(now-was)<0.005
+          ? L("已用目前的設定重算,總額沒有變:"+money(now),
+              "Repriced with the current settings — unchanged at "+money(now))
+          : L("已重算:"+money(was)+" → "+money(now),
+              "Repriced: "+money(was)+" → "+money(now)));
+    setStatus(msg); toast(msg,true);
+  };
   }catch(e){ console.warn("dashboard render failed",e); }
 }
 function exportReport(){
