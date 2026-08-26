@@ -1073,14 +1073,22 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   border-right:2px solid var(--accent);border-bottom:2px solid var(--accent);
   transform:rotate(45deg) translate(-2px,-2px);transition:transform .18s}
 #p-dash .dsel[aria-expanded="true"] .dcar{transform:rotate(-135deg) translate(-1px,-1px)}
-#p-dash .dmenu{position:absolute;z-index:30;top:calc(100% + 7px);left:0;
+/* 選單開著的時候,底下鋪一層看不見的遮罩。沒有它的話,「點外面關掉選單」
+   那一下會穿透過去按到後面的東西 —— 想關個選單結果被帶去別頁。 */
+#p-dash .dscrim{position:fixed;inset:0;z-index:29;background:transparent}
+#p-dash .dmenu{position:absolute;z-index:30;top:calc(100% + 5px);left:0;
   min-width:100%;width:max-content;max-width:min(420px,86vw);
   background:var(--panel);border:2px solid var(--accent);border-radius:14px;
   box-shadow:0 12px 34px rgba(0,0,0,.2);padding:7px;
   opacity:0;transform:translateY(-6px) scale(.98);pointer-events:none;
   transition:opacity .15s ease,transform .15s ease}
 #p-dash .dmenu.on{opacity:1;transform:none;pointer-events:auto}
-#p-dash .dmlist{max-height:min(46vh,320px);overflow:auto}
+#p-dash .dmlist{max-height:min(38vh,260px);overflow:auto}
+/* 指向觸發鈕的小尖角:選單看起來就是「從這顆按鈕長出來的」。 */
+#p-dash .dmenu::before{content:"";position:absolute;top:-7px;left:22px;
+  width:12px;height:12px;background:var(--panel);
+  border-left:2px solid var(--accent);border-top:2px solid var(--accent);
+  transform:rotate(45deg)}
 #p-dash .dmhd{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
   color:var(--muted);padding:3px 10px 6px}
 #p-dash .dmfind{width:100%;font:inherit;font-size:12.5px;color:var(--text);
@@ -7228,6 +7236,7 @@ function dashPickInvoice(key){
 function dashMenuClose(back){
   const btn=$("#dashSel"), menu=$("#dashMenu");
   if(menu) menu.classList.remove("on");
+  const sc=$("#dashScrim"); if(sc) sc.remove();
   if(btn){ btn.setAttribute("aria-expanded","false"); if(back) btn.focus(); }
 }
 /* 每次重畫都會換掉這些節點,所以事件接在節點上;只有「點到外面就關」
@@ -7239,11 +7248,21 @@ function wireDashBar(){
   const open=()=>{
     menu.classList.add("on");
     btn.setAttribute("aria-expanded","true");
-    const find=$("#dashFind");
+    /* 遮罩只在開著的時候存在,關掉就移除,不留在 DOM 裡擋別人。 */
+    if(!$("#dashScrim")){
+      const sc=document.createElement("div");
+      sc.id="dashScrim"; sc.className="dscrim";
+      sc.addEventListener("mousedown",e=>{
+        /* 在這裡就吃掉:等到 click 才處理的話,底下那顆按鈕已經收到了。 */
+        e.preventDefault(); e.stopPropagation(); dashMenuClose(true);
+      });
+      menu.parentNode.appendChild(sc);
+    }
     const on=menu.querySelector(".dmi.on")||shown()[0];
-    if(on) on.scrollIntoView({block:"nearest"});
-    /* 有過濾框就先讓游標進去,直接打字就能找;沒有就跳到目前這一期。 */
-    if(find) find.focus(); else if(on) on.focus();
+    /* 焦點放在項目上,不是篩選框 —— 開選單的人多半是要用眼睛挑,
+       方向鍵馬上能用。要篩選就直接打字,下面的 keydown 會把字送過去。 */
+    if(on){ on.scrollIntoView({block:"nearest"}); on.focus(); }
+    else { const f=$("#dashFind"); if(f) f.focus(); }
   };
   btn.onclick=e=>{ e.stopPropagation();
     menu.classList.contains("on")?dashMenuClose():open(); };
@@ -7269,6 +7288,15 @@ function wireDashBar(){
         : (i<=0?0:i-1);
       list[n].focus(); list[n].scrollIntoView({block:"nearest"});
       return;
+    }
+    /* 焦點在項目上時打可見字元,就送進篩選框繼續打 —— 使用者不必先找到
+       那個輸入框。這是選單該有的行為,不是表單。 */
+    if(e.key.length===1 && !e.ctrlKey && !e.metaKey && !e.altKey){
+      const f=$("#dashFind");
+      if(f && document.activeElement!==f){
+        f.focus(); f.value+=e.key; f.dispatchEvent(new Event("input"));
+        e.preventDefault(); return;
+      }
     }
     if(e.key==="Home"||e.key==="End"){
       if(!list.length) return;
