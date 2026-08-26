@@ -497,14 +497,17 @@ td.cells{white-space:normal}
 #p-dash .trend{margin:0 0 14px}
 #p-dash .th2{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px}
 #p-dash .th2 span{font-weight:400;color:var(--muted);margin-left:8px;font-size:11.5px}
-#p-dash .tgrid{display:flex;align-items:stretch;gap:5px;height:132px;
-  padding:0 2px 0;border-bottom:1px solid var(--line);position:relative}
+#p-dash .tplotarea{display:flex;align-items:stretch;gap:5px;height:132px;
+  padding:0 2px;border-bottom:1px solid var(--line);position:relative}
+#p-dash .tlabels{display:flex;gap:5px;padding:4px 2px 0}
 /* 只有三四期的時候別讓柱子撐成一整面牆 —— 那讀起來是色塊,不是趨勢。 */
-#p-dash .tcol{max-width:96px}
+#p-dash .tcol{flex:1 1 0;min-width:0;max-width:96px;
+  display:flex;flex-direction:column;justify-content:flex-end}
 /* 零線:有虧損的期別時才看得出柱子往下長 */
-#p-dash .tgrid::after{content:"";position:absolute;left:0;right:0;
+#p-dash .tplotarea::after{content:"";position:absolute;left:0;right:0;
   top:calc(var(--zero));height:1px;background:var(--line)}
-#p-dash .tcol{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:flex-end}
+/* 折線的刻度不從零起算,畫一條零線只會誤導 —— 那條線不在圖上。 */
+#p-dash .tplotarea.tmargin::after{display:none}
 #p-dash .tplot{position:relative;flex:1 1 auto}
 #p-dash .tbar{position:absolute;left:12%;right:12%;border-radius:3px 3px 0 0;min-height:2px}
 #p-dash .tpct{font-size:10.5px;font-family:Consolas,monospace;color:var(--muted);
@@ -515,6 +518,32 @@ td.cells{white-space:normal}
   font-size:11.5px;color:var(--muted)}
 #p-dash .tleg i{display:inline-block;width:10px;height:10px;border-radius:3px;
   margin-right:6px;vertical-align:-1px}
+/* 篩選列。一排放在圖上面 —— 改條件的人正在看圖,不該去別的地方找開關。 */
+#p-dash .dfilters{display:flex;flex-wrap:wrap;align-items:center;gap:9px 14px;margin:0 0 13px}
+#p-dash .fsel{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
+#p-dash .fsel select{font:inherit;font-size:12.5px;color:var(--text);background:var(--panel);
+  border:2px solid var(--line);border-radius:7px;padding:3px 8px}
+#p-dash .fsel select:focus{outline:none;border-color:var(--accent)}
+/* 指標切換:兩個互斥的選項,做成一組連在一起的按鈕,不是下拉 —— 只有兩個
+   選項的下拉,要點兩下才換得掉。 */
+#p-dash .fseg{display:inline-flex;border:2px solid var(--line);border-radius:7px;overflow:hidden}
+#p-dash .fsegb{font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;border:0;
+  padding:4px 13px;background:var(--panel);color:var(--muted)}
+#p-dash .fsegb + .fsegb{border-left:2px solid var(--line)}
+#p-dash .fsegb.on{background:var(--accent);color:var(--tab)}
+/* 平均線:虛線加一個貼在右端的標籤。實線會和資料本身搞混。 */
+#p-dash .tavg{position:absolute;left:0;right:0;height:0;
+  border-top:1px dashed var(--accent);opacity:.75;pointer-events:none;z-index:2}
+#p-dash .tavg b{position:absolute;right:0;top:-8px;font-size:10.5px;font-weight:700;
+  font-family:Consolas,monospace;color:var(--accent);background:var(--panel);padding:0 4px}
+/* 毛利率是折線:點畫在格子裡,線疊在整片繪圖區上。 */
+#p-dash .tdot{position:absolute;left:50%;width:8px;height:8px;border-radius:50%;
+  margin-left:-4px;margin-top:-4px;z-index:3}
+#p-dash .tline{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+#p-dash .tline polyline{fill:none;stroke:var(--run2);stroke-width:1.6;
+  vector-effect:non-scaling-stroke;stroke-linejoin:round}
+#p-dash .tplotarea.tmargin .tcol,#p-dash .tlabels.tmargin .tcol{max-width:none}
+#p-dash .tleg .tnote{color:var(--muted);opacity:.8}
 /* UPS 帳號那一欄:同一天兩張帳單分屬兩個帳號時才畫 */
 #p-dash .atbl td.aa{font-family:Consolas,monospace;font-size:11.5px;color:var(--muted);
   white-space:nowrap}
@@ -7195,6 +7224,36 @@ let DASH_BUSY=false, DASH_DOCBOUND=false;
 /* 全部期別總攬。DASH_ALL 是模式,快取用「費率 + 期別清單」當印章:
    費率一改、或多刪一期,印章就不同,自動重算。 */
 let DASH_ALL=false, DASH_ALL_CACHE=null, DASH_ALL_RUN=0;
+/* 全部期別的篩選:帳號、期間、看哪一個指標。只影響畫面,不重算 ——
+   重算過的資料留在 DASH_ALL_CACHE 裡,切篩選是即時的。 */
+let DASH_F={acct:"", range:"", measure:"profit"};
+const DASH_RANGES=[
+  {k:"",   zh:"全部",   en:"All",       days:0},
+  {k:"7",  zh:"近一週", en:"1 week",    days:7},
+  {k:"30", zh:"近一個月", en:"1 month",  days:30},
+  {k:"90", zh:"近三個月", en:"3 months", days:90},
+  {k:"180",zh:"近六個月", en:"6 months", days:180},
+  {k:"365",zh:"近一年", en:"1 year",    days:365},
+];
+/* 這一期屬於哪一個 UPS 帳號。
+   歸檔時有記到帳號的就用那個(無標題列格式的第 2 欄)。舊資料是在系統會讀
+   帳號之前存的,索引裡沒有 —— 那就從期號推:UPS 的期號結尾是流水號,去掉
+   結尾的數字之後,同一個帳號的期號前綴一模一樣。推出來的東西不叫「帳號」,
+   畫面上會註明它是推的,重新匯入該期就會換成真的帳號。 */
+/* 圖上的金額只要看得出量級,精確到分的數字在下面的表格裡。$1,581.00 在一
+   根柱子底下會和隔壁撞在一起,$1.6K 不會。 */
+function moneyShort(v){
+  const n=toNum(v), a=Math.abs(n), sign=n<0?"-":"";
+  if(a>=1000) return sign+"$"+(a/1000).toFixed(a>=10000?0:1)+"K";
+  return sign+"$"+a.toFixed(0);
+}
+function dashAcctOf(p){
+  const a=String((p&&p.acct)||"").trim();
+  if(a) return {id:a, guessed:false};
+  const k=String((p&&p.key)||"").trim();
+  const stem=k.replace(/\d+$/,"");
+  return {id:stem||k, guessed:!!stem};
+}
 /* 上一次畫出來的彙總。「重新整理」要能講出重算前後差多少,就得記得前一次
    算到什麼 —— 只為了這件事再跑一次 dashAgg() 是白算一遍。 */
 let DASH_LAST=null;
@@ -7284,7 +7343,49 @@ async function dashAllCompute(onStep){
    多的只有兩期之間的差額 —— 這樣每一列都能對回你點進那一期看到的數字。
    不自己發明一個「總結餘」:帳戶層費用要不要併進毛利是帳務問題,不是這頁
    該替人決定的事,所以它自己一欄,擺著。 */
-function dashAllHTML(data){
+/* 篩選之後剩下哪幾期。期間是以「歷史裡最新的帳單日」往回算,不是今天 ——
+   帳單常常是幾個月前匯入的,用今天當基準會整片空白。 */
+function dashFilter(data){
+  let out=data.slice();
+  if(DASH_F.acct) out=out.filter(d=>dashAcctOf(d).id===DASH_F.acct);
+  const days=+DASH_F.range||0;
+  if(days){
+    const dates=out.map(d=>String(d.date||"")).filter(Boolean).sort();
+    const last=dates[dates.length-1];
+    if(last){
+      const t=Date.parse(last+"T00:00:00Z");
+      if(!isNaN(t)){
+        const from=new Date(t-(days-1)*86400000).toISOString().slice(0,10);
+        out=out.filter(d=>String(d.date||"")>=from);
+      }
+    }
+  }
+  return out;
+}
+function dashFilterHTML(data){
+  const accts=[];
+  for(const d of data){
+    const a=dashAcctOf(d);
+    if(a.id && !accts.some(x=>x.id===a.id)) accts.push(a);
+  }
+  const opt=(v,cur,txt)=>`<option value="${esc(v)}"${v===cur?" selected":""}>${esc(txt)}</option>`;
+  const acctSel=accts.length>1
+    ? `<label class="fsel"><span>${L("帳號","Account")}</span><select id="dfAcct">`
+      +opt("",DASH_F.acct,L("全部帳號","All accounts"))
+      +accts.map(a=>opt(a.id,DASH_F.acct,a.id+(a.guessed?L(" (推得)"," (derived)"):""))).join("")
+      +`</select></label>`
+    : "";
+  const rngSel=`<label class="fsel"><span>${L("期間","Period")}</span><select id="dfRange">`
+    +DASH_RANGES.map(r=>opt(r.k,DASH_F.range,L(r.zh,r.en))).join("")
+    +`</select></label>`;
+  const meas=`<span class="fseg">`
+    +[["profit",L("毛利","Profit")],["margin",L("毛利率","Margin")]].map(([k,t])=>
+      `<button type="button" class="fsegb${DASH_F.measure===k?" on":""}" data-m="${k}">${esc(t)}</button>`
+    ).join("")+`</span>`;
+  return `<div class="dfilters">${acctSel}${rngSel}${meas}</div>`;
+}
+function dashAllHTML(all){
+  const data=dashFilter(all);
   const ok=data.filter(d=>!d.missing);
   const tot=ok.reduce((a,d)=>({n:a.n+d.n, repriced:a.repriced+d.repriced,
     billed:a.billed+d.billed, account:a.account+d.account}),
@@ -7303,10 +7404,14 @@ function dashAllHTML(data){
   /* 同一天出現兩張帳單,多半是兩個 UPS 帳號各出一張 —— 只看期號和日期,
      那兩列看起來像重複匯入。帳號只有一個時不畫這一欄,免得每一列都印
      同一個號碼。 */
-  const accts=[...new Set(data.map(d=>String(d.acct||"").trim()).filter(Boolean))];
+  /* 依「篩選之後」還剩幾個帳號決定 —— 篩到只剩一個帳號時,那一欄每一列都是
+     同一個號碼,而且折線可以連起來了。下拉選單仍然列出全部帳號(它讀的是
+     未篩選的 all),不然選了就回不去。 */
+  const accts=[...new Set(data.map(d=>dashAcctOf(d).id).filter(Boolean))];
   const multi=accts.length>1;
+  const guessed=data.some(d=>dashAcctOf(d).guessed);
   const rows=data.map(d=>{
-    const acell=multi?`<td class="aa">${esc(String(d.acct||"—"))}</td>`:"";
+    const acell=multi?`<td class="aa">${esc(dashAcctOf(d).id||"—")}</td>`:"";
     if(d.missing) return `<tr class="amiss"><td class="ak">${esc(d.key)}</td>`
       +`<td class="ad">${esc(d.date||"—")}</td>`+acell
       +`<td colspan="7">${L("只有索引,沒有明細,請重新匯入本期",
@@ -7322,12 +7427,16 @@ function dashAllHTML(data){
       +`<div class="abarfill${g<0?" neg":""}" data-w="${w.toFixed(1)}"></div></div></td></tr>`;
   }).join("");
   const gt=tot.repriced-tot.billed;
+  const empty=!ok.length
+    ? `<div class="dempty" style="padding:22px 0">${L("這個條件下沒有期別。","No periods match this filter.")}</div>`
+    : "";
   return `<div class="dcard">
     <div class="ch"><h3>${L("全部期別","All periods")}</h3>
       <span class="cnote">${L("每一期都以目前的費率設定重算",
                               "every period repriced with the current rate settings")}</span></div>
-    ${dashTrendHTML(ok, multi)}
-    <div class="tablewrap" style="max-height:none;overflow-x:auto">
+    ${dashFilterHTML(all)}
+    ${empty||dashTrendHTML(ok, multi, accts)}
+    ${empty?"":`<div class="tablewrap" style="max-height:none;overflow-x:auto">
     <table class="atbl"><thead><tr>
       <th>${L("期別","Invoice")}</th><th>${L("帳單日","Date")}</th>
       ${multi?`<th>${L("UPS 帳號","Account")}</th>`:""}
@@ -7342,60 +7451,120 @@ function dashAllHTML(data){
       <td class="num">${tot.n.toLocaleString()}</td>
       ${cell(tot.repriced)}${cell(tot.billed)}
       ${cell(gt, gt<0?"neg":"pos")}${pctCell(gt, tot.repriced)}${cell(tot.account, tot.account<0?"neg":"")}
-      <td></td></tr></tfoot></table></div>
+      <td></td></tr></tfoot></table></div>`}
     <div class="dfoot">${L(
       "毛利 = 向客戶收 − UPS 收;毛利率 = 毛利 ÷ 向客戶收。兩者均不含帳戶層費用 —— 該欄是否計入,由帳務決定。"
-        +(multi?"本表含 "+accts.length+" 個 UPS 帳號,同一天可能各有一張帳單。":""),
+        +(multi?"本表含 "+accts.length+" 個 UPS 帳號,同一天可能各有一張帳單。":"")
+        +(guessed?"標示「推得」的帳號由期號推算,重新匯入該期即可取得實際帳號。":""),
       "Profit is charge-customer minus UPS; margin is profit over charge-customer. Neither includes account charges — whether those belong in the figure is your accounting call."
-        +(multi?" This table spans "+accts.length+" UPS accounts, which can each issue an invoice on the same date.":""))}</div>
+        +(multi?" This table spans "+accts.length+" UPS accounts, which can each issue an invoice on the same date.":"")
+        +(guessed?" Accounts marked derived were inferred from the invoice number; re-import that period for the real one.":""))}</div>
   </div>`;
 }
-/* 期別走勢。這裡刻意不用圓餅:圓餅回答「各期佔總額多少比例」,而十二期
-   帳單沒有人問這個問題 —— 要看的是這一期比上一期好還是壞。所以畫成一期
-   一根的柱狀圖,依帳單日由舊到新,毛利率標在柱子上。
-   帳號超過一個時分色:兩個帳號的量級可以差十倍,混在同一條趨勢裡讀出來
-   的「成長」其實只是換了一個帳號。 */
-function dashTrendHTML(ok, multi){
+/* 期別走勢。
+   毛利用長條:一期就是一次結帳,是離散的金額,不是連續變化的量。長條高度
+   直接可比,而且兩個帳號並存時不會被連成一條假的趨勢線。
+   毛利率用折線:那是比率,和單量無關,期與期之間比較才有意義 —— 也正是
+   「某一期特別高」的解答:單量大八倍,毛利當然高,毛利率卻和別期一樣。
+   刻意不用圓餅:圓餅回答「各期佔總額多少比例」,沒有人這樣問帳單。 */
+function dashTrendHTML(ok, multi, allAccts){
   if(ok.length<2) return "";
   const seq=ok.slice().sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))
                                  || String(a.key).localeCompare(String(b.key)));
   const gapOf=d=>d.repriced-d.billed;
-  const vals=seq.map(gapOf);
-  const hi=Math.max(0,...vals), lo=Math.min(0,...vals);
-  const span=Math.max(1, hi-lo);
-  const accts=[...new Set(seq.map(d=>String(d.acct||"").trim()))];
+  const marginOf=d=>d.repriced?(gapOf(d)/Math.abs(d.repriced)*100):0;
+  const isM=DASH_F.measure==="margin";
+  const val=d=>isM?marginOf(d):gapOf(d);
+  const vals=seq.map(val);
+  /* 刻度:毛利是長條,零一定要在刻度裡 —— 長條是從基線量起的面積,基線
+     浮起來就會把 3% 的差距畫成兩倍高。毛利率是折線,點的位置本身就是值,
+     零沒有意義:一批 10%~13% 的毛利率硬要從 0 起算,四個點會全部擠在頂端
+     那一條細帶裡,看不出誰高誰低。所以毛利率只框住資料本身,上下各留一點。 */
+  let hi, lo;
+  if(isM){
+    const mx=Math.max(...vals), mn=Math.min(...vals);
+    const pad=Math.max(0.5,(mx-mn)*0.25);
+    hi=mx+pad; lo=mn-pad;
+  } else {
+    hi=Math.max(0,...vals); lo=Math.min(0,...vals);
+  }
+  const span=Math.max(0.001, hi-lo);
   const pal=pieCols();
+  const acctIx=d=>Math.max(0,(allAccts||[]).indexOf(dashAcctOf(d).id));
   const colOf=d=>{
-    if(!multi) return gapOf(d)<0?"var(--neg)":"var(--run2)";
-    const i=Math.max(0,accts.indexOf(String(d.acct||"").trim()));
-    return pal[i%pal.length];
+    if(!multi) return val(d)<0?"var(--neg)":"var(--run2)";
+    return pal[acctIx(d)%pal.length];
   };
   const zero=(hi/span)*100;      /* 零線離頂端多遠,單位是繪圖區高度的 % */
-  const bars=seq.map(d=>{
-    const g=gapOf(d), h=Math.abs(g)/span*100;
-    const m=d.repriced?(g/Math.abs(d.repriced)*100):0;
-    const up=g>=0;
-    return `<div class="tcol" title="${esc(d.key)} · ${esc(d.date||"")}${
-        multi&&d.acct?" · "+esc(String(d.acct)):""} · ${esc(money(g))} · ${m.toFixed(1)}%">`
-      +`<div class="tplot">`
-      +`<div class="tbar" style="background:${colOf(d)};height:${h.toFixed(1)}%;`
-      +(up?`bottom:${(100-zero).toFixed(1)}%`:`top:${zero.toFixed(1)}%`)+`"></div>`
-      +`</div>`
-      +`<div class="tpct">${m.toFixed(0)}%</div>`
+  const y=d=>((hi-val(d))/span)*100;               /* 點的位置,同一個單位 */
+  const yv=v=>((hi-v)/span)*100;
+  /* 平均線。毛利率取加權平均(總毛利 ÷ 總收入),不是各期百分比的算術平均
+     —— 六千件的一期和七百件的一期不該各算一票,加權平均才是這批帳單真正
+     的毛利率,也和下面表格的合計列同一個數。毛利則取每期平均金額。 */
+  const sumP=seq.reduce((a,d)=>a+gapOf(d),0);
+  const sumR=seq.reduce((a,d)=>a+Math.abs(d.repriced),0);
+  const avg=isM ? (sumR?sumP/sumR*100:0) : (sumP/seq.length);
+  const avgY=yv(avg);
+  const avgLine=(avgY>=0&&avgY<=100)
+    ? `<div class="tavg" style="top:${avgY.toFixed(1)}%">`
+      +`<b>${L("平均 ","avg ")}${isM?avg.toFixed(1)+"%":money(avg)}</b></div>`
+    : "";
+  const tip=d=>`${esc(d.key)} · ${esc(d.date||"")}`
+    +(multi?" · "+esc(dashAcctOf(d).id):"")
+    +` · ${esc(d.n.toLocaleString())}${L(" 件"," shipments")}`
+    +` · ${esc(money(gapOf(d)))} · ${marginOf(d).toFixed(1)}%`;
+  /* 繪圖區和標籤各自一排,不是疊在同一格裡 —— 平均線和折線要橫跨整個繪圖
+     區,和標籤混在一起的話,那條線會從日期上面畫過去。兩排用同一組 flex
+     規則、同樣的欄數和寬度上限,所以對得齊。 */
+  const plot=seq.map(d=>{
+    const v=val(d);
+    const inner=isM
+      ? `<div class="tdot" style="background:${colOf(d)};top:${y(d).toFixed(1)}%"></div>`
+      : `<div class="tbar" style="background:${colOf(d)};height:${(Math.abs(v)/span*100).toFixed(1)}%;`
+        +(v>=0?`bottom:${(100-zero).toFixed(1)}%`:`top:${zero.toFixed(1)}%`)+`"></div>`;
+    return `<div class="tcol" title="${tip(d)}"><div class="tplot">${inner}</div></div>`;
+  }).join("");
+  const labels=seq.map(d=>{
+    const v=val(d);
+    return `<div class="tcol" title="${tip(d)}">`
+      +`<div class="tpct">${isM?v.toFixed(1)+"%":moneyShort(v)}</div>`
       +`<div class="tlab">${esc(String(d.date||"").slice(5)||d.key.slice(-4))}</div></div>`;
   }).join("");
+  /* 折線本身:一條 polyline 疊在同一個座標上,點的位置和上面的 .tdot 一致。
+     多帳號時不連線 —— 把 A 帳號的一期連到 B 帳號的下一期,那條線沒有意義。 */
+  const line=(isM && !multi && seq.length>1)
+    ? `<svg class="tline" viewBox="0 0 100 100" preserveAspectRatio="none">`
+      +`<polyline points="${seq.map((d,i)=>
+          ((i+0.5)/seq.length*100).toFixed(2)+","+y(d).toFixed(2)).join(" ")}"/></svg>`
+    : "";
   const legend=multi
-    ? `<div class="tleg">${accts.map((a,i)=>
+    ? `<div class="tleg">${(allAccts||[]).map((a,i)=>
         `<span><i style="background:${pal[i%pal.length]}"></i>${esc(a||L("無帳號","no account"))}</span>`
-      ).join("")}</div>`
+      ).join("")}${isM?`<span class="tnote">${L("多帳號並存時不連線","not connected across accounts")}</span>`:""}</div>`
     : "";
   return `<div class="trend">
-    <div class="th2">${L("各期毛利","Profit by period")}
-      <span>${L("柱高為毛利金額,柱上百分比為毛利率;依帳單日由舊到新",
-                "bar height is profit; the percentage above it is margin; oldest first")}</span></div>
-    <div class="tgrid" style="--zero:${zero.toFixed(1)}%">${bars}</div>
+    <div class="th2">${isM?L("各期毛利率","Margin by period"):L("各期毛利","Profit by period")}
+      <span>${isM
+        ? L("毛利率與單量無關,期與期之間直接可比;虛線為加權平均,依帳單日由舊到新",
+            "margin is independent of volume, so periods compare directly; the dashed line is the weighted average; oldest first")
+        : L("柱高為毛利金額,受單量影響;虛線為各期平均,依帳單日由舊到新",
+            "bar height is profit, which scales with volume; the dashed line is the average; oldest first")}</span></div>
+    <div class="tplotarea${isM?" tmargin":""}" style="--zero:${zero.toFixed(1)}%">${avgLine}${line}${plot}</div>
+    <div class="tlabels">${labels}</div>
     ${legend}
   </div>`;
+}
+/* 篩選只改畫面,資料留在 DASH_ALL_CACHE 裡 —— 切一次條件要是重跑十九期,
+   沒有人會去切第二次。 */
+function wireDashFilters(){
+  const re=()=>renderDashboard();
+  const a=$("#dfAcct");
+  if(a) a.onchange=()=>{ DASH_F.acct=a.value; re(); };
+  const r=$("#dfRange");
+  if(r) r.onchange=()=>{ DASH_F.range=r.value; re(); };
+  document.querySelectorAll("#p-dash .fsegb").forEach(b=>{
+    b.onclick=()=>{ DASH_F.measure=b.dataset.m; re(); };
+  });
 }
 /* 選單那一條。RATED 是空的時候也要畫 —— 沒資料的人正是最需要它的人。 */
 function dashBarHTML(){
@@ -7638,7 +7807,7 @@ function renderDashAll(body){
   const stamp=dashAllStamp();
   if(DASH_ALL_CACHE&&DASH_ALL_CACHE.stamp===stamp){
     body.innerHTML=head+dashBarHTML()+dashAllHTML(DASH_ALL_CACHE.data);
-    wireDashBar(); paintBars(); return;
+    wireDashBar(); wireDashFilters(); paintBars(); return;
   }
   body.innerHTML=head+dashBarHTML()
     +`<div class="dcard"><div class="aprog" id="dashAllProg">`
