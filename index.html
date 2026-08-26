@@ -2417,6 +2417,8 @@ function priceShipment(cfg, s){
   /* 住宅/商業:帳單自己的代碼優先,和原始碼同一條規則。
      兩邊都沒有代碼時只能看服務名稱 —— 跨期 ADJ 這時會不準,標出來。 */
   let residential, resBasis, resiSure=true;
+  /* 跨期單查到原件時,原件說的就是渠道 —— 記下來給下面的 svcSure 用。 */
+  let histSvc=null;
   /* 判定順序照桌面版:
        1. 商業重分類(COM 那一行)—— reclass_service 直接改成商業
        2. 服務名稱自己就寫了 residential / commercial —— freight_for :18594
@@ -2453,7 +2455,7 @@ function priceShipment(cfg, s){
        這是桌面版 history_service_for() 存在的唯一理由 —— SCC 那一行
        沒有任何 RES/COM 字樣,不查歷史就一定被當成商業。 */
     const h=typeof historyServiceFor==="function"?historyServiceFor(s.tracking):null;
-    if(h){ residential = h==="Ground Residential";
+    if(h){ residential = h==="Ground Residential"; histSvc=h;
       resBasis=L("歷史(原始出貨)","History (original shipment)"); }
     else if(!byCode()){
       residential=svcSaysRes; resiSure=false;
@@ -2467,7 +2469,11 @@ function priceShipment(cfg, s){
     resBasis=L("服務名稱","Service name");
   }
   const svc=guessService(s.service);
-  const svcSure=serviceKnown(s.service);
+  /* 服務描述比對不到已知服務時,guessService 會退回預設服務 —— 那才是「猜的」。
+     但跨期單只要查到原件,渠道就是照原件定案的(上面那段 historyServiceFor,
+     residential 一路餵進下面的 channel),費率也是照那條查的。svcSure 只看
+     原始描述字串,不看這件事,結果是一筆已經定案的貨照樣被標成「判不出來」。 */
+  const svcSure=serviceKnown(s.service) || !!histSvc;
   const channel = svc==="Ground Commercial"||svc==="Ground Residential"
       ? (residential?"Ground Residential":"Ground Commercial")
       : svc;
