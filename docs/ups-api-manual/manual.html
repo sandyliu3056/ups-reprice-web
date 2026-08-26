@@ -2,283 +2,295 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<title>UPS 地址驗證 API 設定手冊</title>
+<title>UPS 地址驗證 API — 部署與設定文件</title>
 <style>
-  @page { size: A4; margin: 16mm 15mm 14mm; }
+  @page { size: A4; margin: 17mm 16mm 15mm; }
   * { box-sizing: border-box; }
   body {
     font-family: "WenQuanYi Zen Hei", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-    color: #2b1a10; font-size: 10.4pt; line-height: 1.72; margin: 0;
+    color: #22201d; font-size: 10.2pt; line-height: 1.66; margin: 0;
+    orphans: 3; widows: 3;
   }
-  /* 這台機器的中文字型沒有粗體字面,Chromium 也不合成 —— 量過:font-weight
-     400 和 700 的寬度一模一樣。所有的粗體(標題、強調、表頭)其實都是假的。
-     用描邊把字加厚,視覺上才真的分得出輕重。 */
-  strong, b, th, h1, h2, h3, .fbox .t, .cover .kicker, .cover .meta b,
-  .note b, .warn b, figcaption strong {
-    -webkit-text-stroke: 0.32px currentColor;
+  /* 這台機器的中文字型沒有粗體字面,Chromium 也不合成(量過:400 與 700
+     寬度相同)。用描邊補上字重,否則標題與強調全是同一個重量。 */
+  strong, b, th, h1, h2, h3, h4, .fbox .t, .cover .kicker, .cover dt {
+    -webkit-text-stroke: 0.3px currentColor;
   }
-  h1 { -webkit-text-stroke-width: 0.6px; }
-  h2 { -webkit-text-stroke-width: 0.45px; }
+  h1 { -webkit-text-stroke-width: 0.55px; }
+
   code, pre, .mono { font-family: "WenQuanYi Zen Hei Mono", "DejaVu Sans Mono", monospace; }
 
   /* ---- 封面 ---- */
-  .cover { height: 247mm; display: flex; flex-direction: column; justify-content: center;
-           page-break-after: always; }
-  .cover .kicker { font-size: 10pt; letter-spacing: .22em; color: #8a6104; font-weight: 700; }
-  .cover h1 { font-size: 30pt; margin: 8px 0 4px; color: #351c15; line-height: 1.25; }
-  .cover .sub { font-size: 12pt; color: #6b5847; margin-bottom: 26px; }
-  .cover .rule { height: 4px; background: #ffb500; width: 92px; margin: 0 0 26px; }
-  .cover .meta { font-size: 9.5pt; color: #8a755a; line-height: 2; }
-  .cover .meta b { color: #351c15; }
+  .cover { height: 246mm; display: flex; flex-direction: column;
+           justify-content: center; page-break-after: always; }
+  .cover .kicker { font-size: 9pt; letter-spacing: .24em; color: #7a6a52; }
+  .cover h1 { font-size: 26pt; margin: 10px 0 6px; color: #1b1917; line-height: 1.3;
+              letter-spacing: -.01em; }
+  .cover .sub { font-size: 11pt; color: #5b544a; }
+  .cover .rule { height: 3px; background: #1b1917; width: 64px; margin: 24px 0; }
+  .cover dl { display: grid; grid-template-columns: 84px 1fr; gap: 5px 16px;
+              font-size: 9.4pt; margin: 0; }
+  .cover dt { color: #7a6a52; }
+  .cover dd { margin: 0; color: #22201d; }
 
-  h2 { font-size: 14pt; color: #351c15; margin: 26px 0 4px;
-       padding-bottom: 5px; border-bottom: 2px solid #ffb500; page-break-after: avoid; }
-  h2 .n { color: #8a6104; margin-right: 8px; }
-  h3 { font-size: 11.2pt; color: #6b4b03; margin: 16px 0 4px; page-break-after: avoid; }
-  p { margin: 6px 0; }
-  ul, ol { margin: 6px 0 6px 0; padding-left: 20px; }
-  li { margin: 3px 0; }
+  h2 { font-size: 13pt; color: #1b1917; margin: 22px 0 8px; padding-bottom: 4px;
+       border-bottom: 1.5px solid #22201d; page-break-after: avoid; }
+  h3 { font-size: 10.8pt; color: #1b1917; margin: 15px 0 3px; page-break-after: avoid; }
+  h4 { font-size: 10pt; color: #4a453d; margin: 12px 0 2px; page-break-after: avoid; }
+  p { margin: 5px 0; }
+  ul, ol { margin: 5px 0; padding-left: 19px; }
+  li { margin: 2px 0; }
 
-  pre { background: #2b1a10; color: #f6eddc; padding: 10px 13px; border-radius: 6px;
-        font-size: 8.7pt; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap;
-        margin: 8px 0; page-break-inside: avoid; }
-  pre .c { color: #d9b463; }
-  code.in { background: #f2e7cf; padding: 1px 5px; border-radius: 3px; font-size: 9pt; }
+  pre { background: #f4f2ee; border: 1px solid #ddd8cf; border-left: 3px solid #22201d;
+        padding: 8px 11px; font-size: 8.4pt; line-height: 1.55; white-space: pre-wrap;
+        overflow-wrap: anywhere; margin: 7px 0; page-break-inside: avoid; }
+  pre .c { color: #7a6a52; }
+  code.in { background: #f0ede7; padding: 0 4px; border-radius: 2px; font-size: 8.8pt; }
 
-  table { border-collapse: collapse; width: 100%; font-size: 9.4pt; margin: 8px 0;
+  table { border-collapse: collapse; width: 100%; font-size: 9.1pt; margin: 7px 0;
           page-break-inside: avoid; }
-  th { background: #351c15; color: #ffdd8f; text-align: left; padding: 6px 9px; font-weight: 700; }
-  td { padding: 6px 9px; border-bottom: 1px solid #e0d4bb; vertical-align: top; }
-  tr:nth-child(even) td { background: #faf5ea; }
+  th { background: #22201d; color: #fff; text-align: left; padding: 5px 8px; }
+  td { padding: 5px 8px; border-bottom: 1px solid #e3ded4; vertical-align: top; }
+  tr:nth-child(even) td { background: #faf9f6; }
+  td.mono, th.mono { font-family: "WenQuanYi Zen Hei Mono", monospace; font-size: 8.6pt; }
 
-  .note { border-left: 4px solid #8a6104; background: #fdf8ee; padding: 9px 13px;
-          margin: 10px 0; font-size: 9.6pt; page-break-inside: avoid; }
-  .warn { border-left: 4px solid #b3261e; background: #fdf0ef; padding: 9px 13px;
-          margin: 10px 0; font-size: 9.6pt; page-break-inside: avoid; }
-  .note b, .warn b { display: block; margin-bottom: 3px; }
-  .warn b { color: #b3261e; }
+  .box { border: 1px solid #ddd8cf; border-left: 3px solid #7a6a52; background: #faf9f6;
+         padding: 8px 12px; margin: 9px 0; font-size: 9.3pt; page-break-inside: avoid; }
+  .box.crit { border-left-color: #a32b21; background: #fbf5f4; }
+  .box .h { display: block; margin-bottom: 2px; -webkit-text-stroke: 0.3px currentColor; }
+  .box.crit .h { color: #a32b21; }
 
-  figure { margin: 12px 0 14px; page-break-inside: avoid; }
-  figure img { width: 100%; border: 1px solid #caa356; border-radius: 5px; display: block; }
-  figcaption { font-size: 8.8pt; color: #8a755a; margin-top: 5px; }
+  figure { margin: 10px 0 12px; page-break-inside: avoid; }
+  figure img { width: 78%; border: 1px solid #ddd8cf; display: block; }
+  figcaption { font-size: 8.5pt; color: #7a6a52; margin-top: 4px; }
 
-  /* ---- 架構圖 ---- */
-  .flow { display: flex; align-items: stretch; gap: 0; margin: 14px 0 6px;
-          page-break-inside: avoid; }
-  .fbox { flex: 1; border: 2px solid #351c15; border-radius: 8px; padding: 10px 11px;
-          text-align: center; background: #fffdf7; }
-  .fbox.key { border-color: #8a6104; background: #fff8e6; }
-  .fbox .t { font-weight: 700; font-size: 10pt; color: #351c15; }
-  .fbox .d { font-size: 8.6pt; color: #6b5847; margin-top: 3px; line-height: 1.5; }
-  .farr { display: flex; align-items: center; padding: 0 8px; color: #8a6104;
-          font-size: 15pt; font-weight: 700; }
-  .pagebreak { page-break-before: always; }
+  .flow { display: flex; margin: 10px 0 4px; page-break-inside: avoid; }
+  .fbox { flex: 1; border: 1px solid #22201d; padding: 8px 10px; text-align: center;
+          background: #fff; }
+  .fbox.key { background: #f4f2ee; }
+  .fbox .t { font-size: 9.4pt; color: #1b1917; }
+  .fbox .d { font-size: 8.2pt; color: #5b544a; margin-top: 2px; line-height: 1.45; }
+  .farr { display: flex; align-items: center; padding: 0 7px; color: #7a6a52; font-size: 12pt; }
+
+  .foot { margin-top: 22px; padding-top: 7px; border-top: 1px solid #e3ded4;
+          font-size: 8.4pt; color: #7a6a52; }
 </style>
 </head>
 <body>
 
 <section class="cover">
-  <div class="kicker">UPS REPRICE PLATFORM</div>
-  <h1>UPS 地址驗證 API<br>設定手冊</h1>
-  <div class="sub">住宅／商業判定改用 UPS 地址分類</div>
+  <div class="kicker">UPS REPRICE PLATFORM · 技術文件</div>
+  <h1>UPS 地址驗證 API<br>部署與設定</h1>
+  <div class="sub">以 UPS 地址分類服務取代系統住宅／商業判定</div>
   <div class="rule"></div>
-  <div class="meta">
-    對象:<b>管理者</b>(部署代理、設定金鑰)與<b>使用者</b>(在網站上填一次網址)<br>
-    需要:UPS 開發者帳號、Supabase 專案、命令列<br>
-    預估時間:<b>約 30 分鐘</b>(第一次)<br>
-    專案 ref:<b class="mono">snalvdjsnysutmkqjyaa</b>
-  </div>
+  <dl>
+    <dt>文件用途</dt><dd>說明代理服務的部署程序、憑證設定、驗證方式與已知限制</dd>
+    <dt>適用對象</dt><dd>系統管理者(部署與憑證)、一般使用者(用戶端設定,見第 5 節)</dd>
+    <dt>前置需求</dt><dd>UPS 開發者帳號、Supabase 專案存取權、Supabase CLI</dd>
+    <dt>專案識別碼</dt><dd class="mono">snalvdjsnysutmkqjyaa</dd>
+    <dt>代理原始碼</dt><dd class="mono">supabase/functions/ups-address/index.ts</dd>
+  </dl>
 </section>
 
-<h2><span class="n">§1</span>為什麼需要一個「代理」</h2>
+<h2>1. 概述</h2>
 
-<p>瀏覽器<strong>不能直接打 UPS</strong>:UPS 要 OAuth 金鑰,而且會被 CORS 擋掉。所以中間放一個 Supabase Edge Function,由它拿著金鑰去問 UPS,前端只丟地址、收回結果。</p>
+<h3>1.1 架構</h3>
+
+<p>用戶端無法直接呼叫 UPS API:UPS 要求 OAuth 認證,且未提供跨來源存取(CORS)。因此於 Supabase Edge Function 部署一個代理服務,由代理持有憑證並代為呼叫,用戶端僅傳送地址、接收分類結果。</p>
 
 <div class="flow">
-  <div class="fbox">
-    <div class="t">瀏覽器</div>
-    <div class="d">送出地址<br>沒有任何金鑰</div>
-  </div>
+  <div class="fbox"><div class="t">用戶端</div>
+    <div class="d">傳送送達地址<br>不持有任何憑證</div></div>
   <div class="farr">→</div>
-  <div class="fbox key">
-    <div class="t">代理(Edge Function)</div>
-    <div class="d"><strong>UPS 金鑰放在這裡</strong><br>驗證呼叫者身分</div>
-  </div>
+  <div class="fbox key"><div class="t">代理(Edge Function)</div>
+    <div class="d">持有 UPS 憑證<br>驗證呼叫者身分</div></div>
   <div class="farr">→</div>
-  <div class="fbox">
-    <div class="t">UPS</div>
-    <div class="d">地址驗證 + 分類<br>回 R / C / U</div>
-  </div>
+  <div class="fbox"><div class="t">UPS API</div>
+    <div class="d">地址驗證與分類<br>回傳 R / C / U</div></div>
 </div>
 
-<p style="font-size:9.4pt;color:#6b5847">R = 住宅、C = 商業、U = 判不出(判不出就退回系統判定)。</p>
+<p>回傳值:<code class="in">R</code> 住宅、<code class="in">C</code> 商業、<code class="in">U</code> 無法判定。回傳 <code class="in">U</code> 或呼叫失敗時,計價流程回退至系統判定邏輯。</p>
 
-<div class="note">
-  <b>金鑰為什麼不做成網頁上的欄位</b>
-  網頁上填的東西會存進瀏覽器的 localStorage、同步成雲端那筆設定,而且會<strong>跟著匯出的設定檔一起送出去</strong>。UPS Secret 放進去,等於這三個地方任何一份到了誰手上,誰就有你的金鑰。金鑰只用命令列設在代理那一端。
+<h3>1.2 憑證儲存位置</h3>
+
+<p>UPS Client ID 與 Client Secret 僅以環境變數形式存放於代理服務,不在用戶端設定介面中提供輸入欄位。</p>
+
+<div class="box">
+  <span class="h">設計理由</span>
+  用戶端設定介面的所有欄位均寫入 <code class="in">CFG.raw</code>,該物件會存入瀏覽器 localStorage、同步至帳號設定紀錄,並包含於匯出的設定檔中。憑證若置於此處,將隨上述三種載體散布。此外,用戶端受 CORS 限制無法直接呼叫 UPS,即使填入憑證亦無作用。
 </div>
 
-<h2><span class="n">§2</span>先在 UPS 申請</h2>
+<h2>2. 部署程序</h2>
 
-<p>到 <code class="in">developer.ups.com</code> 建一個應用程式,<strong>務必加上「Address Validation」這個產品</strong>,拿到 Client ID 與 Client Secret。</p>
+<h3>2.1 取得 UPS API 憑證</h3>
 
-<div class="warn">
-  <b>只開 Rating 或 Tracking 是不夠的</b>
-  代理打的是 <code class="in">POST /api/addressvalidation/v2/3</code>,結尾的 <code class="in">3</code> 是 request option 3 =「地址驗證 + <strong>地址分類</strong>」。沒有這個產品,第 6 步會拿到 <code class="in">502 UPS 403</code>。
+<p>於 <code class="in">developer.ups.com</code> 建立應用程式,並將 <strong>Address Validation</strong> 加入該應用程式的產品清單,取得 Client ID 與 Client Secret。</p>
+
+<div class="box crit">
+  <span class="h">產品訂閱需求</span>
+  代理呼叫的端點為 <code class="in">POST /api/addressvalidation/v2/3</code>,路徑末端的 <code class="in">3</code> 為 request option 3,即「地址驗證 + 地址分類」。應用程式僅訂閱 Rating 或 Tracking 不符需求,驗證階段將回傳 <code class="in">502 UPS 403</code>。
 </div>
 
-<h2><span class="n">§3</span>裝 CLI、登入、連結專案</h2>
+<h3>2.2 連結 Supabase 專案</h3>
 
-<pre><span class="c"># 登入(會開瀏覽器要你授權)</span>
+<pre><span class="c"># 授權 CLI(將開啟瀏覽器)</span>
 supabase login
 
-<span class="c"># 在 repo 根目錄執行,會產生 supabase/config.toml</span>
+<span class="c"># 於儲存庫根目錄執行,產生 supabase/config.toml</span>
 supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 
-<p>目前 repo 裡<strong>還沒有</strong> <code class="in">config.toml</code>,所以第一次一定要先 link。</p>
+<p>儲存庫目前不含 <code class="in">config.toml</code>,首次部署必須先執行連結。</p>
 
-<h2><span class="n">§4</span>設金鑰 —— 先用測試環境</h2>
+<h3>2.3 設定環境變數</h3>
 
 <pre>supabase secrets set \
-  UPS_CLIENT_ID=你的id \
-  UPS_CLIENT_SECRET=你的secret \
+  UPS_CLIENT_ID=&lt;client-id&gt; \
+  UPS_CLIENT_SECRET=&lt;client-secret&gt; \
   UPS_BASE=https://wwwcie.ups.com</pre>
 
-<p><code class="in">UPS_BASE</code> 指到 UPS 的測試站(CIE),<strong>不會燒正式額度</strong>。等全部測通再切正式站(§7)。</p>
+<table>
+  <tr><th style="width:30%">變數</th><th>說明</th></tr>
+  <tr><td class="mono">UPS_CLIENT_ID</td><td>必填</td></tr>
+  <tr><td class="mono">UPS_CLIENT_SECRET</td><td>必填</td></tr>
+  <tr><td class="mono">UPS_BASE</td><td>選填。預設 <span class="mono">https://onlinetools.ups.com</span>(正式環境)。首次部署建議指向 <span class="mono">https://wwwcie.ups.com</span>(CIE 測試環境),不消耗正式配額</td></tr>
+  <tr><td class="mono">SUPABASE_URL<br>SUPABASE_ANON_KEY</td><td>無須設定,由平台自動注入</td></tr>
+</table>
 
-<p><code class="in">SUPABASE_URL</code> 與 <code class="in">SUPABASE_ANON_KEY</code> 不用設,平台會自動提供。</p>
-
-<h2><span class="n">§5</span>部署</h2>
+<h3>2.4 部署函式</h3>
 
 <pre>supabase functions deploy ups-address</pre>
 
-<div class="pagebreak"></div>
+<p>環境變數變更後無須重新部署,即時生效。</p>
 
-<h2><span class="n">§6</span>一層一層測</h2>
+<h2>3. 驗證程序</h2>
 
-<p>這個代理最好用的地方是:<strong>錯誤碼會直接告訴你卡在哪一層</strong>。照順序測,不要跳。</p>
+<p>代理服務對不同失敗原因回傳不同狀態碼,可依序驗證以定位問題層級。建議依 3.1 至 3.3 順序執行。</p>
 
-<h3>6a — 確認部署成功(不帶任何憑證)</h3>
+<h3>3.1 部署狀態驗證</h3>
+
+<p>不附帶認證資訊直接呼叫:</p>
 
 <pre>curl -i -X POST \
   "https://snalvdjsnysutmkqjyaa.supabase.co/functions/v1/ups-address" \
   -H "Content-Type: application/json" -d "{}"</pre>
 
 <table>
-  <tr><th style="width:34%">回傳</th><th>意思</th></tr>
-  <tr><td class="mono">401 not signed in</td><td><strong>部署成功了。</strong>它擋你是對的 —— 沒有登入本來就不該讓過</td></tr>
-  <tr><td class="mono">404</td><td>沒部署成功,回 §5</td></tr>
+  <tr><th style="width:32%" class="mono">回應</th><th>判讀</th></tr>
+  <tr><td class="mono">401 not signed in</td><td>部署成功。代理正確拒絕未經認證的請求</td></tr>
+  <tr><td class="mono">404</td><td>函式未部署,返回 2.4</td></tr>
 </table>
 
-<h3>6b — 拿一個 token</h3>
+<h3>3.2 取得存取權杖</h3>
 
-<p>到 Supabase 後台 → Authentication → Users → Add user,建一個測試帳號(email + 密碼,記得勾確認)。然後:</p>
+<p>於 Supabase 主控台 <span class="mono">Authentication → Users → Add user</span> 建立測試帳號(電子郵件與密碼,並標記為已確認),再取得權杖:</p>
 
 <pre>curl -X POST \
   "https://snalvdjsnysutmkqjyaa.supabase.co/auth/v1/token?grant_type=password" \
-  -H "apikey: &lt;auth-config.js 裡的 anonKey&gt;" \
+  -H "apikey: &lt;anonKey,見 auth-config.js&gt;" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"test@example.com\",\"password\":\"你設的密碼\"}"</pre>
+  -d '{"email":"&lt;email&gt;","password":"&lt;password&gt;"}'</pre>
 
-<p>從回傳裡抓 <code class="in">access_token</code>。</p>
+<p>由回應中取出 <code class="in">access_token</code> 欄位。</p>
 
-<h3>6c — 真的打一次</h3>
+<h3>3.3 端點功能驗證</h3>
 
 <pre>curl -X POST \
   "https://snalvdjsnysutmkqjyaa.supabase.co/functions/v1/ups-address" \
-  -H "Authorization: Bearer &lt;剛剛的 access_token&gt;" \
+  -H "Authorization: Bearer &lt;access_token&gt;" \
   -H "Content-Type: application/json" \
-  -d "{\"address\":\"1600 Pennsylvania Ave NW\",\"city\":\"Washington\",
-       \"state\":\"DC\",\"postal\":\"20500\",\"country\":\"US\"}"</pre>
+  -d '{"address":"1600 Pennsylvania Ave NW","city":"Washington",
+       "state":"DC","postal":"20500","country":"US"}'</pre>
 
 <table>
-  <tr><th style="width:38%">回傳</th><th>意思 / 怎麼修</th></tr>
-  <tr><td class="mono">{"class":"R"｜"C"｜"U"}</td><td><strong>全通了。</strong>可以進 §7</td></tr>
-  <tr><td class="mono">500 UPS credentials not configured</td><td>§4 的 secrets 沒設到。重設即可,<strong>不用重新部署</strong></td></tr>
-  <tr><td class="mono">502 UPS 401</td><td>UPS 的 Client ID / Secret 打錯</td></tr>
-  <tr><td class="mono">502 UPS 403</td><td>UPS app 沒有 Address Validation 產品,回 §2</td></tr>
+  <tr><th style="width:38%" class="mono">回應</th><th>判讀與處置</th></tr>
+  <tr><td class="mono">200 {"class":"R"|"C"|"U"}</td><td>驗證通過,可進行 3.4</td></tr>
+  <tr><td class="mono">500 UPS credentials not configured</td><td>環境變數未設定,返回 2.3</td></tr>
+  <tr><td class="mono">502 UPS 401</td><td>UPS 憑證錯誤,核對 Client ID 與 Secret</td></tr>
+  <tr><td class="mono">502 UPS 403</td><td>應用程式未訂閱 Address Validation,返回 2.1</td></tr>
 </table>
 
-<p>卡住看 log:</p>
+<p>檢視執行紀錄:</p>
 <pre>supabase functions logs ups-address</pre>
 
-<h2><span class="n">§7</span>測通了才切正式站</h2>
+<h3>3.4 切換正式環境</h3>
 
 <pre>supabase secrets set UPS_BASE=https://onlinetools.ups.com</pre>
 
-<div class="pagebreak"></div>
+<h2>4. 用戶端設定</h2>
 
-<h2><span class="n">§8</span>在網站上設定</h2>
-
-<p>設定分頁 →「住宅／商業判定來源」→ 點<strong>設定住/商判定來源</strong>。</p>
+<p>路徑:<span class="mono">設定</span> 分頁 → <span class="mono">住宅／商業判定來源</span> → <span class="mono">設定住/商判定來源</span>。</p>
 
 <figure>
   <img src="shots/01-settings.png" alt="設定分頁">
-  <figcaption>設定分頁。兩個區塊各自有自己的設定面板,沒有整頁的儲存鍵。</figcaption>
+  <figcaption>圖 1 — 設定分頁。各區塊具備獨立設定面板與儲存機制。</figcaption>
 </figure>
 
 <figure>
-  <img src="shots/02-panel-system.png" alt="判定來源面板 —— 系統設定">
-  <figcaption>預設是「系統設定」—— 用帳單代碼、服務名稱、歷史來判住/商。</figcaption>
+  <img src="shots/02-panel-system.png" alt="判定來源面板(系統設定)">
+  <figcaption>圖 2 — 預設值為「系統設定」,依帳單代碼、服務名稱與帳單歷史判定住宅／商業。</figcaption>
 </figure>
 
 <figure>
-  <img src="shots/03-panel-api.png" alt="判定來源面板 —— 連動 API">
-  <figcaption>選「連動 API」,把 §5 部署好的網址貼進來,按<strong>儲存設定</strong>。這一格只填網址,金鑰不填在這裡。</figcaption>
+  <img src="shots/03-panel-api.png" alt="判定來源面板(連動 API)">
+  <figcaption>圖 3 — 選取「連動 API」並填入 2.4 部署完成之端點網址,按「儲存設定」。本欄位僅接受代理網址。</figcaption>
 </figure>
 
-<div class="note">
-  <b>關閉 = 放棄</b>
-  面板裡的「關閉」不會保留變更,只有「儲存設定」會寫進去。改到一半反悔,按關閉就好。
+<div class="box">
+  <span class="h">面板操作行為</span>
+  面板內的變更於點選當下即套用至記憶體中的設定(供計價立即反映),但未寫入儲存。「關閉」放棄變更並還原,「儲存設定」寫入並關閉面板。
 </div>
 
 <figure>
   <img src="shots/04-summary.png" alt="設定完成後的摘要">
-  <figcaption>存好之後,區塊上會顯示目前實際生效的來源。<strong>端點沒填完整的話這裡會顯示「系統設定」</strong> —— 因為那種情況程式實際跑的就是系統判定。</figcaption>
+  <figcaption>圖 4 — 儲存後區塊顯示目前<strong>實際生效</strong>的判定來源。若選取連動 API 但端點未填寫,此處顯示「系統設定」,因該狀態下實際執行的即為系統判定。</figcaption>
 </figure>
 
-<div class="pagebreak"></div>
+<h2>5. 已知限制</h2>
 
-<h2><span class="n">§9</span>目前的限制 —— 請先讀完</h2>
+<h3>5.1 本機帳號模式不支援</h3>
 
-<div class="warn">
-  <b>網站現在跑「本機帳號模式」,填了網址也不會生效</b>
-  代理會檢查呼叫者是不是真正的 Supabase 使用者。本機帳號模式沒有 Supabase 登入,所以每一個地址都會撞上 <code class="in">401 not signed in</code>,結果一律退回系統判定。<br><br>
-  <strong>這不影響你先做完 §1–§7。</strong>那七步驗證的是「代理 + UPS 金鑰」這一段,和登入模式無關,做完就是永久的資產。等登入模式切到 Supabase、資料搬遷完成之後,§8 填上去就會通。
+<div class="box crit">
+  <span class="h">目前部署狀態下端點無法運作</span>
+  代理服務以 <code class="in">auth.getUser()</code> 驗證呼叫者為有效的 Supabase 使用者。系統目前運行於本機帳號模式(<code class="in">LOCAL_MODE</code>),不建立 Supabase 工作階段,所有請求將回傳 <code class="in">401</code>,計價流程全數回退至系統判定。
 </div>
 
-<h3>一個帳號一組 API 的話</h3>
+<p>此限制不影響第 2 節與第 3 節的執行價值 —— 該二節驗證的是代理服務與 UPS 憑證,與用戶端認證方式無關,完成後即為可重複使用的基礎設施。第 4 節之設定須待認證模式切換並完成資料轉移後方能生效。</p>
 
-<p>如果每個同事要用自己的 UPS 額度,代理要改成「按使用者查金鑰」:一張只有伺服器讀得到的表,存每個人的 Client ID / Secret,代理用呼叫者的身分去撈自己那組。網址仍然大家共用一個。</p>
+<h3>5.2 每帳號獨立憑證</h3>
 
-<p>這件事的前提一樣是<strong>先有真正的使用者</strong> —— 本機帳號模式下大家共用一把 anon key,伺服器分不出誰是誰。</p>
+<p>若各使用者需使用各自的 UPS 配額,代理服務須改為依呼叫者身分查詢對應憑證:憑證存放於僅伺服器端可讀取的資料表,代理以已驗證的使用者身分取得該筆憑證。端點網址仍為全體共用。</p>
 
-<h2><span class="n">§10</span>開啟之前務必先量</h2>
+<p>此模式的前提同樣為具備真實使用者身分 —— 本機帳號模式下所有用戶端共用同一組 anon key,伺服器端無法區分呼叫者。</p>
 
-<div class="warn">
-  <b>API 是最優先的判定來源,不是「補判不出來的那些」</b>
-  程式裡 API 的答案排在帳單代碼與歷史<strong>之前</strong>。只要 API 判得出來,就會蓋掉原本的判定 —— 包括帳單上明明寫著住宅代碼的那些。<br><br>
-  也就是說,打開它會讓<strong>很多貨件的住/商改變,收費跟著改變</strong>,不是只影響少數不確定的幾筆。
+<h2>6. 導入前評估</h2>
+
+<div class="box crit">
+  <span class="h">API 為最高優先判定來源</span>
+  於 <code class="in">priceShipment()</code> 中,API 回傳結果之優先序高於帳單代碼與帳單歷史。凡 API 能夠判定之貨件,其住宅／商業分類均以 API 結果為準,包含帳單已載明住宅代碼者。
 </div>
 
-<p><strong>建議做法:</strong>先只在自己的帳號開啟,拿同一期帳單跑兩次(開 / 關),比對總額與住商筆數,確認 UPS 的地址判定和你的帳單代碼有多常不一致。<strong>確認過再給同事</strong>,否則等於全公司一起換掉計價依據,卻沒有人量過差多少。</p>
+<p>啟用後受影響的並非僅有原本判定不確定的少數貨件,而是全部可判定貨件,計價結果將隨之變動。</p>
 
-<h2><span class="n">§11</span>疑難排解速查</h2>
+<p><strong>建議程序:</strong>先於單一帳號啟用,以同一期帳單分別於啟用與停用狀態執行重算,比對總額與住宅／商業筆數差異,確認 UPS 地址分類與帳單代碼之不一致比例後,再行推廣。</p>
+
+<h2>附錄 A — 疑難排解</h2>
 
 <table>
-  <tr><th style="width:42%">現象</th><th>原因</th></tr>
-  <tr><td>畫面顯示「已選連動 API 但沒有填代理端點」</td><td>網址欄是空的。§8 填上</td></tr>
-  <tr><td>「API 代理呼叫失敗(HTTP 401)」</td><td>沒有有效登入 —— 見 §9</td></tr>
-  <tr><td>「API 代理呼叫失敗(HTTP 404)」</td><td>網址打錯,或函式沒部署</td></tr>
-  <tr><td>「API 代理呼叫失敗(HTTP 500)」</td><td>代理上的 UPS 金鑰沒設。回 §4</td></tr>
-  <tr><td>「N 個地址呼叫失敗」</td><td>部分失敗,那幾筆用系統判定,<strong>下次重算會自動重試</strong></td></tr>
-  <tr><td>「API 沒有回傳任何住/商分類」</td><td>UPS 對這批地址都回 U(判不出)</td></tr>
-  <tr><td>選了 API,面板卻顯示「系統設定」</td><td>端點沒填。畫面顯示的是<strong>實際生效</strong>的來源</td></tr>
+  <tr><th style="width:44%">畫面訊息</th><th>成因與處置</th></tr>
+  <tr><td>已選「連動 API」但沒有填代理端點</td><td>端點欄位為空,見第 4 節</td></tr>
+  <tr><td>API 代理呼叫失敗(HTTP 401)</td><td>無有效認證工作階段,見 5.1</td></tr>
+  <tr><td>API 代理呼叫失敗(HTTP 404)</td><td>端點網址錯誤或函式未部署,見 2.4</td></tr>
+  <tr><td>API 代理呼叫失敗(HTTP 500)</td><td>代理端 UPS 憑證未設定,見 2.3</td></tr>
+  <tr><td>N 個地址呼叫失敗</td><td>部分請求失敗,該部分回退系統判定。失敗結果不寫入快取,下次重算自動重試</td></tr>
+  <tr><td>API 沒有回傳任何住/商分類</td><td>UPS 對該批地址均回傳 U(無法判定)</td></tr>
+  <tr><td>選取連動 API,面板顯示「系統設定」</td><td>端點未填寫。面板顯示實際生效之來源,見圖 4</td></tr>
 </table>
 
-<p style="margin-top:26px;font-size:9pt;color:#8a755a;border-top:1px solid #e0d4bb;padding-top:9px">
-UPS Reprice Platform · 地址驗證 API 設定手冊 · 代理原始碼:<span class="mono">supabase/functions/ups-address/index.ts</span>
-</p>
+<div class="foot">
+UPS Reprice Platform · UPS 地址驗證 API 部署與設定文件 ·
+代理原始碼 <span class="mono">supabase/functions/ups-address/index.ts</span> ·
+本文件原始檔 <span class="mono">docs/ups-api-manual/</span>
+</div>
 
 </body>
 </html>

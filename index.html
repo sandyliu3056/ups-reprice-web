@@ -443,6 +443,7 @@ td.cells{white-space:normal}
   margin:0 0 10px;padding-bottom:5px;border-bottom:1.5px solid var(--line);
   display:flex;align-items:baseline}
 .pcap b{margin-left:auto;color:var(--accent);font-family:Consolas,monospace;font-size:13.5px}
+.pnote{font-size:11px;color:var(--muted);line-height:1.55;margin-top:9px;max-width:46ch}
 .phole{font-family:Consolas,monospace;fill:var(--accent)}
 .plegend{flex:1 1 280px;min-width:0}
 .plegend table{width:100%;font-size:12.5px;background:transparent}
@@ -461,6 +462,10 @@ td.cells{white-space:normal}
   font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--stripe)}
 .urow:last-child{border-bottom:none}
 .urow .uv{font-family:Consolas,monospace;color:var(--neg);min-width:92px;text-align:right}
+.ugrp + .ugrp{margin-top:14px}
+.ugt{font-size:11.5px;color:var(--muted);line-height:1.5;margin:0 0 5px;
+  padding-bottom:4px;border-bottom:1px solid var(--line)}
+.ugrp .urow:last-child{border-bottom:none}
 .bkdseg{background:var(--panel);border-radius:8px;padding:9px 11px;margin:10px 0;
   border-left:6px solid var(--line)}
 .bkdtrk{background:var(--accent);border-radius:8px;padding:10px 14px;margin:2px 0 12px}
@@ -2311,6 +2316,7 @@ function scanCharges(lines, dynMap, fuelOff){
   const seen={}, net={};
   let resCode=false, comCode=false, notRepriced=0, unknownNet=0;
   const unknownCodes=new Set();
+  const unknownBy={};
   let declared=0, commercialAdj=false, residentialAdj=false;
   /* 自訂附加費裡標 Fuel Eligible = NO 的,算進合約總額但不進燃油底。
      桌面版 dynamic_acc_nonfuel_names() + fuel_base 那一段。
@@ -2416,9 +2422,12 @@ function scanCharges(lines, dynMap, fuelOff){
     else if(String(l.cls||"").toUpperCase()==="ACC" && Math.abs(l.net)>0.005){
       unknownNet+=l.net;
       unknownCodes.add(c);
+      /* 記到每一個代碼多少錢。只知道「有這些代碼」和「總共多少」,
+         畫面就只能寫一句「未知」—— 要去查哪一個都不知道從哪查起。 */
+      unknownBy[c]=(unknownBy[c]||0)+l.net;
     }
   }
-  return {seen, net, resCode, comCode, notRepriced, unknownNet, unknownCodes,
+  return {seen, net, resCode, comCode, notRepriced, unknownNet, unknownCodes, unknownBy,
           declared, commercialAdj,
           residentialAdj,
           nonFuel, dynMode, resBucket, ovrUpsNet, famCredit, famCharge};
@@ -3012,6 +3021,7 @@ function priceShipment(cfg, s){
           acc, accInfo, accTotal, fuel, fuelPct:fp.pct, total, issues, npb, rtn,
           notRepriced:scan.notRepriced,
           unknownNet:scan.unknownNet, unknownCodes:[...(scan.unknownCodes||[])],
+          unknownBy:scan.unknownBy||{},
           dinIsBase:!!(dinRow&&s.pureAdj), retZone:retZone, zoneUsed:zone,
           diff: total===null?null: total-s.upsTotal};
 }
@@ -6797,6 +6807,7 @@ const DASH_LABEL={
   "Additional Handling Surcharge - Packaging":["額外處理·包裝","AHS · Packaging"],
   "DAS Residential":["住宅 DAS","DAS Resi"],"DAS Commercial":["商業 DAS","DAS Comm"],
   "__das__":["DAS 配送地區","DAS · delivery area"],
+  "__ras__":["偏遠地區","Remote area"],
   "DAS Extended Residential":["延伸住宅 DAS","DAS Ext Resi"],"DAS Extended Commercial":["延伸商業 DAS","DAS Ext Comm"],
   "Undeliverable Return":["退件回程","Undeliverable Return"],"Return To Sender":["退回寄件人","Return To Sender"],
   "Remote Area Residential":["偏遠住宅","Remote Resi"],"Remote Area Commercial":["偏遠商業","Remote Comm"],
@@ -6818,13 +6829,20 @@ function dashLabel(col){ const m=DASH_LABEL[col]; return m?L(m[0],m[1]):col; }
    沒有 —— 照 scanCharges 同一組規則把原始行分桶,只讀不算。 */
 const DASH_RECLASS="__reclass__", DASH_UNKNOWN="__unknown__";
 const RECLASS_RE=/AHS\/Large Package|AHS\/大包裹/;
-/* DAS 的四個變體(住宅／商業／延伸住宅／延伸商業)是同一種費用的四種
-   收法。分開畫在圓餅上各是一小條,前兩條佔掉前十名的位置、後兩條掉進
-   「其他」—— 但四條加起來常常是這一期前五大的成本。拆著看等於看不見它。
-   合成一塊來排名,四項照「其他」的做法折在底下,錢一樣追得回去。 */
-const DAS_FAM="__das__";
-const DAS_MEMBERS=["DAS Residential","DAS Commercial",
-                   "DAS Extended Residential","DAS Extended Commercial"];
+/* 同一種附加費被 UPS 拆成多個變體收費的,在圓餅上合成一塊來排名。
+   DAS 有四種(住宅／商業／延伸住宅／延伸商業)、偏遠也有四種(住宅／
+   商業／AK／HI)。分開畫的話每一條都是細絲,幾條佔掉前十名的位置、
+   其餘掉進「其他」—— 但加起來常常是這一期前幾大的成本。拆著看等於
+   看不見它。合併後四項照「其他」的做法折在底下,錢一樣追得回去。
+
+   AHS 不放進來:尺寸、重量、包裝的門檻不同、成因也不同(長箱子 vs 重
+   箱子 vs 包裝方式),合起來會蓋掉可以據以行動的資訊,不是揭露。 */
+const PIE_FAMILIES=[
+  {key:"__das__", members:["DAS Residential","DAS Commercial",
+                           "DAS Extended Residential","DAS Extended Commercial"]},
+  {key:"__ras__", members:["Remote Area Residential","Remote Area Commercial",
+                           "Remote Area - AK","Remote Area - HI"]},
+];
 const RECLASS_FEES=new Set(["AHS Weight","AHS Dimension","AHS Packaging","Large Package"]);
 const RECLASS_COLS=["Additional Handling Surcharge - Weight",
   "Additional Handling Surcharge - Dimension","Additional Handling Surcharge - Packaging",
@@ -6860,6 +6878,10 @@ function dashAgg(){
   /* 服務名稱比對不到任何已知服務,渠道是退回預設服務來的 */
   let svcUnsureN=0, svcUnsureAmt=0;
   const unknownCodes=new Set(), unsureBy={}, chanAgg={};
+  /* 未知的錢分別記在哪一個代碼上 —— 兩側分開記,因為它們的來源不同:
+     重算側是 scanCharges 掃不出桶的 ACC 行,UPS 側是 upsBucketOf 對不到
+     費用類別的行。畫面上要能點名,不能只給一個「未知」。 */
+  const unknownBy={}, upsUnknownBy={};
   const buckets={}, zoneAgg={}, upsBuckets={};
   let reclN=0;
   rows.forEach((o,i)=>{
@@ -6887,6 +6909,8 @@ function dashAgg(){
         notRepriced+=toNum(seg.notRepriced);
         unknownNet+=toNum(seg.unknownNet);
         for(const c of (seg.unknownCodes||[])) unknownCodes.add(c);
+        for(const [c,v] of Object.entries(seg.unknownBy||{}))
+          unknownBy[c]=(unknownBy[c]||0)+toNum(v);
       }
       /* UPS 收的代碼和門檻判定對不起來的,兩邊都收進「改判」——
          不這樣做,兩張餅的 AHS/大包裹那一塊會各講各的。 */
@@ -6902,12 +6926,16 @@ function dashAgg(){
         const v=toNum(l.net); if(Math.abs(v)<0.005) continue;
         const k=upsBucketOf(l,recl);
         if(k) upsBuckets[k]=(upsBuckets[k]||0)+v;
+        if(k===DASH_UNKNOWN){
+          const c=String(l.code||l.detail||"").toUpperCase()||"—";
+          upsUnknownBy[c]=(upsUnknownBy[c]||0)+v;
+        }
       } }
   });
   return {n:rated.length, repriced, billed, savings:billed-repriced,
     resiN, comN, resiAmt, comAmt, fuel:buckets["Fuel Surcharge"]||0, buckets, zoneAgg,
     unsureN, unsureAmt, unsureBy, svcUnsureN, svcUnsureAmt,
-    notRepriced, unknownNet, unknownCodes:[...unknownCodes],
+    notRepriced, unknownNet, unknownCodes:[...unknownCodes], unknownBy, upsUnknownBy,
     missN, missAmt, chanAgg, upsBuckets, reclN,
     account:(ACCT_LINES||[]).reduce((a,l)=>a+toNum(l.net),0)};
 }
@@ -7342,21 +7370,35 @@ function renderDashboard(){
     wireDashBar();
     return;
   }
-  /* 十個色階,剛好對上圖例畫得下的前十塊。以前只有九個,而 pieItems 最多
-     要發 11 個顏色(前十 + 其他),於是第 10 項和第 1 項同色、「其他」又
-     和第 2 項同色 —— 兩個圖例列一樣的圓點,分不出圓餅上哪一塊是哪一項。 */
-  const PIE=["#351c15","#4e2f14","#6b4b03","#8a6104","#a97c1a",
-             "#c39a3d","#d9b463","#e6c98c","#eedcb4","#f6eddc"];
-  /* 「其他」不是色階上的一階,是「以上皆非」,所以給它自己的中性色,
-     永遠不會和任何一項撞色。 */
-  const OTHERCOL="#9a8f80";
-  const MISSCOL="var(--neg)";
+  /* 圓餅分的是「類別」,不是「多少」。以前用的是同一個色相由深到淺的
+     十階漸層 —— 那是給數量用的(sequential),拿來分類別相鄰兩階本來
+     就難分。實際量過:相鄰最差色差 5.9,而門檻是 15,也就是「即使色覺
+     正常也分不出來」;十階裡有六階被判定「讀起來像灰色」。
+
+     換成七個不同色相,淺色與深色主題各自驗證過(相鄰色差、色盲分離度、
+     明度帶、對比全數通過)。七個是上限不是隨便挑的 —— 再加色就會有色階
+     掉出彩度下限、變成灰色。所以前七大自己一塊,其餘進「其他」,
+     圖例照舊逐項列出。 */
+  const PIE_LIGHT=["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300","#4a3aa7"];
+  const PIE_DARK =["#3987e5","#d95926","#199e70","#c98500","#d55181","#2fa32f","#9085e9"];
+  const DARKUI=(THEME==="Graphite");
+  const PIE=DARKUI?PIE_DARK:PIE_LIGHT;
+  /* 這三個不是類別,是保留位:「以上皆非」、「改判」、「有問題」。
+     所以不從色相組裡拿,免得看起來像第八個類別。 */
+  const OTHERCOL="#a89e91";
+  const RECLCOL2=DARKUI?"#8fa3b8":"#3f4a58";
+  const MISSCOL="#d03b3b";
+  /* 每一塊之間留一點縫。連在一起的話,兩個相近顏色的交界會看不出來 ——
+     縫本身就是一種分界,不必全靠顏色。太小的塊縫不能吃掉它,所以取
+     min(2, 該塊的一半)。 */
   const donut=(items,total)=>{
-    const R=56,C=2*Math.PI*R; let off=0;
+    const R=56,C=2*Math.PI*R, GAP=2; let off=0;
     const segs=items.map(([n,v,col])=>{
       const seg=total?C*Math.abs(v)/total:0;
+      const g=Math.min(GAP,seg/2);
+      const draw=Math.max(0,seg-g);
       const el=`<circle cx="75" cy="75" r="${R}" fill="none" stroke="${col}" stroke-width="26"`
-        +` stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}"`
+        +` stroke-dasharray="${draw.toFixed(2)} ${(C-draw).toFixed(2)}"`
         +` stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 75 75)">`
         +`<title>${esc(n)} ${money(v)}</title></circle>`;
       off+=seg; return el;
@@ -7378,24 +7420,29 @@ function renderDashboard(){
   };
   const uAmt=d.notRepriced+d.unknownNet;
   /* 兩張餅共用同一組分類,才對得起來。改判與未知固定用自己的顏色。 */
-  const RECLCOL="#4a6fa5";
-  const pieItems=(obj,extraUnknown)=>{
+  const RECLCOL=RECLCOL2;
+  const pieItems=(obj,extraUnknown,unkBy)=>{
     let ent=Object.entries(obj)
       .filter(([k,v])=>k!==DASH_RECLASS&&k!==DASH_UNKNOWN&&Math.abs(v)>0.005);
-    /* DAS 四個變體先合成一塊再排名(見 DAS_MEMBERS 上面那段)。
-       只有一項時不合併 —— 合了只是把名字換掉,沒有任何好處。 */
-    const dasKids=ent.filter(([k])=>DAS_MEMBERS.indexOf(k)>=0)
-                     .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
-    if(dasKids.length>1){
-      ent=ent.filter(([k])=>DAS_MEMBERS.indexOf(k)<0);
-      ent.push([DAS_FAM, dasKids.reduce((a,[,v])=>a+v,0)]);
+    /* 各家族先合成一塊再排名(見 PIE_FAMILIES 上面那段)。
+       只有一個變體時不合併 —— 合了只是把名字換掉,沒有任何好處。 */
+    const kids={};
+    for(const fam of PIE_FAMILIES){
+      const mine=ent.filter(([k])=>fam.members.indexOf(k)>=0)
+                    .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
+      if(mine.length<2) continue;
+      kids[fam.key]=mine;
+      ent=ent.filter(([k])=>fam.members.indexOf(k)<0);
+      ent.push([fam.key, mine.reduce((a,[,v])=>a+v,0)]);
     }
     ent.sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
     /* 圓餅畫得下的只有前 10 塊,但圖例把每一項都列出來 —— $8 的 AHS 包裝
        併進「其他」就等於查無此項。折進去的共用「其他」的顏色、標成 fold,
        畫圓的時候跳過,只出現在圖例。 */
-    const TOP=10;
-    const kidsOf=k=>(k===DAS_FAM&&dasKids.length>1)?dasKids:[];
+    /* 七是驗證過的上限,不是美感取捨:第八個色相就會掉出彩度或明度帶。
+       圓餅畫七塊,其餘全部進「其他」,但圖例一項都不會少。 */
+    const TOP=7;
+    const kidsOf=k=>kids[k]||[];
     const out=[];
     ent.slice(0,TOP).forEach(([c,v],i)=>{
       const col=PIE[i%PIE.length];
@@ -7414,20 +7461,31 @@ function renderDashboard(){
     const rc=toNum(obj[DASH_RECLASS]);
     if(Math.abs(rc)>0.005) out.push([L("改判 AHS/大包裹","Reclassified AHS/LP"),rc,RECLCOL]);
     const uk=toNum(obj[DASH_UNKNOWN])+toNum(extraUnknown);
-    if(Math.abs(uk)>0.005) out.push([L("未知","Unknown"),uk,MISSCOL]);
+    if(Math.abs(uk)>0.005){
+      out.push([L("未知代碼","Unknown codes"),uk,MISSCOL]);
+      /* 「未知 $7.65」講不出任何可以行動的事。把它拆回實際的帳單代碼,
+         才知道要去代碼查詢頁查哪一個。折在底下,和 DAS、其他同一個做法。 */
+      for(const [c,v] of Object.entries(unkBy||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])))
+        if(Math.abs(v)>0.005) out.push([esc(c),v,MISSCOL,"fold"]);
+    }
     return out;
   };
-  const oneP=(obj,extra,cap,sum)=>{
-    const it=pieItems(obj,extra);
+  const oneP=(obj,extra,cap,sum,unkBy)=>{
+    const it=pieItems(obj,extra,unkBy);
     const t=it.filter(x=>x[3]!=="fold").reduce((a,[,v])=>a+Math.abs(v),0);
     const bf=(obj["Base Rate"]||0)+(obj["Undeliverable Return"]||0)+(obj["Fuel Surcharge"]||0);
+    /* 圓心那個百分比以前只標「運費 + 燃油」,沒說是「佔什麼」的比例 ——
+       一個沒有分母的百分比,讀的人只能猜。底下把它講完整。 */
     return `<div><div class="pcap">${esc(cap)}<b>${money(sum)}</b></div>`
       +pieBlock(it,t,(t?Math.round(Math.abs(bf)/t*100):0)+"%",L("運費 + 燃油","freight + fuel"))
+      +`<div class="pnote">${L(
+        "圓心:基本運費、退件回程與燃油合計,佔這一欄總額的比例;其餘是附加費。",
+        "Centre: base freight, return legs and fuel as a share of this column's total. The rest is surcharges.")}</div>`
       +`</div>`;
   };
   const compHTML=`<div class="pie2">`
-    +oneP(d.buckets,uAmt,L("重算","REPRICED"),d.repriced)
-    +oneP(d.upsBuckets||{},0,L("UPS 帳單","UPS BILLED"),d.billed)
+    +oneP(d.buckets,uAmt,L("重算","REPRICED"),d.repriced,d.unknownBy)
+    +oneP(d.upsBuckets||{},0,L("UPS 帳單","UPS BILLED"),d.billed,d.upsUnknownBy)
     +`</div>`;
   const chItems=Object.entries(d.chanAgg||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]))
     /* 取模,不然渠道超過十條的人會拿到 undefined 當顏色,那一塊就不見了。 */
@@ -7443,22 +7501,50 @@ function renderDashboard(){
         (zTot&&zTop?Math.round(Math.abs(zTop[1])/zTot*100):0)+"%",
         zTop?zTop[0]:L("Zone","Zone"))
     : `<div class="dsub">${L("沒有 Zone 資料","No zone data")}</div>`;
-  const hasU=d.unsureN>0||d.missN>0||d.svcUnsureN>0||Math.abs(uAmt)>0.005;
+  /* 這張卡片以前把三件性質不同的事混在一行行裡,標題還寫「未計入重算總額」
+     —— 而其中大多數其實有計入,只是判斷有不確定。而且每一列的名稱直接用
+     內部的 resBasis 字串(「服務名稱」),單獨看是一句沒有主詞的話。
+     改成分組,每一組自己說清楚「這組是什麼、有沒有算進總額」。 */
+  const uGroups=[];
+  {
+    const basis=Object.entries(d.unsureBy||{}).sort((a,b)=>b[1].n-a[1].n);
+    if(basis.length||d.svcUnsureN) uGroups.push({
+      t:L("判定不確定 —— 金額有算進總額,但分類可能錯",
+          "Uncertain classification — included in the total, but the class may be wrong"),
+      rows:basis.map(([k,v])=>[L("住/商依「"+k+"」判定","Residential/Commercial from: "+k),v.n,v.amt])
+        .concat(d.svcUnsureN?[[L("服務名稱認不出來,用預設服務的費率計價",
+          "Service name not recognised — priced with the default service's rates"),
+          d.svcUnsureN,d.svcUnsureAmt]]:[])
+    });
+    if(d.missN) uGroups.push({
+      t:L("查不到費率 —— 該項算 0,其餘照算",
+          "No rate found — that charge priced as 0, the rest still counted"),
+      rows:[[L("費率表沒有對應的費率","Rate table has no matching rate"),d.missN,d.missAmt]]
+    });
+    const ex=[];
+    if(Math.abs(d.notRepriced)>0.005)
+      ex.push([L("不重算代碼 (NPF / SCF)","Not repriced (NPF / SCF)"),null,d.notRepriced]);
+    if(Math.abs(d.unknownNet)>0.005)
+      for(const [c,v] of Object.entries(d.unknownBy||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])))
+        ex.push([L("未知代碼 ","Unknown code ")+c,null,v]);
+    if(ex.length) uGroups.push({
+      t:L("沒有算進重算總額 —— UPS 有收,但工具不重算這幾項",
+          "Not in the repriced total — UPS charged these, the tool does not reprice them"),
+      rows:ex
+    });
+  }
+  const hasU=uGroups.length>0;
   const uCard=hasU?`
     <div class="dcard warn" style="margin-top:12px">
-      <div class="ch"><h3>${L("未判定","Unclassified")}</h3>
-        <span class="cnote">${L("未計入重算總額","not in the repriced total")}</span></div>
-      ${d.missN?`<div class="urow"><span>${L("查不到費率","No rate found")}</span>
-        <b>${d.missN} ${L("筆","")}</b><span class="uv">${money(d.missAmt)}</span></div>`:""}
-      ${Object.entries(d.unsureBy||{}).sort((a,b)=>b[1].n-a[1].n).map(([k,v])=>
-        `<div class="urow"><span>${esc(k)}</span><b>${v.n} ${L("筆","")}</b>
-         <span class="uv">${money(v.amt)}</span></div>`).join("")}
-      ${d.svcUnsureN?`<div class="urow"><span>${L("服務名稱認不出來,已用預設服務的費率計價","Service name not recognised — priced with the default service's rates")}</span>
-        <b>${d.svcUnsureN} ${L("筆","")}</b><span class="uv">${money(d.svcUnsureAmt)}</span></div>`:""}
-      ${Math.abs(d.notRepriced)>0.005?`<div class="urow"><span>${L("不重算代碼 (NPF / SCF)","Not repriced (NPF / SCF)")}</span>
-        <b></b><span class="uv">${money(d.notRepriced)}</span></div>`:""}
-      ${Math.abs(d.unknownNet)>0.005?`<div class="urow"><span>${L("未知代碼","Unknown codes")} ${esc(d.unknownCodes.join(" "))}</span>
-        <b></b><span class="uv">${money(d.unknownNet)}</span></div>`:""}
+      <div class="ch"><h3>${L("需要看一眼","Worth a look")}</h3>
+        <span class="cnote">${L("每一組下面說明它有沒有算進總額",
+                                "each group says whether it is in the total")}</span>
+        <button class="act ghost" id="bUncXls" style="padding:3px 11px;font-size:12px">${
+          L("下載 Excel","Download Excel")}</button></div>
+      ${uGroups.map(g=>`<div class="ugrp"><div class="ugt">${esc(g.t)}</div>`
+        +g.rows.map(([nm,n,amt])=>`<div class="urow"><span>${esc(nm)}</span>`
+          +`<b>${n==null?"":n+L(" 筆","")}</b><span class="uv">${money(amt)}</span></div>`).join("")
+        +`</div>`).join("")}
     </div>`:"";
   body.innerHTML=`
     <div class="dhead">
@@ -7489,6 +7575,8 @@ function renderDashboard(){
     ${uCard}
     <div class="dfoot">${L("本頁數字與匯出報表一致;切換右上角主題,整頁配色隨之調整。","Figures match the exported report; switching the theme recolours the page.")}</div>`;
   wireDashBar();
+  const ux=$("#bUncXls");
+  if(ux) ux.onclick=()=>exportUnclassified(uGroups);
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     body.querySelectorAll(".bfill,.zfill,.seg,.cmpfill").forEach(el=>{
       if(el.dataset.w!=null) el.style.width=el.dataset.w+"%"; });
@@ -7513,6 +7601,38 @@ function renderDashboard(){
     setStatus(msg); toast(msg,true);
   };
   }catch(e){ console.warn("dashboard render failed",e); }
+}
+/* 卡片上列出的東西倒成 Excel。兩張工作表:摘要就是畫面上那幾組,明細
+   是每一筆貨件為什麼被列進來 —— 只有摘要的話,知道有 8 筆也還是不知道
+   要去看哪 8 筆。 */
+function exportUnclassified(groups){
+  if(!(RATED&&SHIPS)){ setStatus(L("沒有可匯出的資料","Nothing to export")); return; }
+  const sum=[[L("分組","Group"),L("項目","Item"),L("筆數","Count"),L("金額","Amount")]];
+  for(const g of groups||[])
+    for(const [nm,n,amt] of g.rows) sum.push([g.t,nm,n==null?"":n,toNum(amt)]);
+  const rows=reportRows();
+  const det=[[L("追蹤號","Tracking"),L("日期","Date"),"Zone",L("渠道","Channel"),
+              L("原因","Reason"),L("住/商依據","Res/Com basis"),L("金額","Total")]];
+  RATED.forEach((r,i)=>{
+    if(!r) return;
+    const why=[];
+    if(r.baseMissing||(r.missFees&&r.missFees.length)) why.push(L("查不到費率","No rate found"));
+    if(r.resiSure===false) why.push(L("住/商不確定","Res/Com uncertain"));
+    if(r.svcSure===false) why.push(L("服務名稱認不出來","Service not recognised"));
+    if(!why.length) return;
+    const o=rows[i]||{};
+    det.push([(SHIPS[i]||{}).tracking||"", o["Date"]||"", o["Zone"]||"",
+              r.channel||"", why.join(" / "), r.resBasis||"", toNum(o["Total"])]);
+  });
+  loadXLSX().then(X=>{
+    const wb=X.utils.book_new();
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(sum),L("摘要","Summary"));
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(det),L("明細","Detail"));
+    return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
+      {type:"application/octet-stream"}), baseName("-unclassified.xlsx"));
+  }).then(()=>setStatus(L("已匯出 "+(det.length-1)+" 筆需要看的貨件",
+                          "Exported "+(det.length-1)+" shipments worth a look")))
+    .catch(e=>setStatus(String((e&&e.message)||e)));
 }
 function exportReport(){
   if(!RATED||!RATED.length){
