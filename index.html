@@ -492,6 +492,33 @@ td.cells{white-space:normal}
   width:52px;padding-left:10px}
 .pdot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;
   vertical-align:-1px}
+/* 各期毛利走勢。刻意不是圓餅:圓餅回答「各期佔總額多少比例」,而看帳單
+   的人問的是「這一期比上一期好還是壞」—— 那是時間軸的問題,不是佔比。 */
+#p-dash .trend{margin:0 0 14px}
+#p-dash .th2{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px}
+#p-dash .th2 span{font-weight:400;color:var(--muted);margin-left:8px;font-size:11.5px}
+#p-dash .tgrid{display:flex;align-items:stretch;gap:5px;height:132px;
+  padding:0 2px 0;border-bottom:1px solid var(--line);position:relative}
+/* 只有三四期的時候別讓柱子撐成一整面牆 —— 那讀起來是色塊,不是趨勢。 */
+#p-dash .tcol{max-width:96px}
+/* 零線:有虧損的期別時才看得出柱子往下長 */
+#p-dash .tgrid::after{content:"";position:absolute;left:0;right:0;
+  top:calc(var(--zero));height:1px;background:var(--line)}
+#p-dash .tcol{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:flex-end}
+#p-dash .tplot{position:relative;flex:1 1 auto}
+#p-dash .tbar{position:absolute;left:12%;right:12%;border-radius:3px 3px 0 0;min-height:2px}
+#p-dash .tpct{font-size:10.5px;font-family:Consolas,monospace;color:var(--muted);
+  text-align:center;padding-top:3px}
+#p-dash .tlab{font-size:10px;color:var(--muted);text-align:center;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:1px}
+#p-dash .tleg{display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:8px;
+  font-size:11.5px;color:var(--muted)}
+#p-dash .tleg i{display:inline-block;width:10px;height:10px;border-radius:3px;
+  margin-right:6px;vertical-align:-1px}
+/* UPS 帳號那一欄:同一天兩張帳單分屬兩個帳號時才畫 */
+#p-dash .atbl td.aa{font-family:Consolas,monospace;font-size:11.5px;color:var(--muted);
+  white-space:nowrap}
+#p-dash .atbl th.abarh{font-weight:600}
 .dcard.warn{border-color:var(--neg)}
 .dcard.warn h3{color:var(--neg)}
 .urow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:baseline;
@@ -1734,6 +1761,13 @@ function detectHeader(rows){
   return hit>=2;
 }
 
+/* 帳號在無標題列格式的第 2 欄。同一天可以有兩張帳單,分屬兩個 UPS 帳號 ——
+   期別清單上只看期號和日期,那兩列看起來就是同一天重複匯入了兩次。
+
+   這一組和 FIXED_COLS 分開放,因為它只在「沒有標題列」時成立:有標題列
+   的檔案要是剛好沒有這一欄,照位置去讀第 2 欄會讀到別的東西(帳單日之類),
+   而且錯得無聲無息 —— 畫面上會多出一欄長得像日期的「帳號」。 */
+const POSITIONAL_ONLY = { "Account Number": 1 };
 function buildIndex(rows){
   const hasHdr=detectHeader(rows);
   const idx=Object.assign({},FIXED_COLS);
@@ -1742,6 +1776,8 @@ function buildIndex(rows){
     hdr.forEach((name,i)=>{
       if(name) idx[name]=i;
     });
+  } else {
+    Object.assign(idx, POSITIONAL_ONLY);
   }
   return {idx, hasHdr, body: hasHdr?rows.slice(1):rows};
 }
@@ -2475,8 +2511,20 @@ function scanCharges(lines, dynMap, fuelOff){
 
 /* 拿現在的設定重算目前這一批,不重新讀檔、不重新歸檔、不匯出。
    改完費率或門檻之後想看新結果,按一下就好。 */
-function repriceNow(){
+/* 拿現在的設定重算目前這一批。準備工作要和 repriceStored() 一模一樣 ——
+   少做一步,同一張帳單就會因為「怎麼進來的」而算出兩個答案。
+
+   之前這裡少了 ensureHistoryMap() 和 prefetchOriginals():從期別選單挑一
+   期是走 repriceStored(),歷史對照表就緒,跨期更正查得到原始出貨,判成
+   Ground Commercial;按下「重新整理」或改一個費率走的是這裡,對照表可能
+   還沒學好,同一筆就退回用服務名稱猜,標成「住宅／商業判定不明確」。
+   計價明細上寫著 Ground Commercial,異常表上卻說判不出來,兩邊都是真的
+   —— 因為它們根本是兩次不同的計算。 */
+async function repriceNow(){
   if(!(RATED&&SHIPS&&CFG)) return false;
+  await ensureHistoryMap();
+  await prefetchOriginals(SHIPS);
+  await prefetchAddressClass(SHIPS).catch(()=>0);
   RATED=SHIPS.map(x=>priceShipment(CFG,x));
   renderSummary(); renderRate(); renderCode(); renderHist(); renderDashboard();
   ready();
@@ -3090,6 +3138,7 @@ function ingest(text){
     return {
       ai:cat, idx:ri+(hasHdr?2:1),
       invoice:g(r,"Invoice Number"), invDate:g(r,"Invoice Date"),
+      account:g(r,"Account Number"),
       shipDate:g(r,"Transaction Date"),
       tracking:g(r,"Tracking Number"), lead:g(r,"Lead Shipment Number"),
       layer, cls, code:g(r,"Charge Description Code").toUpperCase(),
@@ -3481,14 +3530,15 @@ function fileInvoices(rows, how){
   for(const r of rows||[]){
     const k=(r.invoice||"").trim();
     if(!k) continue;
-    (seen[k]=seen[k]||{date:r.invDate||"",rows:0,trk:new Set()});
+    (seen[k]=seen[k]||{date:r.invDate||"",acct:"",rows:0,trk:new Set()});
     seen[k].rows++;
+    if(!seen[k].acct && r.account) seen[k].acct=String(r.account).trim();
     if(r.tracking) seen[k].trk.add(r.tracking);
   }
   const added=[], replaced=[];
   for(const k of Object.keys(seen)){
     (inv[k]?replaced:added).push(k);
-    inv[k]={date:seen[k].date, rows:seen[k].rows, trk:seen[k].trk.size,
+    inv[k]={date:seen[k].date, acct:seen[k].acct, rows:seen[k].rows, trk:seen[k].trk.size,
             at:new Date().toISOString().slice(0,19), how:how||""};
   }
   let stored=true;
@@ -6959,6 +7009,21 @@ const DASH_LABEL={
 function dashLabel(col){ const m=DASH_LABEL[col]; return m?L(m[0],m[1]):col; }
 /* UPS 帳單自己的費用分類。重算那邊有 reportRows() 的欄位可以用,UPS 這邊
    沒有 —— 照 scanCharges 同一組規則把原始行分桶,只讀不算。 */
+/* 分類用的調色盤。七個不同色相,淺色與深色主題各自驗證過(相鄰色差、
+   色盲分離度、明度帶、對比全數通過)。七個是上限不是隨手挑的 —— 再加
+   色就會有色階掉出彩度下限、變成灰色。所以前七大各自一塊,其餘進
+   「其他」,圖例照舊逐項列出。
+
+   OTHERCOL / MISSCOL / reclCol() 三個不是類別,是保留位:「以上皆非」、
+   「有問題」、「改判」。不從色相組裡拿,免得看起來像第八個類別。 */
+const PIE_LIGHT=["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300","#4a3aa7"];
+const PIE_DARK =["#3987e5","#d95926","#199e70","#c98500","#d55181","#2fa32f","#9085e9"];
+const OTHERCOL="#a89e91";
+const MISSCOL="#d03b3b";
+/* 主題可以隨時切換,所以取用的時候才決定,不在載入時定死。 */
+const pieDark=()=>THEME==="Graphite";
+const pieCols=()=>pieDark()?PIE_DARK:PIE_LIGHT;
+const reclCol=()=>pieDark()?"#8fa3b8":"#3f4a58";
 const DASH_RECLASS="__reclass__", DASH_UNKNOWN="__unknown__";
 /* NPF / SCF 是照設計就不重算的,不是認不得。以前兩張餅都把這筆錢併進
    「未知代碼」—— 而查得到的東西被標成未知,看的人只會白跑一趟代碼查詢頁。 */
@@ -7155,7 +7220,7 @@ function dashPeriods(){
     const raw=(v&&v.date)||"";
     /* 正規化之後才排得對、並排也才齊。認不得的保留原文,不要憑空吃掉。 */
     return {key:k, date:normYmd(raw)||raw, rows:(v&&v.rows)||0,
-            trk:(v&&v.trk)||0, at:(v&&v.at)||""};
+            trk:(v&&v.trk)||0, at:(v&&v.at)||"", acct:(v&&v.acct)||""};
   }).sort((a,b)=> String(b.date||"").localeCompare(String(a.date||""))
                 || String(b.key).localeCompare(String(a.key)));
 }
@@ -7231,14 +7296,20 @@ function dashAllHTML(data){
     const m=profit/Math.abs(rev)*100;
     return `<td class="num ${m<0?"neg":"pos"}">${m.toFixed(1)}%</td>`;
   };
+  /* 同一天出現兩張帳單,多半是兩個 UPS 帳號各出一張 —— 只看期號和日期,
+     那兩列看起來像重複匯入。帳號只有一個時不畫這一欄,免得每一列都印
+     同一個號碼。 */
+  const accts=[...new Set(data.map(d=>String(d.acct||"").trim()).filter(Boolean))];
+  const multi=accts.length>1;
   const rows=data.map(d=>{
+    const acell=multi?`<td class="aa">${esc(String(d.acct||"—"))}</td>`:"";
     if(d.missing) return `<tr class="amiss"><td class="ak">${esc(d.key)}</td>`
-      +`<td class="ad">${esc(d.date||"—")}</td>`
-      +`<td colspan="7">${L("只有索引,沒有明細 —— 請重新匯入這一期",
+      +`<td class="ad">${esc(d.date||"—")}</td>`+acell
+      +`<td colspan="7">${L("只有索引,沒有明細,請重新匯入本期",
                             "index only, no detail — import this period again")}</td></tr>`;
     const g=gapOf(d);
     const w=Math.min(100, Math.abs(g)/maxGap*100);
-    return `<tr><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`
+    return `<tr><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`+acell
       +`<td class="num">${d.n.toLocaleString()}</td>`
       +cell(d.repriced)+cell(d.billed)
       +cell(g, g<0?"neg":"pos")+pctCell(g, d.repriced)
@@ -7251,23 +7322,75 @@ function dashAllHTML(data){
     <div class="ch"><h3>${L("全部期別","All periods")}</h3>
       <span class="cnote">${L("每一期都以目前的費率設定重算",
                               "every period repriced with the current rate settings")}</span></div>
+    ${dashTrendHTML(ok, multi)}
     <div class="tablewrap" style="max-height:none;overflow-x:auto">
     <table class="atbl"><thead><tr>
       <th>${L("期別","Invoice")}</th><th>${L("帳單日","Date")}</th>
+      ${multi?`<th>${L("UPS 帳號","Account")}</th>`:""}
       <th>${L("貨件","Shipments")}</th>
       <th>${L("向客戶收","Charge customer")}</th><th>UPS</th>
       <th>${L("毛利","Profit")}</th><th>${L("毛利率","Margin")}</th>
-      <th>${L("帳戶層費用","Account charges")}</th><th></th>
+      <th>${L("帳戶層費用","Account charges")}</th>
+      <th class="abarh">${L("毛利相對比例","Profit, relative")}</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td class="ak" colspan="2">${L("合計 "+ok.length+" 期",
+    <tfoot><tr><td class="ak" colspan="${multi?3:2}">${L("合計 "+ok.length+" 期",
         "Total · "+ok.length+" period"+(ok.length===1?"":"s"))}</td>
       <td class="num">${tot.n.toLocaleString()}</td>
       ${cell(tot.repriced)}${cell(tot.billed)}
       ${cell(gt, gt<0?"neg":"pos")}${pctCell(gt, tot.repriced)}${cell(tot.account, tot.account<0?"neg":"")}
       <td></td></tr></tfoot></table></div>
     <div class="dfoot">${L(
-      "毛利 = 向客戶收 − UPS 收;毛利率 = 毛利 ÷ 向客戶收。兩者都不含帳戶層費用 —— 那一欄要不要算進來,由你的帳務決定。",
-      "Profit is charge-customer minus UPS; margin is profit over charge-customer. Neither includes account charges — whether those belong in the figure is your accounting call.")}</div>
+      "毛利 = 向客戶收 − UPS 收;毛利率 = 毛利 ÷ 向客戶收。兩者均不含帳戶層費用 —— 該欄是否計入,由帳務決定。"
+        +(multi?"本表含 "+accts.length+" 個 UPS 帳號,同一天可能各有一張帳單。":""),
+      "Profit is charge-customer minus UPS; margin is profit over charge-customer. Neither includes account charges — whether those belong in the figure is your accounting call."
+        +(multi?" This table spans "+accts.length+" UPS accounts, which can each issue an invoice on the same date.":""))}</div>
+  </div>`;
+}
+/* 期別走勢。這裡刻意不用圓餅:圓餅回答「各期佔總額多少比例」,而十二期
+   帳單沒有人問這個問題 —— 要看的是這一期比上一期好還是壞。所以畫成一期
+   一根的柱狀圖,依帳單日由舊到新,毛利率標在柱子上。
+   帳號超過一個時分色:兩個帳號的量級可以差十倍,混在同一條趨勢裡讀出來
+   的「成長」其實只是換了一個帳號。 */
+function dashTrendHTML(ok, multi){
+  if(ok.length<2) return "";
+  const seq=ok.slice().sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))
+                                 || String(a.key).localeCompare(String(b.key)));
+  const gapOf=d=>d.repriced-d.billed;
+  const vals=seq.map(gapOf);
+  const hi=Math.max(0,...vals), lo=Math.min(0,...vals);
+  const span=Math.max(1, hi-lo);
+  const accts=[...new Set(seq.map(d=>String(d.acct||"").trim()))];
+  const pal=pieCols();
+  const colOf=d=>{
+    if(!multi) return gapOf(d)<0?"var(--neg)":"var(--run2)";
+    const i=Math.max(0,accts.indexOf(String(d.acct||"").trim()));
+    return pal[i%pal.length];
+  };
+  const zero=(hi/span)*100;      /* 零線離頂端多遠,單位是繪圖區高度的 % */
+  const bars=seq.map(d=>{
+    const g=gapOf(d), h=Math.abs(g)/span*100;
+    const m=d.repriced?(g/Math.abs(d.repriced)*100):0;
+    const up=g>=0;
+    return `<div class="tcol" title="${esc(d.key)} · ${esc(d.date||"")}${
+        multi&&d.acct?" · "+esc(String(d.acct)):""} · ${esc(money(g))} · ${m.toFixed(1)}%">`
+      +`<div class="tplot">`
+      +`<div class="tbar" style="background:${colOf(d)};height:${h.toFixed(1)}%;`
+      +(up?`bottom:${(100-zero).toFixed(1)}%`:`top:${zero.toFixed(1)}%`)+`"></div>`
+      +`</div>`
+      +`<div class="tpct">${m.toFixed(0)}%</div>`
+      +`<div class="tlab">${esc(String(d.date||"").slice(5)||d.key.slice(-4))}</div></div>`;
+  }).join("");
+  const legend=multi
+    ? `<div class="tleg">${accts.map((a,i)=>
+        `<span><i style="background:${pal[i%pal.length]}"></i>${esc(a||L("無帳號","no account"))}</span>`
+      ).join("")}</div>`
+    : "";
+  return `<div class="trend">
+    <div class="th2">${L("各期毛利","Profit by period")}
+      <span>${L("柱高為毛利金額,柱上百分比為毛利率;依帳單日由舊到新",
+                "bar height is profit; the percentage above it is margin; oldest first")}</span></div>
+    <div class="tgrid" style="--zero:${zero.toFixed(1)}%">${bars}</div>
+    ${legend}
   </div>`;
 }
 /* 選單那一條。RATED 是空的時候也要畫 —— 沒資料的人正是最需要它的人。 */
@@ -7571,15 +7694,9 @@ function renderDashboard(){
      明度帶、對比全數通過)。七個是上限不是隨便挑的 —— 再加色就會有色階
      掉出彩度下限、變成灰色。所以前七大自己一塊,其餘進「其他」,
      圖例照舊逐項列出。 */
-  const PIE_LIGHT=["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300","#4a3aa7"];
-  const PIE_DARK =["#3987e5","#d95926","#199e70","#c98500","#d55181","#2fa32f","#9085e9"];
-  const DARKUI=(THEME==="Graphite");
-  const PIE=DARKUI?PIE_DARK:PIE_LIGHT;
-  /* 這三個不是類別,是保留位:「以上皆非」、「改判」、「有問題」。
-     所以不從色相組裡拿,免得看起來像第八個類別。 */
-  const OTHERCOL="#a89e91";
-  const RECLCOL2=DARKUI?"#8fa3b8":"#3f4a58";
-  const MISSCOL="#d03b3b";
+  /* 調色盤本體在模組層(pieCols 那一段)—— 走勢圖也要用同一組顏色,
+     關在這個函式裡的話,外面拿到的是 undefined。 */
+  const DARKUI=pieDark(), PIE=pieCols(), RECLCOL2=reclCol();
   /* 每一塊之間留一點縫。連在一起的話,兩個相近顏色的交界會看不出來 ——
      縫本身就是一種分界,不必全靠顏色。太小的塊縫不能吃掉它,所以取
      min(2, 該塊的一半)。 */
@@ -7740,9 +7857,14 @@ function renderDashboard(){
      狀態列也沒有一個字 —— 從按的人的角度看,這顆按鈕就是壞的。改完費率
      再按才是它的用途,所以它該回答的問題只有一個:有沒有變、變多少。 */
   const rb=$("#bDashRe");
-  if(rb) rb.onclick=()=>{
+  if(rb) rb.onclick=async()=>{
     const was=DASH_LAST?DASH_LAST.repriced:null;
-    if(!repriceNow()){
+    rb.disabled=true;
+    setStatus(L("重算中…","Repricing…"));
+    let ok=false;
+    try{ ok=await repriceNow(); }
+    finally{ rb.disabled=false; }
+    if(!ok){
       setStatus(L("目前無可重算之資料","No data available to reprice")); return;
     }
     const now=DASH_LAST?DASH_LAST.repriced:null;
@@ -8645,7 +8767,10 @@ function invoiceIssues(){
       if(!segs.has(s.tracking)) segs.set(s.tracking,[]);
       segs.get(s.tracking).push({r:r, root:root});
     }
+    const inv=(s.lines||[]).find(x=>x.invoice)||{};
     const at=l=>({trk:s.tracking, date:s.shipDate||"", chan:r.channel,
+                  inv:String(inv.invoice||"").trim(),
+                  invDate:normYmd(inv.invDate||"")||String(inv.invDate||""),
                   zone:r.zoneUsed||"", wt:Math.ceil(toNum(r.bw&&r.bw.billable)),
                   line:toNum(l&&l.idx)||"", code:String((l&&(l.code||l.cls))||"").toUpperCase(),
                   billdesc:(l&&l.desc)||"", shipUps:toNum(s.upsTotal)});
@@ -8729,7 +8854,11 @@ function renderIssueCard(){
   ISSUES=g.rows; ISSUE_SEGS=g.segs;
   if(!ISSUES.length) return "";
   const groups=issueGroups(ISSUES);
-  const bad=ISSUES.filter(r=>ISSUE_KIND[r.kind].sev>=2).reduce((a,r)=>a+toNum(r.amt),0);
+  /* 「影響計價金額」= 高與中兩級:那一份的錢算出來就是錯的。低的那一級
+     金額有算進總額,只是分類可能歸錯,不能和前兩者加在一起講。 */
+  const badRows=ISSUES.filter(r=>ISSUE_KIND[r.kind].sev>=2);
+  const nBad=badRows.length;
+  const bad=badRows.reduce((a,r)=>a+toNum(r.amt),0);
   const chips=groups.map(gr=>{
     const K=ISSUE_KIND[gr.kind], tag=SEV_TAG[K.sev];
     /* 列號照升冪,對帳的人是從上往下翻帳單的。 */
@@ -8756,9 +8885,11 @@ function renderIssueCard(){
         <button class="act ghost" id="bIssXls" style="padding:3px 11px;font-size:12px">${
           L("下載明細 (.xlsx)","Download details (.xlsx)")}</button></div>
       <p class="isssub">${L(
-        "共 <b>"+ISSUES.length+"</b> 項;其中金額計算有誤者,UPS 實收 <b>"+money(bad)+"</b>",
-        "<b>"+ISSUES.length+"</b> item(s); UPS billed <b>"+money(bad)
-          +"</b> on those whose amount is incorrect")}${
+        "本期異常 <b>"+ISSUES.length+"</b> 項。其中 <b>"+nBad+"</b> 項影響計價金額,"
+          +"該部分 UPS 實收 <b>"+money(bad)+"</b>",
+        "<b>"+ISSUES.length+"</b> exception(s) this period. <b>"+nBad
+          +"</b> of them affect the repriced amount; UPS billed <b>"+money(bad)
+          +"</b> on those")}${
         g.skipped?' <span style="opacity:.7">('+L("另有 "+g.skipped+" 筆無運費可計,不予列入",
           g.skipped+" with no freight to rate were excluded")+")</span>":""}</p>
       <div class="strow">${chips}</div>
@@ -8776,35 +8907,39 @@ function exportIssues(){
 
   /* ---- 第一張表:一列就是帳單的一列 ----------------------------------
      同一個追蹤號出現好幾次是正常的 —— 一顆箱子上可以同時有查不到費率的
-     運費行和認不得的附加費行,那是兩個不同的問題,各自指向不同的列。
-     欄位順序照對帳的動作走:先講在哪一列、什麼問題,再講是什麼、多少錢。 */
-  const det=[[L("帳單列號","Invoice row"),L("追蹤號","Tracking"),
+     運費行和認不得的附加費行,那是兩個不同的問題,各自指向不同的列。 */
+  const det=[[L("期別","Invoice"),L("帳單日","Invoice date"),
+              L("交易日","Transaction date"),
+              L("帳單列號","Invoice row"),L("追蹤號","Tracking"),
               L("嚴重度","Severity"),L("問題","Problem"),
               L("代碼","Code"),L("帳單描述","Billed as"),L("項目","Item"),
               L("說明","Detail"),L("金額","Amount"),L("系統算的","Repriced"),
-              L("日期","Date"),L("判成的渠道","Channel used"),"Zone",
+              L("判成的渠道","Channel used"),"Zone",
               L("計費重 lb","Billable lb"),L("整筆 UPS 實收","Shipment total billed")]]
-    .concat(ISSUES.map(x=>[x.line,x.trk,sv(x.kind),kn(x.kind),x.code,x.billdesc,x.item,
-      x.note,r2(x.amt),r2(x.repriced),x.date,x.chan,x.zone,x.wt,r2(x.shipUps)]));
+    .concat(ISSUES.map(x=>[x.inv,x.invDate,x.date,x.line,x.trk,sv(x.kind),kn(x.kind),
+      x.code,x.billdesc,x.item,x.note,r2(x.amt),r2(x.repriced),
+      x.chan,x.zone,x.wt,r2(x.shipUps)]));
 
   /* ---- 第二張表:一個追蹤號一列,費用橫向展開 --------------------------
-     第一張表回答「哪一列出問題」,這一張回答「這顆箱子整筆長什麼樣」——
-     UPS 每一種費用各收多少擺成欄位,一眼看得出問題項在整筆裡的比重。
-     欄位取自這批貨實際出現過的桶,不是固定清單:沒收過的費用不佔一欄。 */
+     第一張表回答「哪一列出問題」,這一張回答「這顆箱子整筆長什麼樣」。
+     費用欄一律填滿:沒收到的那一項寫 $0.00,不留空格 —— 空白讀起來像
+     「還沒查」,0 才是「這一項沒有」。 */
   const trks=[...new Set(ISSUES.map(x=>x.trk))].filter(Boolean);
   const perTrk=new Map(), colSum={};
   for(const t of trks){
-    const row={trk:t, date:"", chan:"", zone:"", wt:0, ups:0, repriced:0,
-               by:{}, lines:new Set(), sev:0, probs:new Set()};
+    const row={trk:t, inv:"", invDate:"", date:"", chan:"", zone:"", wt:0,
+               ups:0, repriced:0, by:{}, lines:new Set(), sev:0, n:0, probs:new Set()};
     for(const {r,root} of (ISSUE_SEGS.get(t)||[])){
       if(root){ row.date=r.s.shipDate||""; row.chan=r.channel||"";
                 row.zone=r.zoneUsed||""; row.wt=Math.ceil(toNum(r.bw&&r.bw.billable)); }
       row.repriced+=toNum(r.total);
       for(const l of (r.s.lines||[])){
+        if(!row.inv && l.invoice) row.inv=String(l.invoice).trim();
+        if(!row.invDate && l.invDate) row.invDate=normYmd(l.invDate)||String(l.invDate);
         const v=toNum(l.net); if(Math.abs(v)<0.005) continue;
         row.ups+=v;
-        /* recl 傳 false:這張表要的是 UPS 實際收在哪一種費用上,不是重算
-           把它改判成什麼。改判的部分在第一張表和儀表板上都講過了。 */
+        /* recl 傳 false:這張表要的是 UPS 實際收在哪一種費用上,不是重算把
+           它改判成什麼。改判的部分在第一張表和儀表板上都講過了。 */
         const k=upsBucketOf(l,false); if(!k) continue;
         row.by[k]=(row.by[k]||0)+v; colSum[k]=(colSum[k]||0)+Math.abs(v);
       }
@@ -8814,56 +8949,82 @@ function exportIssues(){
   for(const x of ISSUES){
     const row=perTrk.get(x.trk); if(!row) continue;
     if(x.line!=="") row.lines.add(x.line);
-    row.n=(row.n||0)+1;            /* 問題數是問題的數量,不是列數 —— 同一列
+    row.n++;                       /* 問題數是問題的數量,不是列數 —— 同一列
                                       可以同時是「判定不明確」和「查不到費率」。 */
     row.sev=Math.max(row.sev, ISSUE_KIND[x.kind].sev);
     row.probs.add(kn(x.kind));
   }
-  /* 錢多的費用擺前面 —— 橫向欄位一多,右邊那幾欄沒有人會捲過去看。 */
-  const cols=Object.keys(colSum).sort((a,b)=>colSum[b]-colSum[a]);
+  /* 費用欄照重算報表的欄序排,不照金額大小 —— 兩份檔案要並排對照,欄位
+     順序一致才對得起來;照金額排的話,換一期就換一個順序。報表沒有的桶
+     (未歸類、改判、不重算、自訂附加費)接在後面,彼此照金額排。 */
+  const ord=k=>{ const i=REPORT_COLS.indexOf(k); return i<0?1e6:i; };
+  const cols=Object.keys(colSum).sort((a,b)=>
+    ord(a)-ord(b) || colSum[b]-colSum[a] || String(a).localeCompare(String(b)));
   const colName=k=>k===DASH_UNKNOWN?L("未歸類代碼","Unclassified codes")
                   :k===DASH_RECLASS?L("改判 AHS/大包裹","Reclassified AHS/LP")
                   :dashLabel(k);
-  const wide=[[L("追蹤號","Tracking"),L("嚴重度","Severity"),L("問題數","Issues"),
-               L("問題","Problems"),L("帳單列號","Invoice rows"),
-               L("日期","Date"),L("判成的渠道","Channel used"),"Zone",
-               L("計費重 lb","Billable lb")]
-              .concat(cols.map(colName))
-              .concat([L("UPS 實收合計","UPS billed"),L("系統重算合計","Repriced"),
-                       L("差額","Difference")])];
+  const wideHead=[L("期別","Invoice"),L("帳單日","Invoice date"),
+                  L("交易日","Transaction date"),L("追蹤號","Tracking"),
+                  L("嚴重度","Severity"),L("問題數","Issues"),L("問題","Problems"),
+                  L("帳單列號","Invoice rows"),
+                  L("判成的渠道","Channel used"),"Zone",L("計費重 lb","Billable lb")]
+    .concat(cols.map(colName))
+    .concat([L("UPS 實收合計","UPS billed"),L("系統重算合計","Repriced"),L("差額","Difference")]);
+  const wide=[wideHead];
   const order=[...perTrk.values()].sort((a,b)=>b.sev-a.sev || Math.abs(b.ups)-Math.abs(a.ups));
   for(const row of order)
-    wide.push([row.trk, L(SEV_TAG[row.sev][0],SEV_TAG[row.sev][1]), row.n||0,
+    wide.push([row.inv, row.invDate, row.date, row.trk,
+               L(SEV_TAG[row.sev][0],SEV_TAG[row.sev][1]), row.n,
                [...row.probs].join(" / "),
                [...row.lines].sort((a,b)=>a-b).join(", "),
-               row.date, row.chan, row.zone, row.wt]
-      .concat(cols.map(k=>row.by[k]===undefined?"":r2(row.by[k])))
+               row.chan, row.zone, row.wt]
+      .concat(cols.map(k=>r2(row.by[k]||0)))
       .concat([r2(row.ups), r2(row.repriced), r2(row.repriced-row.ups)]));
 
   const fname=baseName(".xlsx").replace("_Repriced","_Issues");
   loadXLSX().then(X=>{
-    const money2=(ws,cols)=>{
+    /* 金額欄一律掛 $#,##0.00,連 0 也是 —— 一欄裡混著 "$1.50" 和 "0",
+       眼睛會停下來確認那個 0 是不是別的東西。 */
+    /* 日期寫成真的日期儲存格(Excel 序列值 + mm/dd/yyyy),不是看起來像日期
+       的字串 —— 字串排序會把 2026-1-5 排在 2026-11-2 前面,而且沒辦法做
+       樞紐分析。序列值的原點是 1899-12-30。 */
+    const serial=v=>{
+      const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||"").trim());
+      if(!m) return null;
+      return Math.round((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000);
+    };
+    const fmt=(ws,moneyCols,dateCols,widths)=>{
       const ref=X.utils.decode_range(ws["!ref"]);
-      for(let r=1;r<=ref.e.r;r++) for(const c of cols){
-        const cell=ws[X.utils.encode_cell({r:r,c:c})];
-        if(cell && typeof cell.v==="number") cell.z="$#,##0.00";
+      for(let r=1;r<=ref.e.r;r++){
+        for(const c of moneyCols){
+          const cell=ws[X.utils.encode_cell({r:r,c:c})];
+          if(cell && typeof cell.v==="number") cell.z="$#,##0.00";
+        }
+        for(const c of dateCols){
+          const ad=X.utils.encode_cell({r:r,c:c}), cell=ws[ad];
+          if(!cell) continue;
+          const n=serial(cell.v);
+          if(n!==null){ cell.t="n"; cell.v=n; cell.z="mm/dd/yyyy"; delete cell.w; }
+        }
       }
+      ws["!cols"]=widths.map(w=>({wch:w}));
       return ws;
     };
-    const money2From=(ws,from)=>{
-      const ref=X.utils.decode_range(ws["!ref"]);
-      const all=[]; for(let c=from;c<=ref.e.c;c++) all.push(c);
-      return money2(ws,all);
-    };
+    const detDates=[1,2], detMoney=[11,12,16];
+    const detW=[16,12,12,10,20,8,30,7,22,20,30,11,11,20,6,10,14];
+    const wFirst=11;                       /* 費用欄從第 12 欄(0 起算)開始 */
+    const wMoney=[]; for(let c=wFirst;c<wideHead.length;c++) wMoney.push(c);
+    const wideW=[16,12,12,20,8,7,34,14,20,6,10]
+      .concat(cols.map(()=>13)).concat([14,14,12]);
     const wb=X.utils.book_new();
-    X.utils.book_append_sheet(wb, money2(X.utils.aoa_to_sheet(det),[8,9,14]),
+    X.utils.book_append_sheet(wb, fmt(X.utils.aoa_to_sheet(det),detMoney,detDates,detW),
       L("問題明細","Issues"));
-    X.utils.book_append_sheet(wb, money2From(X.utils.aoa_to_sheet(wide),9),
+    X.utils.book_append_sheet(wb, fmt(X.utils.aoa_to_sheet(wide),wMoney,[1,2],wideW),
       L("貨件展開","By shipment"));
     return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
       {type:"application/octet-stream"}), fname);
-  }).then(ok=>toast(ok?L("已匯出 "+ISSUES.length+" 項問題 / "+trks.length+" 個追蹤號",
-                         "Exported "+ISSUES.length+" issue(s) across "+trks.length+" shipment(s)")
+  }).then(ok=>toast(ok?L("已匯出 "+ISSUES.length+" 項異常 / "+trks.length+" 個追蹤號",
+                         "Exported "+ISSUES.length+" exception(s) across "+trks.length+" shipment(s)")
                       :L("已取消存檔","Save cancelled"), ok))
     .catch(()=>toast(L("匯出失敗:xlsx 元件沒有載到",
                        "Export failed: the xlsx component did not load"), false));
