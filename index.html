@@ -6814,8 +6814,8 @@ const DASH_LABEL={
   "Additional Handling Surcharge - Weight":["額外處理·重量","AHS · Weight"],
   "Additional Handling Surcharge - Packaging":["額外處理·包裝","AHS · Packaging"],
   "DAS Residential":["住宅 DAS","DAS Resi"],"DAS Commercial":["商業 DAS","DAS Comm"],
-  "__das__":["DAS 配送地區","DAS · delivery area"],
-  "__ras__":["偏遠地區","Remote area"],
+  "__das__":["配送地區 DAS","DAS · delivery area"],
+  "__ahs__":["額外處理 AHS","AHS · additional handling"],
   "DAS Extended Residential":["延伸住宅 DAS","DAS Ext Resi"],"DAS Extended Commercial":["延伸商業 DAS","DAS Ext Comm"],
   "Undeliverable Return":["退件回程","Undeliverable Return"],"Return To Sender":["退回寄件人","Return To Sender"],
   "Remote Area Residential":["偏遠住宅","Remote Resi"],"Remote Area Commercial":["偏遠商業","Remote Comm"],
@@ -6838,18 +6838,29 @@ function dashLabel(col){ const m=DASH_LABEL[col]; return m?L(m[0],m[1]):col; }
 const DASH_RECLASS="__reclass__", DASH_UNKNOWN="__unknown__";
 const RECLASS_RE=/AHS\/Large Package|AHS\/大包裹/;
 /* 同一種附加費被 UPS 拆成多個變體收費的,在圓餅上合成一塊來排名。
-   DAS 有四種(住宅／商業／延伸住宅／延伸商業)、偏遠也有四種(住宅／
-   商業／AK／HI)。分開畫的話每一條都是細絲,幾條佔掉前十名的位置、
-   其餘掉進「其他」—— 但加起來常常是這一期前幾大的成本。拆著看等於
-   看不見它。合併後四項照「其他」的做法折在底下,錢一樣追得回去。
+   分開畫的話每一條都是細絲,幾條就佔掉前幾名的位置、其餘掉進「其他」
+   —— 但加起來常常是這一期前幾大的成本。拆著看等於看不見它。合併後每
+   個變體照「其他」的做法折在底下,錢一樣追得回去,只是不再各自佔一
+   塊餅。
 
-   AHS 不放進來:尺寸、重量、包裝的門檻不同、成因也不同(長箱子 vs 重
-   箱子 vs 包裝方式),合起來會蓋掉可以據以行動的資訊,不是揭露。 */
+   配送地區(__das__):DAS 四種(住宅／商業／延伸住宅／延伸商業)加偏遠
+   四種(住宅／商業／AK／HI)。偏遠在 UPS 帳單上是另一個名目(Remote
+   Area Surcharge,不是 Delivery Area Surcharge),併進來就看不出兩者
+   的差別 —— 但兩邊收的都是「送到哪裡」,要談的也是同一件事(投遞範
+   圍),所以算同一類。
+
+   額外處理(__ahs__):重量、尺寸、包裝三種。門檻和成因確實不同(重箱
+   子 vs 長箱子 vs 包裝方式),分開才知道要改哪一項 —— 但那是明細表的
+   工作,圓餅回答的是「這一期的錢花在哪幾件事上」。三個變體折在底下,
+   要追成因還是追得到。 */
 const PIE_FAMILIES=[
   {key:"__das__", members:["DAS Residential","DAS Commercial",
-                           "DAS Extended Residential","DAS Extended Commercial"]},
-  {key:"__ras__", members:["Remote Area Residential","Remote Area Commercial",
+                           "DAS Extended Residential","DAS Extended Commercial",
+                           "Remote Area Residential","Remote Area Commercial",
                            "Remote Area - AK","Remote Area - HI"]},
+  {key:"__ahs__", members:["Additional Handling Surcharge - Weight",
+                           "Additional Handling Surcharge - Dimension",
+                           "Additional Handling Surcharge - Packaging"]},
 ];
 const RECLASS_FEES=new Set(["AHS Weight","AHS Dimension","AHS Packaging","Large Package"]);
 const RECLASS_COLS=["Additional Handling Surcharge - Weight",
