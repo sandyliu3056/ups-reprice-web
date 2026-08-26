@@ -398,8 +398,13 @@ td.cells{white-space:normal}
 #afModal .modalft{gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-start}
 .afsp{flex:1}
 .afcount{font-size:13px;font-weight:700;color:var(--accent)}
-.afgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));
-  gap:7px;max-height:52vh;overflow:auto;padding:2px}
+.afgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:7px}
+#afList{max-height:52vh;overflow:auto;padding:2px}
+.afsec + .afsec{margin-top:15px}
+.afsechd{display:flex;align-items:baseline;gap:9px;margin:0 0 8px;padding-bottom:5px;
+  border-bottom:1.5px solid var(--line)}
+.afsechd b{font-size:12.5px;font-weight:700;color:var(--accent);letter-spacing:.02em}
+.afsecn{font-size:11px;color:var(--muted);margin-left:auto;white-space:nowrap}
 .afitem{display:flex;align-items:center;gap:9px;font-size:12.5px;line-height:1.35;
   padding:8px 11px;border-radius:8px;border:1.5px solid var(--line);cursor:pointer}
 .afitem.on{background:var(--select);border-color:var(--run2);color:var(--accent);font-weight:600}
@@ -1424,7 +1429,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <div class="afbar">
         <span id="afCount" class="afcount"></span>
       </div>
-      <div id="afList" class="afgrid"></div>
+      <div id="afList"></div>
     </div>
     <div class="modalft">
       <button class="act ghost" id="afClose" data-i18n="btn.close">Close</button>
@@ -7758,15 +7763,55 @@ function allFeeTypes(){
   }
   return [...out].filter(Boolean).sort();
 }
+/* 分組按費用家族,不按帳單上的類別代碼:要找「DAS 那幾條」的人,腦子裡
+   想的是「配送地區」,不是 ACC。二十七項照字母排時,簽名和成人簽名中間
+   隔了十幾項,住宅附加費離 DAS 也很遠。
+   基礎運費不在這裡 —— fuelBase 是 (base + accTotal - nonFuelSum),運費
+   無條件計入燃油底,沒有開關,也不該有。 */
+const AF_GROUPS=[
+  {zh:"額外處理與大件", en:"Additional Handling & Large Package",
+   fees:["AHS Weight","AHS Dimension","AHS Packaging","Large Package",
+         "Over Maximum Size Surcharge"]},
+  {zh:"配送地區", en:"Delivery area",
+   fees:["Residential Surcharge","DAS Commercial","DAS Residential",
+         "DAS Extended Commercial","DAS Extended Residential",
+         "Remote Area Commercial","Remote Area Residential",
+         "Remote Area - AK","Remote Area - HI"]},
+  {zh:"退件與改投遞", en:"Returns & redirects",
+   fees:["Return To Sender","Reroute","Reschedule Delivery",
+         "Returns Electronic Label","Returns Print Label","Address Correction"]},
+  {zh:"簽收與保障", en:"Signature & protection",
+   fees:["Signature","Adult Signature","Direct Delivery Only","Package Protection"]},
+  {zh:"取件", en:"Pickup",
+   fees:["Future Day Pickup - Alternate Address - Web Request",
+         "Residential Pickup surcharge","Returns 3 UPS Pickup Attempts"]},
+];
 function renderAccFuel(){
   const off=CFG.accFuelOff||new Set();
   const fees=allFeeTypes();
   const box=$("#afList");
-  if(box) box.innerHTML=fees.map(fee=>{
+  const item=fee=>{
     const on=!off.has(fee);
     return `<label class="afitem${on?" on":" off"}">`
       +`<input type="checkbox" class="accfuel" data-fee="${esc(fee)}"${on?" checked":""}>`
       +`<span>${esc(fee)}</span></label>`;
+  };
+  /* 對不到任何一組的(自訂費用項目、以後新增的代碼)落到「其他」。
+     漏掉一項比排錯一項嚴重 —— 看不到就設不到。 */
+  const left=new Set(fees);
+  const secs=[];
+  for(const g of AF_GROUPS){
+    const mine=g.fees.filter(f=>left.has(f));
+    if(!mine.length) continue;
+    for(const f of mine) left.delete(f);
+    secs.push([L(g.zh,g.en), mine]);
+  }
+  if(left.size) secs.push([L("其他","Other"), [...left].sort()]);
+  if(box) box.innerHTML=secs.map(([name,list])=>{
+    const nOn=list.filter(f=>!off.has(f)).length;
+    return `<div class="afsec"><div class="afsechd"><b>${esc(name)}</b>`
+      +`<span class="afsecn">${nOn} / ${list.length} ${L("收燃油","charge fuel")}</span>`
+      +`</div><div class="afgrid">${list.map(item).join("")}</div></div>`;
   }).join("")||`<div class="empty">—</div>`;
   const nOff=fees.filter(f=>off.has(f)).length;
   if($("#afCount")) $("#afCount").textContent = nOff
