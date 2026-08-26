@@ -3705,8 +3705,8 @@ async function prefetchAddressClass(ships){
   const url=String(gr.resi_api_url||"").trim();
   if(!url){
     if(!API_NOURL_SHOWN){ API_NOURL_SHOWN=true;
-      API_NOTE=L("已選「連動 API」但沒有填代理端點 —— 一律用系統判定。要改回去請到「設定」分頁。",
-                 "\u201cLinked API\u201d is selected with no proxy endpoint — system logic is used. Change it on the Settings tab."); }
+      API_NOTE=L("已選取「連動 API」,但未填寫代理端點,本期全數以系統設定判定。端點於「設定」分頁填寫。",
+                 "\u201cLinked API\u201d is selected with no proxy endpoint; this period is classified entirely by System Configuration. The endpoint is set on the Settings tab."); }
     return 0; }
   /* 收齊不重複的地址,對回追蹤號 */
   const groups=new Map();
@@ -3716,8 +3716,8 @@ async function prefetchAddressClass(ships){
     if(!groups.has(k)) groups.set(k,{addr:a,tracks:[]});
     groups.get(k).tracks.push(s.tracking);
   }
-  if(!groups.size){ API_NOTE=L("這批帳單沒有可用的送達地址,改用系統判定。",
-                               "No usable ship-to address in this batch — using system logic."); return 0; }
+  if(!groups.size){ API_NOTE=L("本批帳單無可用之送達地址,改以系統設定判定。",
+                               "No usable ship-to address in this batch; classified by System Configuration."); return 0; }
   /* 取登入 token,讓代理(Supabase Edge Function)認得呼叫者;沒有就用 anon 金鑰。 */
   let auth="";
   try{
@@ -3754,13 +3754,13 @@ async function prefetchAddressClass(ships){
   /* 講出是哪一種失敗。以前只說「呼叫失敗」,而 401(沒登入)、404(函式
      沒部署)、500(UPS 金鑰沒設)要做的事完全不同,不講等於叫人自己猜。 */
   if(fail && !ok)
-    API_NOTE=L("API 代理呼叫失敗("+lastErr+"),這次全部改用系統判定。",
-               "Every API proxy call failed ("+lastErr+") — using system logic this run.");
+    API_NOTE=L("API 代理呼叫全數失敗("+lastErr+"),本期改以系統設定判定。",
+               "Every API proxy call failed ("+lastErr+"); this period is classified by System Configuration.");
   else if(fail)
-    API_NOTE=L(fail+" 個地址呼叫失敗("+lastErr+"),那幾筆用系統判定;下次重算會再試一次。",
-               fail+" address lookups failed ("+lastErr+") — those fall back to system logic and will be retried next run.");
-  else if(!hit) API_NOTE=L("API 沒有回傳任何住/商分類(可能都判不出),改用系統判定。",
-                           "API returned no Residential/Commercial classification — using system logic.");
+    API_NOTE=L(fail+" 筆地址呼叫失敗("+lastErr+"),該部分改以系統設定判定;失敗結果不寫入快取,下次重算自動重試。",
+               fail+" address lookups failed ("+lastErr+"); those fall back to System Configuration. Failures are not cached and are retried on the next run.");
+  else if(!hit) API_NOTE=L("API 未回傳任何住宅／商業分類,改以系統設定判定。",
+                           "The API returned no residential/commercial classification; classified by System Configuration.");
   return hit;
 }
 
@@ -7100,13 +7100,17 @@ function upsBucketOf(l, recl){
   if(fee) return (recl&&RECLASS_FEES.has(fee))?DASH_RECLASS:(UPS_COLOF[fee]||fee);
   return DASH_UNKNOWN;
 }
+/* 報表欄位裡不是費用的那些:日期、追蹤號、參考號、Zone、重量、尺寸與合計。
+   兩個地方要用同一份清單 —— 儀表板分桶、異常匯出的橫向展開,漏掉任何一個
+   就會把出貨日期當成一筆金額加進去。 */
+const REPORT_META=new Set(["Date","Tracking","Shipment Reference Number 1",
+  "Shipment Reference Number 2","Zone","Shipment Type","Entered Weight",
+  "Billable Weight","Length","Width","Height","Total"]);
 function dashAgg(){
   const rated=RATED||[];
   if(!rated.length) return null;
   const rows=reportRows();
-  const META=new Set(["Date","Tracking","Shipment Reference Number 1","Shipment Reference Number 2",
-    "Zone","Shipment Type","Entered Weight","Billable Weight","Length","Width","Height","Total"]);
-  const bucketCols=REPORT_COLS.filter(c=>!META.has(c));
+  const bucketCols=REPORT_COLS.filter(c=>!REPORT_META.has(c));
   let repriced=0, billed=0, resiN=0, comN=0, resiAmt=0, comAmt=0;
   let unsureN=0, unsureAmt=0, notRepriced=0, unknownNet=0, missN=0, missAmt=0;
   /* 服務名稱比對不到任何已知服務,渠道是退回預設服務來的 */
@@ -8920,29 +8924,49 @@ function exportIssues(){
       x.code,x.billdesc,x.item,x.note,r2(x.amt),r2(x.repriced),
       x.chan,x.zone,x.wt,r2(x.shipUps)]));
 
-  /* ---- 第二張表:一個追蹤號一列,費用橫向展開 --------------------------
-     第一張表回答「哪一列出問題」,這一張回答「這顆箱子整筆長什麼樣」。
-     費用欄一律填滿:沒收到的那一項寫 $0.00,不留空格 —— 空白讀起來像
-     「還沒查」,0 才是「這一項沒有」。 */
+  /* ---- 第二張表:一個追蹤號一列,每一種費用兩欄(UPS / 重算)-------------
+     第一張表回答「哪一列出問題」,這一張回答「這顆箱子整筆長什麼樣、我們
+     和 UPS 差在哪一項」。只列 UPS 收多少,看的人還要自己去翻報表比對;
+     兩欄並排,差在哪一格一眼就看得到。
+     表頭兩列:第一列是費用名稱(橫跨兩欄),第二列是 UPS / 重算。 */
   const trks=[...new Set(ISSUES.map(x=>x.trk))].filter(Boolean);
-  const perTrk=new Map(), colSum={};
+  /* 重算側的每一欄金額在 reportRows() 裡,和 RATED 同序;退件回程與第二段
+     已經併進同一列,所以一個追蹤號查一次就夠。 */
+  const rep={};
+  {
+    const rr=reportRows();
+    (RATED||[]).forEach((r,i)=>{
+      const t=r&&r.s&&r.s.tracking; if(!t||rep[t]) return;
+      rep[t]=rr[i]||{};
+    });
+  }
+  const perTrk=new Map(), colSeen={};
   for(const t of trks){
-    const row={trk:t, inv:"", invDate:"", date:"", chan:"", zone:"", wt:0,
+    const row={trk:t, inv:"", invDate:"", date:"", chan:"", zone:"", wtUps:0, wtRep:0,
                ups:0, repriced:0, by:{}, lines:new Set(), sev:0, n:0, probs:new Set()};
     for(const {r,root} of (ISSUE_SEGS.get(t)||[])){
       if(root){ row.date=r.s.shipDate||""; row.chan=r.channel||"";
-                row.zone=r.zoneUsed||""; row.wt=Math.ceil(toNum(r.bw&&r.bw.billable)); }
+                row.zone=r.zoneUsed||""; row.wtRep=Math.ceil(toNum(r.bw&&r.bw.billable)); }
       row.repriced+=toNum(r.total);
       for(const l of (r.s.lines||[])){
         if(!row.inv && l.invoice) row.inv=String(l.invoice).trim();
         if(!row.invDate && l.invDate) row.invDate=normYmd(l.invDate)||String(l.invDate);
+        /* UPS 自己算的計費重在運費行上 */
+        if(!row.wtUps && isFreightLine(l)) row.wtUps=Math.ceil(toNum(l.billed)||toNum(l.entered));
         const v=toNum(l.net); if(Math.abs(v)<0.005) continue;
         row.ups+=v;
         /* recl 傳 false:這張表要的是 UPS 實際收在哪一種費用上,不是重算把
            它改判成什麼。改判的部分在第一張表和儀表板上都講過了。 */
         const k=upsBucketOf(l,false); if(!k) continue;
-        row.by[k]=(row.by[k]||0)+v; colSum[k]=(colSum[k]||0)+Math.abs(v);
+        row.by[k]=(row.by[k]||0)+v; colSeen[k]=true;
       }
+    }
+    /* 重算側:報表欄位有值的都要有一欄,即使 UPS 那一側沒收 —— 我們多算了
+       一項而 UPS 沒收,正是要看見的事。 */
+    const R=rep[t]||{};
+    for(const c of REPORT_COLS){
+      if(REPORT_META.has(c)) continue;      /* 日期、追蹤號、尺寸不是費用 */
+      if(Math.abs(toNum(R[c]))>0.005) colSeen[c]=true;
     }
     perTrk.set(t,row);
   }
@@ -8956,31 +8980,46 @@ function exportIssues(){
   }
   /* 費用欄照重算報表的欄序排,不照金額大小 —— 兩份檔案要並排對照,欄位
      順序一致才對得起來;照金額排的話,換一期就換一個順序。報表沒有的桶
-     (未歸類、改判、不重算、自訂附加費)接在後面,彼此照金額排。 */
-  const ord=k=>{ const i=REPORT_COLS.indexOf(k); return i<0?1e6:i; };
-  const cols=Object.keys(colSum).sort((a,b)=>
-    ord(a)-ord(b) || colSum[b]-colSum[a] || String(a).localeCompare(String(b)));
+     (未歸類、改判、不重算、自訂附加費)接在後面。 */
+  const ordOf=k=>{ const i=REPORT_COLS.indexOf(k); return i<0?1e6:i; };
+  const cols=Object.keys(colSeen).sort((a,b)=>
+    ordOf(a)-ordOf(b) || String(a).localeCompare(String(b)));
   const colName=k=>k===DASH_UNKNOWN?L("未歸類代碼","Unclassified codes")
                   :k===DASH_RECLASS?L("改判 AHS/大包裹","Reclassified AHS/LP")
                   :dashLabel(k);
-  const wideHead=[L("期別","Invoice"),L("帳單日","Invoice date"),
-                  L("交易日","Transaction date"),L("追蹤號","Tracking"),
-                  L("嚴重度","Severity"),L("問題數","Issues"),L("問題","Problems"),
-                  L("帳單列號","Invoice rows"),
-                  L("判成的渠道","Channel used"),"Zone",L("計費重 lb","Billable lb")]
-    .concat(cols.map(colName))
-    .concat([L("UPS 實收合計","UPS billed"),L("系統重算合計","Repriced"),L("差額","Difference")]);
-  const wide=[wideHead];
+  /* 單欄的部分只有一個名字,佔兩列高;成對的部分第一列是名字、第二列是
+     UPS / 重算。merges 兩種都要記。 */
+  const singles=[L("期別","Invoice"),L("帳單日","Invoice date"),
+                 L("交易日","Transaction date"),L("追蹤號","Tracking"),
+                 L("嚴重度","Severity"),L("問題數","Issues"),L("問題","Problems"),
+                 L("帳單列號","Invoice rows"),L("判成的渠道","Channel used"),"Zone"];
+  const pairs=[L("計費重 lb","Billable lb")].concat(cols.map(colName))
+              .concat([L("合計","Total")]);
+  const head1=singles.slice(), head2=singles.map(()=>"");
+  const merges=singles.map((_,i)=>({s:{r:0,c:i},e:{r:1,c:i}}));
+  const UPSCOL=L("UPS 實收","UPS"), REPCOL=L("重算","Repriced");
+  pairs.forEach((nm,i)=>{
+    const c=singles.length+i*2;
+    head1.push(nm,""); head2.push(UPSCOL,REPCOL);
+    merges.push({s:{r:0,c:c},e:{r:0,c:c+1}});
+  });
+  const diffAt=head1.length;
+  head1.push(L("差額","Difference")); head2.push("");
+  merges.push({s:{r:0,c:diffAt},e:{r:1,c:diffAt}});
+  const wide=[head1, head2];
   const order=[...perTrk.values()].sort((a,b)=>b.sev-a.sev || Math.abs(b.ups)-Math.abs(a.ups));
-  for(const row of order)
-    wide.push([row.inv, row.invDate, row.date, row.trk,
-               L(SEV_TAG[row.sev][0],SEV_TAG[row.sev][1]), row.n,
-               [...row.probs].join(" / "),
-               [...row.lines].sort((a,b)=>a-b).join(", "),
-               row.chan, row.zone, row.wt]
-      .concat(cols.map(k=>r2(row.by[k]||0)))
-      .concat([r2(row.ups), r2(row.repriced), r2(row.repriced-row.ups)]));
-
+  for(const row of order){
+    const R=rep[row.trk]||{};
+    const line=[row.inv, row.invDate, row.date, row.trk,
+                L(SEV_TAG[row.sev][0],SEV_TAG[row.sev][1]), row.n,
+                [...row.probs].join(" / "),
+                [...row.lines].sort((a,b)=>a-b).join(", "),
+                row.chan, row.zone,
+                row.wtUps, row.wtRep];
+    for(const k of cols) line.push(r2(row.by[k]||0), r2(R[k]||0));
+    line.push(r2(row.ups), r2(row.repriced), r2(row.repriced-row.ups));
+    wide.push(line);
+  }
   const fname=baseName(".xlsx").replace("_Repriced","_Issues");
   loadXLSX().then(X=>{
     /* 金額欄一律掛 $#,##0.00,連 0 也是 —— 一欄裡混著 "$1.50" 和 "0",
@@ -8993,9 +9032,9 @@ function exportIssues(){
       if(!m) return null;
       return Math.round((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000);
     };
-    const fmt=(ws,moneyCols,dateCols,widths)=>{
+    const fmt=(ws,moneyCols,dateCols,widths,from)=>{
       const ref=X.utils.decode_range(ws["!ref"]);
-      for(let r=1;r<=ref.e.r;r++){
+      for(let r=(from||1);r<=ref.e.r;r++){
         for(const c of moneyCols){
           const cell=ws[X.utils.encode_cell({r:r,c:c})];
           if(cell && typeof cell.v==="number") cell.z="$#,##0.00";
@@ -9012,15 +9051,18 @@ function exportIssues(){
     };
     const detDates=[1,2], detMoney=[11,12,16];
     const detW=[16,12,12,10,20,8,30,7,22,20,30,11,11,20,6,10,14];
-    const wFirst=11;                       /* 費用欄從第 12 欄(0 起算)開始 */
-    const wMoney=[]; for(let c=wFirst;c<wideHead.length;c++) wMoney.push(c);
-    const wideW=[16,12,12,20,8,7,34,14,20,6,10]
-      .concat(cols.map(()=>13)).concat([14,14,12]);
+    /* 金額欄從「計費重」那一組之後開始 —— 重量那兩欄是磅數不是錢。 */
+    const wMoney=[]; for(let c=singles.length+2;c<head1.length;c++) wMoney.push(c);
+    const wideW=[16,12,12,20,8,7,34,14,20,6]
+      .concat([9,9]).concat(cols.flatMap(()=>[12,12])).concat([13,13,12]);
     const wb=X.utils.book_new();
     X.utils.book_append_sheet(wb, fmt(X.utils.aoa_to_sheet(det),detMoney,detDates,detW),
       L("問題明細","Issues"));
-    X.utils.book_append_sheet(wb, fmt(X.utils.aoa_to_sheet(wide),wMoney,[1,2],wideW),
-      L("貨件展開","By shipment"));
+    /* 表頭佔兩列,資料從第三列起 —— fmt 的 from 要跟著往下移,不然第二列的
+       「UPS / 重算」會被當成資料格去套金額格式。 */
+    const wsWide=fmt(X.utils.aoa_to_sheet(wide),wMoney,[1,2],wideW,2);
+    wsWide["!merges"]=merges;
+    X.utils.book_append_sheet(wb, wsWide, L("貨件展開","By shipment"));
     return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
       {type:"application/octet-stream"}), fname);
   }).then(ok=>toast(ok?L("已匯出 "+ISSUES.length+" 項異常 / "+trks.length+" 個追蹤號",

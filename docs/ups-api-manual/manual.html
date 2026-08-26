@@ -142,7 +142,7 @@
 <h2><span class="n">·</span>目錄</h2>
 <ol>
   <li><div class="r">概述<span class="d">功能範圍、系統架構、憑證存放位置</span></div>
-    <ol><li><b>1.1</b>這項功能做什麼</li><li><b>1.2</b>架構</li><li><b>1.3</b>憑證儲存位置</li></ol></li>
+    <ol><li><b>1.1</b>功能定義</li><li><b>1.2</b>架構</li><li><b>1.3</b>憑證儲存位置</li></ol></li>
   <li><div class="r">前置需求<span class="d">三項必要條件的取得方式、所需權限與確認方法</span></div>
     <ol><li><b>2.1</b>UPS 開發者帳號</li><li><b>2.2</b>Supabase 專案存取權</li>
         <li><b>2.3</b>Supabase CLI</li><li><b>2.4</b>就緒檢查表</li></ol></li>
@@ -166,15 +166,15 @@
 
 <h2><span class="n">1</span>概述</h2>
 
-<h3>1.1 這項功能做什麼</h3>
+<h3>1.1 功能定義</h3>
 
-<p>系統預設以帳單代碼、服務名稱與帳單歷史判定每一件貨的住宅／商業屬性。啟用本功能後,改以 UPS 官方的地址驗證服務對送達地址進行分類,回傳住宅或商業。</p>
+<p>系統預設依帳單代碼、服務名稱與帳單歷史判定各件貨物之住宅／商業屬性。啟用本功能後,改由 UPS 官方地址驗證服務對送達地址進行分類,回傳住宅或商業。</p>
 
-<p>住宅與商業的費率不同,分類結果直接影響計價金額。導入前請先閱讀第 7 節。</p>
+<p>住宅與商業之費率不同,分類結果直接影響計價金額。導入前請先詳閱第 7 節。</p>
 
 <h3>1.2 架構</h3>
 
-<p>用戶端無法直接呼叫 UPS API:UPS 要求 OAuth 認證,且未提供跨來源存取(CORS)。因此於 Supabase Edge Function 部署代理服務,由代理持有憑證並代為呼叫。</p>
+<p>用戶端無法直接呼叫 UPS API:UPS 要求 OAuth 認證,且未提供跨來源存取(CORS)。故於 Supabase Edge Function 部署代理服務,由代理持有憑證並代為呼叫。</p>
 
 <div class="flow">
   <div class="fbox"><div class="t">用戶端</div>
@@ -195,12 +195,12 @@
 
 <div class="box">
   <span class="h">設計理由</span>
-  用戶端設定介面的所有欄位均寫入 <code class="in">CFG.raw</code>,該物件會存入瀏覽器 localStorage、同步至帳號設定紀錄,並包含於匯出的設定檔中。憑證若置於此處,將隨上述三種載體散布。此外,用戶端受 CORS 限制無法直接呼叫 UPS,即使填入憑證亦無作用。
+  用戶端設定介面之所有欄位均寫入 <code class="in">CFG.raw</code>,該物件會存入瀏覽器 localStorage、同步至帳號設定紀錄,並包含於匯出的設定檔中。憑證若置於此處,將隨上述三種載體擴散。此外,用戶端受 CORS 限制無法直接呼叫 UPS,即使填入憑證亦無作用。
 </div>
 
 <h2 class="pb"><span class="n">2</span>前置需求</h2>
 
-<p>開始部署前須具備下列三項。三者用途不同、取得管道亦不同,缺其一則第 3 節無法完成。</p>
+<p>部署前須具備下列三項。三者用途與取得管道均不相同,缺其一則第 3 節無法完成。</p>
 
 <h3>2.1 UPS 開發者帳號</h3>
 
@@ -209,15 +209,15 @@
 <table>
   <tr><th style="width:22%">項目</th><th>說明</th></tr>
   <tr><td>取得管道</td><td><span class="mono">developer.ups.com</span> → Apps → Add App</td></tr>
-  <tr><td>必要條件</td><td>一組有效的 UPS 帳號號碼,即實際出貨、收到帳單的那一組</td></tr>
-  <tr><td>須訂閱的產品</td><td><strong>Address Validation</strong>。未訂閱時憑證本身仍然有效,但呼叫端點會回 <code class="in">502 UPS 403</code></td></tr>
-  <tr><td>核發內容</td><td>Client ID 與 Client Secret。Secret 僅於建立當下顯示一次,請立即保存</td></tr>
-  <tr><td>環境</td><td>測試 <span class="mono">wwwcie.ups.com</span>、正式 <span class="mono">onlinetools.ups.com</span>。同一組憑證兩邊通用</td></tr>
+  <tr><td>必要條件</td><td>一組有效的 UPS 帳號號碼,即實際出貨並產生帳單之帳號</td></tr>
+  <tr><td>須訂閱的產品</td><td><strong>Address Validation</strong>。未訂閱時憑證本身仍為有效,惟呼叫端點將回 <code class="in">502 UPS 403</code></td></tr>
+  <tr><td>核發內容</td><td>Client ID 與 Client Secret。Secret 僅於建立時顯示一次,請即時保存</td></tr>
+  <tr><td>環境</td><td>測試 <span class="mono">wwwcie.ups.com</span>、正式 <span class="mono">onlinetools.ups.com</span>。兩者共用同一組憑證</td></tr>
 </table>
 
 <div class="box crit">
   <span class="h">一個帳號一組憑證</span>
-  用量計入憑證所屬的 UPS 帳號。多個 UPS 帳號需各自建立應用程式、各自取得憑證;共用一組憑證會使配額與帳務無法對應。
+  用量計入憑證所屬之 UPS 帳號。多個 UPS 帳號須各自建立應用程式並取得各自之憑證;共用一組憑證將使配額與帳務無法對應。
 </div>
 
 <h3>2.2 Supabase 專案存取權</h3>
@@ -226,15 +226,15 @@
 
 <table>
   <tr><th style="width:22%">項目</th><th>說明</th></tr>
-  <tr><td>所需角色</td><td>該專案的 Owner 或 Developer。僅具 Read 權限無法部署函式,亦無法寫入環境變數</td></tr>
+  <tr><td>所需角色</td><td>該專案的 Owner 或 Developer。僅具 Read 權限者無法部署函式,亦無法寫入環境變數</td></tr>
   <tr><td>專案識別碼</td><td>專案設定頁的 Reference ID,即端點網址中的子網域。本專案為 <span class="mono">snalvdjsnysutmkqjyaa</span></td></tr>
   <tr><td>需取得的金鑰</td><td>anon key,用於 4.2 之測試,亦寫在 <span class="mono">auth-config.js</span></td></tr>
-  <tr><td>確認方式</td><td>主控台左側可見 <span class="mono">Edge Functions</span> 項目,即代表權限足夠</td></tr>
+  <tr><td>確認方式</td><td>主控台左側可見 <span class="mono">Edge Functions</span> 項目,即表示權限充足</td></tr>
 </table>
 
 <h3>2.3 Supabase CLI</h3>
 
-<p><strong>用途:</strong>部署函式與寫入環境變數。此二項作業皆無法於網頁主控台完成,必須使用 CLI。</p>
+<p><strong>用途:</strong>部署函式與寫入環境變數。該二項作業均無法於網頁主控台完成,必須使用 CLI。</p>
 
 <table>
   <tr><th style="width:22%">平台</th><th>安裝指令</th></tr>
@@ -248,18 +248,18 @@
 <pre>supabase --version
 supabase login</pre>
 
-<p><span class="mono">supabase login</span> 會開啟瀏覽器完成授權,授權後 CLI 即以該帳號的權限操作。此步驟每台電腦執行一次。</p>
+<p><span class="mono">supabase login</span> 將開啟瀏覽器完成授權;授權後,CLI 即以該帳號之權限執行。本步驟每台電腦執行一次即可。</p>
 
 <h3>2.4 就緒檢查表</h3>
 
-<p>下列四項全部成立後,再進入第 3 節。</p>
+<p>下列四項均成立後,始得進入第 3 節。</p>
 
 <table>
   <tr><th style="width:8%">#</th><th style="width:38%">項目</th><th>確認方式</th></tr>
   <tr><td class="mono">1</td><td>UPS 應用程式已建立,並已訂閱 Address Validation</td>
       <td>開發者主控台的 App 詳細頁列出該產品,且狀態為已核准</td></tr>
   <tr><td class="mono">2</td><td>已保存 Client ID 與 Client Secret</td>
-      <td>兩者皆為可讀取的字串。Secret 遺失須重新產生</td></tr>
+      <td>兩者均為可讀取之字串;Secret 遺失須重新產生</td></tr>
   <tr><td class="mono">3</td><td>具備 Supabase 專案的部署權限</td>
       <td>主控台可見 Edge Functions 項目</td></tr>
   <tr><td class="mono">4</td><td>CLI 已安裝並登入</td>
@@ -312,11 +312,11 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 
 <h2><span class="n">4</span>驗證程序</h2>
 
-<p>代理服務對不同失敗原因回傳不同狀態碼,可依序驗證以定位問題層級。請依 4.1 至 4.3 順序執行,不要跳過。</p>
+<p>代理服務對不同失敗原因回傳相異之狀態碼,可依序驗證以定位問題層級。請依 4.1 至 4.3 之順序執行,不得略過。</p>
 
 <h3>4.1 部署狀態驗證</h3>
 
-<p>不附帶認證資訊直接呼叫:</p>
+<p>於未附認證資訊之情況下呼叫:</p>
 
 <pre>curl -i -X POST \
   "https://snalvdjsnysutmkqjyaa.supabase.co/functions/v1/ups-address" \
@@ -370,37 +370,37 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 
 <figure>
   <img src="shots/07-settings.png" alt="設定分頁">
-  <figcaption><b>圖 4-1</b> 設定分頁。住宅／商業判定來源為本文件相關之區塊,其設定與儲存均在其自身面板內完成,頁面沒有共用的儲存鍵。</figcaption>
+  <figcaption><b>圖 5-1</b> 設定分頁。住宅／商業判定來源為本文件相關之區塊,其設定與儲存均於其自身面板內完成,頁面不設共用之儲存鍵。</figcaption>
 </figure>
 
 <div class="box">
   <span class="h">本文件的取得位置</span>
-  同一列的<strong>「API 設定指南（PDF）」</strong>即本文件。檔案為 <span class="mono">UPS-API-Setup-Guide.pdf</span>,需與 <span class="mono">index.html</span> 置於同一資料夾;未一併部署時按下按鈕會提示檔案位置,不會靜默失敗。
+  同一列的<strong>「API 設定指南（PDF）」</strong>即本文件。檔案為 <span class="mono">UPS-API-Setup-Guide.pdf</span>,需與 <span class="mono">index.html</span> 置於同一資料夾;未一併部署時,按下按鈕將提示檔案應置之位置,不會無回應。
 </div>
 
 <figure class="mid">
   <img src="shots/08-resi-panel.png" alt="判定來源面板(系統設定)">
-  <figcaption><b>圖 4-2</b> 預設值為「系統設定」,依帳單代碼、服務名稱與帳單歷史判定。</figcaption>
+  <figcaption><b>圖 5-2</b> 預設值為「系統設定」,依帳單代碼、服務名稱與帳單歷史判定。</figcaption>
 </figure>
 
 <figure class="mid">
   <img src="shots/09-resi-api.png" alt="判定來源面板(連動 API)">
-  <figcaption><b>圖 4-3</b> 選取「連動 API」後填入 3.4 部署完成之端點網址,按「儲存設定」。本欄位僅接受代理網址;UPS 憑證設於代理端,見 1.3。</figcaption>
+  <figcaption><b>圖 5-3</b> 選取「連動 API」後填入 3.4 部署完成之端點網址,按「儲存設定」。本欄位僅接受代理網址;UPS 憑證設於代理端,見 1.3。</figcaption>
 </figure>
 
 <div class="box info">
   <span class="h">面板操作行為</span>
-  面板內的變更於點選當下即套用至記憶體中的設定,供計價立即反映,但尚未寫入儲存。<strong>「關閉」放棄變更並還原,「儲存設定」寫入並關閉面板。</strong>
+  面板內之變更於點選當下即套用至記憶體設定,計價立即反映,惟尚未寫入儲存。<strong>「關閉」放棄變更並還原,「儲存設定」寫入並關閉面板。</strong>
 </div>
 
 <div class="box">
   <span class="h">摘要行顯示實際生效的來源</span>
-  若選取「連動 API」但端點未填寫,區塊摘要與單選鈕均顯示「系統設定」—— 該狀態下代理無從呼叫,實際執行的即為系統判定。顯示設定值而非實際行為,會讓人以為 API 正在運作。
+  若選取「連動 API」但端點未填寫,區塊摘要與單選鈕均顯示「系統設定」—— 該狀態下代理無從呼叫,實際執行的即為系統判定。若顯示設定值而非實際行為,將使操作者誤認 API 已生效。
 </div>
 
 <h2 class="pb"><span class="n">6</span>介面規格</h2>
 
-<p>本節為代理端點的介面定義,供需要自行整合或排查請求層問題者參考。一般設定作業不需閱讀本節。</p>
+<p>本節為代理端點之介面定義,供需自行整合或排查請求層問題者參考。一般設定作業無須閱讀本節。</p>
 
 <h3>6.1 請求</h3>
 
@@ -445,20 +445,20 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 
 <h3>6.3 用戶端行為</h3>
 
-<p>用戶端於每次重算前呼叫本端點,行為如下:</p>
+<p>用戶端於每次重算前呼叫本端點,其行為如下:</p>
 
 <table>
   <tr><th style="width:26%">項目</th><th>行為</th></tr>
-  <tr><td>去重</td><td>同一批貨件先依地址正規化後歸併,相同地址僅呼叫一次</td></tr>
-  <tr><td>併發上限</td><td>6,避免觸發代理端或 UPS 之速率限制</td></tr>
+  <tr><td>去重</td><td>同一批貨件先經地址正規化後歸併,相同地址僅呼叫一次</td></tr>
+  <tr><td>併發上限</td><td>6;避免觸發代理端或 UPS 之速率限制</td></tr>
   <tr><td>快取</td><td>成功結果以地址為鍵持久保存,後續重算不重複呼叫</td></tr>
-  <tr><td>失敗處理</td><td><strong>失敗結果不寫入快取</strong>,該次回退系統判定,設定修正後下次重算自動重試</td></tr>
-  <tr><td>未設端點</td><td>不發出任何請求,全數回退系統判定,畫面提示端點未填</td></tr>
+  <tr><td>失敗處理</td><td><strong>失敗結果不寫入快取</strong>。本次回退系統判定;設定修正後,下次重算自動重試</td></tr>
+  <tr><td>未設端點</td><td>不發出任何請求,全數回退系統判定,並於畫面提示端點未填寫</td></tr>
 </table>
 
 <div class="box crit">
   <span class="h">失敗不得快取</span>
-  若將呼叫失敗記為 <code class="in">U</code>,端點填錯、函式未部署、權限未設等情形將被永久記錄為「無法判定」,設定修正後亦不會重試,須手動清除瀏覽器儲存。此行為已明確排除。
+  若將呼叫失敗記為 <code class="in">U</code>,則端點填寫錯誤、函式未部署、權限未設定等情形,將被永久記錄為「無法判定」;設定修正後亦不再重試,須手動清除瀏覽器儲存。本行為已明確排除。
 </div>
 
 <h3>6.4 代理對 UPS 之呼叫</h3>
@@ -481,11 +481,11 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
   代理服務以 <code class="in">auth.getUser()</code> 驗證呼叫者為有效的 Supabase 使用者。系統目前運行於本機帳號模式,不建立 Supabase 工作階段,所有請求將回傳 <code class="in">401</code>,計價全數回退至系統判定。
 </div>
 
-<p>此限制不影響第 3、4 節的執行價值 —— 該二節驗證的是代理服務與 UPS 憑證,與用戶端認證方式無關,完成後即為可重複使用的基礎設施。第 5 節之設定須待認證模式切換並完成資料轉移後方能生效。</p>
+<p>本限制不影響第 3、4 節之執行價值:該二節所驗證者為代理服務與 UPS 憑證,與用戶端認證方式無關,完成後即為可重複使用之基礎設施。第 5 節之設定,須待認證模式切換並完成資料轉移後方能生效。</p>
 
 <h3>7.2 每帳號獨立憑證</h3>
 
-<p>若各使用者需使用各自的 UPS 配額,代理服務須改為依呼叫者身分查詢對應憑證:憑證存放於僅伺服器端可讀取的資料表,代理以已驗證的使用者身分取得該筆憑證。端點網址仍為全體共用。此模式的前提同樣為具備真實使用者身分。</p>
+<p>若各使用者需使用各自之 UPS 配額,代理服務須改為依呼叫者身分查詢對應憑證:憑證存放於僅伺服器端可讀取之資料表,代理以已驗證之使用者身分取得該筆憑證。端點網址仍為全體共用。此模式的前提同樣為具備真實使用者身分。</p>
 
 <h3>7.3 導入前評估</h3>
 
@@ -494,7 +494,7 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
   於 <code class="in">priceShipment()</code> 中,API 回傳結果之優先序高於帳單代碼與帳單歷史。凡 API 能夠判定之貨件,其住宅／商業分類均以 API 結果為準,包含帳單已載明住宅代碼者。
 </div>
 
-<p>啟用後受影響的並非僅有原本判定不確定的少數貨件,而是全部可判定貨件,計價結果將隨之變動。</p>
+<p>啟用後受影響者,非僅原判定不確定之少數貨件,而係全部可判定貨件,計價結果將隨之變動。</p>
 
 <p><strong>建議程序:</strong>先於單一帳號啟用,以同一期帳單分別於啟用與停用狀態執行重算,比對總額與住宅／商業筆數差異,確認 UPS 地址分類與帳單代碼之不一致比例後,再行推廣。</p>
 
@@ -502,13 +502,13 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 
 <table>
   <tr><th style="width:44%">畫面訊息</th><th>成因與處置</th></tr>
-  <tr><td>已選「連動 API」但沒有填代理端點</td><td>端點欄位為空,見 5 節</td></tr>
+  <tr><td>已選取「連動 API」,但未填寫代理端點</td><td>端點欄位為空,見第 5 節</td></tr>
   <tr><td>API 代理呼叫失敗(HTTP 401)</td><td>無有效認證工作階段,見 7.1</td></tr>
   <tr><td>API 代理呼叫失敗(HTTP 404)</td><td>端點網址錯誤或函式未部署,見 3.4</td></tr>
   <tr><td>API 代理呼叫失敗(HTTP 500)</td><td>代理端 UPS 憑證未設定,見 3.3</td></tr>
   <tr><td>N 個地址呼叫失敗</td><td>部分請求失敗,該部分回退系統判定。<strong>失敗結果不寫入快取,下次重算自動重試</strong></td></tr>
-  <tr><td>API 沒有回傳任何住/商分類</td><td>UPS 對該批地址均回傳 U(無法判定)</td></tr>
-  <tr><td>選取連動 API,面板顯示「系統設定」</td><td>端點未填寫。面板顯示實際生效之來源,見 5 節</td></tr>
+  <tr><td>API 未回傳任何住宅／商業分類</td><td>UPS 對該批地址均回傳 U(無法判定)</td></tr>
+  <tr><td>已選取「連動 API」,面板仍顯示「系統設定」</td><td>端點未填寫;面板顯示實際生效之來源,見第 5 節</td></tr>
 </table>
 
 <h3>8.1 狀態碼速查</h3>
