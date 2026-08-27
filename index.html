@@ -15,6 +15,7 @@
   --neg:#b3261e; --run:#351c15; --run-hover:#1f100b;
   --run2:#8a6104; --run2-hover:#6b4b03; --muted:#8a755a;
   --rad:9px; --bw:2px; --bstyle:solid; --bcol:var(--accent);
+  --ink:var(--text);
   --resi:#8e3b5e; --resi-bg:#f7e7ee; --com:#1f5d86; --com-bg:#e4eef6;
   --ups:#6b5847; --ups-bg:#efe7d8; --rp:#8a6104; --rp-bg:#fff2cc;
 }
@@ -234,15 +235,24 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .bkgrid .selw>select{font-size:12px;padding:5px 26px 5px 10px;border-radius:9px}
 /* 預設門檻沒有「原值」那一欄 —— 這裡填的就是原值本身 */
 .dtgrid{grid-template-columns:1fr 120px}
-/* 利潤報表的兩個選項:一個是勾選框,不是一句話配一個小方塊 —— 整塊都可以點。 */
-.proption{display:flex;gap:11px;align-items:flex-start;padding:12px 14px;margin-bottom:10px;
+/* 利潤報表的兩個選項。原本上下疊兩段字,兩段都在講「向客戶收多少、UPS 收
+   多少、差多少」—— 同一組詞排兩次,看起來當然一樣。改成把兩份檔案的長相
+   直接畫出來並排:一邊是一列一種費用、兩欄並排比;一邊是一列一期、往下疊。
+   縮圖用的是活頁簿裡真正的那幾個底色,不是隨手挑的裝飾色 —— 看到的就是
+   等一下打開會看到的。紙在每個主題下都是白的,Excel 也是。 */
+.prgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+@media (max-width:560px){ .prgrid{grid-template-columns:1fr} }
+.proption{display:flex;flex-direction:column;padding:12px 13px 13px;
   border:2px solid var(--line);border-radius:12px;background:var(--panel);cursor:pointer;
   transition:border-color .14s,background .14s}
 .proption:hover{border-color:var(--accent);background:var(--select)}
 .proption.on{border-color:var(--accent)}
+.prthumb{display:block;width:100%;max-width:154px;height:auto;margin:2px auto 11px;
+  border-radius:5px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.2))}
+.prhd{display:flex;align-items:center;gap:8px}
 /* 圓鈕自己畫,和站上的方框勾選同一組顏色 */
 .proption input[type="radio"]{appearance:none;-webkit-appearance:none;flex:none;
-  margin:3px 0 0;width:15px;height:15px;border:2px solid var(--line);border-radius:50%;
+  margin:0;width:15px;height:15px;border:2px solid var(--line);border-radius:50%;
   background:var(--panel);cursor:pointer;position:relative;
   transition:background .12s,border-color .12s}
 .proption input[type="radio"]:hover{border-color:var(--accent)}
@@ -250,11 +260,20 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .proption input[type="radio"]:checked::after{content:"";position:absolute;
   left:2.5px;top:2.5px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
 .proption input[type="radio"]:focus-visible{outline:3px solid var(--run2);outline-offset:2px}
-.proption b{display:block;font-size:13.5px;color:var(--ink)}
+.proption b{font-size:13.5px;color:var(--text)}
 .proption i{display:block;font-style:normal;font-size:12px;color:var(--muted);
-  line-height:1.6;margin-top:3px}
+  line-height:1.6;margin-top:6px;
+  /* 兩張卡片的敘述句長短不一,中文更短 —— 給兩行的高度,底下的分頁數
+     才會齊平,不然一邊高一邊低,像沒排過。 */
+  min-height:3.2em}
+/* 分頁數是兩者最硬的差別:一份兩張、一份一張。給它一個獨立的位置,
+   不要混在敘述句裡被讀過去。 */
+.proption em{align-self:flex-start;font-style:normal;font-size:11px;color:var(--muted);
+  margin-top:8px;padding:1.5px 8px;border:1px solid var(--line);border-radius:20px;
+  line-height:1.5}
+/* 最後一行是「現在手上有多少」,兩張卡片都貼齊底部才好對照。 */
 .proption u{display:block;text-decoration:none;font-size:11.5px;color:var(--accent);
-  font-family:Consolas,monospace;margin-top:5px}
+  font-family:Consolas,monospace;margin-top:auto;padding-top:9px}
 .proption.off{opacity:.5;cursor:default}
 .proption.off:hover{border-color:var(--line);background:var(--panel)}
 .bkgrid .selw::after{right:10px}
@@ -1626,23 +1645,29 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 </div>
 
 <div id="prBg" class="modalbg">
-  <div class="modal sketch" id="prModal" style="width:min(580px,100%)">
+  <div class="modal sketch" id="prModal" style="width:min(640px,100%)">
     <div class="modalhd">
       <span data-i18n="hd.profitrep">Profit report</span>
       <button class="mx" id="prX">✕</button>
     </div>
     <div class="modalbody">
-      <p class="hint" style="margin:0 0 12px" data-i18n="hint.profitrep">Two ways of looking at the same money: one invoice in depth, or every period side by side. Pick one.</p>
-      <label class="proption" id="prLabInv">
-        <input type="radio" name="prPick" id="prInv">
-        <span><b data-i18n="lb.prinv">This invoice</b>
-          <i data-i18n="lb.prinvsub">Summary plus the cost breakdown — what was charged, what UPS billed, and the difference on every kind of charge.</i>
-          <u id="prInvWhat"></u></span></label>
-      <label class="proption" id="prLabPer">
-        <input type="radio" name="prPick" id="prPer">
-        <span><b data-i18n="lb.prper">All periods</b>
-          <i data-i18n="lb.prpersub">One row per invoice period — shipments, charged, billed, profit and margin, with a total.</i>
-          <u id="prPerWhat"></u></span></label>
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.profitrep">Same money, two cuts — down one invoice, or across every period. Pick one.</p>
+      <div class="prgrid">
+        <label class="proption" id="prLabInv">
+          <svg class="prthumb" viewBox="0 0 150 104" aria-hidden="true"><rect x="10" y="2" width="138" height="94" rx="4" fill="#fff" stroke="#c6cbd3"/><rect x="2" y="8" width="138" height="94" rx="4" fill="#fff" stroke="#c6cbd3"/><rect x="8" y="14" width="32" height="11" rx="1" fill="#E8E2D6"/><rect x="43" y="14" width="17" height="11" rx="1" fill="#DDEBF7"/><rect x="62" y="14" width="17" height="11" rx="1" fill="#DDEBF7"/><rect x="82" y="14" width="17" height="11" rx="1" fill="#FCE4D6"/><rect x="101" y="14" width="17" height="11" rx="1" fill="#FCE4D6"/><rect x="121" y="14" width="13" height="11" rx="1" fill="#E8E2D6"/><rect x="8" y="29" width="32" height="9" rx="1" fill="#edeff2"/><rect x="43" y="29" width="17" height="9" rx="1" fill="#EFF6FD"/><rect x="62" y="29" width="17" height="9" rx="1" fill="#EFF6FD"/><rect x="82" y="29" width="17" height="9" rx="1" fill="#FDF3EC"/><rect x="101" y="29" width="17" height="9" rx="1" fill="#FDF3EC"/><rect x="121" y="29" width="13" height="9" rx="1" fill="#edeff2"/><rect x="8" y="42" width="32" height="9" rx="1" fill="#edeff2"/><rect x="43" y="42" width="17" height="9" rx="1" fill="#EFF6FD"/><rect x="62" y="42" width="17" height="9" rx="1" fill="#EFF6FD"/><rect x="82" y="42" width="17" height="9" rx="1" fill="#FDF3EC"/><rect x="101" y="42" width="17" height="9" rx="1" fill="#FDF3EC"/><rect x="121" y="42" width="13" height="9" rx="1" fill="#edeff2"/><rect x="8" y="55" width="32" height="9" rx="1" fill="#edeff2"/><rect x="43" y="55" width="17" height="9" rx="1" fill="#EFF6FD"/><rect x="62" y="55" width="17" height="9" rx="1" fill="#EFF6FD"/><rect x="82" y="55" width="17" height="9" rx="1" fill="#FDF3EC"/><rect x="101" y="55" width="17" height="9" rx="1" fill="#FDF3EC"/><rect x="121" y="55" width="13" height="9" rx="1" fill="#edeff2"/><rect x="8" y="68" width="32" height="9" rx="1" fill="#edeff2"/><rect x="43" y="68" width="17" height="9" rx="1" fill="#EFF6FD"/><rect x="62" y="68" width="17" height="9" rx="1" fill="#EFF6FD"/><rect x="82" y="68" width="17" height="9" rx="1" fill="#FDF3EC"/><rect x="101" y="68" width="17" height="9" rx="1" fill="#FDF3EC"/><rect x="121" y="68" width="13" height="9" rx="1" fill="#edeff2"/><rect x="8" y="83" width="126" height="11" rx="1" fill="#FFF2CC"/></svg>
+          <span class="prhd"><input type="radio" name="prPick" id="prInv">
+            <b data-i18n="lb.prinv">This invoice</b></span>
+          <i data-i18n="lb.prinvsub">What this invoice is made of. A row per charge type — your price beside what UPS billed.</i>
+          <em data-i18n="lb.prinvsh">2 sheets · Summary + Cost breakdown</em>
+          <u id="prInvWhat"></u></label>
+        <label class="proption" id="prLabPer">
+          <svg class="prthumb" viewBox="0 0 150 104" aria-hidden="true"><rect x="6" y="6" width="138" height="94" rx="4" fill="#fff" stroke="#c6cbd3"/><rect x="12" y="11" width="30" height="9" rx="1" fill="#E8E2D6"/><rect x="46" y="11" width="21" height="9" rx="1" fill="#E8E2D6"/><rect x="70" y="11" width="21" height="9" rx="1" fill="#E8E2D6"/><rect x="94" y="11" width="21" height="9" rx="1" fill="#E8E2D6"/><rect x="118" y="11" width="20" height="9" rx="1" fill="#E8E2D6"/><rect x="12" y="23" width="30" height="5" rx="1" fill="#dde1e7"/><rect x="46" y="23" width="21" height="5" rx="1" fill="#edeff2"/><rect x="70" y="23" width="21" height="5" rx="1" fill="#edeff2"/><rect x="94" y="23" width="21" height="5" rx="1" fill="#edeff2"/><rect x="118" y="23" width="20" height="5" rx="1" fill="#edeff2"/><rect x="12" y="31" width="30" height="5" rx="1" fill="#dde1e7"/><rect x="46" y="31" width="21" height="5" rx="1" fill="#edeff2"/><rect x="70" y="31" width="21" height="5" rx="1" fill="#edeff2"/><rect x="94" y="31" width="21" height="5" rx="1" fill="#edeff2"/><rect x="118" y="31" width="20" height="5" rx="1" fill="#edeff2"/><rect x="12" y="39" width="30" height="5" rx="1" fill="#dde1e7"/><rect x="46" y="39" width="21" height="5" rx="1" fill="#edeff2"/><rect x="70" y="39" width="21" height="5" rx="1" fill="#edeff2"/><rect x="94" y="39" width="21" height="5" rx="1" fill="#edeff2"/><rect x="118" y="39" width="20" height="5" rx="1" fill="#edeff2"/><rect x="12" y="47" width="30" height="5" rx="1" fill="#dde1e7"/><rect x="46" y="47" width="21" height="5" rx="1" fill="#edeff2"/><rect x="70" y="47" width="21" height="5" rx="1" fill="#edeff2"/><rect x="94" y="47" width="21" height="5" rx="1" fill="#edeff2"/><rect x="118" y="47" width="20" height="5" rx="1" fill="#edeff2"/><rect x="12" y="55" width="30" height="5" rx="1" fill="#dde1e7"/><rect x="46" y="55" width="21" height="5" rx="1" fill="#edeff2"/><rect x="70" y="55" width="21" height="5" rx="1" fill="#edeff2"/><rect x="94" y="55" width="21" height="5" rx="1" fill="#edeff2"/><rect x="118" y="55" width="20" height="5" rx="1" fill="#edeff2"/><rect x="12" y="63" width="30" height="5" rx="1" fill="#dde1e7"/><rect x="46" y="63" width="21" height="5" rx="1" fill="#edeff2"/><rect x="70" y="63" width="21" height="5" rx="1" fill="#edeff2"/><rect x="94" y="63" width="21" height="5" rx="1" fill="#edeff2"/><rect x="118" y="63" width="20" height="5" rx="1" fill="#edeff2"/><rect x="12" y="71" width="30" height="5" rx="1" fill="#dde1e7"/><rect x="46" y="71" width="21" height="5" rx="1" fill="#edeff2"/><rect x="70" y="71" width="21" height="5" rx="1" fill="#edeff2"/><rect x="94" y="71" width="21" height="5" rx="1" fill="#edeff2"/><rect x="118" y="71" width="20" height="5" rx="1" fill="#edeff2"/><rect x="12" y="82" width="126" height="9" rx="1" fill="#FFF2CC"/></svg>
+          <span class="prhd"><input type="radio" name="prPick" id="prPer">
+            <b data-i18n="lb.prper">All periods</b></span>
+          <i data-i18n="lb.prpersub">How profit moves across periods. A row per invoice period, oldest to newest, with a total.</i>
+          <em data-i18n="lb.prpersh">1 sheet · Profit by period</em>
+          <u id="prPerWhat"></u></label>
+      </div>
       <div id="prNote" class="savenote" style="margin-top:4px"></div>
     </div>
     <div class="modalft">
@@ -8063,15 +8088,20 @@ function prPaint(){
   const keys=dashCurKeys();
   const iw=$("#prInvWhat");
   if(iw) iw.textContent=a.inv
-    ? [keys[0]||"", RATED.length.toLocaleString()+L(" 筆貨件"," shipments")]
+    ? [keys[0]||"", RATED.length.toLocaleString()
+        +L(" 筆貨件", RATED.length===1?" shipment":" shipments")]
         .filter(Boolean).join("  ·  ")
     : L("目前還沒有算好的報表","No report has been run yet");
   const pw=$("#prPerWhat");
+  /* 兩張卡片底下這一行要對得起來:左邊是「哪一期 · 幾筆」,右邊就寫「幾期 ·
+     什麼狀態」,一行,同樣的節奏。還沒重算的時候用歸檔索引的期數 —— 那是
+     已經知道的數字,不必為了寫這一行先跑十九期。 */
+  const nper=(n,zh,en)=>n+L(" 期  ·  "+zh, (n===1?" period":" periods")+"  ·  "+en);
   if(pw) pw.textContent=!a.per
-    ? L("帳單歷史裡還沒有期別","Nothing filed to history yet")
+    ? L("還沒有歸檔的期別","Nothing filed yet")
     : (a.perReady
-        ? dashFilter(DASH_ALL_CACHE.data).length+L(" 期(依上方的篩選)"," periods, as filtered above")
-        : L("尚未重算,按下下載會先算一次","not repriced yet — downloading will compute it first"));
+        ? nper(dashFilter(DASH_ALL_CACHE.data).length, "依上方篩選", "as filtered")
+        : nper(dashPeriods().length, "下載時重算", "reprices on download"));
   const go=$("#prGo");
   if(go) go.disabled=!(($("#prInv")&&$("#prInv").checked)||($("#prPer")&&$("#prPer").checked));
 }
@@ -8200,11 +8230,6 @@ function prSheetPeriods(){
                    cols:[20,12,16,10,16,16,14,10,16,38].map(w=>({w:w})),
                    freeze:{r:1,c:0}}],
           accts:accts, last:last, n:nOk};
-}
-/* 篩選只改畫面h(()=>{
-    setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
-                "Export failed: xlsx-0.18.5.full.min.js did not load. Check it sits next to index.html"));
-  });
 }
 /* 篩選只改畫面,資料留在 DASH_ALL_CACHE 裡 —— 切一次條件要是重跑十九期,
    沒有人會去切第二次。 */
@@ -10885,11 +10910,13 @@ const I18N={
   "btn.chandim":["設定渠道除數","Set Channel DIM"],
   "btn.defthr":["預設門檻","Default Thresholds"],
   "hd.profitrep":["利潤報表","Profit report"],
-  "hint.profitrep":["同一筆錢的兩種看法:一期看得深,或每一期並排看。挑一種。","Two ways of looking at the same money: one invoice in depth, or every period side by side. Pick one."],
+  "hint.profitrep":["同一筆錢的兩種切法 —— 往一期裡切深,或橫著切過每一期。挑一種。","Same money, two cuts — down one invoice, or across every period. Pick one."],
   "lb.prinv":["本期","This invoice"],
-  "lb.prinvsub":["摘要加費用組成 —— 向客戶收多少、UPS 收多少,以及每一種費用兩邊差多少。","Summary plus the cost breakdown — what was charged, what UPS billed, and the difference on every kind of charge."],
+  "lb.prinvsub":["這一期的費用組成。一列一種費用 —— 你的價錢和 UPS 收的並排。","What this invoice is made of. A row per charge type — your price beside what UPS billed."],
+  "lb.prinvsh":["兩張分頁 · 摘要 + 費用組成","2 sheets · Summary + Cost breakdown"],
   "lb.prper":["各期","All periods"],
-  "lb.prpersub":["一期一列 —— 貨件數、向客戶收、UPS、毛利與毛利率,含合計。","One row per invoice period — shipments, charged, billed, profit and margin, with a total."],
+  "lb.prpersub":["各期利潤的走向。一列一期,由舊到新,含合計。","How profit moves across periods. A row per invoice period, oldest to newest, with a total."],
+  "lb.prpersh":["一張分頁 · 各期利潤","1 sheet · Profit by period"],
   "btn.prgo":["下載 (.xlsx)","Download (.xlsx)"],
   "hd.defthr":["預設門檻","Default thresholds"],
   "hint.defthr":["這是所有渠道在沒有自訂值時共同遵循的門檻。在這裡改一個,所有沒有自訂值的渠道都會跟著改。留白就是不使用那一條。","These are the thresholds every channel follows unless it has been given its own. Change one here and every channel without its own value moves with it. Leave a field blank to switch that rule off."],
@@ -11115,6 +11142,9 @@ function applyLang(){
   });
   /* 這幾處是算出來的字,不是 data-i18n,切語言要自己重寫 */
   paintBuild();
+  /* 利潤報表卡片底下那兩行是 JS 寫的,不吃 data-i18n —— 開著視窗切語言的話
+     兩張卡片會停在另一種語言。 */
+  if($("#prInvWhat") && typeof prPaint==="function"){ try{ prPaint(); }catch(e){} }
   if(typeof CFG!=="undefined" && CFG){
     paintAccFuelSum();
     if($("#afBg") && $("#afBg").classList.contains("on")) renderAccFuel();
