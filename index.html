@@ -1890,6 +1890,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <span class="row" style="gap:10px">
         <button class="act ghost" id="stBack" hidden>← <span data-i18n="btn.backlist">Back to the list</span></button>
         <button class="act danger" id="stDelete" disabled>🗑 <span data-i18n="btn.delinv">Delete selected</span></button>
+        <button class="act ghost" id="stExportAll">📗 <span data-i18n="btn.exphist">Export all history</span></button>
         <span id="stDelNote" style="font-size:12.5px;color:var(--muted)"></span>
       </span>
       <button class="act ghost" id="stClose" data-i18n="btn.close">Close</button>
@@ -5556,6 +5557,13 @@ $("#fHist").onchange=e=>{
        同一期號重匯的先把舊那期濾掉,fileInvoices 也是整期取代。
        索引只記這次匯入的那幾期 —— 整份丟進去會把每一期的匯入時間
        都改成現在。 */
+    /* 每一列記下它從哪個檔案來。匯出的 Source File 欄靠它 —— 一批可以
+       一次選好幾個檔,列本身不記的話就分不出來了。舊的期別沒有這一欄,
+       那是實話:當時沒存。 */
+    rowsByFile.forEach((rs,i)=>{
+      const nm=(valid[i]&&valid[i].name)||"";
+      if(nm) for(const r of rs) r.src=nm;
+    });
     const fresh=[].concat(...rowsByFile);
     const again=new Set(fresh.map(r=>(r.invoice||"").trim()).filter(Boolean));
     HISTROWS=(HISTROWS||[]).filter(r=>!again.has((r.invoice||"").trim())).concat(fresh);
@@ -7075,6 +7083,245 @@ function stPreviewHTML(key, rows){
    檔案裡全部列出來 —— 會匯出的人是要拿去對帳的,不是要瞄一眼。
    樣式和異常報表同一套:第一列一條合併的區塊標題、第二列才是欄名、
    金額欄藍底(這一整份都是 UPS 收的,沒有重算那一側)、每一格補框線。 */
+/* =====================================================================
+   全部歷史匯出 —— 和 UPS_Billing_Audit_Center.py 的 Export Invoice History
+   同一本活頁簿:三張表、同一組欄名、同一個順序、同一套格式。
+   那支工具的欄位名是給人拿去和 UPS 帳單對照的,自己另外取一套名字,兩邊
+   就沒辦法並排看。
+   ===================================================================== */
+/* py 的 shipment_type_from_description():同一列可能 AS 都是 003,
+   SHP / ADJ / RTN 得先看描述才判得出來。 */
+function pyShipmentType(ai, desc){
+  const a=String(ai||"").trim().toUpperCase();
+  const d=String(desc||"").trim().toLowerCase();
+  if(d.indexOf("shipping charge correction")>=0) return "ADJ";
+  if(d.indexOf("adjustment")>=0) return "ADJ";
+  if(a==="ADJ") return "ADJ";
+  if(d.indexOf("return")>=0 || d.indexOf("undeliverable return")>=0) return "RTN";
+  if(a==="SHP"||a==="ADJ"||a==="RTN") return a;
+  return "SHP";
+}
+/* py 的 AS_CODE_MAPPING。同一種附加費被 UPS 拆成好幾個代碼收(大包裹的
+   體積／重量變體、簽名的商住兩面),在這裡收回同一個名字。 */
+const PY_AS_FEE={
+  FSC:"Fuel Surcharge", EVS:"Declared Value", RES:"Residential Surcharge",
+  AHG:"Additional Handling Surcharge - Dimension",
+  AHL:"Additional Handling Surcharge - Dimension",
+  AHS:"Additional Handling Surcharge - Dimension",
+  AHW:"Additional Handling Surcharge - Weight",
+  AHP:"Additional Handling Surcharge - Packaging",
+  AHC:"Additional Handling Surcharge - Packaging",
+  RDC:"Delivery Area Surcharge - Commercial",
+  RDR:"Delivery Area Surcharge - Residential",
+  LDC:"Delivery Area Surcharge - Extended Commercial",
+  LDR:"Delivery Area Surcharge - Extended Residential",
+  CAC:"Remote Area Surcharge - Commercial",
+  CAR:"Remote Area Surcharge - Residential",
+  HIC:"Remote Area Surcharge - Commercial",
+  HIR:"Remote Area Surcharge - Residential",
+  AKR:"Remote Area Surcharge",
+  LPS:"Large Package Surcharge", LPR:"Large Package Surcharge",
+  LCT:"Large Package Surcharge", LCR:"Large Package Surcharge",
+  LCC:"Large Package Surcharge", LWC:"Large Package Surcharge",
+  LWR:"Large Package Surcharge",
+  DCS:"Signature", CSG:"Signature", SIG:"Signature",
+  ADS:"Adult Signature", ASG:"Adult Signature",
+  ERL:"Returns Electronic Label",
+  OVR:"Over Maximum Size", OML:"Over Maximum Size",
+  ISW:"Return To Sender - Web Request", IRW:"Reroute - Web Request",
+  AFW:"Future Day Pickup - Alternate Address - Web Request",
+  REP:"Residential Pickup surcharge",
+};
+const PY_LP=["LPS","LPR","LCT","LCR"];
+/* py 的 classify_fee()。順序就是規則,不能重排:地址更正要在運費那條
+   之前,運費更正要在「哪一段」之前,AS 代碼表要在描述比對之前。 */
+function feeColumnOf(l){
+  const ai =String((l&&l.ai)||"").trim().toUpperCase();
+  const aj =String((l&&l.detail)||"").trim().toUpperCase();
+  const ar =String((l&&l.cls)||"").trim().toUpperCase();
+  const as =String((l&&l.code)||"").trim().toUpperCase();
+  const at =String((l&&l.desc)||"").trim(), low=at.toLowerCase();
+  const has=k=>low.indexOf(k)>=0;
+  if(has("return to sender - web request")) return "Return To Sender - Web Request";
+  /* 地址更正掛在 AR=FRT 底下,不擋下來就會被當成運費併進 Base Rate。 */
+  if(ai==="ADJ" && aj==="ADC" && ar==="FRT") return "Address Correction";
+  const frt = (ar==="FRT" || as==="FRT" || as==="3" || as==="003");
+  if(frt){
+    if(has("shipping charge correction")) return "Shipping Charge Correction";
+    if(has("undeliverable return")) return "Undeliverable Return";
+    if(aj==="DIN"||aj==="RTS"||has("return to sender"))
+      return "Return to Sender - Base Rate";
+    const st=pyShipmentType(ai,at);
+    if(st==="RTN"||aj==="RS") return "Returns - Base Rate";
+    if(st==="ADJ") return "Base Rate Adjustment";
+    return "Base Rate";
+  }
+  if(as==="COM") return "Base Rate Adjustment";
+  if(PY_AS_FEE[as]) return PY_AS_FEE[as];
+  if(PY_LP.indexOf(ar)>=0 || PY_LP.indexOf(as)>=0) return "Large Package Surcharge";
+  if(ar==="ERL"||as==="ERL") return "Returns Electronic Label";
+  if(has("fuel")) return "Fuel Surcharge";
+  if(has("declared value")||has("insured value")) return "Declared Value";
+  if(has("residential surcharge")) return "Residential Surcharge";
+  /* 帶不出代碼的更正列才走這裡,照字面判。一般的 SCC 早在上面就答完了。 */
+  if(has("shipping charge correction")){
+    if(has("over maximum")||as==="OVR") return "Over Maximum Size";
+    if(has("weight")||as==="AHW") return "Additional Handling Surcharge - Weight";
+    const dim=["second long","second longest","longest side","length+girth",
+               "length + girth","length","girth","dimension","cubic"];
+    if(dim.some(has)||as==="AHG"||as==="AHL"||as==="AHS")
+      return "Additional Handling Surcharge - Dimension";
+    if(has("packaging")||has("irregular")||as==="AHP"||as==="AHC")
+      return "Additional Handling Surcharge - Packaging";
+    if(has("large package")||PY_LP.indexOf(as)>=0) return "Large Package Surcharge";
+  }
+  if(has("length+girth")||has("length + girth")||has("longest side"))
+    return "Additional Handling Surcharge - Dimension";
+  if(has("handling weight")||has("addl. handling weight"))
+    return "Additional Handling Surcharge - Weight";
+  if(has("handling")&&(has("dimension")||has("girth")))
+    return "Additional Handling Surcharge - Dimension";
+  if(has("over maximum")) return "Over Maximum Size";
+  if(has("packaging")) return "Additional Handling Surcharge - Packaging";
+  if(has("large package")) return "Large Package Surcharge";
+  if(has("delivery area surcharge")){
+    if(as==="LDC") return "Delivery Area Surcharge - Extended Commercial";
+    if(as==="LDR") return "Delivery Area Surcharge - Extended Residential";
+    if(as==="RDC") return "Delivery Area Surcharge - Commercial";
+    if(as==="RDR") return "Delivery Area Surcharge - Residential";
+    if(has("extended")&&has("residential"))
+      return "Delivery Area Surcharge - Extended Residential";
+    if(has("extended")) return "Delivery Area Surcharge - Extended Commercial";
+    if(has("residential")) return "Delivery Area Surcharge - Residential";
+    return "Delivery Area Surcharge - Commercial";
+  }
+  if(has("remote area")){
+    if(as==="CAC"||as==="HIC") return "Remote Area Surcharge - Commercial";
+    if(as==="CAR"||as==="HIR") return "Remote Area Surcharge - Residential";
+    if(as==="AKR") return "Remote Area Surcharge";
+    if(has("residential")) return "Remote Area Surcharge - Residential";
+    if(has("commercial")) return "Remote Area Surcharge - Commercial";
+    /* 沒有代碼也沒寫商住就不要猜,留在通用那一格,至少看得到。 */
+    return "Remote Area Surcharge";
+  }
+  const ground=["ground commercial","ground commercial third party",
+    "ground residential third party","returns ground",
+    "shipping charge correction ground","ground return to sender third party",
+    "ground undeliverable return"];
+  if(ground.some(has)) return ai==="ADJ"?"Base Rate Adjustment":"Base Rate";
+  /* 不歸到含糊的「其他」:先用帳單自己的描述,再退回代碼。 */
+  return at || as || "Unmapped Charge";
+}
+/* 這一批列裡,一個追蹤號的渠道是什麼:運費那一行的描述。 */
+function pyChannelOf(lines){
+  const frt=(lines||[]).find(l=>isFreightLine(l));
+  return String((frt&&frt.desc)||"").trim();
+}
+async function histExportAll(){
+  const rows=HISTROWS||[];
+  if(!rows.length){
+    setStatus(L("歷史庫是空的,沒有東西可以匯出",
+                "History is empty — nothing to export")); return;
+  }
+  const inv=histInv();
+  const D="m/d/yyyy", MONEY="$#,##0.00;-$#,##0.00;$0.00";
+  const serial=v=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(normYmd(String(v||""))||"");
+    return m?Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000):null;
+  };
+  /* 一個追蹤號一組,同一期算一組 —— 同一個追蹤號跨兩期就是兩列,各記各的。 */
+  const byTrk=new Map(), chanOf=new Map(), latest=new Map();
+  for(const r of rows){
+    const t=String(r.tracking||"").trim(); if(!t) continue;
+    const k=String(r.invoice||"").trim()+"␟"+t;
+    if(!byTrk.has(k)) byTrk.set(k,[]);
+    byTrk.get(k).push(r);
+  }
+  for(const [k,ls] of byTrk){
+    const t=k.split("␟")[1];
+    const ch=pyChannelOf(ls);
+    const d=normYmd((ls[0]||{}).invDate||"")||"";
+    /* 渠道查詢那張表一個追蹤號一列,取最近一期看到的那個渠道。 */
+    if(ch && (!latest.has(t) || d>latest.get(t))){ latest.set(t,d); chanOf.set(t,{ch, ls}); }
+  }
+  const srcOf=l=>String((l&&l.src)||"").trim();
+
+  /* ---- Channels:一個追蹤號一列 ---- */
+  const chRows=[...chanOf.entries()].map(([t,o])=>{
+    const l=o.ls[0]||{};
+    const key=String(l.invoice||"").trim();
+    return [t, o.ch, key, serial(l.invDate), srcOf(l),
+            String((inv[key]||{}).at||"").replace("T"," ")];
+  }).sort((a,b)=>(b[3]||0)-(a[3]||0) || String(a[0]).localeCompare(String(b[0])));
+
+  /* ---- Shipments:一期一個追蹤號一列 ---- */
+  const shRows=[...byTrk.entries()].map(([k,ls])=>{
+    const l=ls[0]||{};
+    const frt=ls.find(x=>isFreightLine(x))||l;
+    const pick=f=>{ for(const x of ls) if(x&&x[f]) return x[f]; return ""; };
+    return [String(l.invoice||"").trim(), serial(l.invDate), serial(frt.shipDate),
+            k.split("␟")[1], pyChannelOf(ls), String(frt.zone||""),
+            toNum(frt.entered), toNum(frt.billed),
+            String(pick("dimsC")||""), String(pick("dimsA")||""),
+            Math.round(ls.reduce((a,x)=>a+toNum(x.net),0)*100)/100, srcOf(l)];
+  }).sort((a,b)=>(b[1]||0)-(a[1]||0) || String(a[0]).localeCompare(String(b[0]))
+                 || String(a[3]).localeCompare(String(b[3])));
+
+  /* ---- Charges:一行帳單一列 ---- */
+  const cgRows=rows.map(l=>[
+    String(l.invoice||"").trim(), String(l.tracking||"").trim(),
+    pyShipmentType(l.ai, l.desc), String(l.desc||""), String(l.code||""),
+    String(l.cls||""), feeColumnOf(l), toNum(l.net), srcOf(l)
+  ]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))
+                 || String(a[1]).localeCompare(String(b[1])));
+
+  /* 格式照 py 的 write_sheet:標題列黑字不粗體、置中、自動換行,凍結
+     首列、整張表開篩選,金額欄套 $ 格式,欄寬取標題與前 500 列的最長值
+     加 2,夾在 10 和 42 之間。 */
+  const MONEYCOL=new Set(["Total Amount","Amount"]);
+  const DATECOL=new Set(["Invoice Date","Transaction Date"]);
+  const sheet=(name,head,body)=>{
+    const wid=head.map((h,i)=>{
+      let n=String(h).length;
+      for(const r of body.slice(0,500)){
+        const v=r[i]; if(v==null) continue;
+        const t=DATECOL.has(h)?10:String(v).length;
+        if(t>n) n=t;
+      }
+      return {w:Math.min(42,Math.max(10,n+2))};
+    });
+    const rowsOut=[head.map(h=>({v:h,t:"s",s:{align:"center",wrap:true,border:true}}))];
+    for(const r of body) rowsOut.push(r.map((v,i)=>{
+      const h=head[i];
+      if(DATECOL.has(h)) return v==null?"":{v:v,t:"n",s:{fmt:D,align:"right"}};
+      if(MONEYCOL.has(h)) return {v:toNum(v),t:"n",s:{fmt:MONEY,align:"right"}};
+      return {v:v==null?"":String(v),t:"s"};
+    }));
+    return {name, rows:rowsOut, cols:wid, freeze:{r:1,c:0},
+            filter:"A1:"+xlCol(head.length-1)+(body.length+1)};
+  };
+  const sheets=[];
+  if(chRows.length) sheets.push(sheet("Channels",
+    ["Tracking Number","Shipping Channel","Invoice Number","Invoice Date",
+     "Source File","Updated At"], chRows));
+  if(shRows.length) sheets.push(sheet("Shipments",
+    ["Invoice Number","Invoice Date","Transaction Date","Tracking Number",
+     "Shipping Channel","Zone","Entered Weight","Billed Weight",
+     "Package Dimensions","Detail Keyed Dim","Total Amount","Source File"], shRows));
+  if(cgRows.length) sheets.push(sheet("Charges",
+    ["Invoice Number","Tracking Number","Shipment Type","Charge Description",
+     "Charge Code","Charge Classification","Fee Column","Amount","Source File"], cgRows));
+  await xlWrite(sheets,"UPS_Invoice_History.xlsx");
+  setStatus(L(`已匯出 ${chRows.length.toLocaleString()} 個追蹤號、`
+              +`${shRows.length.toLocaleString()} 筆貨件、`
+              +`${cgRows.length.toLocaleString()} 列費用`,
+              `Exported ${chRows.length.toLocaleString()} channels, `
+              +`${shRows.length.toLocaleString()} shipments, `
+              +`${cgRows.length.toLocaleString()} charge lines`));
+}
+$("#stExportAll") && ($("#stExportAll").onclick=()=>{
+  histExportAll().catch(e=>setStatus(L("匯出失敗:","Export failed: ")+((e&&e.message)||e)));
+});
 async function stPreviewXlsx(key, rows){
   const MONEY="$#,##0.00", INT="#,##0", PCT="0.0%", DATE="mm/dd/yyyy";
   const HEAD="E8E2D6", UPSC="DDEBF7", UPSB="EFF6FD", FOOT="FFF2CC", RED="C00000";
@@ -10550,6 +10797,7 @@ async function runReport(ing, ships){
   try{
     /* 先歸檔再計價。桌面版把這一步放在最前面,理由是:計價失敗的那一期
        如果沒進歷史,下個月的跨期更正就沒有東西可以對照。 */
+    if(INV_NAME) for(const r of ing.rows) r.src=INV_NAME;
     const filed=fileInvoices(ing.rows,"run");
     if(!filed.stored)
       toast(LANG?"History index is too large for this browser to store."
@@ -11813,6 +12061,7 @@ const I18N={
   "th.start":["開始日期","Start Date"], "th.end":["結束日期","End Date"],
   "th.fuelpct":["燃油 %","Fuel %"], "th.defpct":["預設 %","Default %"],
   "btn.delticked":["刪除勾選","Delete Ticked"],
+  "btn.exphist":["匯出全部歷史","Export all history"],
   "btn.close":["關閉","Close"],
   "btn.backlist":["回到清單","Back to the list"],
   "btn.delinv":["刪除勾選的帳單","Delete selected"],
