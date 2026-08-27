@@ -9250,10 +9250,22 @@ function renderDashboard(){
      縫本身就是一種分界,不必全靠顏色。太小的塊縫不能吃掉它,所以取
      min(2, 該塊的一半)。 */
   const donut=(items,total)=>{
-    const R=56,C=2*Math.PI*R, GAP=2; let off=0;
-    const segs=items.map(([n,v,col])=>{
-      const seg=total?C*Math.abs(v)/total:0;
-      const g=Math.min(GAP,seg/2);
+    const R=56,C=2*Math.PI*R, GAP=2, MIN=4; let off=0;
+    /* 佔比很小的那幾塊,照比例畫出來只有零點幾個像素 —— 圓周長 352px,
+       0.1% 就是 0.35px,螢幕上根本不存在。五個渠道只看得到兩個顏色就是
+       這麼來的。所以給每一塊一個看得見的下限(4px,約 1.1% 的圓周),
+       多出來的長度按比例從大塊扣回去,圓周總長不變、不會畫過頭。
+       換來的是大塊被壓縮了一點點:三塊小的合計借走約 3% 的圓周。確切的
+       佔比在右邊的圖例上,一位小數,那才是拿來讀數字的地方。 */
+    const raw=items.map(([,v])=>total?C*Math.abs(v)/total:0);
+    const tiny=raw.map(v=>v>0&&v<MIN);
+    const need=raw.reduce((a,v,i)=>a+(tiny[i]?MIN-v:0),0);
+    const big=raw.reduce((a,v,i)=>a+(tiny[i]?0:v),0);
+    const k=(need>0&&big>need)?(big-need)/big:1;
+    const segs=items.map(([n,v,col],i)=>{
+      const seg=tiny[i]?MIN:raw[i]*k;
+      /* 小塊的縫要跟著縮,不然 4px 扣掉 2px 的縫又看不見了。 */
+      const g=Math.min(tiny[i]?1:GAP, seg/2);
       const draw=Math.max(0,seg-g);
       const el=`<circle cx="75" cy="75" r="${R}" fill="none" stroke="${col}" stroke-width="26"`
         +` stroke-dasharray="${draw.toFixed(2)} ${(C-draw).toFixed(2)}"`
@@ -9263,13 +9275,20 @@ function renderDashboard(){
     }).join("");
     return segs;
   };
+  const pct=(v,total)=>{
+    if(!total) return "0.0%";
+    const p=Math.abs(v)/total*100;
+    return (p>0&&p<0.05)?"<0.1%":p.toFixed(1)+"%";
+  };
   /* noAmt:只講佔比,不列金額。渠道那一張要的是「生意怎麼分布」,
      金額在上面的費用組成已經講過一次了。 */
   const pieBlock=(items,total,centerBig,centerSmall,noAmt)=>{
     const rows=items.map(([n,v,col,fold])=>`<tr${fold?' class="pfold"':""}>`
       +`<td class="pnm"><span class="pdot" style="background:${col}"></span>${fold?"↳ ":""}${esc(n)}</td>`
       +(noAmt?"":`<td class="pamt">${money(v)}</td>`)
-      +`<td class="ppct">${total?(Math.abs(v)/total*100).toFixed(1):"0.0"}%</td></tr>`).join("");
+      /* 有錢但四捨五入成 0.0% 的寫「<0.1%」—— 寫 0.0% 看起來像沒有東西,
+         而那一列的存在本身就是在說「有,只是很小」。 */
+      +`<td class="ppct">${pct(v,total)}</td></tr>`).join("");
     return `<div class="pie"><svg viewBox="0 0 150 150" width="150" height="150" role="img" aria-label="${esc(centerSmall)}">`
       +donut(items.filter(x=>x[3]!=="fold"),total)
       +`<text class="phole" x="75" y="71" text-anchor="middle" font-size="17" font-weight="700">${esc(centerBig)}</text>`
