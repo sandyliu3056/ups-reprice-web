@@ -7906,7 +7906,10 @@ function exportAllPeriods(){
   const body=[]; let tn=0,tr=0,tb=0,ta=0,nOk=0;
   for(const d of data){
     const a=dashAcctOf(d);
-    const acct=a.id?(a.id+(a.guessed?L("(推得)"," (derived)"):"")):"";
+    /* 匯出的檔案裡不寫「(推得)」。那是畫面上要講的事 —— 提醒看的人這個帳號
+       是從期號推出來的、重匯該期就會換成真的;但檔案是拿去對帳、篩選、做
+       樞紐分析的,欄位裡混一個註記,同一個帳號就變成兩種字串。 */
+    const acct=a.id||"";
     if(d.missing){
       body.push([d.key, serial(d.date), acct, 0,0,0,0,0,0,
                  L("只有索引,沒有明細,請重新匯入本期",
