@@ -549,7 +549,8 @@ td.cells{white-space:normal}
    照 .tcols 算的,所以線和點仍然對得上。 */
 #p-dash .tcols{flex:1 1 auto;min-width:0;display:flex;align-items:stretch;
   gap:5px;position:relative}
-#p-dash .tgut{flex:0 0 78px}
+/* 右邊留一點,最後一根柱子不要貼著邊 */
+#p-dash .tgut{flex:0 0 12px}
 /* 左邊那條刻度尺。標籤靠右貼著繪圖區,數字用等寬字才會一位對一位。 */
 #p-dash .tyax{flex:0 0 54px;position:relative}
 #p-dash .tyt{position:absolute;right:9px;transform:translateY(-50%);
@@ -598,11 +599,6 @@ td.cells{white-space:normal}
 #p-dash .fsegb:hover:not(.on){background:var(--select);color:var(--text)}
 #p-dash .fsegb + .fsegb{border-left:2px solid var(--line)}
 #p-dash .fsegb.on{background:var(--accent);color:var(--tab)}
-/* 平均線:虛線加一個貼在右端的標籤。實線會和資料本身搞混。 */
-#p-dash .tavg{position:absolute;left:0;right:0;height:0;
-  border-top:1px dashed var(--accent);opacity:.75;pointer-events:none;z-index:2}
-#p-dash .tavg b{position:absolute;right:0;top:-8px;font-size:10.5px;font-weight:700;
-  font-family:Consolas,monospace;color:var(--accent);background:var(--panel);padding:0 4px}
 /* 毛利率是折線:點畫在格子裡,線疊在整片繪圖區上。 */
 #p-dash .tdot{position:absolute;left:50%;width:8px;height:8px;border-radius:50%;
   margin-left:-4px;margin-top:-4px;z-index:3}
@@ -1139,6 +1135,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .dhead>button{margin-left:auto}
 #p-dash .dtitle{font-family:var(--titlefam);font-size:20px;font-weight:700;margin:0;color:var(--accent)}
 #p-dash .dsub{font-size:12.5px;color:var(--muted);margin-top:1px}
+#p-dash .dhbtns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 #p-dash .dempty{background:var(--panel);border:2px dashed var(--line);border-radius:16px;
   padding:34px 22px;text-align:center;color:var(--muted);font-size:14px;line-height:1.7}
 #p-dash .dcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;
@@ -2875,12 +2872,18 @@ function priceShipment(cfg, s, force){
                    && s.entered>0 && s.billedUPS>0
                    && Math.abs(s.billedUPS-s.entered)>0.001);
   let base=0, baseWhy=null, baseA=null, bwA=null, baseMissing=false;
+  /* 這一段到底有沒有拿服務名稱去查過費率表。沒查過,服務名稱就沒有參與這
+     一筆的任何金額 —— 只有地址更正的那種更正單身上沒有運費、也沒有 Zone,
+     「Address Correction Ground」是收費項目的描述,不是服務名稱,認不出來
+     本來就是正常的。 */
+  let ratedFreight=false;
   if(zone && s.service){
     /* py: "No ADJ weight (AA & AC = 0) - base rate skipped" ——
        只有「運費查表」跳過,附加費的 C−A(下面的 netCA 區塊)照走,
        AHS 的退款(例如 A 側長加圍觸發的 -6.08)才不會跟著消失。 */
     const lk = adjNoOwnWeight ? {rate:0, why:null, missing:false}
                               : lookupBaseRate(cfg, svc, residential, zone, bw.billable);
+    if(!adjNoOwnWeight) ratedFreight=true;
     base=lk.rate; baseWhy=lk.why; baseMissing=!!lk.missing;
     if(wPair){
       const Rw=bw.rules||{};
@@ -3253,7 +3256,7 @@ function priceShipment(cfg, s, force){
   }
   return {s, bw, bwA, residential, resBasis, resiSure, resiMoot, resiConflict, svcSure, channel, base, baseA, netCA, baseWhy,
           baseMissing, missFees:[...missFees], demand,
-          acc, accInfo, accTotal, fuel, fuelPct:fp.pct, total, issues, npb, rtn,
+          acc, accInfo, accTotal, fuel, fuelPct:fp.pct, ratedFreight, total, issues, npb, rtn,
           notRepriced:scan.notRepriced,
           unknownNet:scan.unknownNet, unknownCodes:[...(scan.unknownCodes||[])],
           unknownBy:scan.unknownBy||{},
@@ -7429,7 +7432,7 @@ function dashAgg(){
          「判不出來」這件事沒有被吞掉,它進下面的「未判定」卡片。 */
       const ch = r.channel || L("未知","Unknown");
       chanAgg[ch]=(chanAgg[ch]||0)+tot;
-      if(r.svcSure===false){ svcUnsureN++; svcUnsureAmt+=tot; }
+      if(r.svcSure===false && r.ratedFreight){ svcUnsureN++; svcUnsureAmt+=tot; }
       if(r.baseMissing||(r.missFees&&r.missFees.length)){ missN++; missAmt+=tot; }
       if(r.resiSure===false && !r.resiMoot && r.resiConflict){ unsureN++; unsureAmt+=tot;
         const k=r.resBasis||"";
@@ -7651,29 +7654,14 @@ function dashFilter(data){
   }
   return out;
 }
+/* 帳號與期間已經搬到最上面那一條(dashPickFilters),這裡只剩「看哪一個指標」
+   —— 那是這張圖自己的事,不是整頁的篩選。 */
 function dashFilterHTML(data){
-  const accts=[];
-  for(const d of data){
-    const a=dashAcctOf(d);
-    if(a.id && !accts.some(x=>x.id===a.id)) accts.push(a);
-  }
-  const opt=(v,cur,txt)=>`<option value="${esc(v)}"${v===cur?" selected":""}>${esc(txt)}</option>`;
-  const acctSel=accts.length>1
-    ? `<label class="fsel"><span>${L("帳號","Account")}</span>`
-      +`<span class="selw"><select id="dfAcct">`
-      +opt("",DASH_F.acct,L("全部帳號","All accounts"))
-      +accts.map(a=>opt(a.id,DASH_F.acct,a.id+(a.guessed?L(" (推得)"," (derived)"):""))).join("")
-      +`</select></span></label>`
-    : "";
-  const rngSel=`<label class="fsel"><span>${L("期間","Period")}</span>`
-    +`<span class="selw"><select id="dfRange">`
-    +DASH_RANGES.map(r=>opt(r.k,DASH_F.range,L(r.zh,r.en))).join("")
-    +`</select></span></label>`;
   const meas=`<span class="fseg">`
     +[["profit",L("毛利","Profit")],["margin",L("毛利率","Margin")]].map(([k,t])=>
       `<button type="button" class="fsegb${DASH_F.measure===k?" on":""}" data-m="${k}">${esc(t)}</button>`
     ).join("")+`</span>`;
-  return `<div class="dfilters">${acctSel}${rngSel}${meas}</div>`;
+  return `<div class="dfilters">${meas}</div>`;
 }
 function dashAllHTML(all){
   const data=dashFilter(all);
@@ -7714,7 +7702,10 @@ function dashAllHTML(all){
       +`<td class="num">${d.n.toLocaleString()}</td>`
       +cell(d.repriced)+cell(d.billed)
       +cell(g, g<0?"neg":"pos")+pctCell(g, d.repriced)
-      +cell(d.account, d.account<0?"neg":"")
+      /* 帳戶層費用不上紅字。它不算進毛利(頁尾就是這樣寫的),用毛利那一組
+         顏色去畫它,等於在說它是虧損 —— 而負的帳戶層費用是 UPS 退回來的錢,
+         那是進帳,不是虧。既然不屬於這組數字,就別借它們的顏色。 */
+      +cell(d.account)
       +`<td class="abar"><div class="abartrack">`
       +`<div class="abarfill ${g<0?"neg":"pos"}" data-w="${w.toFixed(1)}"></div></div></td></tr>`;
   }).join("");
@@ -7747,7 +7738,7 @@ function dashAllHTML(all){
         "Total · "+ok.length+" period"+(ok.length===1?"":"s"))}</td>
       <td class="num">${tot.n.toLocaleString()}</td>
       ${cell(tot.repriced)}${cell(tot.billed)}
-      ${cell(gt, gt<0?"neg":"pos")}${pctCell(gt, tot.repriced)}${cell(tot.account, tot.account<0?"neg":"")}
+      ${cell(gt, gt<0?"neg":"pos")}${pctCell(gt, tot.repriced)}${cell(tot.account)}
       <td></td></tr></tfoot></table></div>`}
     <div class="dfoot">${L(
       "毛利 = 向客戶收 − UPS 收;毛利率 = 毛利 ÷ 向客戶收。兩者均不含帳戶層費用 —— 該欄是否計入,由帳務決定。"
@@ -7812,11 +7803,10 @@ function dashTrendHTML(ok, multi, allAccts){
   const sumP=seq.reduce((a,d)=>a+gapOf(d),0);
   const sumR=seq.reduce((a,d)=>a+Math.abs(d.repriced),0);
   const avg=isM ? (sumR?sumP/sumR*100:0) : (sumP/seq.length);
-  const avgY=yv(avg);
-  const avgLine=(avgY>=0&&avgY<=100)
-    ? `<div class="tavg" style="top:${avgY.toFixed(1)}%">`
-      +`<b>${L("平均 ","avg ")}${isM?avg.toFixed(1)+"%":money(avg)}</b></div>`
-    : "";
+  /* 平均值改成寫在標題那一行。圖上有刻度線之後,再疊一條虛線就是第二種
+     水平線,和刻度混在一起要停下來分辨哪條是哪條;而平均本來就是一個數字,
+     用講的比用畫的清楚。 */
+  const avgTxt=isM?avg.toFixed(1)+"%":money(avg);
   /* 左邊給三、四道刻度。以前柱子只講得出相對高低 —— 一根比隔壁高一截,高
      多少要自己去下面的表格翻。刻度取整數級距(1／2／2.5／5 的倍數),不是
      把 hi、lo 直接印出來:印 $4,873 那種數字沒有人拿來對照。
@@ -7894,11 +7884,13 @@ function dashTrendHTML(ok, multi, allAccts){
   return `<div class="trend">
     <div class="th2">${isM?L("各期毛利率","Margin by period"):L("各期毛利","Profit by period")}
       <span>${isM
-        ? L("毛利率與單量無關,期與期之間直接可比;虛線為加權平均,依帳單日由舊到新",
-            "margin is independent of volume, so periods compare directly; the dashed line is the weighted average; oldest first")
-        : L("柱高為毛利金額,受單量影響;虛線為各期平均,依帳單日由舊到新",
-            "bar height is profit, which scales with volume; the dashed line is the average; oldest first")}</span></div>
-    <div class="tplotarea${isM?" tmargin":""}" style="--zero:${zero.toFixed(1)}%">${avgLine}${yaxis}<div class="tcols">${grid}${line}${plot}</div><div class="tgut"></div></div>
+        ? L("毛利率與單量無關,期與期之間直接可比。加權平均 "+avgTxt+",依帳單日由舊到新",
+            "margin is independent of volume, so periods compare directly. Weighted average "
+            +avgTxt+", oldest first")
+        : L("柱高為毛利金額,受單量影響。各期平均 "+avgTxt+",依帳單日由舊到新",
+            "bar height is profit, which scales with volume. Average "+avgTxt
+            +" per period, oldest first")}</span></div>
+    <div class="tplotarea${isM?" tmargin":""}" style="--zero:${zero.toFixed(1)}%">${yaxis}<div class="tcols">${grid}${line}${plot}</div><div class="tgut"></div></div>
     <div class="tlabels"><div class="tyax"></div>${labels}<div class="tgut"></div></div>
     ${legend}
   </div>`;
@@ -7958,13 +7950,22 @@ function exportAllPeriods(){
   const MONEY="$#,##0.00", PCT="0.0%", INT="#,##0", DATE="mm/dd/yyyy";
   const fmtOf=c=>c===1?DATE:(c===3?INT:(c===7?PCT:([4,5,6,8].indexOf(c)>=0?MONEY:"")));
   const HEAD="E8E2D6", FOOT="FFF2CC", RED="C00000";
-  const grid=[head.map(h=>({v:h,t:"s",s:{bold:true,fill:HEAD,align:"center",border:true}}))];
+  /* 標題和它底下的數字要靠同一邊。Excel 的數字一律靠右,標題置中的話,
+     一欄裡標題在中間、數字在右邊,看起來就是沒對齊。文字欄靠左、數字欄靠右,
+     標題跟著走。
+     另外每一格都補上細框線 —— 有底色的儲存格會蓋掉 Excel 自己的格線,
+     不補就變成一片沒有格子的色塊。 */
+  const alignOf=c=>(c===0||c===2||c===9)?"left":"right";
+  const grid=[head.map((h,c)=>({v:h,t:"s",
+    s:{bold:true,fill:HEAD,align:alignOf(c),wrap:true,border:true}}))];
   body.forEach((row,ri)=>{
     const last=ri===body.length-1;
     grid.push(row.map((v,c)=>{
       const f=fmtOf(c);
-      const st={fmt:f, bold:last||undefined, fill:last?FOOT:undefined};
-      if(typeof v==="number" && v<0 && (c===6||c===7||c===8)) st.color=RED;
+      const st={fmt:f, bold:last||undefined, fill:last?FOOT:undefined,
+                align:alignOf(c), border:true};
+      /* 只有毛利和毛利率上紅字。帳戶層費用不算進毛利,負數是退款不是虧損。 */
+      if(typeof v==="number" && v<0 && (c===6||c===7)) st.color=RED;
       /* 「沒有金額就寫 0」只適用於金額。日期沒有就留白 —— 寫 0 會被 Excel
          當成 1900 年那個原點日期印出來,合計列的日期欄跑出一個假日期。 */
       if(f===DATE) return (v===""||v==null)?{v:"",t:"s",s:st}:{v:v,t:"n",s:st};
@@ -7988,10 +7989,6 @@ function exportAllPeriods(){
    沒有人會去切第二次。 */
 function wireDashFilters(){
   const re=()=>renderDashboard();
-  const a=$("#dfAcct");
-  if(a) a.onchange=()=>{ DASH_F.acct=a.value; re(); };
-  const r=$("#dfRange");
-  if(r) r.onchange=()=>{ DASH_F.range=r.value; re(); };
   document.querySelectorAll("#p-dash .fsegb").forEach(b=>{
     b.onclick=()=>{ DASH_F.measure=b.dataset.m; re(); };
   });
@@ -7999,12 +7996,38 @@ function wireDashFilters(){
   if(x) x.onclick=exportAllPeriods;
 }
 /* 選單那一條。RATED 是空的時候也要畫 —— 沒資料的人正是最需要它的人。 */
+/* 帳號與期間兩個下拉。以前它們只長在「全部期別」那張卡片裡,於是想從十九
+   期裡挑某個帳號的某一週,得先切到總攬、篩完、再切回來挑。它們現在和期別
+   選單同一條,期別選單列出來的就是篩選之後的那幾期。 */
+function dashPickFilters(all){
+  const accts=[];
+  for(const d of all||[]){
+    const a=dashAcctOf(d);
+    if(a.id && !accts.some(x=>x.id===a.id)) accts.push(a);
+  }
+  const opt=(v,cur,txt)=>`<option value="${esc(v)}"${v===cur?" selected":""}>${esc(txt)}</option>`;
+  const acctSel=accts.length>1
+    ? `<label class="fsel"><span>${L("帳號","Account")}</span>`
+      +`<span class="selw"><select id="dfAcct">`
+      +opt("",DASH_F.acct,L("全部帳號","All accounts"))
+      +accts.map(a=>opt(a.id,DASH_F.acct,a.id+(a.guessed?L(" (推得)"," (derived)"):""))).join("")
+      +`</select></span></label>`
+    : "";
+  const rngSel=`<label class="fsel"><span>${L("期間","Period")}</span>`
+    +`<span class="selw"><select id="dfRange">`
+    +DASH_RANGES.map(r=>opt(r.k,DASH_F.range,L(r.zh,r.en))).join("")
+    +`</select></span></label>`;
+  return acctSel+rngSel;
+}
 function dashBarHTML(){
-  const list=dashPeriods();
+  const all=dashPeriods();
+  /* 選單列出來的是篩過的;標題那一格仍然從全部裡找,篩掉的期別正在畫面上時
+     才不會突然變成「選擇帳單期別」。 */
+  const list=dashFilter(all);
   const odd=dashOddCount();
   const cur=dashCurKeys();
-  const sel=DASH_ALL ? "" : ((cur.length===1 && list.some(p=>p.key===cur[0])) ? cur[0] : "");
-  const selP=sel?list.find(p=>p.key===sel):null;
+  const sel=DASH_ALL ? "" : ((cur.length===1 && all.some(p=>p.key===cur[0])) ? cur[0] : "");
+  const selP=sel?all.find(p=>p.key===sel):null;
   const rowsL=n=>n.toLocaleString()+L(" 列"," lines");
   const trkL=n=>n.toLocaleString()+L(" 個追蹤號"," tracking numbers");
   let big, small;
@@ -8069,6 +8092,7 @@ function dashBarHTML(){
           odd+" filed entr"+(odd>1?"ies":"y")+" had no invoice-shaped number — usually a file that imported with the wrong columns. Not listed here; clear them from Invoice History → Stored Invoices.")}</div>`:""}
       </div>
     </div>
+    ${dashPickFilters(all)}
     ${hint}
     <span class="dchips" id="dashChips">${chips.map(([k,v])=>
       `<span class="dchip">${esc(k)} <b>${esc(v)}</b></span>`).join("")}</span>
@@ -8133,7 +8157,17 @@ function dashMenuClose(back){
 }
 /* 每次重畫都會換掉這些節點,所以事件接在節點上;只有「點到外面就關」
    是接在 document 上的,那個全域只接一次。 */
+/* 帳號與期間現在長在最上面那一條,每一次重畫都會重生 —— 所以它們的事件跟著
+   dashBarHTML 走,不是跟著「全部期別」那張卡片走。 */
+function wireDashPickFilters(){
+  const re=()=>renderDashboard();
+  const a=$("#dfAcct");
+  if(a) a.onchange=()=>{ DASH_F.acct=a.value; re(); };
+  const r=$("#dfRange");
+  if(r) r.onchange=()=>{ DASH_F.range=r.value; re(); };
+}
 function wireDashBar(){
+  wireDashPickFilters();
   const btn=$("#dashSel"), menu=$("#dashMenu");
   if(!btn||!menu) return;
   const shown=()=>[...menu.querySelectorAll(".dmi")].filter(b=>!b.hidden);
@@ -8427,7 +8461,9 @@ function renderDashboard(){
     <div class="dhead">
       <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
       <div class="dsub">${d.n} ${L("筆貨件","shipments")}</div></div>
-      <button class="act ghost" id="bDashRe">${L("重新整理","Refresh")}</button></div>
+      <span class="dhbtns">
+      <button class="act ghost" id="bPerXls">${L("下載利潤報表 (.xlsx)","Download profit report (.xlsx)")}</button>
+      <button class="act ghost" id="bDashRe">${L("重新整理","Refresh")}</button></span></div>
     ${dashBarHTML()}
     ${API_NOTE?`<div class="dnote">${esc(API_NOTE)}</div>`:""}
     <div class="dflow">
@@ -8436,7 +8472,7 @@ function renderDashboard(){
       <div class="dcell dop" data-op="−"><div class="dk">UPS</div>
         <div class="dv">${money(d.billed)}</div></div>
       <div class="dcell dop" data-op="−"><div class="dk">${L("帳戶層費用","Account charges")}</div>
-        <div class="dv ${d.account<0?"neg":""}">${money(d.account)}</div></div>
+        <div class="dv">${money(d.account)}</div></div>
     </div>
     <div class="dcard">
       <div class="ch"><h3>${L("費用組成","Cost breakdown")}</h3></div>
@@ -8455,6 +8491,8 @@ function renderDashboard(){
   wireDashBar();
   const ux=$("#bIssXls");
   if(ux) ux.onclick=exportIssues;
+  const px=$("#bPerXls");
+  if(px) px.onclick=exportPeriodReport;
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     body.querySelectorAll(".bfill,.zfill,.seg,.cmpfill").forEach(el=>{
       if(el.dataset.w!=null) el.style.width=el.dataset.w+"%"; });
@@ -8484,6 +8522,101 @@ function renderDashboard(){
     setStatus(msg); toast(msg,true);
   };
   }catch(e){ console.warn("dashboard render failed",e); }
+}
+/* 這一期的利潤報表。畫面上有什麼就倒什麼 —— 三個頭條數字、費用組成的
+   兩側對照、渠道、Zone 分布,四張工作表對應畫面上的四個區塊。
+   「全部期別」那一份回答「每一期賺多少」,這一份回答「這一期的錢花在哪」。 */
+function exportPeriodReport(){
+  const d=DASH_LAST||dashAgg();
+  if(!d){ setStatus(L("目前沒有可匯出的資料","Nothing to export")); return; }
+  const keys=dashCurKeys(), list=dashPeriods();
+  const per=keys.map(k=>list.find(x=>x.key===k)).filter(Boolean);
+  /* 歸檔索引裡有就用索引的;這一期還沒歸檔(剛跑完還沒存)就直接讀帳單列,
+     不要讓報表上的帳單日和帳號留白。 */
+  const r0=(ROWS&&ROWS[0])||{};
+  const invDate=(per[0]&&per[0].date)||normYmd(r0.invDate)||String(r0.invDate||"");
+  const acct=(per.length?dashAcctOf(per[0]).id:"")
+             || acctNorm(r0.account||"") || acctFromInvoice(keys[0]||"");
+  const MONEY="$#,##0.00", PCT="0.0%", INT="#,##0", DATE="mm/dd/yyyy";
+  const HEAD="E8E2D6", FOOT="FFF2CC", RED="C00000";
+  const REP="DDEBF7", UPS="FCE4D6";
+  const hc=(v,fill,al)=>({v:v,t:"s",
+    s:{bold:true,fill:fill||HEAD,align:al||"right",wrap:true,border:true}});
+  const serial=iso=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||""));
+    return m?Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000):"";
+  };
+  const profit=d.repriced-d.billed;
+
+  /* ---- 摘要:畫面最上面那一排,加上毛利與毛利率 ---- */
+  const kv=(k,v,fmt,plain)=>[{v:k,t:"s",s:{bold:true,align:"left",border:true}},
+    fmt?{v:v,t:"n",s:{fmt:fmt,align:"right",border:true,
+      color:(!plain&&typeof v==="number"&&v<0)?RED:undefined}}
+       :{v:v,t:"s",s:{align:"left",border:true}}];
+  const sum=[[hc(L("項目","Item"),null,"left"),hc(L("數值","Value"))],
+    kv(L("期別","Invoice"), keys.join(", ")),
+    kv(L("帳單日","Invoice date"), serial(invDate), DATE),
+    kv(L("UPS 帳號","UPS account"), acct),
+    kv(L("貨件數","Shipments"), d.n, INT),
+    kv(L("向客戶收","Charge customer"), cents(d.repriced), MONEY),
+    kv("UPS", cents(d.billed), MONEY),
+    kv(L("毛利","Profit"), cents(profit), MONEY),
+    kv(L("毛利率","Margin"), d.repriced?profit/Math.abs(d.repriced):0, PCT),
+    kv(L("帳戶層費用","Account charges"), cents(d.account), MONEY, true)];
+
+  /* ---- 費用組成:兩側同一張表,一列一種費用 ---- */
+  const kset=[...new Set(Object.keys(d.buckets||{}).concat(Object.keys(d.upsBuckets||{})))];
+  const ordOf=k=>{ const i=REPORT_COLS.indexOf(k); return i<0?1e6:i; };
+  kset.sort((a,b)=>ordOf(a)-ordOf(b)||String(a).localeCompare(String(b)));
+  const cb=[[hc(L("費用類別","Charge"),null,"left"),hc(L("重算金額","Repriced"),REP),
+             hc(L("重算佔比","Repriced %"),REP),hc(L("UPS 實收","UPS billed"),UPS),
+             hc(L("UPS 佔比","UPS %"),UPS),hc(L("差額","Difference"))]];
+  for(const k of kset){
+    const rv=cents(d.buckets&&d.buckets[k]||0), uv=cents(d.upsBuckets&&d.upsBuckets[k]||0);
+    const dv=cents(rv-uv);
+    const R={align:"right",border:true};
+    cb.push([{v:dashLabel(k),t:"s",s:{align:"left",border:true}},
+      {v:rv,t:"n",s:Object.assign({fmt:MONEY,fill:"EFF6FD"},R)},
+      {v:d.repriced?rv/d.repriced:0,t:"n",s:Object.assign({fmt:PCT,fill:"EFF6FD"},R)},
+      {v:uv,t:"n",s:Object.assign({fmt:MONEY,fill:"FDF3EC"},R)},
+      {v:d.billed?uv/d.billed:0,t:"n",s:Object.assign({fmt:PCT,fill:"FDF3EC"},R)},
+      {v:dv,t:"n",s:Object.assign({fmt:MONEY,color:dv<0?RED:undefined},R)}]);
+  }
+  const F={bold:true,fill:FOOT,align:"right",border:true};
+  cb.push([{v:L("合計","Total"),t:"s",s:{bold:true,fill:FOOT,align:"left",border:true}},
+    {v:cents(d.repriced),t:"n",s:Object.assign({fmt:MONEY},F)},
+    {v:1,t:"n",s:Object.assign({fmt:PCT},F)},
+    {v:cents(d.billed),t:"n",s:Object.assign({fmt:MONEY},F)},
+    {v:1,t:"n",s:Object.assign({fmt:PCT},F)},
+    {v:cents(profit),t:"n",s:Object.assign({fmt:MONEY,color:profit<0?RED:undefined},F)}]);
+
+  /* ---- 渠道與 Zone:金額和佔比,和畫面上那兩張圓餅同一組數字 ---- */
+  const share=(obj,title,keyName)=>{
+    const R={align:"right",border:true};
+    const rows=[[hc(keyName,null,"left"),hc(L("重算金額","Repriced")),hc(L("佔比","Share"))]];
+    const tot=Object.values(obj||{}).reduce((a,v)=>a+toNum(v),0);
+    Object.entries(obj||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).forEach(([k,v])=>
+      rows.push([{v:String(k),t:"s",s:{align:"left",border:true}},
+                 {v:cents(v),t:"n",s:Object.assign({fmt:MONEY},R)},
+                 {v:tot?toNum(v)/tot:0,t:"n",s:Object.assign({fmt:PCT},R)}]));
+    rows.push([{v:L("合計","Total"),t:"s",s:{bold:true,fill:FOOT,align:"left",border:true}},
+               {v:cents(tot),t:"n",s:Object.assign({fmt:MONEY,bold:true,fill:FOOT},R)},
+               {v:tot?1:0,t:"n",s:Object.assign({fmt:PCT,bold:true,fill:FOOT},R)}]);
+    return {name:title, rows:rows, cols:[{w:26},{w:16},{w:10}], freeze:{r:1,c:0}};
+  };
+
+  const stem=["Profit_Report", acct, keys[0]||"", (invDate||"").replace(/-/g,"")]
+    .filter(Boolean).join("_").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
+  xlWrite([
+    {name:L("本期摘要","Summary"), rows:sum, cols:[{w:22},{w:24}], freeze:{r:1,c:0}},
+    {name:L("費用組成","Cost breakdown"), rows:cb,
+     cols:[{w:30},{w:16},{w:13},{w:16},{w:12},{w:15}], freeze:{r:1,c:1}},
+    share(d.chanAgg, L("渠道","Channel"), L("渠道","Channel")),
+    share(d.zoneAgg, "Zone", "Zone"),
+  ], stem)
+  .then(ok=>toast(ok?L("利潤報表已匯出","Profit report exported")
+                    :L("已取消存檔","Save cancelled"), ok))
+  .catch(e=>toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false));
 }
 /* 卡片上列出的東西倒成 Excel。兩張工作表:摘要就是畫面上那幾組,明細
    是每一筆貨件為什麼被列進來 —— 只有摘要的話,知道有 8 筆也還是不知道
@@ -9661,7 +9794,9 @@ function invoiceIssues(){
           item:r.residential?L("判成住宅","Priced as residential")
                             :L("判成商業","Priced as commercial"),
           note:r.resBasis||"", amt:atRisk, repriced:toNum(r.total)}));
-      if(r.svcSure===false)
+      /* 服務名稱認不出來,只有在真的拿它去查過費率表的時候才有影響。沒查過
+         就沒有一分錢是它決定的,列進異常清單只是在說「這一欄的字我不認得」。 */
+      if(r.svcSure===false && r.ratedFreight)
         out.push(Object.assign(at(fl),{kind:"svc", item:s.service||"—",
           note:L("用「"+r.channel+"」的費率計價","priced with "+r.channel+"'s rates"),
           amt:atRisk, repriced:toNum(r.total)}));
@@ -9874,17 +10009,26 @@ function exportIssues(){
   const UPSB="EFF6FD", REPB="FDF3EC";      /* 內文:同色系,淡很多 */
   const GRP=["E8E2D6","F1ECE3"];           /* 第一列的組標題,兩個灰交替 */
   const HDR_FIX="E8E2D6", HDR_SUM="FFF2CC", BODY_SUM="FFFAEE";
-  const hcell=(v,fill)=>({v:v, t:"s",
-    s:{bold:true, fill:fill, align:"center", wrap:true, border:true}});
+  /* 標題和它底下的資料靠同一邊,文字欄靠左、數字欄靠右 —— 標題置中的話,
+     一欄裡標題在中間、數字在右邊,看起來就是沒對齊。
+     每一格都補細框線:有底色的儲存格會蓋掉 Excel 自己的格線,不補就是一片
+     沒有格子的色塊。 */
+  const hcell=(v,fill,al)=>({v:v, t:"s",
+    s:{bold:true, fill:fill, align:al||"center", wrap:true, border:true}});
+  const DET_AL=["left","right","right","right","left","center","left","left","left",
+                "left","left","right","right","left","left","right","right"];
 
   /* ---- 第一張表 ---- */
   const detDates=new Set([1,2]), detMoney=new Set([11,12,16]);
   const detW=[16,12,12,13,20,10,30,9,22,20,30,11,12,20,8,12,15];
   const det1=det.map((row,r)=>row.map((v,c)=>{
-    if(r===0) return hcell(v,HDR_FIX);
-    if(detDates.has(c)){ const n=serial(v); return n==null?v:{v:n,t:"n",s:{fmt:DATE}}; }
-    if(detMoney.has(c)) return {v:toNum(v), t:"n", s:{fmt:MONEY}};
-    return v;
+    const al=DET_AL[c]||"left";
+    if(r===0) return hcell(v,HDR_FIX,al);
+    const st={align:al, border:true};
+    if(detDates.has(c)){ const n=serial(v);
+      return n==null?{v:v,t:"s",s:st}:{v:n,t:"n",s:Object.assign({fmt:DATE},st)}; }
+    if(detMoney.has(c)) return {v:toNum(v), t:"n", s:Object.assign({fmt:MONEY},st)};
+    return {v:v, t:(typeof v==="number"?"n":"s"), s:st};
   }));
 
   /* ---- 第二張表 ---- */
@@ -9909,13 +10053,16 @@ function exportIssues(){
     if(g===-2) return MONEY;
     return g===0?INT:MONEY;                /* 第一組是計費重,磅數不是錢 */
   };
+  const WIDE_AL=["left","right","right","left","center","right","left","left","left","left"];
+  const alOf=c=>c<S0?(WIDE_AL[c]||"left"):"right";
   const wide2=wide.map((row,r)=>row.map((v,c)=>{
-    if(r<2) return hcell(v,headFill(c,r));
+    if(r<2) return hcell(v,headFill(c,r),r===0&&c>=S0?"center":alOf(c));
     const f=bodyFmt(c), fill=bodyFill(c);
-    if(f===DATE){ const n=serial(v); return n==null?{v:v,t:"s",s:{fill:fill}}
-                                                  :{v:n,t:"n",s:{fmt:DATE,fill:fill}}; }
-    if(f) return {v:toNum(v), t:"n", s:{fmt:f, fill:fill}};
-    return {v:v, t:"s", s:{fill:fill}};
+    const st={fill:fill, align:alOf(c), border:true};
+    if(f===DATE){ const n=serial(v);
+      return n==null?{v:v,t:"s",s:st}:{v:n,t:"n",s:Object.assign({fmt:DATE},st)}; }
+    if(f) return {v:toNum(v), t:"n", s:Object.assign({fmt:f},st)};
+    return {v:v, t:"s", s:st};
   }));
   const wideW=[16,12,12,20,10,10,34,14,20,8]
     .concat([9,9]).concat(cols.flatMap(()=>[12,12])).concat([13,13,12]);
