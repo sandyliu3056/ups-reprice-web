@@ -3979,18 +3979,17 @@ function saveHistoryMap(map){
     localStorage.setItem(histRuleKey(),HIST_RULE);
   }catch(e){}
 }
-function buildHistory(texts){
+/* 追蹤號對照表。以前是「只學這次匯入的檔案,學完直接覆蓋」—— 匯一張新
+   帳單,之前所有期別學到的追蹤號一起沒了,跨期更正當場退回用服務名稱猜。
+   照全部歷史(rowsByFile 已經併進 allRows)重學一次,規則還是同一份。 */
+function buildHistory(rowsByFile, allRows){
   const map={};
-  let files=0, rows=0;
-  for(const t of texts){
-    files++;
-    let ing;
-    try{ ing=ingest(t); }catch(e){ continue; }
-    rows+=ing.rows.length;
-    learnHistory(ing.rows, map);
-  }
+  learnHistory(allRows||[], map);
   saveHistoryMap(map);
-  return {files,rows,learned:Object.keys(map).length};
+  return {files:(rowsByFile||[]).length,
+          rows:(rowsByFile||[]).reduce((a,r)=>a+r.length,0),
+          all:(allRows||[]).length,
+          learned:Object.keys(map).length};
 }
 
 /* 桌面版回傳 "Ground Residential" / "Ground Commercial" / None,這裡同樣 */
@@ -5500,24 +5499,34 @@ $("#fHist").onchange=e=>{
       return;
     }
     const texts=valid.map(x=>x.text);
-    /* 明細留著,查追蹤號時要用 */
-    HISTROWS=[].concat(...rowsByFile);
-    const filed=fileInvoices(HISTROWS,"import");
+    /* 明細留著,查追蹤號時要用。這批是「加進去」,不是「取代」——
+       以前這裡直接指派,匯一張新帳單就把已經還原回來的舊期別從記憶體裡
+       抹掉:畫面上原本在的帳單全部不見,要重新整理才回來。
+       同一期號重匯的先把舊那期濾掉,fileInvoices 也是整期取代。
+       索引只記這次匯入的那幾期 —— 整份丟進去會把每一期的匯入時間
+       都改成現在。 */
+    const fresh=[].concat(...rowsByFile);
+    const again=new Set(fresh.map(r=>(r.invoice||"").trim()).filter(Boolean));
+    HISTROWS=(HISTROWS||[]).filter(r=>!again.has((r.invoice||"").trim())).concat(fresh);
+    const filed=fileInvoices(fresh,"import");
     if(!filed.stored)
       toast(LANG?"History index is too large for this browser to store."
                 :"歷史索引太大,這個瀏覽器存不下。", false);
-    const r=buildHistory(texts);
+    const r=buildHistory(rowsByFile, HISTROWS);
     const kinds=[...new Set(valid.map(x=>x.kind))].join(" + ");
     $("#vHist").textContent=r.files+(LANG?" files":" 個檔案")+" · "+kinds;
     $("#vHist").className="val ok";
     $("#histNote").innerHTML=`<div class="note">`
       +(LANG?`<b>${r.learned.toLocaleString()}</b> tracking numbers indexed from `
-             +`<b>${r.rows.toLocaleString()}</b> lines. Cross-period corrections `
-             +`can now be classed from the original shipment.`
-            :`從 <b>${r.rows.toLocaleString()}</b> 列建出 `
+             +`<b>${r.all.toLocaleString()}</b> lines of history `
+             +`(<b>${r.rows.toLocaleString()}</b> imported just now). Cross-period `
+             +`corrections can now be classed from the original shipment.`
+            :`從歷史的 <b>${r.all.toLocaleString()}</b> 列(本次匯入 `
+             +`<b>${r.rows.toLocaleString()}</b> 列)建出 `
              +`<b>${r.learned.toLocaleString()}</b> 個追蹤號的對照。`
              +`跨期更正現在可以依原始出貨判定住宅或商業。`)+`</div>`;
     renderHist();
+    renderDashboard();   /* 新期別要出現在儀表板的期別選單裡 */
     setStatus((LANG?"History ready · ":"歷史已建立 · ")+valid.length
       +(LANG?" file(s)":" 個檔案")
       +(filed.count?"  ·  "+(LANG?"imported ":"已匯入 ")+filed.added.length
@@ -7858,6 +7867,10 @@ const REPORT_COLS=["Date","Tracking","Shipment Reference Number 1",
  "Reschedule Delivery","Returns Electronic Label","Returns Print Label",
  "Future Day Pickup - Alternate Address - Web Request","Returns 3 UPS Pickup Attempts",
  "Residential Pickup surcharge",
+ /* UPS 事後補收的兩筆作業費。引擎收了錢,這裡卻沒有欄位 —— put() 只填
+    REPORT_COLS 裡有的欄,不在名單上的整筆丟掉,活頁簿那一列的各欄加起來
+    就比 Total 少了那筆錢,而少的是哪一筆看不出來。 */
+ "Missing PLD Fee","Shipping Correction Fee",
  /* Demand 四欄。桌面版 :17400 / :20335 有,這裡以前沒有 ——
     金額進了 Total,報表上卻沒有任何一欄能解釋那筆錢。 */
  "Demand - AHS","Demand - Large Package","Demand - Over Maximum","Demand - Service",
@@ -7985,6 +7998,8 @@ const DASH_LABEL={
   "Additional Handling Surcharge - Packaging":["額外處理·包裝","AHS · Packaging"],
   "DAS Residential":["住宅 DAS","DAS Resi"],"DAS Commercial":["商業 DAS","DAS Comm"],
   "__das__":["DAS／RAS","DAS / RAS"],
+  "Missing PLD Fee":["未傳出貨資料 (PLD)","Missing PLD Fee"],
+  "Shipping Correction Fee":["運費更正費","Shipping Correction Fee"],
   "Third Party Billing":["第三方付費","Third Party Billing"],
   "Commercial Adjustment":["商業重分類","Commercial Adjustment"],
   "__ahs__":["AHS","AHS"],
