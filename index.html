@@ -10213,7 +10213,10 @@ function wtFacts(r){
      是照 HR 收的。我們目前吃 AG,所以重算側和 UPS 收的會差一階 —— 這種事
      要看得見,不能被「取其一」蓋掉。 */
   return {ent:ent, bil:bil,
-          dimsUps:D(dC), dimsA:D(dA),
+          dimsC:D(dC), dimsA:D(dA),
+          /* 帳單「給得出來」的尺寸:有 AG 用 AG,沒有才用 HR。這是拿去和重算
+             側比的那一個;左邊 AG / HR 兩欄則是原封不動的原始欄位。 */
+          dimsEff:D(dC||dA),
           dims:D(s.dims), dimF:toNum(bw.dimFactor), dimW:toNum(bw.dim),
           bwt:Math.ceil(toNum(bw.billable))};
 }
@@ -10410,7 +10413,7 @@ function exportIssues(){
   const perTrk=new Map(), colSeen={};
   for(const t of trks){
     const row={trk:t, inv:"", invDate:"", date:"", chan:"", svcRaw:"", zone:"",
-               ent:0, bil:0, dimsUps:"", dimsA:"", dims:"", dimF:0,
+               ent:0, bil:0, dimsC:"", dimsA:"", dimsEff:"", dims:"", dimF:0,
                dimW:0, bwt:0,
                ups:0, repriced:0, by:{}, lines:new Set(), sev:0, n:0, probs:new Set()};
     for(const {r,root} of (ISSUE_SEGS.get(t)||[])){
@@ -10475,21 +10478,22 @@ function exportIssues(){
      UPS 不公布它的除數和材積重,所以那兩欄只有重算側 —— 空著比編一個好。 */
   const LB1="#,##0.0";
   const CTX=[
+    /* 左邊四欄是帳單的原始欄位,標題就照帳單自己的欄名寫 —— 看的人手上是
+       一張英文 UPS 帳單,要一格一格對過去。翻成中文反而多一道翻譯,所以
+       中英兩版都用原名。 */
+    {n:"Detail Keyed Dimensions", side:0, al:"center", fmt:"", get:x=>x.dimsA||""},
+    {n:"Package Dimensions", side:0, al:"center", fmt:"", get:x=>x.dimsC||""},
+    {n:"Entered Weight", side:0, al:"right", fmt:LB1, get:x=>x.ent||""},
+    {n:"Billed Weight", side:0, al:"right", fmt:INT, get:x=>x.bil||""},
+    /* 右邊三組是對照。UPS 側取「帳單給得出來的那一個」:尺寸有 AG 用 AG、
+       沒有用 HR;重量有 AC 用 AC、沒有退回申報重。所以它和左邊的原始欄位
+       不一定一樣 —— 左邊是帳單寫了什麼,這裡是拿什麼去比。 */
     {n:L("服務","Service"), pair:true, al:"left", fmt:"",
      ups:x=>x.svcRaw||"", rep:x=>x.chan||""},
     {n:L("計費尺寸","Billable Dimension"), pair:true, al:"center", fmt:"",
-     ups:x=>x.dimsUps||"", rep:x=>x.dims||""},
+     ups:x=>x.dimsEff||"", rep:x=>x.dims||""},
     {n:L("計費重 lb","Billable Weight"), pair:true, al:"right", fmt:INT,
-     ups:x=>x.bil||"", rep:x=>x.bwt||""},
-    /* 除數只有重算側。UPS 不公布它用的除數,而回推靠不住:同一筆
-       81×13×12、申報 1 磅、UPS 收 90 磅,回推是 140(看起來像 139),
-       但那 90 磅其實是大型包裹的最低計費重,根本不是材積算出來的。
-       算得出一個數字不等於那個數字是真的,所以這一欄不編。 */
-    {n:L("材積除數","DIM Factor"), side:1, al:"right", fmt:INT, get:x=>x.dimF||""},
-    /* 這兩欄帳單上有、重算側沒有對應的值,所以不成對,只佔一欄,
-       顏色說明它屬於帳單那一側。 */
-    {n:L("申報重 lb","Entered lb"), side:0, al:"right", fmt:LB1, get:x=>x.ent||""},
-    {n:L("鍵入尺寸","Keyed dims"), side:0, al:"center", fmt:"", get:x=>x.dimsA||""},
+     ups:x=>x.bil||x.ent||"", rep:x=>x.bwt||""},
   ];
   /* 攤平成一欄一格,後面查顏色、格式、對齊都靠這張表,不用再算欄號。 */
   const CTXCOL=[];
@@ -10619,7 +10623,7 @@ function exportIssues(){
     return {v:v, t:"s", s:st};
   }));
   const wideW=[16,12,12,20,10,10,34,14,8]
-    .concat([26,20, 15,15, 11,11, 10, 11,15])
+    .concat([15,15,11,11, 26,20, 15,15, 11,11])
     .concat(cols.flatMap(()=>[12,12])).concat([13,13,12]);
 
   xlWrite([
