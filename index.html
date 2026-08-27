@@ -1116,6 +1116,10 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
 <!-- ==================== Channels ==================== -->
 <section class="page" id="p-chan">
+  <div class="subtabs" id="chanSide">
+    <button data-r="C" aria-selected="true"  data-i18n="ct.com">Commercial</button>
+    <button data-r="R" aria-selected="false" data-i18n="ct.res">Residential</button>
+  </div>
   <div class="lf sketch">
     <h3 class="display"><span class="em">➕</span><span data-i18n="hd.chandata">Add a new channel</span></h3>
     <div class="grid3" style="grid-template-columns:auto minmax(0,1fr)">
@@ -1125,8 +1129,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <input id="newChanZones" class="cell" style="text-align:left;width:100%">
     </div>
     <div class="row" style="margin-top:9px">
-      <label class="bulkchk"><input type="checkbox" id="newChanRes">
-        <span data-i18n="lb.reschan">Residential channel</span></label>
       <label class="bulkchk"><input type="checkbox" id="newChanOn" checked>
         <span data-i18n="lb.chanon">Enable this channel</span></label>
       <button class="act" id="bAddChan" data-i18n="btn.addchan">Add channel</button>
@@ -1163,7 +1165,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <th style="width:30px"></th>
       <th data-i18n="lb.channame">Channel name</th>
       <th data-i18n="th.zones">Zones</th>
-      <th data-i18n="th.chantype">Type</th>
       <th data-i18n="th.ratestate">Base rates</th>
       <th data-i18n="th.enabled">Enabled</th>
     </tr></thead><tbody></tbody></table></div>
@@ -5958,6 +5959,15 @@ $("#bChanDimTicked") && ($("#bChanDimTicked").onclick=()=>
 $("#bChanDimClear") && ($("#bChanDimClear").onclick=()=>
   setChanDim(dimTicked(), ""));
 /* 附加費:篩選、勾選移除、範本匯出匯入 */
+/* 渠道分頁的商業／住宅。整頁都跟著它:費率表選單、下面那張清單、
+   新增渠道存進去的那一條,全部只講一種。 */
+let CHAN_SIDE="C";
+$("#chanSide") && ($("#chanSide").onclick=e=>{
+  const b=e.target.closest("button[data-r]"); if(!b) return;
+  CHAN_SIDE=b.dataset.r;
+  [...$("#chanSide").children].forEach(x=>x.setAttribute("aria-selected",x===b));
+  renderConfigTabs();
+});
 $("#demandTabs") && ($("#demandTabs").onclick=e=>{
   const b=e.target.closest("button[data-d]"); if(!b) return;
   DEMAND_TAB=b.dataset.d;
@@ -7529,28 +7539,32 @@ function renderConfigTabs(){
         n:loaded[svc+(res?"|R":"|C")]||0, on:!disabled.has(svc)});
     }
   }
+  /* 這一側的渠道。名稱本身就寫死商住的(Ground Commercial)只會出現在
+     它自己那一側;沒寫的(2nd Day Air)兩側都有,各自一條費率表。 */
+  const side=(CHAN_SIDE==="R");
+  const mine=rows.filter(r=>r.res===side);
   const cq=(($("#chanSearch")||{}).value||"").toLowerCase();
-  const shown=rows.filter(r=>!cq||r.svc.toLowerCase().includes(cq));
+  const shown=mine.filter(r=>!cq||r.svc.toLowerCase().includes(cq));
   $("#tChan").tBodies[0].innerHTML=shown.map(r=>
     `<tr><td><input type="checkbox" class="chanc" value="${esc(r.svc)}"${ro}></td>
      <td>${esc(r.svc)}</td>
      <td class="wrap" style="font-size:11.5px">${String(r.zones||"").trim()
         ? esc(r.zones)
         : `<span style="color:var(--neg)">${LANG?"not set":"未設定"}</span>`}</td>
-     <td>${r.res?(LANG?"Residential":"住宅"):(LANG?"Commercial":"商業")}</td>
      <td>${r.n?(LANG?"loaded":"已載入")+" ("+r.n+")"
               :`<span style="color:var(--neg)">${LANG?"not loaded":"未載入"}</span>`}</td>
      <td>${r.on?(LANG?"Yes":"是"):(LANG?"No":"否")}</td></tr>`).join("")
-    ||`<tr><td colspan="6" class="empty">—</td></tr>`;
+    ||`<tr><td colspan="5" class="empty">—</td></tr>`;
   if($("#chanCount")) $("#chanCount").textContent = LANG
-    ? `${shown.length} / ${rows.length} channels` : `顯示 ${shown.length} / ${rows.length} 條渠道`;
+    ? `${shown.length} / ${mine.length} channels` : `顯示 ${shown.length} / ${mine.length} 條渠道`;
   const rc=$("#rateChan");
   if(rc){
-    const cur=rc.value;
-    rc.innerHTML=rows.map(r=>{
+    /* 選單只寫服務名 —— 商住是分頁的事。值仍然帶著 |C / |R,底下匯出、
+       匯入、看費率那幾顆讀的就是它。 */
+    const cur=String(rc.value||"").split("|")[0];
+    rc.innerHTML=mine.map(r=>{
       const v=r.svc+(r.res?"|R":"|C");
-      return `<option value="${esc(v)}"${v===cur?" selected":""}>${esc(r.svc)} — ${
-        r.res?(LANG?"Residential":"住宅"):(LANG?"Commercial":"商業")}</option>`;
+      return `<option value="${esc(v)}"${r.svc===cur?" selected":""}>${esc(r.svc)}</option>`;
     }).join("");
   }
   const pick=(rc&&rc.value)||"";
@@ -11719,9 +11733,9 @@ function applyTheme(name){
 const I18N={
   "hd.chandata":["新增渠道","Add a new channel"],
   "hd.ratestate":["費率表狀態","Rate table state"],
+  "ct.com":["商業","Commercial"], "ct.res":["住宅","Residential"],
   "hd.allchan":["已建立的渠道","Channels already set up"],
   "lb.channame":["渠道名稱","Channel name"],
-  "lb.reschan":["住宅渠道","Residential channel"],
   "lb.chanon":["啟用此渠道","Enable this channel"],
   "btn.addchan":["新增渠道","Add channel"],
   "lb.pickrate":["選擇費率表渠道","Rate table channel"],
@@ -11729,7 +11743,6 @@ const I18N={
   "btn.imprate":["匯入已完成的基本運費表","Import completed base rates"],
   "btn.scanzone":["從帳單掃描 Zone","Scan zones from invoice"],
   "btn.delchan":["刪除所選渠道","Delete selected"],
-  "th.chantype":["渠道類型","Type"],
   "th.ratestate":["基本運費狀態","Base rates"],
   "th.enabled":["啟用","Enabled"],
   "lb.applydemand":["套用到重算","Apply to repricing"],
