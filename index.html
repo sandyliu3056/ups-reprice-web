@@ -10641,7 +10641,15 @@ function wtFacts(r){
   const D=d=>d?(nz(d.l)+" × "+nz(d.w)+" × "+nz(d.h)):"";
   /* AA / AC 在運費那一列上。AG 和 HR 不一定在同一列 —— 這張帳單的尺寸全部
      走 HR,而且掛在 INF 列,運費列是空的,所以要整筆掃過去找第一個有值的。 */
-  const frt=ls.find(l=>isFreightLine(l))
+  /* 同一顆箱子可能有兩列運費:出貨當下那一列,和 UPS 重新量過之後開的更正列
+     (ADJ / SCC)。AC 要拿後面那一列 —— 更正列寫的才是 UPS 最後照著收錢的
+     重量。以前一律拿第一列,報表上的 AC 就停在被更正之前的數字:帳單寫 2,
+     報表寫 1,而那正是這一列被列進異常清單的原因。
+     更正列的 AC 是 0 的時候不算數(有些更正只動金額,重量欄留空),那就退回
+     出貨那一列。AA / AC 一定取自同一列 —— 它們是同一列上的一組數字。 */
+  const frts=ls.filter(l=>isFreightLine(l));
+  const frt=frts.find(l=>String(l.layer||"")==="ADJ" && toNum(l.billed)>0)
+         || frts[0]
          || ls.find(l=>String(l.cls||"").toUpperCase()==="FRT") || ls[0] || {};
   const pick=k=>{ for(const l of ls) if(l && l[k]) return l[k]; return ""; };
   const ent=toNum(frt.entered), bil=toNum(frt.billed);
@@ -11360,7 +11368,6 @@ $("#bCsv").onclick=async ()=>{
        align:typeof v==="number"?"right":"left",
        color:(typeof v==="number"&&v<0)?RED:undefined}});
 
-  const nLines=n=>L(n+" 筆", n+(n===1?" line":" lines"));
   const DET=[L("期號","Invoice Number"),L("帳單日","Invoice Date"),L("追蹤號","Tracking"),
              L("向客戶收","Billed amount"),"UPS",L("毛利","Profit"),L("毛利率","Margin")];
   const OV=[L("期號","Invoice Number"),L("帳單日","Invoice Date"),"UPS",
@@ -11381,24 +11388,19 @@ $("#bCsv").onclick=async ()=>{
        先加後進位會差幾分,對帳單上那是說不清楚的錢。 */
     const sv=ts.reduce((a,t)=>a+r2(sell[t]||0),0), cv=ts.reduce((a,t)=>a+r2(cost[t]||0),0);
     sheets.push({name:sheetNameFor(date,inv),
-      rows:[DET.map((h,i)=>hc(h,i<3?"left":"center")), ...rows,
-            [ft(L("合計","Total")),ft(""),ft(nLines(ts.length)),
-             ft(r2(sv)),ft(r2(cv)),ft(r2(sv-cv)),ft(sv?r6((sv-cv)/sv):0,PCT)]],
+      rows:[DET.map((h,i)=>hc(h,i<3?"left":"center")), ...rows],
       cols:DCOL, freeze:{r:1,c:0}});
     ovRows.push([inv,date,r2(cv),r2(sv),r2(sv-cv),sv?r6((sv-cv)/sv):0]);
   }
-  const ovS=ovRows.reduce((a,r)=>a+r[3],0), ovC=ovRows.reduce((a,r)=>a+r[2],0);
   sheets.push({name:"Overview",
     rows:[OV.map((h,i)=>hc(h,i<2?"left":"center")),
-          ...ovRows.map(r=>[tx(r[0]),dc(r[1]),nm(r[2]),nm(r[3]),nm(r[4]),nm(r[5],PCT)]),
-          [ft(L("合計","Total")),ft(""),ft(r2(ovC)),ft(r2(ovS)),ft(r2(ovS-ovC)),
-           ft(ovS?r6((ovS-ovC)/ovS):0,PCT)]],
+          ...ovRows.map(r=>[tx(r[0]),dc(r[1]),nm(r[2]),nm(r[3]),nm(r[4]),nm(r[5],PCT)])],
     cols:[{w:20},{w:12},{w:14},{w:16},{w:14},{w:10}], freeze:{r:1,c:0}});
 
   /* ---- 對不起來的錢 ------------------------------------------------------
      三種完全不同的東西,以前疊在同一張平表上,靠一欄重複二十幾次的英文句子
-     分辨,而那一欄的每一格都一樣。改成三個區塊:每塊自己的標題(帶筆數與
-     小計)、自己的欄名,欄位的意思因此可以不一樣 —— 帳號層級那塊第三欄是
+     分辨,而那一欄的每一格都一樣。改成三個區塊:每塊自己的標題(帶小計)、
+     自己的欄名,欄位的意思因此可以不一樣 —— 帳號層級那塊第三欄是
      收費代碼,追蹤號那兩塊第三欄是期號,不再有整欄空白。
      UPS 的備註是一整句大寫英文,壓成一個短標籤放在「原因」欄,原文留在
      備註欄自動換行 —— 認不出來的就留白,猜一個標籤比留白更糟。 */
@@ -11423,7 +11425,7 @@ $("#bCsv").onclick=async ()=>{
     const r0=oRows.length;
     const total=rows.reduce((a,r)=>a+toNum(r[4].v),0);
     const cap={v:"",t:"s",s:{fill:SUM,border:true}};
-    oRows.push([{v:title+" · "+nLines(rows.length),t:"s",
+    oRows.push([{v:title,t:"s",
                  s:{bold:true,fill:SUM,align:"left",border:true}},
                 cap,cap,cap,ft(r2(total))]);
     oMerges.push({s:{r:r0,c:0},e:{r:r0,c:3}});
