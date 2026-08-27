@@ -1239,6 +1239,21 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .dhbtns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 #p-dash .dempty{background:var(--panel);border:2px dashed var(--line);border-radius:16px;
   padding:34px 22px;text-align:center;color:var(--muted);font-size:14px;line-height:1.7}
+/* 有期別可跑的時候,這一格不放「去別的地方」的按鈕,直接把可挑的列出來 ——
+   一列一期,按下去就跑。 */
+#p-dash .dpick{text-align:left;padding:2px 2px 0}
+#p-dash .dpcap{font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:9px}
+#p-dash .dprow{display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+  padding:11px 14px;margin-bottom:7px;cursor:pointer;font:inherit;line-height:1.4;
+  border:2px solid var(--line);border-radius:11px;background:var(--panel);
+  transition:border-color .14s,background .14s}
+#p-dash .dprow:hover{border-color:var(--accent);background:var(--select)}
+#p-dash .dprow:focus-visible{outline:3px solid var(--run2);outline-offset:2px}
+#p-dash .dprow b{font-family:Consolas,monospace;font-size:13.5px;color:var(--text);flex:none}
+#p-dash .dprow i{font-style:normal;font-size:12px;color:var(--muted);white-space:nowrap}
+#p-dash .dprow .go{margin-left:auto;color:var(--run2);font-size:16px;line-height:1;flex:none}
+#p-dash .dpmore{font-size:12px;color:var(--muted);margin-top:2px}
 #p-dash .dcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;
   padding:15px 17px;box-shadow:0 2px 3px rgba(0,0,0,.03),0 8px 22px rgba(0,0,0,.05)}
 #p-dash .dcard + .dcard{margin-top:12px}
@@ -8883,18 +8898,25 @@ function renderDashboard(){
             "No invoice matches the account and period filter above.");
       btns=`<button class="act" id="bClrFilt">${L("清除篩選","Clear the filter")}</button> `+goFiles("ghost");
     } else {
-      /* 這一格說「上面挑一期」,底下卻只擺著一顆「前往匯入檔案」—— 就算它是
-         空心的,那也是這一格唯一的按鈕,手會自己按下去,然後就離開這一頁,
-         而該做的事其實在上面那個選單裡。
-         所以主要按鈕直接做那件事:跑最新的那一期,一下就到。匯入檔案從這一格
-         拿掉 —— 分頁列上本來就有「匯入檔案」,不會走投無路,而擺在這裡只會
-         繼續把人帶走。被篩選擋住的時候,順手給一顆清除篩選。 */
-      const top=shown[0];
-      msg=L("上面挑一期帳單,就直接跑那一期的數據。","Pick an invoice above to run its figures.");
-      /* 不在這裡再放一顆清除篩選 —— 上面那條篩選列只要有條件就會自己長一顆,
-         同一個畫面兩顆一樣的按鈕是雜訊。底下那句話已經指著「上面的篩選」。 */
-      btns=`<button class="act" id="bRunTop">${
-          L("執行 "+top.key, "Run "+top.key)}</button>`;
+      /* 一整格的空白,底下擺一顆按鈕叫人去別的分頁 —— 那是把最大的一塊版面
+         用來說「你要的東西不在這裡」。可挑的期別就那幾期,直接列出來:
+         一列一期,期號、帳單日、有多少列多少個追蹤號,按下去就跑。
+         不必先開選單,也不必先讀一句指路的話。
+         太多期就只列最新那幾期,剩下的交給上面的選單 —— 那才是它存在的理由。 */
+      const MAX=6, top=shown.slice(0,MAX), more=shown.length-top.length;
+      msg=`<div class="dpick"><div class="dpcap">${esc(
+          L(shown.length+" 期可跑",
+            shown.length+" invoice"+(shown.length>1?"s":"")+" available"))}</div>`
+        +top.map(q=>`<button class="dprow" data-k="${esc(q.key)}">`
+            +`<b>${esc(q.key)}</b>`
+            +`<i>${esc(q.date||L("沒有帳單日","no invoice date"))}</i>`
+            +`<i>${q.rows.toLocaleString()}${L(" 列"," lines")} · `
+            +`${q.trk.toLocaleString()}${L(" 個追蹤號"," trackings")}</i>`
+            +`<span class="go">&#8594;</span></button>`).join("")
+        +(more?`<div class="dpmore">${esc(L("另有 "+more+" 期,用上面的選單挑",
+            more+" more — use the dropdown above"))}</div>`:"")
+        +`</div>`;
+      btns="";
     }
     body.innerHTML=`<div class="dhead">
       <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
@@ -8904,12 +8926,13 @@ function renderDashboard(){
       ${hidden&&shown.length?`<div style="margin-top:6px;font-size:12.5px">${
         L("另有 "+hidden+" 期被上面的篩選條件擋住。",
           hidden+" more period"+(hidden>1?"s are":" is")+" hidden by the filter above.")}</div>`:""}
-      <div style="margin-top:12px">${btns}</div></div>`;
+      ${btns?`<div style="margin-top:12px">${btns}</div>`:""}</div>`;
     wireDashBar();
     const cf=$("#bClrFilt");
     if(cf) cf.onclick=()=>{ DASH_F.acct=""; DASH_F.range=""; renderDashboard(); };
-    const rt=$("#bRunTop");
-    if(rt&&shown.length) rt.onclick=()=>dashPickInvoice(shown[0].key);
+    document.querySelectorAll("#p-dash .dprow").forEach(b=>{
+      b.onclick=()=>dashPickInvoice(b.dataset.k);
+    });
     return;
   }
   /* 圓餅分的是「類別」,不是「多少」。以前用的是同一個色相由深到淺的
@@ -9134,7 +9157,10 @@ function prSheetInvoice(){
              || acctNorm(r0.account||"") || acctFromInvoice(keys[0]||"");
   const MONEY="$#,##0.00", PCT="0.0%", INT="#,##0", DATE="mm/dd/yyyy";
   const HEAD="E8E2D6", FOOT="FFF2CC", RED="C00000";
-  const REP="DDEBF7", UPS="FCE4D6";
+  /* UPS 藍、重算橘 —— 和異常報表同一套。以前這裡是反過來的,兩份檔案
+     並排看會對錯邊。內文用同色系但淡很多的底。 */
+  const UPS="DDEBF7", REP="FCE4D6";
+  const UPSB="EFF6FD", REPB="FDF3EC";
   const hc=(v,fill,al)=>({v:v,t:"s",
     s:{bold:true,fill:fill||HEAD,align:al||"right",wrap:true,border:true}});
   const serial=iso=>{
@@ -9159,37 +9185,60 @@ function prSheetInvoice(){
     kv(L("毛利率","Margin"), d.repriced?profit/Math.abs(d.repriced):0, PCT),
     kv(L("帳戶層費用","Account charges"), cents(d.account), MONEY, true)];
 
-  /* ---- 費用組成:兩側同一張表,一列一種費用 ---- */
+  /* ---- 費用組成:一列一種費用,UPS 和重算並排 -------------------------
+     排法和異常報表那張「貨件展開」一樣:第一列是「這是什麼」,第二列是
+     「誰說的」—— UPS 藍、重算橘,兩張活頁簿同一套語言。
+     以前這張是六個各自獨立的欄名(重算金額 / 重算佔比 / UPS 實收 / UPS 佔比),
+     同一件事的兩個說法分散在四個欄名裡,要自己在腦裡配對。
+     顏色也跟著統一:以前這裡藍色是重算、異常報表藍色是 UPS,兩份檔案並排
+     看會對錯邊。 */
   const kset=[...new Set(Object.keys(d.buckets||{}).concat(Object.keys(d.upsBuckets||{})))];
   const ordOf=k=>{ const i=REPORT_COLS.indexOf(k); return i<0?1e6:i; };
   kset.sort((a,b)=>ordOf(a)-ordOf(b)||String(a).localeCompare(String(b)));
-  const cb=[[hc(L("費用類別","Charge"),null,"left"),hc(L("重算金額","Repriced"),REP),
-             hc(L("重算佔比","Repriced %"),REP),hc(L("UPS 實收","UPS billed"),UPS),
-             hc(L("UPS 佔比","UPS %"),UPS),hc(L("差額","Difference"))]];
+  const UPSCOL=L("UPS 實收","UPS"), REPCOL=L("重算","Repriced");
+  const cbHead1=[hc(L("費用類別","Charge"),HEAD,"left"),
+                 hc(L("金額","Amount"),HEAD),hc("",HEAD),
+                 hc(L("佔比","Share"),HEAD),hc("",HEAD),
+                 hc(L("差額","Difference"),HEAD)];
+  const cbHead2=[hc("",HEAD,"left"),
+                 hc(UPSCOL,UPS),hc(REPCOL,REP),
+                 hc(UPSCOL,UPS),hc(REPCOL,REP),
+                 hc("",HEAD)];
+  const cbMerges=[{s:{r:0,c:0},e:{r:1,c:0}},
+                  {s:{r:0,c:1},e:{r:0,c:2}},
+                  {s:{r:0,c:3},e:{r:0,c:4}},
+                  {s:{r:0,c:5},e:{r:1,c:5}}];
+  const cb=[cbHead1, cbHead2];
   for(const k of kset){
     const rv=cents(d.buckets&&d.buckets[k]||0), uv=cents(d.upsBuckets&&d.upsBuckets[k]||0);
     const dv=cents(rv-uv);
     const R={align:"right",border:true};
-    cb.push([{v:dashLabel(k),t:"s",s:{align:"left",border:true}},
-      {v:rv,t:"n",s:Object.assign({fmt:MONEY,fill:"EFF6FD"},R)},
-      {v:d.repriced?rv/d.repriced:0,t:"n",s:Object.assign({fmt:PCT,fill:"EFF6FD"},R)},
-      {v:uv,t:"n",s:Object.assign({fmt:MONEY,fill:"FDF3EC"},R)},
-      {v:d.billed?uv/d.billed:0,t:"n",s:Object.assign({fmt:PCT,fill:"FDF3EC"},R)},
+    /* 這兩個桶不是帳單上的費用代碼,dashLabel 給不出名字,印出來會是
+       __reclass__ 這種內部字串。和異常報表用同一組說法。 */
+    const kn=k===DASH_UNKNOWN?L("未歸類代碼","Unclassified codes")
+            :k===DASH_RECLASS?L("改判 AHS/大包裹","Reclassified AHS/LP")
+            :dashLabel(k);
+    cb.push([{v:kn,t:"s",s:{align:"left",border:true}},
+      {v:uv,t:"n",s:Object.assign({fmt:MONEY,fill:UPSB},R)},
+      {v:rv,t:"n",s:Object.assign({fmt:MONEY,fill:REPB},R)},
+      {v:d.billed?uv/d.billed:0,t:"n",s:Object.assign({fmt:PCT,fill:UPSB},R)},
+      {v:d.repriced?rv/d.repriced:0,t:"n",s:Object.assign({fmt:PCT,fill:REPB},R)},
       {v:dv,t:"n",s:Object.assign({fmt:MONEY,color:dv<0?RED:undefined},R)}]);
   }
   const F={bold:true,fill:FOOT,align:"right",border:true};
   cb.push([{v:L("合計","Total"),t:"s",s:{bold:true,fill:FOOT,align:"left",border:true}},
+    {v:cents(d.billed),t:"n",s:Object.assign({fmt:MONEY},F)},
     {v:cents(d.repriced),t:"n",s:Object.assign({fmt:MONEY},F)},
     /* 合計那一格的百分比一定是 100%,寫出來沒有告訴任何人任何事 */
     {v:"",t:"s",s:Object.assign({},F)},
-    {v:cents(d.billed),t:"n",s:Object.assign({fmt:MONEY},F)},
     {v:"",t:"s",s:Object.assign({},F)},
     {v:cents(profit),t:"n",s:Object.assign({fmt:MONEY,color:profit<0?RED:undefined},F)}]);
 
   return {sheets:[
     {name:L("本期摘要","Summary"), rows:sum, cols:[{w:22},{w:24}], freeze:{r:1,c:0}},
     {name:L("費用組成","Cost breakdown"), rows:cb,
-     cols:[{w:30},{w:16},{w:13},{w:16},{w:12},{w:15}], freeze:{r:1,c:1}},
+     cols:[{w:30},{w:16},{w:16},{w:12},{w:12},{w:15}],
+     merges:cbMerges, freeze:{r:2,c:1}},
   ], accts:acct?[acct]:[], key:keys[0]||"", last:invDate||""};
 }
 /* 卡片上列出的東西倒成 Excel。兩張工作表:摘要就是畫面上那幾組,明細
