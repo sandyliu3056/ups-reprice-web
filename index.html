@@ -6322,8 +6322,21 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
      (欄位對不上,硬塞會錯格)。 */
   const zstr=members.map(znStr).find(z=>z)||"";
   const zones=zstr.split(",").filter(Boolean);
-  const family=members.filter(c=>znStr(c)===zstr).sort(chanSort);
-  const ch=family[0]||"";
+  /* 同一條渠道的三種寫法只留兩種。空運服務在渠道清單裡是不帶後綴的名字
+     (Next Day Air Saver),而附加費費率可以分商業／住宅,設定頁因此另外
+     生出兩個帶後綴的標籤 —— 三個名字都算族成員,一項費用就印三列,而三列
+     裡只有一列真的會被讀到(計價先找不帶後綴的,找到就用,填 0 也算)。
+     地面件本來就是兩條真的渠道(Ground Commercial / Ground Residential),
+     一項費用兩列;空運跟著一樣,填的人不必猜哪一列有效。
+     已經填過費率的不帶後綴那列例外,照舊印出來 —— 它在計價時是優先的那一
+     列,藏起來就變成「表上兩列漂亮的價格,實際收的是看不到的那一列」。 */
+  const suffixed=c=>/\s+(Commercial|Residential)$/i.test(c);
+  const hasRate=c=>Object.keys(t).some(k=>k.split("|||")[1]===c);
+  const all=members.filter(c=>znStr(c)===zstr).sort(chanSort);
+  const family=all.some(suffixed)?all.filter(c=>suffixed(c)||hasRate(c)):all;
+  /* 平費那一頁的值取自哪一個成員:不帶後綴的那個有費率就用它(計價也是它
+     優先),否則用族裡第一個。 */
+  const ch=family.find(c=>!suffixed(c)&&hasRate(c))||family[0]||"";
   if(!family.length||!zones.length){
     setStatus(LANG?"That channel has no zones configured":"這個渠道沒有設定 Zone");
     return;
