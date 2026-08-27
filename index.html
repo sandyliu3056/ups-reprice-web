@@ -7268,11 +7268,13 @@ function pyChannelOf(lines){
   const frt=(lines||[]).find(l=>isFreightLine(l));
   return String((frt&&frt.desc)||"").trim();
 }
-async function histExportAll(){
+async function histExportAll(onProgress){
   const rows=HISTROWS||[];
   if(!rows.length){
-    setStatus(L("歷史庫是空的,沒有東西可以匯出",
-                "History is empty — nothing to export")); return;
+    /* 只寫在狀態列的話,按了什麼都沒發生的人不會往那裡看。 */
+    toast(L("歷史明細還沒載入,或歷史庫是空的 —— 重新整理一次再試",
+            "History detail is not loaded (or the library is empty) — reload and try again"), false);
+    return;
   }
   const inv=histInv();
   const D="m/d/yyyy", MONEY="$#,##0.00;-$#,##0.00;$0.00";
@@ -7362,7 +7364,7 @@ async function histExportAll(){
   if(cgRows.length) sheets.push(sheet("Charges",
     ["Invoice Number","Tracking Number","Shipment Type","Charge Description",
      "Charge Code","Charge Classification","Fee Column","Amount","Source File"], cgRows));
-  await xlWrite(sheets,"UPS_Invoice_History.xlsx");
+  await xlWrite(sheets,"UPS_Invoice_History.xlsx",onProgress);
   setStatus(L(`已匯出 ${chRows.length.toLocaleString()} 個追蹤號、`
               +`${shRows.length.toLocaleString()} 筆貨件、`
               +`${cgRows.length.toLocaleString()} 列費用`,
@@ -7371,16 +7373,26 @@ async function histExportAll(){
               +`${cgRows.length.toLocaleString()} charge lines`));
 }
 $("#stExportAll") && ($("#stExportAll").onclick=async()=>{
-  /* 五十幾萬列要跑一分多鐘,而且整個分頁在那段時間是不動的。先把話說在
-     前面、把按鈕鎖起來,再讓瀏覽器畫一次,不然看起來就像按了沒反應。 */
-  const b=$("#stExportAll"); b.disabled=true;
+  /* 五十幾萬列要跑一分多鐘。進度寫在按鈕自己身上 —— 那是使用者剛剛按下去
+     的地方,眼睛還在那裡;寫在別處就等於沒寫。 */
+  const b=$("#stExportAll"); if(b.disabled) return;
+  const label=b.innerHTML; b.disabled=true;
   const n=(HISTROWS||[]).length;
-  setStatus(L("正在匯出 "+n.toLocaleString()+" 列,期間畫面會停住,請稍候…",
-              "Exporting "+n.toLocaleString()+" lines — the page will sit still until it finishes…"));
+  const say=t=>{ b.textContent=t; setStatus(t); };
+  say(L("整理 "+n.toLocaleString()+" 列…","Collecting "+n.toLocaleString()+" lines…"));
   await new Promise(r=>setTimeout(r,60));
-  try{ await histExportAll(); }
-  catch(e){ setStatus(L("匯出失敗:","Export failed: ")+((e&&e.message)||e)); }
-  finally{ b.disabled=false; }
+  try{
+    let last=-1;
+    await histExportAll((done,tot)=>{
+      const pct=tot?Math.floor(done*100/tot):100;
+      if(pct!==last){ last=pct;
+        say(L("匯出中… "+pct+"%","Writing… "+pct+"%")); }
+    });
+  }catch(e){
+    const m=(e&&e.message)||String(e);
+    setStatus(L("匯出失敗:","Export failed: ")+m);
+    toast(L("匯出失敗:","Export failed: ")+m, false);
+  }finally{ b.disabled=false; b.innerHTML=label; }
 });
 async function stPreviewXlsx(key, rows){
   const MONEY="$#,##0.00", INT="#,##0", PCT="0.0%", DATE="mm/dd/yyyy";
@@ -10178,11 +10190,19 @@ function xlStyles(){
 /* sheets: [{name, rows:[[cell|value,...]], cols:[{w}], merges:[{s:{r,c},e:{r,c}}], freeze:{r,c}}]
    cell:  {v, t:"s"|"n", s:樣式物件}。字串一律用 inlineStr,不另外做共用字串表
    —— 這幾張表最多幾千格,省下來的位元組不值得多一份 XML 和一組索引。 */
-async function xlWrite(sheets, fname){
+/* onProgress(已做的列數, 總列數):幾十萬列要跑一分多鐘,整段包在一個
+   同步迴圈裡的話,分頁在那段時間完全不動 —— 使用者看到的是「按了沒反應」。
+   每四千列讓出一次事件迴圈,畫面就有機會重畫、進度也講得出來。 */
+async function xlWrite(sheets, fname, onProgress){
   const S=xlStyles();
-  const sheetXml=sheets.map(sh=>{
+  const total=sheets.reduce((a,sh)=>a+((sh.rows||[]).length),0);
+  let done=0, tick=0;
+  const sheetXml=[];
+  for(const sh of sheets){
     const rows=sh.rows||[];
-    const body=rows.map((row,r)=>{
+    const parts=[];
+    for(let r=0;r<rows.length;r++){
+      const row=rows[r];
       const cells=(row||[]).map((cell,c)=>{
         if(cell==null||cell==="") return "";
         const o=(typeof cell==="object"&&!Array.isArray(cell))?cell:{v:cell};
@@ -10197,8 +10217,14 @@ async function xlWrite(sheets, fname){
           ? "<c"+ref+"><v>"+(isFinite(o.v)?o.v:0)+"</v></c>"
           : "<c"+ref+" t=\"inlineStr\"><is><t xml:space=\"preserve\">"+xe(o.v)+"</t></is></c>";
       }).join("");
-      return cells?"<row r=\""+(r+1)+"\">"+cells+"</row>":"";
-    }).join("");
+      if(cells) parts.push("<row r=\""+(r+1)+"\">"+cells+"</row>");
+      if(++tick>=4000){
+        done+=tick; tick=0;
+        if(onProgress) onProgress(done,total);
+        await new Promise(res=>setTimeout(res));
+      }
+    }
+    const body=parts.join("");
     const lastR=Math.max(1,rows.length);
     /* 展開運算子會把每一列當成一個引數推上呼叫堆疊 —— 三十萬列就是
        「Maximum call stack size exceeded」,而且是在整張表都算完之後才炸,
@@ -10211,7 +10237,7 @@ async function xlWrite(sheets, fname){
         +" topLeftCell=\""+xlCol(fc)+(fr+1)+"\" activePane=\""
         +(fc&&fr?"bottomRight":(fc?"topRight":"bottomLeft"))+"\" state=\"frozen\"/>"
       : "";
-    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+    sheetXml.push("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
       +"<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
       +"<dimension ref=\"A1:"+xlCol(lastC-1)+lastR+"\"/>"
       +"<sheetViews><sheetView workbookViewId=\"0\">"+fz+"</sheetView></sheetViews>"
@@ -10224,8 +10250,9 @@ async function xlWrite(sheets, fname){
       +((sh.merges&&sh.merges.length)?"<mergeCells count=\""+sh.merges.length+"\">"
           +sh.merges.map(m=>"<mergeCell ref=\""+xlCol(m.s.c)+(m.s.r+1)+":"
               +xlCol(m.e.c)+(m.e.r+1)+"\"/>").join("")+"</mergeCells>":"")
-      +"</worksheet>";
-  });
+      +"</worksheet>");
+  }
+  if(onProgress) onProgress(total,total);
   const enc=new TextEncoder(), B=t=>enc.encode(t);
   const files=[
     {name:"[Content_Types].xml", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
