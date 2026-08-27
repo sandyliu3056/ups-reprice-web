@@ -7282,8 +7282,21 @@ const AUD_SIDES=[
   ["Delivery Area Surcharge - Commercial","Delivery Area Surcharge - Residential"],
   ["Delivery Area Surcharge - Extended Commercial","Delivery Area Surcharge - Extended Residential"],
   ["Remote Area Surcharge - Commercial","Remote Area Surcharge - Residential"]];
+/* 這一列真的是帳單列嗎。UPS 的期號一律以四位數字開頭(000000586Y51226),
+   looksLikeInvoice() 判一個檔是不是帳單用的也是這一條。
+   歷史庫裡混進過非帳單的檔(附加費模板那種,期號欄寫著 "Shipment Type"
+   或 "Ground Commercial"),那些列金額全是 0,卻會在 Summary 上各自長出
+   一組小計 —— 看起來像多了幾期帳單。 */
+function looksLikeInvoiceNo(v){ return /^\d{4}/.test(String(v||"").trim()); }
 async function histExportAll(onProgress){
-  const rows=HISTROWS||[];
+  const all=HISTROWS||[];
+  const rows=all.filter(l=>looksLikeInvoiceNo(l&&l.invoice));
+  const junk=all.length-rows.length;
+  if(!rows.length && all.length){
+    toast(L("歷史庫裡沒有帳單列 —— 存進去的可能不是 UPS 帳單檔",
+            "No invoice lines in the library — what was filed may not be UPS invoice files"), false);
+    return;
+  }
   if(!rows.length){
     /* 只寫在狀態列的話,按了什麼都沒發生的人不會往那裡看。 */
     toast(L("歷史明細還沒載入,或歷史庫是空的 —— 重新整理一次再試",
@@ -7441,12 +7454,20 @@ async function histExportAll(onProgress){
   if(sumRows.length) sheets.push(sheet("Summary",
     ["Invoice Number","Type","Amount"], sumRows));
   await xlWrite(sheets,"UPS_Invoice_Audit.xlsx",onProgress);
+  /* 跳過的列要講出來,不能安靜地少。 */
+  const skipped=junk
+    ? L(`,跳過 ${junk.toLocaleString()} 列沒有期號的資料`,
+        `, skipped ${junk.toLocaleString()} line(s) with no invoice number`)
+    : "";
   setStatus(L(`已匯出 ${cons.length.toLocaleString()} 個追蹤號、`
               +`${raw.length.toLocaleString()} 列帳單、`
               +`${acctRows.length.toLocaleString()} 列帳號層`,
               `Exported ${cons.length.toLocaleString()} shipments, `
               +`${raw.length.toLocaleString()} invoice lines, `
-              +`${acctRows.length.toLocaleString()} account charges`));
+              +`${acctRows.length.toLocaleString()} account charges`)+skipped);
+  if(junk) toast(L(`跳過 ${junk.toLocaleString()} 列:期號欄不是期號,那些不是帳單資料`,
+                   `Skipped ${junk.toLocaleString()} line(s): the invoice-number column does not hold one`),
+                 true);
 }
 $("#stExportAll") && ($("#stExportAll").onclick=async()=>{
   /* 五十幾萬列要跑一分多鐘。進度寫在按鈕自己身上 —— 那是使用者剛剛按下去
