@@ -1632,7 +1632,9 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <div class="modal sketch" id="bkdModal" style="width:min(860px,100%);height:min(78vh,900px);max-height:94vh">
     <div class="modalhd">
       <span data-i18n="btn.breakdown">Rating Breakdown</span>
-      <span><button class="mx" id="bkdMax">⤢</button><button class="mx" id="bkdX">✕</button></span>
+      <span><button class="act ghost" id="bkdXls" hidden
+              style="padding:3px 11px;font-size:12px;margin-right:8px">Excel</button
+        ><button class="mx" id="bkdMax">⤢</button><button class="mx" id="bkdX">✕</button></span>
     </div>
     <div class="modalbody" id="bkdBody"></div>
   </div>
@@ -6538,8 +6540,128 @@ function openBreakdown(){
     else H.push(`<div class="note warn">${esc2(o.err)||L("這一期無法計價。","Could not price this period.")}</div>`);
   }
   body.innerHTML=H.join("");
+  /* 畫面畫完的同時把資料留著 —— 匯出要的是同一份東西,重算一次遲早會對不起來。 */
+  BKD_LAST={trk:t, out:out};
+  const bx=$("#bkdXls"); if(bx) bx.hidden=!out.some(o=>o.r);
   $("#bkdBg").classList.add("on");
 }
+/* 這次攤開的是哪一個追蹤號、算出了什麼 —— 給匯出用。 */
+let BKD_LAST=null;
+/* 一段(原始出貨／退件回程／第二段)的兩側明細,取成資料而不是 HTML。
+   畫面那邊是同一組來源,這裡只是不套版。 */
+function bkdLines(res, groups){
+  const U=[], P=[];
+  let usub=0, psub=0;
+  for(const g of (groups||[])){
+    for(const l of (g.lines||[])){
+      if(Math.abs(l.net)<0.005) continue;
+      usub+=l.net;
+      U.push([l.desc||l.code||"", cents(l.net)]);
+    }
+  }
+  if(res.base!=null&&(Math.abs(res.base)>=0.005||res.base===0)){
+    P.push([res.s.layer==="RTN"?L("退件回程運費","Undeliverable Return")
+             :L("基本運費","Base Rate")+(res.netCA?L("(C−A 差額)"," (C−A delta)"):""),
+            cents(res.base)]);
+    psub+=res.base||0;
+  }
+  for(const [k,v] of Object.entries(res.acc||{})){ P.push([feeDisplay(k), cents(v)]); psub+=v; }
+  P.push([L("燃油 ","Fuel ")+res.fuelPct+"%", cents(res.fuel||0)]);
+  psub+=res.fuel||0;
+  return {U:U, P:P, usub:cents(usub), psub:cents(psub)};
+}
+/* 攤開的內容倒成 Excel。UPS 和重算兩側的項目對不起來(UPS 寫「Ground
+   Residential」、我們寫「基本運費」),硬排成左右兩欄只會製造假的對應關係。
+   所以明細用長格式:一列一個項目,多一欄說它是誰算的,顏色照樣分邊 ——
+   要看對照就用樞紐,要看清單就直接讀。 */
+async function bkdXlsx(){
+  if(!BKD_LAST||!BKD_LAST.out) return;
+  const {trk,out}=BKD_LAST;
+  const MONEY="$#,##0.00", PCT="0.0%", DATE="mm/dd/yyyy";
+  const HEAD="E8E2D6", UPSC="DDEBF7", UPSB="EFF6FD", REPC="FCE4D6", REPB="FDF3EC";
+  const FOOT="FFF2CC", RED="C00000";
+  const hc=(v,fill,al)=>({v:v,t:"s",s:{bold:true,fill:fill||HEAD,align:al||"right",
+                                       wrap:true,border:true}});
+  const c=(v,fmt,al,fill,bold)=>({v:(fmt&&v==="")?0:v, t:(fmt?"n":"s"),
+    s:{fmt:fmt||undefined, align:al||"left", border:true, fill:fill||undefined,
+       bold:bold||undefined, color:(fmt===MONEY&&toNum(v)<0)?RED:undefined}});
+  const serial=v=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(normYmd(v)||"");
+    return m?Math.round((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000):null;
+  };
+  const segName=lay=> lay==="ADJ" ? L("帳單調整","Adjustment")
+                    : lay==="RTN" ? L("退件回程","Return leg")
+                    : L("原始出貨","Original shipment");
+
+  /* ---- 各期比較 ---- */
+  const sum=[[hc(L("追蹤號","Tracking"),HEAD,"left"),hc("",HEAD),hc("",HEAD),hc("",HEAD),hc("",HEAD),hc("",HEAD)],
+             [hc(L("期別","Invoice"),HEAD,"left"),hc(L("帳單日","Invoice date"),HEAD),
+              hc(L("UPS 實收","UPS billed"),UPSC),hc(L("重算","Repriced"),REPC),
+              hc(L("差異","Difference"),HEAD),hc(L("差異率","Margin"),HEAD)]];
+  const sumMerges=[{s:{r:0,c:0},e:{r:0,c:5}}];
+  let tUp=0,tRe=0,allPriced=true;
+  for(const o of out){
+    const up=cents(o.r?o.r.s.upsTotal:o.ups||0);
+    const re=o.r?cents(o.r.total||0):null;
+    if(re==null) allPriced=false; else tRe+=re;
+    tUp+=up;
+    const df=(re==null)?null:cents(re-up);
+    const sd=serial(o.invDate);
+    sum.push([c(o.inv,"","left"),
+      sd==null?c(o.invDate||"","","right"):c(sd,DATE,"right"),
+      c(up,MONEY,"right",UPSB), re==null?c("—","","right",REPB):c(re,MONEY,"right",REPB),
+      df==null?c("—","","right"):c(df,MONEY,"right"),
+      (df==null||Math.abs(re)<1e-9)?c("—","","right"):c(df/re,PCT,"right")]);
+  }
+  if(out.length>1){
+    const td=allPriced?cents(tRe-tUp):null;
+    sum.push([c(L("合計","Total"),"","left",FOOT,true), c("","",  "right",FOOT,true),
+      c(cents(tUp),MONEY,"right",FOOT,true),
+      allPriced?c(cents(tRe),MONEY,"right",FOOT,true):c("—","","right",FOOT,true),
+      td==null?c("—","","right",FOOT,true):c(td,MONEY,"right",FOOT,true),
+      (td==null||Math.abs(tRe)<1e-9)?c("—","","right",FOOT,true)
+        :c(td/tRe,PCT,"right",FOOT,true)]);
+  }
+
+  /* ---- 明細 ---- */
+  const det=[[hc(L("期別","Invoice"),HEAD,"left"),hc(L("段別","Segment"),HEAD,"left"),
+              hc(L("來源","Source"),HEAD,"left"),hc(L("項目","Item"),HEAD,"left"),
+              hc(L("金額","Amount"),HEAD)]];
+  const push=(inv,seg,side,item,amt,bold)=>{
+    const fill=side===0?UPSB:REPB;
+    det.push([c(inv,"","left",fill,bold),c(seg,"","left",fill,bold),
+      c(side===0?L("UPS 實收","UPS billed"):L("重算","Repriced"),"","left",fill,bold),
+      c(item,"","left",fill,bold),c(amt,MONEY,"right",fill,bold)]);
+  };
+  for(const o of out){
+    if(!o.r) continue;
+    const segs=[[o.r,(o.r.s.groups)||[],segName(o.r.s.layer)]];
+    if(o.r.rtn) segs.push([o.r.rtn,(o.r.s.rtnSeg&&o.r.s.rtnSeg.groups)||[],L("退件回程","Return leg")]);
+    if(o.r.npb) segs.push([o.r.npb,(o.r.s.npb&&o.r.s.npb.groups)||[],L("第二段運送","Second movement")]);
+    for(const [res,groups,nm] of segs){
+      const L2=bkdLines(res,groups);
+      for(const [it,v] of L2.U) push(o.inv,nm,0,it,v);
+      push(o.inv,nm,0,L("小計","Subtotal"),L2.usub,true);
+      for(const [it,v] of L2.P) push(o.inv,nm,1,it,v);
+      push(o.inv,nm,1,L("小計","Subtotal"),L2.psub,true);
+    }
+  }
+  const name=("Tracking_"+trk+"_Breakdown").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
+  const ok=await xlWrite([
+    {name:L("各期比較","Per invoice"), rows:sum, merges:sumMerges,
+     cols:[{w:20},{w:13},{w:14},{w:14},{w:13},{w:11}], freeze:{r:2,c:1}},
+    {name:L("明細","Detail"), rows:det,
+     cols:[{w:20},{w:16},{w:13},{w:38},{w:14}], freeze:{r:1,c:0},
+     filter:"A1:E"+det.length},
+  ], name);
+  toast(ok?L("已匯出 "+trk,"Exported "+trk):L("已取消存檔","Save cancelled"), ok);
+}
+$("#bkdXls") && ($("#bkdXls").onclick=async()=>{
+  const b=$("#bkdXls"); b.disabled=true;
+  try{ await bkdXlsx(); }
+  catch(e){ toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false); }
+  b.disabled=false;
+});
 /* 單一期的明細:讀 priceShipment 算出來的紀錄,原樣複述。 */
 function bkdSection(r){
   const money2=v=>"$"+(Math.round((v||0)*100)/100).toLocaleString(undefined,
@@ -6811,7 +6933,9 @@ function stPreviewHTML(key, rows){
     +`<i></i><b>${money0(v)}</b></div>`).join("");
   const stat=(lab,val)=>`<div class="pvs"><i>${esc(lab)}</i><b>${val}</b></div>`;
   return `<div class="stprevbox">
-    <div class="pvtop"><span class="pvkey">${esc(key)}</span></div>
+    <div class="pvtop"><span class="pvkey">${esc(key)}</span>
+      <button class="act ghost pvback pvXls" data-inv="${esc(key)}">${
+        L("匯出 Excel","Export to Excel")}</button></div>
     <div class="pvstats">
       ${stat(L("UPS 實收","UPS billed"), money0(ups))}
       ${stat(L("追蹤號","Trackings"), trk.size.toLocaleString())}
@@ -6830,11 +6954,111 @@ function stPreviewHTML(key, rows){
       "Sums of the imported invoice lines. Nothing has been repriced. To reprice this period with the current rates, use the period picker at the top of the dashboard.")}</div>
   </div>`;
 }
+/* 預覽攤開的那些數字倒成 Excel。畫面上渠道只列前六條(再多就是一面牆),
+   檔案裡全部列出來 —— 會匯出的人是要拿去對帳的,不是要瞄一眼。
+   樣式和異常報表同一套:第一列一條合併的區塊標題、第二列才是欄名、
+   金額欄藍底(這一整份都是 UPS 收的,沒有重算那一側)、每一格補框線。 */
+async function stPreviewXlsx(key, rows){
+  const MONEY="$#,##0.00", INT="#,##0", PCT="0.0%", DATE="mm/dd/yyyy";
+  const HEAD="E8E2D6", UPSC="DDEBF7", UPSB="EFF6FD", FOOT="FFF2CC", RED="C00000";
+  const hc=(v,fill,al)=>({v:v,t:"s",s:{bold:true,fill:fill||HEAD,align:al||"right",
+                                       wrap:true,border:true}});
+  const cell=(v,fmt,al,fill)=>({v:(fmt&&v==="")?0:v, t:(fmt?"n":"s"),
+    s:{fmt:fmt||undefined, align:al||"left", border:true, fill:fill||undefined,
+       color:(fmt===MONEY&&toNum(v)<0)?RED:undefined}});
+  const serial=v=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||"").trim());
+    return m?Math.round((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000):null;
+  };
+  /* 和畫面同一套加總,一份資料算一次 —— 兩邊各算一次遲早會對不起來。 */
+  let ups=0, acct=0; const chan={}, cls={}, trk=new Set(); let d0="", d1="";
+  for(const l of rows){
+    const n=toNum(l.net); ups+=n;
+    const k=String(l.cls||"").toUpperCase()||"—";
+    cls[k]=(cls[k]||0)+n;
+    if(l.layer==="MIS"||k==="MSC") acct+=n;
+    if(l.tracking) trk.add(l.tracking);
+    if(k==="FRT"&&!isAccessorialAdjLine(l)){
+      const c=String(l.desc||"").trim()||L("未寫服務名稱","No service name");
+      (chan[c]=chan[c]||{n:0,amt:0}); chan[c].n++; chan[c].amt+=n;
+    }
+    const d=normYmd(l.shipDate||"")||"";
+    if(d){ if(!d0||d<d0) d0=d; if(!d1||d>d1) d1=d; }
+  }
+  const band=(title,cols)=>[
+    [hc(title,HEAD,"left")].concat(cols.slice(1).map(()=>hc("",HEAD))),
+    cols.map((c,i)=>hc(c[0],c[2]||HEAD,c[1]))];
+  const bandMerge=n=>[{s:{r:0,c:0},e:{r:0,c:n-1}}];
+
+  /* ---- 摘要 ---- */
+  const kv=(k,v,fmt)=>[cell(k,"","left"),
+    fmt?Object.assign(cell(v,fmt,"right"),{}):cell(v,"","left")];
+  const sumRows=[[hc(L("項目","Item"),HEAD,"left"),hc(L("數值","Value"),HEAD)],
+    kv(L("期別","Invoice"), key),
+    kv(L("出貨日期","Shipped"), d0?(d0===d1?d0:d0+" → "+d1):"—"),
+    kv(L("明細列","Lines"), rows.length, INT),
+    kv(L("追蹤號","Trackings"), trk.size, INT),
+    kv(L("UPS 實收","UPS billed"), cents(ups), MONEY),
+    kv(L("帳戶層費用","Account charges"), cents(acct), MONEY)];
+
+  /* ---- 渠道 ---- */
+  const CH=[[L("服務名稱(帳單原文)","Service (as billed)"),"left"],
+            [L("貨件行數","Lines"),"right"],
+            [L("金額","Amount"),"right",UPSC],
+            [L("佔比","Share"),"right",UPSC]];
+  const chList=Object.entries(chan).sort((a,b)=>Math.abs(b[1].amt)-Math.abs(a[1].amt));
+  const chRows=band(L("渠道(依帳單服務名稱)","Channels (as billed)"),CH)
+    .concat(chList.map(([c,v])=>[cell(c,"","left"),cell(v.n,INT,"right"),
+        cell(cents(v.amt),MONEY,"right",UPSB),
+        cell(ups?v.amt/ups:0,PCT,"right",UPSB)]));
+  chRows.push([{v:L("合計","Total"),t:"s",s:{bold:true,fill:FOOT,align:"left",border:true}},
+    {v:chList.reduce((a,[,v])=>a+v.n,0),t:"n",s:{fmt:INT,bold:true,fill:FOOT,align:"right",border:true}},
+    {v:cents(chList.reduce((a,[,v])=>a+v.amt,0)),t:"n",
+     s:{fmt:MONEY,bold:true,fill:FOOT,align:"right",border:true}},
+    {v:"",t:"s",s:{bold:true,fill:FOOT,align:"right",border:true}}]);
+
+  /* ---- 費用分類 ---- */
+  const CL=[[L("代碼","Code"),"left"],[L("說明","Meaning"),"left"],
+            [L("金額","Amount"),"right",UPSC],[L("佔比","Share"),"right",UPSC]];
+  const clList=Object.entries(cls).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));
+  const clRows=band(L("費用分類","Charge classes"),CL)
+    .concat(clList.map(([c,v])=>[cell(c,"","left"),
+        cell(L(CLS_ZH[c]||"",CLS_EN[c]||""),"","left"),
+        cell(cents(v),MONEY,"right",UPSB), cell(ups?v/ups:0,PCT,"right",UPSB)]));
+  clRows.push([{v:L("合計","Total"),t:"s",s:{bold:true,fill:FOOT,align:"left",border:true}},
+    {v:"",t:"s",s:{bold:true,fill:FOOT,border:true}},
+    {v:cents(ups),t:"n",s:{fmt:MONEY,bold:true,fill:FOOT,align:"right",border:true}},
+    {v:"",t:"s",s:{bold:true,fill:FOOT,align:"right",border:true}}]);
+
+  const sd=serial(d0);
+  if(sd!=null){ /* 出貨日期是區間字串,留成文字;單日才寫成日期值 */
+    if(d0===d1) sumRows[2][1]={v:sd,t:"n",s:{fmt:DATE,align:"right",border:true}};
+  }
+  const name=("Invoice_"+key+"_Breakdown").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
+  const ok=await xlWrite([
+    {name:L("本期摘要","Summary"), rows:sumRows, cols:[{w:22},{w:26}], freeze:{r:1,c:0}},
+    {name:L("渠道","Channels"), rows:chRows, cols:[{w:42},{w:11},{w:16},{w:11}],
+     merges:bandMerge(CH.length), freeze:{r:2,c:1}},
+    {name:L("費用分類","Charge classes"), rows:clRows, cols:[{w:12},{w:22},{w:16},{w:11}],
+     merges:bandMerge(CL.length), freeze:{r:2,c:2}},
+  ], name);
+  toast(ok?L("已匯出 "+key,"Exported "+key):L("已取消存檔","Save cancelled"), ok);
+}
 /* 帳單自己的分類代碼。攤開來看的人不必記得 FSC 是什麼。 */
 const CLS_ZH={FRT:"運費",FSC:"燃油",ACC:"附加費",ADJ:"調整",MSC:"帳號層",MIS:"雜項",INF:"僅供參考"};
 const CLS_EN={FRT:"freight",FSC:"fuel",ACC:"surcharge",ADJ:"adjustment",
   MSC:"account level",MIS:"miscellaneous",INF:"informational"};
 $("#tStored") && ($("#tStored").addEventListener("click",async e=>{
+  const bx=e.target.closest(".pvXls");
+  if(bx){
+    e.stopPropagation();
+    const k=bx.dataset.inv;
+    bx.disabled=true;
+    try{ const rs=await idbRowsFor(k); await stPreviewXlsx(k, rs); }
+    catch(err){ toast(L("匯出失敗:","Export failed: ")+((err&&err.message)||err), false); }
+    bx.disabled=false;
+    return;
+  }
   const b2=e.target.closest(".stRe"); if(!b2) return;
   const tr=b2.closest("tr"); if(!tr) return;
   const open=tr.nextElementSibling;
@@ -7229,7 +7453,10 @@ function renderConfigTabs(){
      那一行還停在舊的內容會看起來像沒吃進去。 */
   paintAccFuelSum();
 
-  document.querySelectorAll("#app input.cell").forEach(el=>{
+  /* 只綁真的是設定格的那些。class="cell" 現在也被搜尋框、新渠道名稱、燃油
+     欄位這些純輸入框拿去當樣式用,它們沒有 data-k —— 綁上去的話,打完字
+     一離開焦點,editCell 就拿 undefined 去 split,每次都丟一個例外。 */
+  document.querySelectorAll("#app input.cell[data-k]").forEach(el=>{
     el.onchange=()=>editCell(el.dataset.k, el.value);
   });
   /* 換渠道就是把整列費率搬到新的 Shipment Type 底下 */
