@@ -679,15 +679,17 @@ td.cells{white-space:normal}
 #p-dash .tleg i{display:inline-block;width:10px;height:10px;border-radius:3px;
   margin-right:6px;vertical-align:-1px}
 /* 篩選列。一排放在圖上面 —— 改條件的人正在看圖,不該去別的地方找開關。 */
-#p-dash .dfilters{display:flex;flex-wrap:wrap;align-items:center;gap:9px 14px;margin:0 0 13px}
-#p-dash .fsel{display:flex;align-items:center;gap:8px}
-#p-dash .fsel>span:first-child{font-size:11.5px;font-weight:700;letter-spacing:.05em;
+#p-dash .dfilters,#stModal .dfilters{display:flex;flex-wrap:wrap;align-items:center;
+  gap:9px 14px;margin:0 0 13px}
+#p-dash .fsel,#stModal .fsel{display:flex;align-items:center;gap:8px}
+#p-dash .fsel>span:first-child,#stModal .fsel>span:first-child{font-size:11.5px;
+  font-weight:700;letter-spacing:.05em;
   text-transform:uppercase;color:var(--muted);white-space:nowrap}
 /* 原生 select 的外框、箭頭和字級都是作業系統給的,擺進這一頁就是另一套
    設計 —— 旁邊的期別選單和指標切換都是站上的樣式,只有這兩個不是。
    關掉原生外觀自己畫,邊框、圓角、焦點框都跟 .dsel 同一組。展開後的
    選項清單仍然由瀏覽器畫,那一層不歸網頁管。 */
-#p-dash .fsel .selw>select{min-width:152px}
+#p-dash .fsel .selw>select,#stModal .fsel .selw>select{min-width:152px}
 /* 指標切換:兩個互斥的選項,做成一組連在一起的按鈕,不是下拉 —— 只有兩個
    選項的下拉,要點兩下才換得掉。 */
 #p-dash .fseg{display:inline-flex;border:2px solid var(--line);border-radius:11px;overflow:hidden}
@@ -1840,6 +1842,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <span><button class="mx" id="stMax">⤢</button><button class="mx" id="stX">✕</button></span>
     </div>
     <div class="modalbody">
+      <div class="dfilters" id="stFilters"></div>
       <div class="strow" id="stSum"></div>
       <div id="stStorage" class="storagebox"></div>
       <div class="tablewrap" style="max-height:52vh"><table id="tStored"><thead><tr>
@@ -6632,31 +6635,96 @@ function renderStorageMeter(){
       </div>`;
   }).catch(()=>{});
 }
+/* 已匯入帳單的篩選。和儀表板同一套語意:期間是「相對於最新那一期往回算
+   幾天」,不是相對於今天 —— 手上這批帳單本來就可能是上個月的,用今天當基準
+   會整份清單一起消失。 */
+let ST_F={acct:"", range:""};
+function stAcct(k,v){ return dashAcctOf({key:k, acct:v&&v.acct}).id; }
+function stFilter(list){
+  let out=list.slice();
+  if(ST_F.acct) out=out.filter(([k,v])=>stAcct(k,v)===ST_F.acct);
+  const days=+ST_F.range||0;
+  if(days){
+    /* 日期兩種寫法,一律正規化再比 —— 理由同 dashFilter。 */
+    const dates=out.map(([,v])=>normYmd(v.date)).filter(Boolean).sort();
+    const last=dates[dates.length-1];
+    if(last){
+      const t=Date.parse(last+"T00:00:00Z");
+      if(!isNaN(t)){
+        const from=new Date(t-(days-1)*86400000).toISOString().slice(0,10);
+        out=out.filter(([,v])=>normYmd(v.date)>=from);
+      }
+    }
+  }
+  return out;
+}
+function stPaintFilters(all){
+  const box=$("#stFilters"); if(!box) return;
+  const seen=[];
+  for(const [k,v] of all){
+    const a=dashAcctOf({key:k, acct:v&&v.acct});
+    if(a.id && !seen.some(x=>x.id===a.id)) seen.push(a);
+  }
+  const opt=(val,cur,txt)=>`<option value="${esc(val)}"${val===cur?" selected":""}>${esc(txt)}</option>`;
+  const acctSel=seen.length>1
+    ? `<label class="fsel"><span>${L("帳號","Account")}</span>`
+      +`<span class="selw"><select id="stfAcct">`
+      +opt("",ST_F.acct,L("全部帳號","All accounts"))
+      +seen.map(a=>opt(a.id,ST_F.acct,a.id+(a.guessed?L(" (推得)"," (derived)"):""))).join("")
+      +`</select></span></label>`
+    : "";
+  const rngSel=`<label class="fsel"><span>${L("期間","Period")}</span>`
+    +`<span class="selw"><select id="stfRange">`
+    +DASH_RANGES.map(r=>opt(r.k,ST_F.range,L(r.zh,r.en))).join("")
+    +`</select></span></label>`;
+  const clr=(ST_F.acct||ST_F.range)
+    ? `<button class="act ghost" id="stfClear" style="padding:4px 11px;font-size:12px">${
+        L("清除篩選","Clear filters")}</button>`
+    : "";
+  box.innerHTML=acctSel+rngSel+clr;
+  const re=()=>{ renderStored(); };
+  const a=$("#stfAcct"); if(a) a.onchange=e=>{ ST_F.acct=e.target.value; re(); };
+  const g=$("#stfRange"); if(g) g.onchange=e=>{ ST_F.range=e.target.value; re(); };
+  const c=$("#stfClear"); if(c) c.onclick=()=>{ ST_F={acct:"",range:""}; re(); };
+}
 function openStored(){
+  ST_F={acct:"", range:""};
+  renderStored();
+  $("#stBg").classList.add("on");
+}
+function renderStored(){
   /* 讀持久化的索引,不是這次載進來的那幾列 —— 重開瀏覽器之後
      這張表還要在。 */
   const inv=histInv();
-  const list=Object.entries(inv).sort();
+  const all=Object.entries(inv).sort();
+  stPaintFilters(all);
+  const list=stFilter(all);
   const allTrk=list.reduce((a,[,v])=>a+(v.trk||0),0);
   const allRows=list.reduce((a,[,v])=>a+(v.rows||0),0);
   const stat=(lab,val)=>`<div class="stat"><i>${lab}</i><b>${val}</b></div>`;
+  /* 摘要跟著篩選走 —— 篩完還印總數的話,那三個數字和底下的表對不起來。
+     被篩掉的期數另外講,免得以為東西不見了。 */
+  const hid=all.length-list.length;
   $("#stSum").innerHTML =
-      stat(LANG?"Invoices":"帳單期數", list.length.toLocaleString())
+      stat(LANG?"Invoices":"帳單期數", list.length.toLocaleString()
+           +(hid?`<span style="font-size:11.5px;color:var(--muted);font-weight:400"> / ${
+              all.length.toLocaleString()}</span>`:""))
     + stat(LANG?"Rows":"帳單筆數", allRows.toLocaleString())
     + stat(LANG?"Trackings":"追蹤號", allTrk.toLocaleString());
   $("#tStored").tBodies[0].innerHTML = list.length
     ? list.map(([k,v])=>`<tr><td><input type="checkbox" class="stc" value="${esc(k)}"></td>
-        <td>${esc(k)}</td><td>${esc(v.date||"—")}</td>
+        <td>${esc(k)}</td><td>${esc(normYmd(v.date)||v.date||"—")}</td>
         <td>${(v.rows||0).toLocaleString()}</td><td>${(v.trk||0).toLocaleString()}</td>
         <td>${esc((v.at||"").replace("T"," "))}</td>
         <td><button class="act ghost stRe" data-inv="${esc(k)}" style="padding:3px 11px;font-size:12px">${
           LANG?"Preview":"預覽"}</button></td></tr>`).join("")
     : `<tr><td colspan="7" class="empty">${
-        LANG?"No invoices filed yet.":"還沒有任何帳單存進歷史。"}</td></tr>`;
-  const all=$("#stAll"); if(all) all.checked=false;
+        all.length
+          ? L("沒有符合篩選條件的期別。","No invoice matches the filters.")
+          : L("還沒有任何帳單存進歷史。","No invoices filed yet.")}</td></tr>`;
+  const chk=$("#stAll"); if(chk) chk.checked=false;
   stPaintDelete();
   renderStorageMeter();
-  $("#stBg").classList.add("on");
 }
 /* 勾了幾期、刪除鈕能不能按、勾中的列亮底色 —— 三件事一起畫。 */
 function stTicked(){ return [...document.querySelectorAll(".stc:checked")].map(c=>c.value); }
@@ -6795,7 +6863,9 @@ $("#stDelete") && ($("#stDelete").onclick=async()=>{
   renderDashboard();      /* 刪掉的期別要從儀表板的選單裡一起消失 */
   histCloudDelete(keys);
   logAdd("delete invoices", keys.join(", "));
-  openStored();   /* 重畫視窗,數字與清單立刻反映 */
+  /* 只重畫,不重設篩選 —— 刪的人正篩在某個帳號上,清單突然跳回全部
+     會讓人以為刪錯了。 */
+  renderStored();
   toast((LANG?"Deleted ":"已刪除 ")+keys.length+(LANG?" invoice period(s).":" 期帳單歷史。"), true);
   setStatus((LANG?"Deleted ":"已刪除 ")+keys.length+(LANG?" period(s)":" 期"));
 });
@@ -7978,13 +8048,18 @@ function dashFilter(data){
   if(DASH_F.acct) out=out.filter(d=>dashAcctOf(d).id===DASH_F.acct);
   const days=+DASH_F.range||0;
   if(days){
-    const dates=out.map(d=>String(d.date||"")).filter(Boolean).sort();
+    /* 帳單日在索引裡有兩種寫法:2026-08-08 和 2026/8/22 —— 匯入的來源不同。
+       直接拿字串比會出事:"/" 的字碼比 "-" 大,排序把 slash 那種通通排到
+       最後,於是「最新的一期」抓到 2026/8/22,而 Date.parse("2026/8/22T…")
+       是 NaN,整段日期篩選就被跳過 —— 選了「近一週」畫面卻一期都沒少。
+       一律先正規化再比。 */
+    const dates=out.map(d=>normYmd(d.date)).filter(Boolean).sort();
     const last=dates[dates.length-1];
     if(last){
       const t=Date.parse(last+"T00:00:00Z");
       if(!isNaN(t)){
         const from=new Date(t-(days-1)*86400000).toISOString().slice(0,10);
-        out=out.filter(d=>String(d.date||"")>=from);
+        out=out.filter(d=>normYmd(d.date)>=from);
       }
     }
   }
@@ -11445,6 +11520,9 @@ function applyLang(){
      兩張卡片會停在另一種語言。 */
   if($("#prInvWhat") && typeof prPaint==="function"){ try{ prPaint(); }catch(e){} }
   if(typeof paintManualAlt==="function") paintManualAlt();
+  /* 已匯入帳單那個視窗整份是 JS 畫的,開著切語言會停在原本那一種。 */
+  if($("#stBg") && $("#stBg").classList.contains("on")
+     && typeof renderStored==="function"){ try{ renderStored(); }catch(e){} }
   if(typeof CFG!=="undefined" && CFG){
     paintAccFuelSum();
     if($("#afBg") && $("#afBg").classList.contains("on")) renderAccFuel();
