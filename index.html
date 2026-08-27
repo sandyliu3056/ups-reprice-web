@@ -810,6 +810,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <span id="saveNoteTop" class="savenote"></span>
       <button class="act ghost" id="bBilling" data-i18n="btn.billing">UPS Billing Center</button>
     </div>
+    <div id="apiNote"></div>
     <div id="cfgNote"></div>
   </div>
 
@@ -1127,6 +1128,11 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .savenote{margin-top:4px;font-size:13px;color:var(--muted);font-weight:600}
 #p-dash .savenote b{color:var(--run2);font-family:var(--titlefam);font-size:15px}
 #p-dash .dfoot{margin-top:15px;font-size:11.5px;color:var(--muted);line-height:1.6}
+/* 退回系統判定的說明。它不是錯誤,所以不走 --neg;但它會改變金額,
+   所以也不能和頁尾一樣淡到看不見。 */
+#p-dash .dnote{margin:12px 0 0;padding:9px 13px;border:1px solid var(--line);
+  border-left:3px solid var(--accent);border-radius:10px;background:var(--panel);
+  font-size:12.5px;line-height:1.6;color:var(--muted)}
 /* ---------------------------------------------------------------------
    期別選單:挑一期歷史帳單來跑
    原生 <select> 的清單列沒辦法排版,而一期要講的是四件事(期號、
@@ -1760,6 +1766,11 @@ function toNum(v){
   const n=parseFloat(s);
   return isFinite(n)?n:0;
 }
+/* 分位取捨全站只有這一個做法。以前匯出、儀表板、利潤報表各自寫一次,
+   取捨的時機也各不相同 —— 同一批資料因此給得出兩個總額。
+   toFixed 是對真值取捨,和桌面版的 round() 一致;Math.round(v*100)/100
+   會先把 12.074999… 放大成 1207.5 再進位,寫出 12.08。 */
+function cents(v){ return Number(toNum(v).toFixed(2)); }
 
 /* ---- CSV:引號、逗號、換行都要處理,UPS 的說明欄常常有逗號 ---- */
 function parseCSV(text){
@@ -3701,9 +3712,15 @@ function prefetchOriginals(ships){
    ===================================================================== */
 let ADDRCLASS={};        /* 追蹤號 -> "R" | "C" */
 let API_NOTE="";         /* 這次跑批的一次性提示(端點沒填、呼叫失敗等) */
-/* 「選了 API 卻沒填端點」是設定沒填完,不是這一次跑批出事 —— 每產一次報表
-   就跳一次,跳到後來沒有人會看。一個工作階段講一次就夠。 */
-let API_NOURL_SHOWN=false;
+/* 這則說明現在是畫面上的一行字,不是跳出來的東西,所以它每一次跑批都照實
+   反映當下的狀態 —— 條件還成立就繼續講。以前它會被壓成一個工作階段只說
+   一次,於是第二次跑批之後,同一件事還在發生,畫面上卻什麼都沒有。 */
+function paintApiNote(){
+  const el=document.getElementById("apiNote");
+  if(el) el.innerHTML=API_NOTE
+    ? `<div class="note"><b>${L("住宅／商業判定","Residential / commercial classification")}:</b> ${esc(API_NOTE)}</div>`
+    : "";
+}
 const ADDRCLASS_CACHE_KEY="ups_addrclass_v1";
 function addressClassFor(s){ return (s&&ADDRCLASS[s.tracking])||null; }
 function addrKey(a){
@@ -3734,9 +3751,8 @@ async function prefetchAddressClass(ships){
   if((gr.resi_source||"system")!=="api") return 0;      /* 系統模式:完全不打 */
   const url=String(gr.resi_api_url||"").trim();
   if(!url){
-    if(!API_NOURL_SHOWN){ API_NOURL_SHOWN=true;
-      API_NOTE=L("已選取「連動 API」,但未填寫代理端點,本期全數以系統設定判定。端點於「設定」分頁填寫。",
-                 "\u201cLinked API\u201d is selected with no proxy endpoint; this period is classified entirely by System Configuration. The endpoint is set on the Settings tab."); }
+    API_NOTE=L("已選取「連動 API」,但未填寫代理端點,本期全數以系統設定判定。端點於「設定」分頁填寫。",
+               "\u201cLinked API\u201d is selected with no proxy endpoint; this period is classified entirely by System Configuration. The endpoint is set on the Settings tab.");
     return 0; }
   /* 收齊不重複的地址,對回追蹤號 */
   const groups=new Map();
@@ -5956,7 +5972,7 @@ function openBreakdown(){
     const up=o.r?o.r.s.upsTotal:o.ups;
     const d=rp==null?null:rp-up;
     const p=(rp!=null&&Math.abs(rp)>1e-9)?(d/rp*100):null;
-    if(rp!=null) tRe+=rp; else allPriced=false;
+    if(rp!=null) tRe+=cents(rp); else allPriced=false;
     tUp+=up;
     H.push(`<tr><td class="mono">${esc2(o.inv)}</td><td>${esc2(o.invDate)}</td>`
       +`<td style="text-align:right;font-family:monospace">${rp==null?"—":money2(rp)}</td>`
@@ -6957,6 +6973,10 @@ const REPORT_COLS=["Date","Tracking","Shipment Reference Number 1",
     金額進了 Total,報表上卻沒有任何一欄能解釋那筆錢。 */
  "Demand - AHS","Demand - Large Package","Demand - Over Maximum","Demand - Service",
  "Fuel Surcharge","Total"];
+/* 活頁簿裡真正是錢的欄位:Base Rate 起、Total 前的全部。Total 自己不算在內
+   —— 它是這些欄位的和,不是另一個獨立的金額。 */
+const REPORT_MONEY=REPORT_COLS.slice(REPORT_COLS.indexOf("Base Rate"),
+                                     REPORT_COLS.indexOf("Total"));
 const REPORT_COL_OF={
   "AHS Weight":"Additional Handling Surcharge - Weight",
   "AHS Dimension":"Additional Handling Surcharge - Dimension",
@@ -7017,8 +7037,25 @@ function reportRows(){
       put(r.rtn);
       o["Fuel Surcharge"]=(toNum(o["Fuel Surcharge"])||0)+(r.rtn.fuel||0);
     }
-    o["Total"]=r.total==null?0:r.total;
-    /* 第二段運送另外一列,不要把兩段的錢疊在同一格。 */
+    /* 第二段運送(NPB)以前只把錢加進 Total,沒有進任何一個費用欄 ——
+       把活頁簿的費用欄橫向加起來,會比同一列的 Total 少掉整整一段運送。
+       退件回程那一段早就併回同一列了,這一段照同一個做法:錢在哪一欄
+       要看得見。尺寸與計費重仍然是主段的,那一段的明細在「重算」分頁
+       的「第二段運送」卡片裡。 */
+    if(r.npb){
+      o["Base Rate"]=(toNum(o["Base Rate"])||0)+(r.npb.base||0);
+      put(r.npb);
+      o["Fuel Surcharge"]=(toNum(o["Fuel Surcharge"])||0)+(r.npb.fuel||0);
+    }
+    /* 取捨到分只做這一次。以前是匯出的當下才 toFixed(2),而儀表板加的是
+       沒取捨過的原值 —— 同一批資料兩個總額(699 筆差 $0.26),頁尾卻寫著
+       「本頁數字與匯出報表一致」。在這裡取捨完,底下每一個用這份資料的
+       地方(儀表板、Repriced 活頁簿、利潤報表)拿到的就是同一組數字。 */
+    for(const c of REPORT_MONEY) o[c]=cents(o[c]);
+    /* Total 是這一列費用欄的和,不是另外算出來的一個數字。兩邊各算一次、
+       又只有一邊取捨到分,同一列就會出現「各欄加起來 ≠ Total」——
+       那張活頁簿是要給客戶的,他們會自己拉一次加總。 */
+    o["Total"]=cents(REPORT_MONEY.reduce((a,c)=>a+toNum(o[c]),0));
     return o;
   });
 }
@@ -8032,6 +8069,7 @@ function renderDashboard(){
       <div class="dsub">${d.n} ${L("筆貨件","shipments")}</div></div>
       <button class="act ghost" id="bDashRe">${L("重新整理","Refresh")}</button></div>
     ${dashBarHTML()}
+    ${API_NOTE?`<div class="dnote">${esc(API_NOTE)}</div>`:""}
     <div class="dflow">
       <div class="dcell"><div class="dk">${L("向客戶收","Charge customer")}</div>
         <div class="dv">${money(d.repriced)}</div></div>
@@ -8803,7 +8841,12 @@ async function runReport(ing, ships){
       .then(()=>prefetchAddressClass(SHIPS).catch(()=>0))
       .then(()=>{
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
-    if(API_NOTE) toast(API_NOTE, false);
+    /* 住宅／商業改用系統判定,這是一則說明,不是這次跑批失敗 —— 以前它走
+       toast(…, false):紅底、驚嘆號、而且不會自己消失,就卡在報表產出的
+       前一刻。從按下 Generate 的人看過去,那就是「先跳一個錯,才生出帳單」。
+       改成留在畫面上的說明:import 頁一則、儀表板一則,兩則都不會跳出來
+       擋路,也不會在下一個 toast 出現時被蓋掉。 */
+    paintApiNote();
     renderCode(); renderHist(); renderDashboard();
       ready();
     logAdd("reprice report", ROWS.length+" rows / "+SHIPS.length+" tracking");
@@ -9514,8 +9557,11 @@ $("#bCsv").onclick=async ()=>{
                         note:r.note||"", amount:r2(r.net)});
     }
   }
+  /* 收入用報表那一列的 Total,不是引擎的原值 —— 客戶收到的 Repriced
+     活頁簿寫的是取捨到分之後的數字,利潤報表要是拿沒取捨的原值去算,
+     兩份檔案對同一個追蹤號會給出差一分的收入。 */
   const sell={};
-  for(const o of RATED) sell[o.s.tracking]=(o.total==null?0:o.total);
+  for(const o of reportRows()) sell[o["Tracking"]]=toNum(o["Total"]);
 
   /* 兩邊對不上的都要講:只在報表裡的是收了錢卻沒有成本,
      只在帳單裡的是有成本卻沒跟客戶收。 */
