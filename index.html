@@ -463,18 +463,30 @@ td.cells{white-space:normal}
 .note b{color:var(--ink)} .note.warn b{color:var(--neg)}
 
 /* 附加費:Zone 直欄 + 固定金額網格 */
-.zonecols{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.zonecols{display:grid;grid-template-columns:repeat(auto-fit,minmax(292px,1fr));gap:12px}
 .zonecol{padding:10px 12px;border:1.5px solid var(--line);border-radius:7px;background:var(--panel)}
 .zonecol .zt{font-size:12.5px;font-weight:600;color:var(--accent);margin-bottom:6px;line-height:1.3}
 .zonecol .zsel{font-size:11.5px;color:var(--muted);margin-bottom:6px}
 .zrow{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}
 .zrow .zl{flex:1;color:var(--muted)}
+/* 一項費用兩格費率:商業、住宅。欄名只寫一次,寫在每張卡的最上面 */
+.zonecol .zrow input.cell{width:74px;flex:none}
+.zonecol .zhead{margin-bottom:5px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.zonecol .zh{width:74px;flex:none;text-align:center;font-size:11px;
+  font-weight:600;color:var(--accent);white-space:nowrap}
 .flatgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px}
-/* 模板那一組:族選單管的是右邊兩顆按鈕,不是整頁 —— 圈在一起就不用解釋 */
+/* 模板那兩顆圈在一起:它們吃的是上面那個渠道選單,和左邊那幾顆
+   「改這一頁」的按鈕不是同一件事 */
 .tplgrp{display:inline-flex;gap:8px;align-items:center;
   border:1.6px dashed var(--line);border-radius:var(--rad);padding:4px 8px}
-.flatitem{display:flex;align-items:center;gap:6px;font-size:12px}
+.flatitem{font-size:12px;padding:8px 10px;border:1.5px solid var(--line);
+  border-radius:7px;background:var(--panel)}
+.flatitem .ftop{display:flex;align-items:center;gap:6px;margin-bottom:6px}
 .flatitem .fl{flex:1;color:var(--text);line-height:1.25}
+.flatitem .fvals{display:flex;gap:12px;flex-wrap:wrap}
+.flatitem .fv{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+.flatitem .fv i{font-style:normal;font-weight:600;color:var(--accent)}
+.flatitem .fv input.cell{width:66px}
 /* 燃油小視窗:關掉的那一項用刪除線標出來 —— 一整片都是勾的時候,
    沒勾的那一格光靠空白框太容易看漏。 */
 .aff.off{color:#b4441f;text-decoration:line-through}
@@ -1022,24 +1034,23 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
   <div class="lf sketch">
     <h3 class="display"><span class="em">💵</span><span data-i18n="hd.acc">Surcharge Rates</span></h3>
-    <div class="row" style="margin-bottom:8px">
-      <button class="act" id="bCustomAcc" data-i18n="btn.customacc">Custom Surcharges…</button>
-      <button class="act" id="bSaveRates" data-i18n="btn.saverates">Save Rates</button>
-      <span id="saveNote" class="savenote"></span>
-      <button class="act ghost" id="bRemoveTicked" data-i18n="btn.removeticked">Remove Ticked</button>
-      <span class="tplgrp">
-        <select id="tplChan"></select>
-        <button class="act ghost" id="bExportAcc" data-i18n="btn.exportacc">Export Accessorials Template</button>
-        <button class="act ghost" id="bImportAcc" data-i18n="btn.importacc">Import Accessorials Template</button>
-      </span>
-      <input type="file" id="fImportAcc" accept=".csv,.txt,.xlsx,.xls">
-    </div>
     <div class="row" style="margin-bottom:10px">
       <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
       <select id="accFilter"></select>
       <label class="inlab" data-i18n="lb.search">Search</label>
       <input id="accSearch" class="cell" style="width:150px;text-align:left">
       <span id="accCount" style="color:var(--muted);font-size:12.5px"></span>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <button class="act" id="bCustomAcc" data-i18n="btn.customacc">Custom Surcharges…</button>
+      <button class="act" id="bSaveRates" data-i18n="btn.saverates">Save Rates</button>
+      <span id="saveNote" class="savenote"></span>
+      <button class="act ghost" id="bRemoveTicked" data-i18n="btn.removeticked">Remove Ticked</button>
+      <span class="tplgrp">
+        <button class="act ghost" id="bExportAcc" data-i18n="btn.exportacc">Export Accessorials Template</button>
+        <button class="act ghost" id="bImportAcc" data-i18n="btn.importacc">Import Accessorials Template</button>
+      </span>
+      <input type="file" id="fImportAcc" accept=".csv,.txt,.xlsx,.xls">
     </div>
     <div class="grid3" style="margin-bottom:12px">
       <label data-i18n="lb.cfg">Rate file</label>
@@ -6270,7 +6281,10 @@ $("#accAll") && ($("#accAll").onchange=e=>{
   document.querySelectorAll(".accc").forEach(c=>c.checked=e.target.checked); });
 $("#bSaveRates") && ($("#bSaveRates").onclick=()=>saveSettings());
 $("#bRemoveTicked") && ($("#bRemoveTicked").onclick=()=>{
-  const ticked=[...document.querySelectorAll(".accc:checked")].map(c=>c.value);
+  /* 一個勾選格代表這一項費用的商業與住宅(必要時還有不分商住)那幾條,
+     值是用 ␟ 串起來的 —— 費率鍵本身含 |||,不能拿它當分隔符。 */
+  const ticked=[...new Set([...document.querySelectorAll(".accc:checked")]
+    .flatMap(c=>String(c.value).split("\u241F")).filter(Boolean))];
   if(!ticked.length){ setStatus(LANG?"Tick a row first":"請先勾選"); return; }
   for(const k of ticked) delete CFG.raw.accessorial_rate_table[k];
   CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
@@ -6307,7 +6321,7 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
   /* 按鈕旁選的是渠道族(Ground、3 Day Select…),不分 com / res ——
      一份模板涵蓋全族,com / res 的區別由第一頁每一列的 Shipment Type 扛。
      Large Package 兩邊費率就是不同,列要分開,檔不必分開。 */
-  const fam=($("#tplChan")||{}).value||"";
+  const fam=($("#accFilter")||{}).value||"";
   if(!fam){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
   const t=CFG.raw.accessorial_rate_table||{};
   const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
@@ -7363,40 +7377,44 @@ function renderConfigTabs(){
 
   /* ---- 附加費:Zone 分級的直欄區塊 + 固定金額網格 + 申報價值級距 ---- */
   const t=CFG.raw.accessorial_rate_table||{};
-  const zonesOf=v=>Object.keys(v).sort((a,b)=>(+a||999)-(+b||999));
+  /* 一條渠道兩種費率:商業與住宅。以前這裡有兩個選單 —— 一個選渠道族給
+     模板用,一個選 "Ground Commercial" 給費率表格用 —— 同一項費用要切兩次
+     才看得完,兩個選單指到不同的族時,畫面上填的和倒出去的模板還會是兩條
+     不同的渠道。現在只有一個選單,選的是渠道族(Ground、Next Day Air
+     Saver…),商業與住宅的差別改成每一項費用旁邊並排兩格。 */
+  const suffixRe=/\s+(Commercial|Residential)$/i;
+  const famOf=c=>String(c).replace(suffixRe,"").trim();
   const withRates=new Set(Object.keys(t).map(k=>k.split("|||")[1]));
-  const allChans=[...new Set([...shipmentTypeOptions(),...withRates])].sort(chanSort);
+  const fams=[...new Set([...shipmentTypeOptions(),...withRates].map(famOf))]
+    .filter(Boolean).sort(chanSort);
   const sel=$("#accFilter");
   if(sel){
-    /* 第一次開的預設值。照字母排會停在 "2nd Day Air AM Residential",
-       那條幾乎沒人先看;Ground Commercial 才是每次都要先確認的那一條。 */
-    const prefer=["Ground Commercial","Ground Residential"]
-      .find(c=>allChans.indexOf(c)>=0);
-    const cur=sel.value||prefer||[...withRates].sort()[0]||allChans[0]||"";
-    sel.innerHTML=allChans.map(c=>
+    /* 第一次開的預設值:Ground —— 照字母排會停在 "2nd Day Air AM",
+       那條幾乎沒人先看。 */
+    const cur=(sel.value&&fams.indexOf(sel.value)>=0)?sel.value
+             :(fams.indexOf("Ground")>=0?"Ground":(fams[0]||""));
+    sel.innerHTML=fams.map(c=>
       `<option value="${esc(c)}"${c===cur?" selected":""}>${esc(c)}</option>`).join("");
   }
-  /* 模板的渠道族選單:com / res 收成一個。第一次跟著目前渠道的族,
-     之後尊重使用者自己選的。 */
-  const tsel=$("#tplChan");
-  if(tsel){
-    const fams=[...new Set(allChans.map(c=>
-      String(c).replace(/\s+(Commercial|Residential)$/i,"").trim()))].sort(chanSort);
-    const cf=String((sel&&sel.value)||"").replace(/\s+(Commercial|Residential)$/i,"").trim();
-    const tcur=(tsel.value&&fams.includes(tsel.value))?tsel.value:(cf||fams[0]||"");
-    tsel.innerHTML=fams.map(c=>
-      `<option value="${esc(c)}"${c===tcur?" selected":""}>${esc(c)}</option>`).join("");
-  }
-  const fc=(sel&&sel.value)||allChans[0]||"";
-  if($("#accChanName")) $("#accChanName").textContent=fc;
+  const fam=(sel&&sel.value)||fams[0]||"";
+  if($("#accChanName")) $("#accChanName").textContent=fam;
 
-  /* 這個渠道自己的 Zone。渠道名結尾是 Commercial/Residential,
-     要去掉才對得回服務名。沒設就跟著預設那條。 */
-  const svcOf=c=>String(c).replace(/\s+(Commercial|Residential)$/i,"").trim();
+  /* 這一族的兩條費率線。 */
+  const COM=channelSurchargeLabel(fam,false), RES=channelSurchargeLabel(fam,true);
+  /* 舊的設定檔可能把費率填在不帶後綴的名字底下,而計價查費率時那一格是
+     優先的。有值就多開一欄顯示 —— 藏起來的話,畫面上兩欄漂亮的價格,
+     實際收的是看不到的那一格。 */
+  const bareOf=fee=>fee+"|||"+fam;
+  const cellsFor=fee=>{
+    const out=[[COM,L("商業","Commercial")],[RES,L("住宅","Residential")]];
+    if(bareOf(fee) in t) out.push([fam,L("不分商住","Both")]);
+    return out;
+  };
+
+  /* 這一族的 Zone。族名本身沒有登記時退回帶後綴的那兩條 —— 空運服務的
+     渠道清單存的是不帶後綴的名字,地面件存的是帶後綴的。 */
   const znMap=CFG.raw.builtin_service_zones||{};
-  /* 先看渠道自己那一筆,再退回服務名 —— 和匯出模板同一個順序,
-     不然畫面上的 Zone 和倒出去的檔案會不一樣。 */
-  const myZones=String(znMap[fc] ?? znMap[svcOf(fc)] ?? "")
+  const myZones=String(znMap[fam] ?? znMap[COM] ?? znMap[RES] ?? "")
     .split(",").map(z=>z.trim()).filter(Boolean);
 
   /* 費用項目的形狀取自所有渠道的聯集 —— 這樣還沒填過的渠道
@@ -7407,29 +7425,36 @@ function renderConfigTabs(){
     const banded = v && typeof v==="object";
     if(!shape.has(fee) || banded) shape.set(fee, banded);
   }
-  const mine=Object.keys(t).filter(k=>k.split("|||")[1]===fc);
-  for(const k of mine){
-    const fee=k.split("|||")[0];
-    shape.set(fee, t[k] && typeof t[k]==="object");
+  for(const k of Object.keys(t)){
+    const c=k.split("|||")[1];
+    if(c!==COM && c!==RES && c!==fam) continue;
+    shape.set(k.split("|||")[0], t[k] && typeof t[k]==="object");
   }
-  const feeNames=[...shape.keys()].filter(feeShown).sort();
+  /* 上面那格搜尋以前只是重畫一次,什麼都沒有篩。 */
+  const q=String(($("#accSearch")||{}).value||"").trim().toLowerCase();
+  const feeNames=[...shape.keys()].filter(feeShown)
+    .filter(f=>!q || String(f).toLowerCase().indexOf(q)>=0).sort();
   const zoneFees=feeNames.filter(f=>shape.get(f));
   const flatFees=feeNames.filter(f=>!shape.get(f));
 
   $("#accZoneCols").innerHTML = (myZones.length&&zoneFees.length)
     ? zoneFees.map(fee=>{
-        const k=fee+"|||"+fc, v=t[k];
-        const have = v && typeof v==="object";
+        const cs=cellsFor(fee);
+        const val=(c,z)=>{ const v=t[fee+"|||"+c];
+                           return (v&&typeof v==="object")?(v[z]??""):""; };
         /* 只列這條渠道設定的 Zone。以前是跟已存的費率取聯集,結果別條線
            寫進來的 Zone 會一起冒出來 —— 畫面和匯出的模板就對不起來。
            已存的其他 Zone 不會被刪掉,只是不顯示。 */
-        const zs = myZones;
         return `<div class="zonecol">
           <div class="zt">${esc(fee)}</div>
-          <div class="zsel"><label><input type="checkbox" class="accc" value="${esc(k)}"${ro}>
+          <div class="zsel"><label><input type="checkbox" class="accc" value="${
+            esc(cs.map(([c])=>fee+"|||"+c).join("\u241F"))}"${ro}>
             ${LANG?"Select":"勾選"}</label></div>
-          ${zs.map(z=>`<div class="zrow"><span class="zl">Zone ${z}</span>
-            <span>$</span>${numIn("acc\u241F"+k+"\u241F"+z, have?(v[z]??""):"")}</div>`).join("")}
+          <div class="zrow zhead"><span class="zl"></span>${
+            cs.map(([,n])=>`<span class="zh">${esc(n)}</span>`).join("")}</div>
+          ${myZones.map(z=>`<div class="zrow"><span class="zl">Zone ${z}</span>${
+            cs.map(([c])=>numIn("acc\u241F"+fee+"|||"+c+"\u241F"+z, val(c,z))).join("")
+          }</div>`).join("")}
         </div>`;
       }).join("")
     : `<div class="empty">${LANG
@@ -7437,16 +7462,24 @@ function renderConfigTabs(){
         : "這個渠道還沒設定 Zone,請在渠道分頁補上。"}</div>`;
 
   $("#accFlat").innerHTML=flatFees.map(fee=>{
-    const k=fee+"|||"+fc;
+    const cs=cellsFor(fee);
     return `<div class="flatitem">
-      <input type="checkbox" class="accc" value="${esc(k)}"${ro}>
-      <span class="fl">${esc(fee)}</span><span>$</span>${
-        numIn("acc\u241F"+k, k in t ? t[k] : "")}</div>`;
+      <div class="ftop"><input type="checkbox" class="accc" value="${
+        esc(cs.map(([c])=>fee+"|||"+c).join("\u241F"))}"${ro}>
+        <span class="fl">${esc(fee)}</span></div>
+      <div class="fvals">${cs.map(([c,n])=>{
+        const k=fee+"|||"+c;
+        return `<label class="fv"><i>${esc(n)}</i><span>$</span>${
+          numIn("acc\u241F"+k, k in t ? t[k] : "")}</label>`;
+      }).join("")}</div>
+    </div>`;
   }).join("")||`<div class="empty">—</div>`;
 
   if($("#accCount")) $("#accCount").textContent = LANG
-    ? `${zoneFees.length} zone-banded x ${myZones.length} zones, ${flatFees.length} flat`
-    : `依 Zone ${zoneFees.length} 項 x ${myZones.length} 個 Zone,固定 ${flatFees.length} 項`;
+    ? `${zoneFees.length} zone-banded x ${myZones.length} zones, ${flatFees.length} flat `
+      +`— commercial and residential side by side`
+    : `依 Zone ${zoneFees.length} 項 x ${myZones.length} 個 Zone,固定 ${flatFees.length} 項`
+      +` —— 商業與住宅並排`;
 
   /* 申報價值級距 */
   const a=CFG.raw.accessorial_charges||{};
