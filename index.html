@@ -9559,12 +9559,12 @@ function exportReport(){
                 +(LANG?" rows":" 列"))
              :(LANG?"Save cancelled":"已取消存檔"), ok);
     });
-  }).catch(()=>{
-    SAVE_TO=null;
-    /* 匯出一律 xlsx。寫檔元件就在站內,載不到代表它沒被部署上去 ——
-       這時給不出 xlsx,就說清楚,不要偷偷換成另一種格式的檔。 */
-    setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
-                "Export failed: xlsx-0.18.5.full.min.js did not load. Check it sits next to index.html"));
+  }).catch(e=>{
+    /* 以前這裡不看錯誤內容,一律回報「元件沒載到」—— 寫檔過程中任何一個
+       例外都會被說成別的原因,照著那句話去查永遠查不到。 */
+    const m=(e&&e.message)||String(e||"");
+    setStatus(L("匯出失敗:","Export failed: ")+m);
+    toast(L("匯出失敗:","Export failed: ")+m, false);
   });
 }
 
@@ -9835,28 +9835,14 @@ async function xlWrite(sheets, fname){
   return dlBlob(await xlZip(files), fname);
 }
 
-/* 這一輪要存去哪。瀏覽器只在「使用者剛按下按鈕」那幾秒內准許跳另存視窗,
-   而報表要先算完才有東西可以寫,所以在按下去的當下就先問好位置,
-   算完再寫進去。Firefox / Safari 沒有這個 API,照舊直接下載。 */
-let SAVE_TO=null;
-async function pickSave(name){
-  if(!window.showSaveFilePicker) return null;
-  const ext=(String(name).match(/\.[^.]+$/)||[".xlsx"])[0];
-  const mime=ext===".csv"?"text/csv":"application/octet-stream";
-  try{
-    return await window.showSaveFilePicker({suggestedName:name,
-      types:[{description:ext.slice(1).toUpperCase(), accept:{[mime]:[ext]}}]});
-  }catch(e){ return (e&&e.name==="AbortError")?"cancel":null; }
-}
-/* 回傳有沒有真的存下來 —— 使用者按取消時不要偷偷下載一份。 */
+/* 直接下載到瀏覽器的下載資料夾,不問位置。
+   以前這裡先跳一個「另存新檔」對話框:showSaveFilePicker 只在使用者剛按下
+   按鈕的那幾秒內准許開啟,而報表要算完才有東西可以寫,所以位置得先問。
+   代價是那個對話框「按下確定的當下就把檔案建出來了」—— 後面任何一步出錯、
+   或是同名檔案正開在 Excel 裡寫不進去,磁碟上就留著一個 0 byte 的 .xlsx,
+   而 Excel 對 0 byte 的檔只會說「檔案格式或副檔名無效」,看起來像報表壞了。
+   直接下載沒有這個問題:檔案是寫成功才會出現。 */
 async function dlBlob(blob,name){
-  let h=SAVE_TO; SAVE_TO=null;
-  if(!h) h=await pickSave(name);
-  if(h==="cancel") return false;
-  if(h){
-    try{ const w=await h.createWritable(); await w.write(blob); await w.close(); return true; }
-    catch(e){ /* 寫不進去就退回下載,不要讓人白算一次 */ }
-  }
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download=name;
   document.body.appendChild(a); a.click(); a.remove();
@@ -10428,12 +10414,9 @@ $("#bRun").onclick=async ()=>{
   }
 };
 
-/* 真正的產生報表。從「問要存哪裡」開始 —— showSaveFilePicker 需要
-   使用者手勢,所以這個函式一定要在 Generate 那一下的 click 處理器裡呼叫。 */
+/* 真正的產生報表。 */
 async function runReport(ing, ships){
   try{
-    SAVE_TO=await pickSave(reportName());
-    if(SAVE_TO==="cancel"){ SAVE_TO=null; setStatus(L("已取消","Cancelled")); return; }
     /* 先歸檔再計價。桌面版把這一步放在最前面,理由是:計價失敗的那一期
        如果沒進歷史,下個月的跨期更正就沒有東西可以對照。 */
     const filed=fileInvoices(ing.rows,"run");
@@ -10448,6 +10431,9 @@ async function runReport(ing, ships){
       .then(()=>prefetchAddressClass(SHIPS).catch(()=>0))
       .then(()=>{
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
+    /* 活頁簿先倒出來,再更新畫面。順序反過來的話,任何一個畫面函式出錯
+       都會把使用者按 Generate 真正要的那份檔案一起帶走。 */
+    exportReport();
     /* 住宅／商業改用系統判定,這是一則說明,不是這次跑批失敗 —— 以前它走
        toast(…, false):紅底、驚嘆號、而且不會自己消失,就卡在報表產出的
        前一刻。從按下 Generate 的人看過去,那就是「先跳一個錯,才生出帳單」。
@@ -10457,8 +10443,6 @@ async function runReport(ing, ships){
     renderCode(); renderHist(); renderDashboard();
       ready();
     logAdd("reprice report", ROWS.length+" rows / "+SHIPS.length+" tracking");
-    /* 產生完就直接把活頁簿倒出來 —— 桌面版按下去就是給你一份檔案。 */
-    exportReport();
     setStatus(L("完成:","Done: ")+ROWS.length.toLocaleString()
       +L(" 列 / "," lines / ")+SHIPS.length.toLocaleString()
       +L(" 個追蹤號"," tracking numbers")
@@ -11271,9 +11255,6 @@ let HIST_PAGE=0, HIST_Q=null;
    賣價來自報表的 Total,成本直接取帳單上該追蹤號所有層的淨額總和。 */
 $("#bCsv").onclick=async ()=>{
   if(!RATED||!RATED.length){ setStatus(L("請先產生報表","Build a report first")); return; }
-  SAVE_TO=await pickSave(baseName("_Statement.xlsx"));
-  if(SAVE_TO==="cancel"){ SAVE_TO=null; setStatus(L("已取消","Cancelled")); return; }
-
   const r2=v=>Math.round(v*100)/100;
   const r6=v=>Math.round(v*1e6)/1e6;
   /* 成本、期號、期別日期:一個追蹤號一筆,含 SHP / RTN / ADJ 每一層 —— 更正層也是真的錢。 */
