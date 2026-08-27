@@ -2113,7 +2113,22 @@ function repairZones(cfg){
   }
   return fixed;
 }
+/* 附加費費率表裡的內建項目。新加的內建附加費在舊設定檔裡沒有鍵,設定頁的
+   「固定金額」就長不出那一格,使用者也就無從填價。照 Address Correction
+   已經存在的那幾條渠道補上空白列 —— 空白 = 照 UPS 實收。 */
+function seedBuiltinFees(cfg){
+  const t=cfg.accessorial_rate_table||(cfg.accessorial_rate_table={});
+  for(const fee of RATE_OR_UPS){
+    if(Object.keys(t).some(k=>k.split("|||")[0]===fee)) continue;
+    let chans=Object.keys(t).filter(k=>k.split("|||")[0]==="Address Correction")
+                            .map(k=>k.split("|||")[1]);
+    if(!chans.length) chans=["Ground Commercial","Ground Residential"];
+    for(const c of chans) t[fee+"|||"+c]="";
+  }
+  return cfg;
+}
 function readConfig(cfg){
+  seedBuiltinFees(cfg);
   const g=cfg.global_rules||{};
   const tables=(cfg.base_rate_tables||[]).map(t=>({
     /* 舊格式的字串鍵費率表存的是 residential: null,代表「兩種旗標都收」。
@@ -2546,14 +2561,15 @@ const ACC_CODE_MAP = {
      查不到合約費率才退回 UPS 實收(:19972)。 */
   OVR:{fee:"Over Maximum Size Surcharge", ups_fallback:true},
   OML:{fee:"Over Maximum Size Surcharge", ups_fallback:true},
-  /* UPS 事後補收的兩筆作業費 (Not Previously Billed)。pass = 照 UPS 實收
-     原封不動轉嫁,不查費率表 —— 這種錢沒有「我們的價目表」可查,UPS 收
-     多少就是多少,而且費率每年會調。真要改價,在動態附加費那裡註冊同一
-     個代碼就會蓋過這裡。
-     UPS 自己不對它們收燃油(實帳單那幾筆 NPF 同一層連 FSC 行都沒有),
+  /* UPS 事後補收的兩筆作業費 (Not Previously Billed)。兩者收法不同:
+     NPF(未傳送 PLD 手續費)是可以向客戶收的服務性費用 —— 附加費費率表
+       填了金額就照合約收,沒填就照 UPS 實收轉嫁。留空是合理的預設:UPS
+       每年調這筆費率,填死一個數字明年就過期了。
+     SCF(運費更正費)只列出、不計入重算總額。
+     兩者 UPS 都不收燃油(實帳單那幾筆 NPF 同一層連 FSC 行都沒有),
      所以也不進燃油底。 */
-  NPF:{fee:"Missing PLD Fee",         pass:true},
-  SCF:{fee:"Shipping Correction Fee", pass:true},
+  NPF:{fee:"Missing PLD Fee",         ups_fallback:true, nofuel:true},
+  SCF:{fee:"Shipping Correction Fee", info:true,         nofuel:true},
   /* 地址更正。多數帳單寫在 ADJ 的明細碼欄(AJ),scanCharges 另外處理;
      少數版本會直接寫在描述代碼欄,所以這裡也留一條。 */
   ADC:{fee:"Address Correction"},
@@ -2595,11 +2611,15 @@ function normArCode(v){ return String(v||"").trim().toUpperCase().split(" - ")[0
    (原始碼的 ACC_CODES_NOT_REPRICED 已經不存在:NPF / SCF 現在照 UPS
     實收轉嫁,見 ACC_CODE_MAP 的 pass 欄。) */
 const CODE_WHY={
-  NPF:["出貨時沒有把電子出貨資料 (PLD) 傳給 UPS,事後補收的處理費;走系統出單就不會有",
-       "UPS never received this package's electronic detail (PLD) and back-billed a handling fee; creating the label through the system avoids it"],
-  SCF:["UPS 事後補收的運費更正費 —— 重量或尺寸被改過的那些件才會有",
+  NPF:["出貨時未向 UPS 傳送電子包裹明細 (PLD),UPS 事後補收的處理費;由系統產製標籤即可避免",
+       "UPS did not receive this package's electronic detail (PLD) and back-billed a handling fee; producing the label through the system avoids it"],
+  SCF:["UPS 事後補收的運費更正處理費,發生在重量或尺寸經 UPS 重新計價的貨件",
        "UPS back-billed its shipping-charge-correction fee; it follows packages whose weight or dimensions were re-rated"],
 };
+/* 費率表填了就照費率、沒填就照 UPS 實收的桶子。
+   超大件(OVR / OML)雖然也是這個規則,卻不在這裡 —— 它退回 UPS 實收時
+   要在異常清單留一句話,那段邏輯自己有一條路(見 priceShipment)。 */
+const RATE_OR_UPS = new Set(["Missing PLD Fee"]);
 /* 走主線,不當附加費 */
 const MAIN_LINE = new Set(["FRT","FSC","003"]);
 /* 這一行是不是運費。你的帳單把運費寫成 Charge Description Code "003",
@@ -2781,9 +2801,9 @@ function scanCharges(lines, dynMap, fuelOff){
         continue;                     /* 標記行,不是可計價的附加費 */
       }
       bucket=cm.fee;
-      /* 照 UPS 實收轉嫁:借用自訂附加費 COPY INVOICE 那條路,金額就是
-         帳單上的 net,不查費率表也不進燃油底。 */
-      if(cm.pass&&bucket){ dynMode[bucket]="COPY INVOICE"; nonFuel.add(bucket); }
+      /* 只列出、不進總額的:借用自訂附加費 REPORT ONLY 那條路。 */
+      if(cm.info&&bucket) dynMode[bucket]="REPORT ONLY";
+      if(cm.nofuel&&bucket) nonFuel.add(bucket);
       if(cm.res&&bucket) resBucket.add(bucket);
     }
     else if(AHS_DIM.has(c))  bucket="AHS Dimension";
@@ -3191,6 +3211,14 @@ function priceShipment(cfg, s, force){
     const mode=modes[bucket];
     if(mode==="COPY INVOICE"){ acc[bucket]=scan.net[bucket]; continue; }
     if(mode==="REPORT ONLY"){ accInfo[bucket]=scan.net[bucket]; continue; }
+    /* 費率表填了就照合約收,沒填就照 UPS 實收 —— 對這一項而言「沒填」
+       不是設定漏了,是「照成本轉嫁」,所以不記成異常。 */
+    if(RATE_OR_UPS.has(bucket)){
+      const quiet=[];
+      const v=accLookup(cfg,bucket,channel,zone,quiet,residential);
+      acc[bucket]= v>0 ? v : cents(toNum(scan.net[bucket]));
+      continue;
+    }
     /* AHS / LPS 四桶不在這裡收 —— 下面的系統判定閘門統一處理
        (py :19674-:19969)。 */
     if(AHS_LPS_SIGNED.has(bucket)) continue;
@@ -7867,10 +7895,11 @@ const REPORT_COLS=["Date","Tracking","Shipment Reference Number 1",
  "Reschedule Delivery","Returns Electronic Label","Returns Print Label",
  "Future Day Pickup - Alternate Address - Web Request","Returns 3 UPS Pickup Attempts",
  "Residential Pickup surcharge",
- /* UPS 事後補收的兩筆作業費。引擎收了錢,這裡卻沒有欄位 —— put() 只填
-    REPORT_COLS 裡有的欄,不在名單上的整筆丟掉,活頁簿那一列的各欄加起來
-    就比 Total 少了那筆錢,而少的是哪一筆看不出來。 */
- "Missing PLD Fee","Shipping Correction Fee",
+ /* 未傳送 PLD 的補收費。引擎收了錢就要有欄位 —— put() 只填 REPORT_COLS
+    裡有的欄,不在名單上的整筆丟掉,活頁簿那一列的各欄加起來就會比 Total
+    少了那筆錢,而少的是哪一筆看不出來。
+    運費更正費(SCF)只列出、不計入總額,所以這裡沒有它的欄位。 */
+ "Missing PLD Fee",
  /* Demand 四欄。桌面版 :17400 / :20335 有,這裡以前沒有 ——
     金額進了 Total,報表上卻沒有任何一欄能解釋那筆錢。 */
  "Demand - AHS","Demand - Large Package","Demand - Over Maximum","Demand - Service",
@@ -7998,7 +8027,7 @@ const DASH_LABEL={
   "Additional Handling Surcharge - Packaging":["額外處理·包裝","AHS · Packaging"],
   "DAS Residential":["住宅 DAS","DAS Resi"],"DAS Commercial":["商業 DAS","DAS Comm"],
   "__das__":["DAS／RAS","DAS / RAS"],
-  "Missing PLD Fee":["未傳出貨資料 (PLD)","Missing PLD Fee"],
+  "Missing PLD Fee":["PLD 未傳送費","Missing PLD Fee"],
   "Shipping Correction Fee":["運費更正費","Shipping Correction Fee"],
   "Third Party Billing":["第三方付費","Third Party Billing"],
   "Commercial Adjustment":["商業重分類","Commercial Adjustment"],
