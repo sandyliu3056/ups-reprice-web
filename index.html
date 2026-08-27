@@ -721,7 +721,17 @@ td.cells{white-space:normal}
 .ugrp .urow:last-child{border-bottom:none}
 .bkdseg{background:var(--panel);border-radius:8px;padding:9px 11px;margin:10px 0;
   border-left:6px solid var(--line)}
-.bkdtrk{background:var(--accent);border-radius:8px;padding:10px 14px;margin:2px 0 12px}
+/* 匯出鈕擺在這一條上,不擺標題列 —— 標題列的底色是 var(--accent),而
+   .act.ghost 的字色也是 var(--accent),放上去等於隱形,按鈕在那裡卻看不見。
+   這一條同樣是深色底,所以自己畫一個金框金字的版本,和標題列那兩顆同一路。 */
+.bkdtrk{background:var(--accent);border-radius:8px;padding:10px 14px;margin:2px 0 12px;
+  display:flex;align-items:center;gap:14px}
+.bkdtrk .bkdxls{margin-left:auto;flex:none;font:inherit;font-size:12.5px;font-weight:700;
+  cursor:pointer;background:transparent;color:var(--tab);letter-spacing:.3px;
+  border:1.5px solid var(--tab);border-radius:7px;padding:5px 13px;white-space:nowrap}
+.bkdtrk .bkdxls:hover:not(:disabled){background:rgba(255,255,255,.15)}
+.bkdtrk .bkdxls:disabled{opacity:.45;cursor:default}
+.bkdtrk .bkdxls:focus-visible{outline:2px solid var(--tab);outline-offset:2px}
 .bkdtrk .lbl{font-size:11px;letter-spacing:1.2px;color:var(--select);opacity:.75}
 .bkdtrk .no{font-family:Consolas,monospace;font-size:21px;font-weight:700;
   letter-spacing:1px;color:#fff;word-break:break-all}
@@ -1632,9 +1642,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <div class="modal sketch" id="bkdModal" style="width:min(860px,100%);height:min(78vh,900px);max-height:94vh">
     <div class="modalhd">
       <span data-i18n="btn.breakdown">Rating Breakdown</span>
-      <span><button class="act ghost" id="bkdXls" hidden
-              style="padding:3px 11px;font-size:12px;margin-right:8px">Excel</button
-        ><button class="mx" id="bkdMax">⤢</button><button class="mx" id="bkdX">✕</button></span>
+      <span><button class="mx" id="bkdMax">⤢</button><button class="mx" id="bkdX">✕</button></span>
     </div>
     <div class="modalbody" id="bkdBody"></div>
   </div>
@@ -6497,8 +6505,9 @@ function openBreakdown(){
   }
   ACCT_LINES=keep;
   const H=[];
-  H.push(`<div class="bkdtrk"><div class="lbl">${L("追蹤號","Tracking")}</div>`
-    +`<div class="no">${esc2(t)}</div></div>`);
+  H.push(`<div class="bkdtrk"><div><div class="lbl">${L("追蹤號","Tracking")}</div>`
+    +`<div class="no">${esc2(t)}</div></div>`
+    +`<button class="bkdxls" id="bkdXls">${L("⬇ 匯出 Excel","⬇ Export to Excel")}</button></div>`);
   H.push(`<div class="subhd">${L("各期比對","Per-invoice comparison")}</div>`);
   H.push(`<table style="width:100%;font-size:12.5px;margin-bottom:12px">`);
   H.push(`<tr><td><b>Invoice</b></td><td><b>${L("帳單日期","Invoice date")}</b></td>`
@@ -6542,7 +6551,17 @@ function openBreakdown(){
   body.innerHTML=H.join("");
   /* 畫面畫完的同時把資料留著 —— 匯出要的是同一份東西,重算一次遲早會對不起來。 */
   BKD_LAST={trk:t, out:out};
-  const bx=$("#bkdXls"); if(bx) bx.hidden=!out.some(o=>o.r);
+  /* 這顆按鈕是隨內容重畫出來的,每次都是新的節點,所以事件要在這裡綁。 */
+  const bx=$("#bkdXls");
+  if(bx){
+    bx.disabled=!out.some(o=>o.r);
+    bx.onclick=async()=>{
+      bx.disabled=true;
+      try{ await bkdXlsx(); }
+      catch(e){ toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false); }
+      bx.disabled=false;
+    };
+  }
   $("#bkdBg").classList.add("on");
 }
 /* 這次攤開的是哪一個追蹤號、算出了什麼 —— 給匯出用。 */
@@ -6656,12 +6675,6 @@ async function bkdXlsx(){
   ], name);
   toast(ok?L("已匯出 "+trk,"Exported "+trk):L("已取消存檔","Save cancelled"), ok);
 }
-$("#bkdXls") && ($("#bkdXls").onclick=async()=>{
-  const b=$("#bkdXls"); b.disabled=true;
-  try{ await bkdXlsx(); }
-  catch(e){ toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false); }
-  b.disabled=false;
-});
 /* 單一期的明細:讀 priceShipment 算出來的紀錄,原樣複述。 */
 function bkdSection(r){
   const money2=v=>"$"+(Math.round((v||0)*100)/100).toLocaleString(undefined,
