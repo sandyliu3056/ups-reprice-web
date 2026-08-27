@@ -542,7 +542,7 @@ td.cells{white-space:normal}
 #p-dash .trend{margin:0 0 14px}
 #p-dash .th2{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px}
 #p-dash .th2 span{font-weight:400;color:var(--muted);margin-left:8px;font-size:11.5px}
-#p-dash .tplotarea{display:flex;align-items:stretch;gap:5px;height:132px;
+#p-dash .tplotarea{display:flex;align-items:stretch;gap:5px;height:152px;
   padding:0 2px;border-bottom:1px solid var(--line);position:relative}
 /* 平均線的標籤貼在右端,而右端正好是最後幾根長條 —— 它就這樣蓋在資料上。
    右邊留一條固定寬度的空白給它,長條只畫在 .tcols 裡面;折線的座標也是
@@ -7777,14 +7777,25 @@ function dashTrendHTML(ok, multi, allAccts){
      浮起來就會把 3% 的差距畫成兩倍高。毛利率是折線,點的位置本身就是值,
      零沒有意義:一批 10%~13% 的毛利率硬要從 0 起算,四個點會全部擠在頂端
      那一條細帶裡,看不出誰高誰低。所以毛利率只框住資料本身,上下各留一點。 */
-  let hi, lo;
-  if(isM){
-    const mx=Math.max(...vals), mn=Math.min(...vals);
-    const pad=Math.max(0.5,(mx-mn)*0.25);
-    hi=mx+pad; lo=mn-pad;
-  } else {
-    hi=Math.max(0,...vals); lo=Math.min(0,...vals);
-  }
+  /* 級距先從資料本身的高低差抓,再把上下界對齊到級距的整數倍 —— 這樣每一
+     道刻度線都是整數(毛利率就是 5% 一格),而且最上和最下那條剛好就是繪圖
+     區的邊。
+     以前是「資料範圍上下各留 25%」:20.8% 到 -3.9% 的一批資料,下界被推到
+     -10%,底下那一格整片空的,還印出一個沒有任何資料靠近的 -10.0%。 */
+  const mx0=isM?Math.max(...vals):Math.max(0,...vals);
+  const mn0=isM?Math.min(...vals):Math.min(0,...vals);
+  const step=(()=>{
+    /* 除以 5 不是 4:20.8% 到 -3.9% 這一批,除以 4 得到 6.2,往上取到 10,
+       於是刻度變成 -10/0/10/20/30 —— 上下各多出一整格沒有資料的空白。
+       除以 5 得到 4.9,取到 5,刻度就是 -5 到 25,每 5% 一格,資料剛好填滿。 */
+    const raw=Math.max(1e-9,(mx0-mn0))/5;
+    const pw=Math.pow(10,Math.floor(Math.log10(raw))), mm=raw/pw;
+    return (mm<=1?1:mm<=1.5?1.5:mm<=2?2:mm<=2.5?2.5:mm<=3?3:mm<=4?4:mm<=5?5:10)*pw;
+  })();
+  let hi=Math.ceil(mx0/step)*step, lo=Math.floor(mn0/step)*step;
+  /* 最高(或最低)那一筆剛好落在刻度線上時,那顆點會壓在邊框上 —— 再讓一格。 */
+  if(Math.abs(hi-mx0)<step*1e-6) hi+=step;
+  if(Math.abs(mn0-lo)<step*1e-6) lo-=step;
   const span=Math.max(0.001, hi-lo);
   const pal=pieCols();
   const acctIx=d=>Math.max(0,(allAccts||[]).indexOf(dashAcctOf(d).id));
@@ -7811,15 +7822,13 @@ function dashTrendHTML(ok, multi, allAccts){
      把 hi、lo 直接印出來:印 $4,873 那種數字沒有人拿來對照。
      線畫得比零線淡,不跟資料搶。 */
   const ticks=(()=>{
-    const span0=hi-lo;
-    if(!(span0>0)) return [];
-    const raw=span0/5, pw=Math.pow(10,Math.floor(Math.log10(raw))), mm=raw/pw;
-    const step=(mm<=1?1:mm<=1.5?1.5:mm<=2?2:mm<=2.5?2.5:mm<=3?3:mm<=4?4:mm<=5?5:10)*pw;
+    if(!(span>0)) return [];
     const out=[];
-    for(let v=Math.ceil(lo/step)*step; v<=hi+step*1e-6; v+=step){
-      const yy=yv(v);
-      if(yy<-0.5||yy>100.5) continue;
-      out.push({v:v, y:yy});
+    /* 上下界本來就是級距的整數倍,所以從 lo 一路走到 hi 每一格都對得齊。 */
+    for(let i=0;i<=Math.round(span/step)+0.5;i++){
+      const v=lo+i*step;
+      if(v>hi+step*1e-6) break;
+      out.push({v:Math.abs(v)<step*1e-9?0:v, y:yv(v)});
     }
     return out;
   })();
@@ -7898,6 +7907,15 @@ function dashTrendHTML(ok, multi, allAccts){
    金額一律寫成數字並套 $ 格式,沒有金額的格子寫 0(顯示成 $0.00),不留白;
    毛利率寫成真正的比例值再套百分比格式,不是先算成 "20.6%" 這種字串貼上去
    —— 字串排不了序,也沒辦法再拿去算。日期同樣寫成真的日期值。 */
+/* 檔名要看得出這是誰的哪一段。帳號跟著篩選走 —— 選了單一帳號就只寫那一個,
+   全部帳號就把它們串起來(超過三個改寫數量,不然檔名會比視窗還長)。 */
+function profitReportName(data){
+  const accts=[...new Set((data||[]).map(d=>dashAcctOf(d).id).filter(Boolean))].sort();
+  const tag=!accts.length?"":(accts.length<=3?accts.join("-"):accts.length+"accounts");
+  const last=(data||[]).map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"";
+  return ["Profit_Report", tag, last.replace(/-/g,"")]
+    .filter(Boolean).join("_").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
+}
 function exportAllPeriods(){
   const all=(DASH_ALL_CACHE&&DASH_ALL_CACHE.data)||[];
   if(!all.length){ setStatus(L("目前沒有可匯出的期別資料","No period data to export")); return; }
@@ -7956,8 +7974,7 @@ function exportAllPeriods(){
   xlWrite([{name:LANG?"Profit by period":"各期利潤", rows:grid,
             cols:[20,12,16,10,16,16,14,10,16,38].map(w=>({w:w})),
             freeze:{r:1,c:0}}],
-    "Profit_Report_By_Period"+((data.map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"")
-      .replace(/^(.+)$/,"_$1").replace(/-/g,""))+".xlsx")
+    profitReportName(data))
   .then(ok=>toast(ok?L("已匯出 "+nOk+" 期","Exported "+nOk+" period"+(nOk===1?"":"s"))
                     :L("已取消存檔","Save cancelled"), ok))
   .catch(e=>toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false));
