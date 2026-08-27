@@ -3863,6 +3863,28 @@ function fileInvoices(rows, how){
   try{ histCloudPush(rows); }catch(e){}
   return {added, replaced, stored, count:Object.keys(seen).length};
 }
+/* 舊的期別存進索引時還沒有記帳號,畫面上只能從期號推,標成「(推得)」。
+   明細其實就在本機的 IndexedDB 裡,每一列都帶著帳號號碼 —— 還原明細的時候
+   順手把它補回索引,補到的那幾期下次就是真的帳號,不必重新匯入。
+   補不到的(只有索引、沒有明細)照舊標「(推得)」—— 那是實話。 */
+function backfillAccounts(rows){
+  const inv=histInv();
+  const need=new Set(Object.keys(inv).filter(k=>!String(inv[k].acct||"").trim()));
+  if(!need.size) return 0;
+  const found={};
+  for(const r of rows||[]){
+    const k=(r.invoice||"").trim();
+    if(!k || !need.has(k) || found[k]) continue;
+    const a=String(r.account||"").trim();
+    if(a && a.toLowerCase()!=="nan") found[k]=a;
+  }
+  const keys=Object.keys(found);
+  if(!keys.length) return 0;
+  for(const k of keys) inv[k].acct=found[k];
+  HISTINV=inv;
+  try{ localStorage.setItem(histInvKey(), JSON.stringify(inv)); }catch(e){}
+  return keys.length;
+}
 /* 目前這張帳單已經歸檔過了嗎 */
 function alreadyFiled(rows){
   const inv=histInv();
@@ -4805,6 +4827,7 @@ function restoreHistoryDetail(){
   claimLegacy().then(()=>idbAllRows()).then(rows=>{
     if(!rows.length) return;
     HISTROWS=rows;
+    backfillAccounts(rows);
     /* 對照表是舊規則學的就重學。明細本來就在這裡,不必叫人重匯檔案。 */
     if(HIST_STALE || !HIST){
       saveHistoryMap(learnHistory(rows));
@@ -4826,6 +4849,7 @@ function restoreHistoryDetail(){
     if(!got) return;
     return idbAllRows().then(rows=>{
       HISTROWS=rows;
+      backfillAccounts(rows);
       saveHistoryMap(learnHistory(rows));
       if(RATED&&SHIPS&&CFG){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
       renderHist();
