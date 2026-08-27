@@ -10189,6 +10189,20 @@ function anchorLine(s){
                              && !isAccessorialAdjLine(l))
       || (s.lines||[])[0] || {};
 }
+/* 一件貨的計費重是怎麼來的。三個輸入(申報重、尺寸、除數)、一個算出來的
+   材積重,以及最後採用哪一個 —— 這五個湊在一起才看得懂為什麼算出這個計費重。
+   dimWon 用大小現場比,不吃 bw.basis 那個字串:那是計價當下寫死的語言。 */
+function wtFacts(r){
+  const bw=(r&&r.bw)||{}, d=(r&&r.s&&r.s.dims)||null;
+  const ent=toNum(bw.entered), dimW=toNum(bw.dim);
+  return {ent:ent,
+          dims:d?(nz(d.l)+" × "+nz(d.w)+" × "+nz(d.h)):"",
+          dimF:toNum(bw.dimFactor),
+          dimW:dimW,
+          dimWon:!!bw.dimApplies && dimW>ent};
+}
+/* 尺寸是整數就不要印小數點 —— 18 × 14 × 12 比 18.0 × 14.0 × 12.0 好讀。 */
+function nz(v){ const n=toNum(v); return Number.isInteger(n)?String(n):String(Number(n.toFixed(1))); }
 function invoiceIssues(){
   const out=[]; let skipped=0;
   /* 追蹤號 -> 這顆箱子的每一段(主段、退件回程、第二段)。匯出的第二張表
@@ -10203,10 +10217,16 @@ function invoiceIssues(){
       segs.get(s.tracking).push({r:r, root:root});
     }
     const inv=(s.lines||[]).find(x=>x.invoice)||{};
+    /* 計費重是怎麼來的:申報重、尺寸、除數、材積重、最後採用哪一個。
+       「採用哪一個」在這裡現算,不要用 bw.basis —— 那個字串是計價當下寫死的,
+       用中文介面算完再切英文匯出,那一欄會停在中文。 */
+    const W=wtFacts(r);
     const at=l=>({trk:s.tracking, date:s.shipDate||"", chan:r.channel,
+                  svcRaw:String(s.service||"").trim(),
                   inv:String(inv.invoice||"").trim(),
                   invDate:normYmd(inv.invDate||"")||String(inv.invDate||""),
                   zone:r.zoneUsed||"", wt:Math.ceil(toNum(r.bw&&r.bw.billable)),
+                  ent:W.ent, dims:W.dims, dimF:W.dimF, dimW:W.dimW, dimWon:W.dimWon,
                   line:toNum(l&&l.idx)||"", code:String((l&&(l.code||l.cls))||"").toUpperCase(),
                   billdesc:(l&&l.desc)||"", shipUps:toNum(s.upsTotal)});
     /* 1. 運費本身查不到費率 */
@@ -10345,17 +10365,37 @@ function exportIssues(){
   /* ---- 第一張表:一列就是帳單的一列 ----------------------------------
      同一個追蹤號出現好幾次是正常的 —— 一顆箱子上可以同時有查不到費率的
      運費行和認不得的附加費行,那是兩個不同的問題,各自指向不同的列。 */
-  const det=[[L("期別","Invoice"),L("帳單日","Invoice date"),
-              L("交易日","Transaction date"),
-              L("帳單列號","Invoice row"),L("追蹤號","Tracking"),
-              L("嚴重度","Severity"),L("問題","Problem"),
-              L("代碼","Code"),L("帳單描述","Billed as"),L("項目","Item"),
-              L("說明","Detail"),L("金額","Amount"),L("系統算的","Repriced"),
-              L("判成的渠道","Channel used"),"Zone",
-              L("計費重 lb","Billable lb"),L("整筆 UPS 實收","Shipment total billed")]]
+  /* 計費重那一組。兩張表共用同一組欄名 —— 同一件事在兩張表上叫兩個名字,
+     對照起來就得多想一步。標題裡直接寫 ÷ 和 =,不看說明也知道是怎麼算的:
+     尺寸 ÷ 除數 = 材積重,再和申報重比大小,大的那個才是計費重。 */
+  const WBAND=L("計費重是怎麼來的","How the billable weight was set");
+  const WCOLS=[L("帳單申報重 lb","Entered lb"),
+               L("尺寸(長×寬×高 in)","Size (L×W×H in)"),
+               L("÷ 材積除數","÷ DIM factor"),
+               L("= 材積重 lb","= Volume lb"),
+               L("計費採用","Charged on")];
+  /* 沒有尺寸就整組留白 —— 印一個 0 會被當成「量過,是 0」。 */
+  const wvals=x=>[x.ent||"", x.dims||"", x.dimF||"", x.dimW||"",
+                  x.dims?(x.dimWon?L("材積重","Volume"):L("實際重","Entered")):""];
+
+  /* 「帳單描述」是費用那一行寫什麼(Fuel Surcharge),「帳單服務」是這件貨的
+     服務描述(UPS Ground)—— 兩件事,名字要分得開。渠道那欄叫「判成的」,
+     因為它是系統從服務描述和帳單代碼推出來的,帳單上並沒有這行字。 */
+  const DHEAD=[L("期別","Invoice"),L("帳單日","Invoice date"),
+               L("交易日","Transaction date"),
+               L("帳單列號","Invoice row"),L("追蹤號","Tracking"),
+               L("嚴重度","Severity"),L("問題","Problem"),
+               L("代碼","Code"),L("帳單描述","Billed as"),L("項目","Item"),
+               L("說明","Detail"),L("金額","Amount"),L("系統算的","Repriced"),
+               L("帳單服務","Service on invoice"),
+               L("判成的渠道","Channel (system)"),"Zone"];
+  const DTAIL=[L("計費重 lb","Billable lb"),L("整筆 UPS 實收","Shipment total billed")];
+  const W0=DHEAD.length;                    /* 重量那一組從這一欄開始 */
+  const det=[DHEAD.concat([WBAND],WCOLS.slice(1).map(()=>""),DTAIL),
+             DHEAD.map(()=>"").concat(WCOLS,DTAIL.map(()=>""))]
     .concat(ISSUES.map(x=>[x.inv,x.invDate,x.date,x.line,x.trk,sv(x.kind),kn(x.kind),
       x.code,x.billdesc,x.item,x.note,r2(x.amt),r2(x.repriced),
-      x.chan,x.zone,x.wt,r2(x.shipUps)]));
+      x.svcRaw,x.chan,x.zone].concat(wvals(x),[x.wt,r2(x.shipUps)])));
 
   /* ---- 第二張表:一個追蹤號一列,每一種費用兩欄(UPS / 重算)-------------
      第一張表回答「哪一列出問題」,這一張回答「這顆箱子整筆長什麼樣、我們
@@ -10375,11 +10415,16 @@ function exportIssues(){
   }
   const perTrk=new Map(), colSeen={};
   for(const t of trks){
-    const row={trk:t, inv:"", invDate:"", date:"", chan:"", zone:"", wtUps:0, wtRep:0,
+    const row={trk:t, inv:"", invDate:"", date:"", chan:"", svcRaw:"", zone:"",
+               wtUps:0, wtRep:0, ent:0, dims:"", dimF:0, dimW:0, dimWon:false,
                ups:0, repriced:0, by:{}, lines:new Set(), sev:0, n:0, probs:new Set()};
     for(const {r,root} of (ISSUE_SEGS.get(t)||[])){
       if(root){ row.date=r.s.shipDate||""; row.chan=r.channel||"";
-                row.zone=r.zoneUsed||""; row.wtRep=Math.ceil(toNum(r.bw&&r.bw.billable)); }
+                row.svcRaw=String(r.s.service||"").trim();
+                row.zone=r.zoneUsed||""; row.wtRep=Math.ceil(toNum(r.bw&&r.bw.billable));
+                const W=wtFacts(r);
+                row.ent=W.ent; row.dims=W.dims; row.dimF=W.dimF;
+                row.dimW=W.dimW; row.dimWon=W.dimWon; }
       row.repriced+=toNum(r.total);
       for(const l of (r.s.lines||[])){
         if(!row.inv && l.invoice) row.inv=String(l.invoice).trim();
@@ -10425,14 +10470,22 @@ function exportIssues(){
   const singles=[L("期別","Invoice"),L("帳單日","Invoice date"),
                  L("交易日","Transaction date"),L("追蹤號","Tracking"),
                  L("嚴重度","Severity"),L("問題數","Issues"),L("問題","Problems"),
-                 L("帳單列號","Invoice rows"),L("判成的渠道","Channel used"),"Zone"];
+                 L("帳單列號","Invoice rows"),L("帳單服務","Service on invoice"),
+                 L("判成的渠道","Channel (system)"),"Zone"];
   const pairs=[L("計費重 lb","Billable lb")].concat(cols.map(colName))
               .concat([L("合計","Total")]);
   const head1=singles.slice(), head2=singles.map(()=>"");
   const merges=singles.map((_,i)=>({s:{r:0,c:i},e:{r:1,c:i}}));
+  /* 計費重那一組:和右邊每一種費用一樣,第一列一個合併的組標題,第二列才是
+     各欄的名字,底下整組同一個底色。 */
+  const S0=singles.length, WN=WCOLS.length;
+  head1.push(WBAND); for(let i=1;i<WN;i++) head1.push("");
+  WCOLS.forEach(n=>head2.push(n));
+  merges.push({s:{r:0,c:S0},e:{r:0,c:S0+WN-1}});
+  const P0=S0+WN;
   const UPSCOL=L("UPS 實收","UPS"), REPCOL=L("重算","Repriced");
   pairs.forEach((nm,i)=>{
-    const c=singles.length+i*2;
+    const c=P0+i*2;
     head1.push(nm,""); head2.push(UPSCOL,REPCOL);
     merges.push({s:{r:0,c:c},e:{r:0,c:c+1}});
   });
@@ -10447,7 +10500,8 @@ function exportIssues(){
                 L(SEV_TAG[row.sev][0],SEV_TAG[row.sev][1]), row.n,
                 [...row.probs].join(" / "),
                 [...row.lines].sort((a,b)=>a-b).join(", "),
-                row.chan, row.zone,
+                row.svcRaw, row.chan, row.zone,
+                ...wvals(row),
                 row.wtUps, row.wtRep];
     for(const k of cols) line.push(r2(row.by[k]||0), r2(R[k]||0));
     line.push(r2(row.ups), r2(row.repriced), r2(row.repriced-row.ups));
@@ -10473,6 +10527,9 @@ function exportIssues(){
   const UPSC="DDEBF7", REPC="FCE4D6";      /* 表頭:UPS 藍、重算橘 */
   const UPSB="EFF6FD", REPB="FDF3EC";      /* 內文:同色系,淡很多 */
   const GRP=["E8E2D6","F1ECE3"];           /* 第一列的組標題,兩個灰交替 */
+  /* 計費重那一組給第三個色系(綠)—— 藍是 UPS、橘是重算,那兩個是「同一筆錢
+     的兩種說法」;重量不是錢,是算出那筆錢的輸入,不該混進那組配色裡。 */
+  const WGRP="D8E9CE", WHDR="E2EFDA", WBODY="F3F8EE";
   const HDR_FIX="E8E2D6", HDR_SUM="FFF2CC", BODY_SUM="FFFAEE";
   /* 標題和它底下的資料靠同一邊,文字欄靠左、數字欄靠右 —— 標題置中的話,
      一欄裡標題在中間、數字在右邊,看起來就是沒對齊。
@@ -10481,60 +10538,87 @@ function exportIssues(){
   const hcell=(v,fill,al)=>({v:v, t:"s",
     s:{bold:true, fill:fill, align:al||"center", wrap:true, border:true}});
   const DET_AL=["left","right","right","right","left","center","left","left","left",
-                "left","left","right","right","left","left","right","right"];
+                "left","left","right","right","left","left","left",
+                "right","center","right","right","center",
+                "right","right"];
 
   /* ---- 第一張表 ---- */
-  const detDates=new Set([1,2]), detMoney=new Set([11,12,16]);
-  const detW=[16,12,12,13,20,10,30,9,22,20,30,11,12,20,8,12,15];
+  const detDates=new Set([1,2]), detMoney=new Set([11,12,22]);
+  const detW=[16,12,12,13,20,10,30,9,22,20,30,11,12,18,20,8,
+              12,17,11,12,12, 12,15];
+  const LB1="#,##0.0";
+  const WFMT=[LB1,"",INT,LB1,""];          /* 重量那五欄各自的格式 */
+  const inW=c=>c>=W0 && c<W0+WCOLS.length;
+  /* 除了重量那一組,每一欄的標題都是上下兩列合併成一格 —— 這樣兩張表的
+     表頭一樣高,凍結列也一樣。 */
+  const detMerges=[{s:{r:0,c:W0},e:{r:0,c:W0+WCOLS.length-1}}];
+  for(let c=0;c<det[0].length;c++) if(!inW(c)) detMerges.push({s:{r:0,c:c},e:{r:1,c:c}});
   const det1=det.map((row,r)=>row.map((v,c)=>{
     const al=DET_AL[c]||"left";
-    if(r===0) return hcell(v,HDR_FIX,al);
+    if(r<2) return hcell(v, inW(c)?(r===0?WGRP:WHDR):HDR_FIX,
+                         (r===0&&inW(c))?"center":al);
     const st={align:al, border:true};
+    if(inW(c)) st.fill=WBODY;
     if(detDates.has(c)){ const n=serial(v);
       return n==null?{v:v,t:"s",s:st}:{v:n,t:"n",s:Object.assign({fmt:DATE},st)}; }
     if(detMoney.has(c)) return {v:toNum(v), t:"n", s:Object.assign({fmt:MONEY},st)};
+    if(inW(c)){
+      const f=WFMT[c-W0];
+      if(f && v!=="") return {v:toNum(v), t:"n", s:Object.assign({fmt:f},st)};
+      return {v:v, t:"s", s:st};
+    }
     return {v:v, t:(typeof v==="number"?"n":"s"), s:st};
   }));
 
   /* ---- 第二張表 ---- */
-  const S0=singles.length, P=pairs.length, DIFF=S0+P*2;
-  const grp=c=>c<S0?-1:(c>=DIFF?-2:Math.floor((c-S0)/2));
-  const side=c=>((c-S0)%2)===0?0:1;        /* 0 = UPS 實收,1 = 重算 */
+  const P=pairs.length, DIFF=P0+P*2;
+  /* -1 = 左邊那些單欄,-3 = 計費重那一組,-2 = 差額,其餘是每一種費用 */
+  const grp=c=>c<S0?-1:(c<P0?-3:(c>=DIFF?-2:Math.floor((c-P0)/2)));
+  const side=c=>((c-P0)%2)===0?0:1;        /* 0 = UPS 實收,1 = 重算 */
   const headFill=(c,r)=>{
     const g=grp(c);
     if(g===-1) return HDR_FIX;
+    if(g===-3) return r===0?WGRP:WHDR;
     if(g===-2) return HDR_SUM;
     return r===0?GRP[g%2]:(side(c)?REPC:UPSC);
   };
   const bodyFill=c=>{
     const g=grp(c);
     if(g===-1) return "";
+    if(g===-3) return WBODY;
     if(g===-2) return BODY_SUM;
     return side(c)?REPB:UPSB;
   };
   const bodyFmt=c=>{
     const g=grp(c);
     if(g===-1) return (c===1||c===2)?DATE:(c===5?INT:"");
+    if(g===-3) return WFMT[c-S0]||"";
     if(g===-2) return MONEY;
     return g===0?INT:MONEY;                /* 第一組是計費重,磅數不是錢 */
   };
-  const WIDE_AL=["left","right","right","left","center","right","left","left","left","left"];
-  const alOf=c=>c<S0?(WIDE_AL[c]||"left"):"right";
+  const WIDE_AL=["left","right","right","left","center","right","left","left",
+                 "left","left","left"];
+  const WAL=["right","center","right","right","center"];
+  const alOf=c=>c<S0?(WIDE_AL[c]||"left"):(c<P0?WAL[c-S0]:"right");
   const wide2=wide.map((row,r)=>row.map((v,c)=>{
     if(r<2) return hcell(v,headFill(c,r),r===0&&c>=S0?"center":alOf(c));
     const f=bodyFmt(c), fill=bodyFill(c);
     const st={fill:fill, align:alOf(c), border:true};
     if(f===DATE){ const n=serial(v);
       return n==null?{v:v,t:"s",s:st}:{v:n,t:"n",s:Object.assign({fmt:DATE},st)}; }
-    if(f) return {v:toNum(v), t:"n", s:Object.assign({fmt:f},st)};
+    /* 重量那一組有兩欄是文字(尺寸、計費採用),沒有格式的就照文字寫;
+       有格式但是空字串的也照文字寫 —— 寫成 0 會被當成量過而且是 0。 */
+    if(f && v!=="") return {v:toNum(v), t:"n", s:Object.assign({fmt:f},st)};
     return {v:v, t:"s", s:st};
   }));
-  const wideW=[16,12,12,20,10,10,34,14,20,8]
+  const wideW=[16,12,12,20,10,10,34,14,18,20,8]
+    .concat([12,17,11,12,12])
     .concat([9,9]).concat(cols.flatMap(()=>[12,12])).concat([13,13,12]);
 
   xlWrite([
-    {name:L("問題明細","Issues"), rows:det1, cols:detW.map(w=>({w:w})), freeze:{r:1,c:0},
-     filter:"A1:"+xlCol(det[0].length-1)+det.length},
+    {name:L("問題明細","Issues"), rows:det1, cols:detW.map(w=>({w:w})),
+     merges:detMerges, freeze:{r:2,c:0},
+     filter:"A2:"+xlCol(det[0].length-1)+det.length},
     {name:L("貨件展開","By shipment"), rows:wide2, cols:wideW.map(w=>({w:w})),
      merges:merges, freeze:{r:2,c:4}},
   ], fname)
