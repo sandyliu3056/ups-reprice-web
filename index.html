@@ -2546,6 +2546,14 @@ const ACC_CODE_MAP = {
      查不到合約費率才退回 UPS 實收(:19972)。 */
   OVR:{fee:"Over Maximum Size Surcharge", ups_fallback:true},
   OML:{fee:"Over Maximum Size Surcharge", ups_fallback:true},
+  /* UPS 事後補收的兩筆作業費 (Not Previously Billed)。pass = 照 UPS 實收
+     原封不動轉嫁,不查費率表 —— 這種錢沒有「我們的價目表」可查,UPS 收
+     多少就是多少,而且費率每年會調。真要改價,在動態附加費那裡註冊同一
+     個代碼就會蓋過這裡。
+     UPS 自己不對它們收燃油(實帳單那幾筆 NPF 同一層連 FSC 行都沒有),
+     所以也不進燃油底。 */
+  NPF:{fee:"Missing PLD Fee",         pass:true},
+  SCF:{fee:"Shipping Correction Fee", pass:true},
   /* 地址更正。多數帳單寫在 ADJ 的明細碼欄(AJ),scanCharges 另外處理;
      少數版本會直接寫在描述代碼欄,所以這裡也留一條。 */
   ADC:{fee:"Address Correction"},
@@ -2582,12 +2590,11 @@ function normDynType(v){
 }
 function normArCode(v){ return String(v||"").trim().toUpperCase().split(" - ")[0].trim(); }
 
-/* 原始碼:ACC_CODES_NOT_REPRICED */
-const NOT_REPRICED = new Set(["NPF","SCF"]);
-/* 這兩個代碼在帳單上只寫三個字母。是什麼、為什麼會有、能不能避免,
-   報表上要講出來 —— 這兩筆和費率無關,是出貨端的資料出了事,
-   查費率表查一整天也查不到原因。 */
-const NOREPR_WHY={
+/* 帳單上只寫三個字母的那幾個代碼:是什麼、為什麼會有、能不能避免。
+   代碼查詢頁掛在說明底下 —— 那正是有人看不懂代碼時會去的地方。
+   (原始碼的 ACC_CODES_NOT_REPRICED 已經不存在:NPF / SCF 現在照 UPS
+    實收轉嫁,見 ACC_CODE_MAP 的 pass 欄。) */
+const CODE_WHY={
   NPF:["出貨時沒有把電子出貨資料 (PLD) 傳給 UPS,事後補收的處理費;走系統出單就不會有",
        "UPS never received this package's electronic detail (PLD) and back-billed a handling fee; creating the label through the system avoids it"],
   SCF:["UPS 事後補收的運費更正費 —— 重量或尺寸被改過的那些件才會有",
@@ -2697,7 +2704,7 @@ function accLookup(cfg, feeType, channel, zone, issues, residential, missOut){
 /* 掃一筆貨的所有帳單行,分出每一項 UPS 收了什麼 */
 function scanCharges(lines, dynMap, fuelOff){
   const seen={}, net={};
-  let resCode=false, comCode=false, notRepriced=0, unknownNet=0;
+  let resCode=false, comCode=false, unknownNet=0;
   const unknownCodes=new Set();
   const unknownBy={};
   let declared=0, commercialAdj=false, residentialAdj=false;
@@ -2742,7 +2749,6 @@ function scanCharges(lines, dynMap, fuelOff){
       /* 其他行往下走,不要吞。 */
     }
     if(!c || MAIN_LINE.has(c)) continue;
-    if(NOT_REPRICED.has(c)){ notRepriced+=l.net; continue; }
     if(c==="OVR"||c==="OML") ovrUpsNet+=l.net;
     let bucket=null;
     /* 自訂附加費先看 —— 桌面版 run_repricing 的順序也是內建代碼判完
@@ -2775,6 +2781,9 @@ function scanCharges(lines, dynMap, fuelOff){
         continue;                     /* 標記行,不是可計價的附加費 */
       }
       bucket=cm.fee;
+      /* 照 UPS 實收轉嫁:借用自訂附加費 COPY INVOICE 那條路,金額就是
+         帳單上的 net,不查費率表也不進燃油底。 */
+      if(cm.pass&&bucket){ dynMode[bucket]="COPY INVOICE"; nonFuel.add(bucket); }
       if(cm.res&&bucket) resBucket.add(bucket);
     }
     else if(AHS_DIM.has(c))  bucket="AHS Dimension";
@@ -2810,7 +2819,7 @@ function scanCharges(lines, dynMap, fuelOff){
       unknownBy[c]=(unknownBy[c]||0)+l.net;
     }
   }
-  return {seen, net, resCode, comCode, notRepriced, unknownNet, unknownCodes, unknownBy,
+  return {seen, net, resCode, comCode, unknownNet, unknownCodes, unknownBy,
           declared, commercialAdj,
           residentialAdj,
           nonFuel, dynMode, resBucket, ovrUpsNet, famCredit, famCharge};
@@ -3452,7 +3461,6 @@ function priceShipment(cfg, s, force){
   return {s, bw, bwA, residential, resBasis, resiSure, resiMoot, resiConflict, svcSure, channel, base, baseA, netCA, baseWhy,
           baseMissing, missFees:[...missFees], demand,
           acc, accInfo, accTotal, fuel, fuelPct:fp.pct, ratedFreight, total, issues, npb, rtn,
-          notRepriced:scan.notRepriced,
           unknownNet:scan.unknownNet, unknownCodes:[...(scan.unknownCodes||[])],
           unknownBy:scan.unknownBy||{},
           dinIsBase:!!(dinRow&&s.pureAdj), retZone:retZone, zoneUsed:zone,
@@ -7977,7 +7985,6 @@ const DASH_LABEL={
   "Additional Handling Surcharge - Packaging":["額外處理·包裝","AHS · Packaging"],
   "DAS Residential":["住宅 DAS","DAS Resi"],"DAS Commercial":["商業 DAS","DAS Comm"],
   "__das__":["DAS／RAS","DAS / RAS"],
-  "__norepr__":["UPS 補收作業費 (NPF / SCF)","UPS catch-up fees (NPF / SCF)"],
   "Third Party Billing":["第三方付費","Third Party Billing"],
   "Commercial Adjustment":["商業重分類","Commercial Adjustment"],
   "__ahs__":["AHS","AHS"],
@@ -8016,9 +8023,6 @@ const pieDark=()=>THEME==="Graphite";
 const pieCols=()=>pieDark()?PIE_DARK:PIE_LIGHT;
 const reclCol=()=>pieDark()?"#8fa3b8":"#3f4a58";
 const DASH_RECLASS="__reclass__", DASH_UNKNOWN="__unknown__";
-/* NPF / SCF 是照設計就不重算的,不是認不得。以前兩張餅都把這筆錢併進
-   「未知代碼」—— 而查得到的東西被標成未知,看的人只會白跑一趟代碼查詢頁。 */
-const DASH_NOREPR="__norepr__";
 const RECLASS_RE=/AHS\/Large Package|AHS\/大包裹/;
 /* 同一種附加費被 UPS 拆成多個變體收費的,在圓餅上合成一塊來排名。
    分開畫的話每一條都是細絲,幾條就佔掉前幾名的位置、其餘掉進「其他」
@@ -8064,7 +8068,7 @@ const MARKER_BUCKET={
 };
 /* UPS 這一側的分桶。順序要和 scanCharges 一致,否則同一行在兩張餅上會落在
    不同的桶裡。以前這裡只問 gapFeeOf(),而 gapFeeOf 只讀 ACC_CODE_MAP 的
-   fee 欄 —— 標記行沒有 fee、NPF/SCF 沒有 fee、自訂附加費根本不在那張表裡,
+   fee 欄 —— 標記行沒有 fee、自訂附加費根本不在那張表裡,
    十幾個查得出來的代碼因此全被畫成「未知」。 */
 function upsBucketOf(l, recl){
   const cls=String(l.cls||"").toUpperCase();
@@ -8084,7 +8088,6 @@ function upsBucketOf(l, recl){
      && normArCode(cls)===normArCode(dcfg.ar||"ACC")
      && String(dcfg.name||"").trim()!=="")
     return String(dcfg.name).trim();
-  if(NOT_REPRICED.has(c)) return DASH_NOREPR;
   const cm=ACC_CODE_MAP[c];
   if(cm&&cm.marker) return MARKER_BUCKET[cm.marker]||DASH_UNKNOWN;
   const fee=gapFeeOf(c);
@@ -8103,7 +8106,7 @@ function dashAgg(){
   const rows=reportRows();
   const bucketCols=REPORT_COLS.filter(c=>!REPORT_META.has(c));
   let repriced=0, billed=0, resiN=0, comN=0, resiAmt=0, comAmt=0;
-  let unsureN=0, unsureAmt=0, notRepriced=0, unknownNet=0, missN=0, missAmt=0;
+  let unsureN=0, unsureAmt=0, unknownNet=0, missN=0, missAmt=0;
   /* 服務名稱比對不到任何已知服務,渠道是退回預設服務來的 */
   let svcUnsureN=0, svcUnsureAmt=0;
   const unknownCodes=new Set(), unsureBy={}, chanAgg={};
@@ -8135,7 +8138,6 @@ function dashAgg(){
         (unsureBy[k]=unsureBy[k]||{n:0,amt:0}); unsureBy[k].n++; unsureBy[k].amt+=tot; }
       for(const seg of [r, r.rtn, r.npb]){
         if(!seg) continue;
-        notRepriced+=toNum(seg.notRepriced);
         unknownNet+=toNum(seg.unknownNet);
         for(const c of (seg.unknownCodes||[])) unknownCodes.add(c);
         for(const [c,v] of Object.entries(seg.unknownBy||{}))
@@ -8161,13 +8163,10 @@ function dashAgg(){
         }
       } }
   });
-  /* 不重算的那幾個代碼在重算側也要有自己的一塊。以前它併進 uAmt、和真正
-     認不得的代碼一起畫成「未知」,兩件不同的事被說成同一件。 */
-  if(Math.abs(notRepriced)>0.005) buckets[DASH_NOREPR]=notRepriced;
   return {n:rated.length, repriced, billed, savings:billed-repriced,
     resiN, comN, resiAmt, comAmt, fuel:buckets["Fuel Surcharge"]||0, buckets, zoneAgg,
     unsureN, unsureAmt, unsureBy, svcUnsureN, svcUnsureAmt,
-    notRepriced, unknownNet, unknownCodes:[...unknownCodes], unknownBy, upsUnknownBy,
+    unknownNet, unknownCodes:[...unknownCodes], unknownBy, upsUnknownBy,
     missN, missAmt, chanAgg, upsBuckets, reclN,
     account:(ACCT_LINES||[]).reduce((a,l)=>a+toNum(l.net),0)};
 }
@@ -10386,7 +10385,7 @@ function saveSettings(){
 function codeKnown(code, cls, dyn){
   const c=String(code||"").toUpperCase();
   if(!c) return true;
-  if(MAIN_LINE.has(c)||NOT_REPRICED.has(c)) return true;
+  if(MAIN_LINE.has(c)) return true;
   if(ACC_CODE_MAP[c]) return true;
   if(AHS_DIM.has(c)||AHS_WT.has(c)||AHS_PKG.has(c)||LPS_CODE.has(c)) return true;
   /* 自訂註冊表:代碼有、AR 也對得上才算認得。條件跟 scanCharges 一模一樣 ——
@@ -10540,8 +10539,6 @@ const ISSUE_KIND={
            en:"Residential / commercial classification unresolved"},
   svc:    {sev:1, basis:"atrisk", zh:"服務名稱無法辨識,以預設服務費率計價",
            en:"Service name unrecognised; priced with the default service"},
-  norepr: {sev:1, basis:"billed", zh:"UPS 事後補收的作業費,不列入重算總額",
-           en:"UPS catch-up billing fee, not included in the repriced total"},
 };
 const SEV_TAG={3:["高","HIGH"],2:["中","MED"],1:["低","LOW"]};
 const SEV_NOTE={
@@ -10682,16 +10679,7 @@ function invoiceIssues(){
         note:L("代碼查詢表無此代碼","Not listed in the code reference"),
         amt:toNum(l.net), repriced:0}));
     }
-    /* 4. 照設計不重算的 */
-    if(Math.abs(toNum(r.notRepriced))>0.005) for(const l of (s.lines||[])){
-      const c=String(l.code||"").toUpperCase();
-      if(!NOT_REPRICED.has(c) || Math.abs(toNum(l.net))<0.005) continue;
-      const why=NOREPR_WHY[c];
-      out.push(Object.assign(at(l),{kind:"norepr", item:l.desc||c,
-        note:why?L(why[0],why[1]):"",
-        amt:toNum(l.net), repriced:0}));
-    }
-    /* 5. 判定不確定的只記在主段上 —— 退件回程和第二段是同一顆箱子,
+    /* 4. 判定不確定的只記在主段上 —— 退件回程和第二段是同一顆箱子,
           三段各記一次會把八筆講成二十四筆。 */
     if(root){
       /* 「涉及金額」是這一筆的重算總額 —— 分類要是判錯了,錯的就是這個數。
@@ -11130,7 +11118,6 @@ function sameThing(a,b){
 /* 這個代碼在計價裡怎麼被處理 */
 function codeHandling(c){
   if(MAIN_LINE.has(c))    return LANG?"Freight / fuel main line":"走運費與燃油主線";
-  if(NOT_REPRICED.has(c)) return LANG?"Not repriced":"不重新計價";
   if(ACC_CODE_MAP[c]){
     const m=ACC_CODE_MAP[c];
     if(m.marker) return LANG?"Marker line":"標記行";
@@ -11182,7 +11169,10 @@ function renderCode(){
         /* 說明已經講了同一件事就不要再寫一次分類 ——
            「Additional Handling - Packaging」底下再掛「AHS - Packaging」是重複。 */
         (how && !sameThing(meaning,how))
-          ? `<br><span style="font-size:11px;color:var(--muted)">${esc(how)}</span>` : ""}</td>
+          ? `<br><span style="font-size:11px;color:var(--muted)">${esc(how)}</span>` : ""}${
+        CODE_WHY[c]
+          ? `<br><span style="font-size:11px;color:var(--muted)">${
+              esc(L(CODE_WHY[c][0],CODE_WHY[c][1]))}</span>` : ""}</td>
       <td style="text-align:center">${hit?"✓":""}</td>
       <td class="num">${hit?hit.n.toLocaleString():""}</td></tr>`;
   }).join("")||`<tr><td colspan="4" class="empty">${LANG?"Nothing matches.":"沒有符合的代碼。"}</td></tr>`;
