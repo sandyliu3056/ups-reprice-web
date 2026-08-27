@@ -523,6 +523,9 @@ td.cells{white-space:normal}
 .dv{font-size:27px;font-weight:800;font-family:Consolas,monospace;
   color:var(--accent);line-height:1.25;padding:12px 16px}
 .dv.neg{color:var(--neg)}
+/* 和算式無關的那一格:中間拉一條線隔開,前面不放運算子。 */
+#p-dash .dcell.dapart{border-left:2px solid var(--line)}
+#p-dash .dcell.dapart .dk,#p-dash .dcell.dapart .dv{color:var(--muted)}
 .dop{position:relative}
 .dop::before{content:attr(data-op);position:absolute;left:-10px;top:calc(50% + 14px);
   transform:translateY(-50%);width:20px;height:20px;line-height:18px;text-align:center;
@@ -565,6 +568,10 @@ td.cells{white-space:normal}
 #p-dash .tyax{flex:0 0 54px;position:relative}
 #p-dash .tyt{position:absolute;right:9px;transform:translateY(-50%);
   font-size:10px;font-family:Consolas,monospace;color:var(--muted);white-space:nowrap}
+/* 最上和最下那兩個刻度剛好落在繪圖區的邊上,置中對齊會有一半在框外被切掉。
+   那兩個往內靠。 */
+#p-dash .tyt.atTop{transform:none}
+#p-dash .tyt.atBot{transform:translateY(-100%)}
 #p-dash .tgrid{position:absolute;left:0;right:0;height:1px;background:var(--line);
   opacity:.45;pointer-events:none}
 #p-dash .tlabels{display:flex;gap:5px;padding:4px 2px 0}
@@ -1140,7 +1147,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <!-- ==================== Dashboard ==================== -->
 <style>
 /* 儀表板:所有顏色走 App 的主題變數,切主題整頁跟著變。圓角膠囊風,配合 Scoobi。 */
-#p-dash .dwrap{max-width:1060px;margin:0 auto}
+/* 這一頁最寬的東西是那張十欄的表,1060 擠不下,最後一欄的標題就被切掉。 */
+#p-dash .dwrap{max-width:1360px;margin:0 auto}
 #p-dash .dhead{margin:0 0 14px;display:flex;align-items:flex-start;gap:12px}
 /* 按鈕靠右。以前只有一顆按鈕直接掛在 .dhead 底下,加了第二顆之後它們包成
    一個 span,這條規則就選不到了,兩顆按鈕全部黏在標題後面。 */
@@ -1690,11 +1698,9 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     </div>
     <div class="modalbody">
       <p class="hint" style="margin:0 0 10px" data-i18n="hint.bulkdim">Tick channels, type a divisor, apply. Blank clears the override and follows the global one.</p>
-      <div class="row" style="margin-bottom:12px">
-        <label class="inlab" style="margin-left:0" data-i18n="lb.chandim">DIM Factor</label>
-        <input class="cell num" id="chanDimVal" style="width:110px">
-        <span id="chanDimNote" class="savenote"></span>
-      </div>
+      <!-- 先勾渠道、再填除數、最後按套用 —— 說明那一行寫的就是這個順序,
+           版面也照這個順序排。除數欄擺在最上面的話,填完還要往下找渠道,
+           再往上確認自己填了什麼。 -->
       <div class="subhd" data-i18n="hd.selchan">Select Channels</div>
       <div class="sketch-soft" style="padding:10px 12px;margin-bottom:12px">
         <div class="row" style="margin-bottom:8px">
@@ -1702,11 +1708,12 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
           <button class="act ghost" id="bDimNone" data-i18n="btn.selnone">Deselect All</button>
         </div>
         <div id="dimChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
-        <!-- 動作按鈕放在清單下面:先勾再按,順序跟做的事一致。
-             放上面的話,勾完還要把眼睛移回去找按鈕。 -->
-        <div class="row" style="margin-top:10px">
+        <div class="row" style="margin-top:11px;flex-wrap:wrap;gap:9px;align-items:center">
+          <label class="inlab" style="margin-left:0" data-i18n="lb.chandim">DIM Factor</label>
+          <input class="cell num" id="chanDimVal" style="width:110px">
           <button class="act" id="bChanDimTicked" data-i18n="btn.dimapply">Apply to Ticked Channels</button>
           <button class="act ghost" id="bChanDimClear" data-i18n="btn.dimreset">Reset to default</button>
+          <span id="chanDimNote" class="savenote"></span>
         </div>
       </div>
       <div class="subhd" data-i18n="hd.dimforce">DIM Factors in Force</div>
@@ -7903,7 +7910,7 @@ function dashTrendHTML(ok, multi, allAccts){
   })();
   const grid=ticks.map(t=>`<div class="tgrid" style="top:${t.y.toFixed(2)}%"></div>`).join("");
   const yaxis=`<div class="tyax">`+ticks.map(t=>
-    `<div class="tyt" style="top:${t.y.toFixed(2)}%">${
+    `<div class="tyt${t.y<=1?" atTop":(t.y>=99?" atBot":"")}" style="top:${t.y.toFixed(2)}%">${
       esc(isM?t.v.toFixed(1)+"%":moneyShort(t.v))}</div>`).join("")+`</div>`;
   const tip=d=>`${esc(d.key)} · ${esc(d.date||"")}`
     +(multi?" · "+esc(dashAcctOf(d).id):"")
@@ -8096,7 +8103,14 @@ function dashPickFilters(all){
     +`<span class="selw"><select id="dfRange">`
     +DASH_RANGES.map(r=>opt(r.k,DASH_F.range,L(r.zh,r.en))).join("")
     +`</select></span></label>`;
-  return acctSel+rngSel;
+  /* 篩了兩三層之後要回到「全部」,得一個一個把下拉切回去。有東西被篩掉的
+     時候才出現這顆,沒篩的時候它不該佔位置。 */
+  const clr=(DASH_F.acct||DASH_F.range)
+    ? `<button class="act ghost" id="dfClear" style="padding:4px 11px;font-size:12px"
+        title="${esc(L("清除帳號與期間的篩選","Clear the account and period filters"))}">${
+        L("清除篩選","Clear")}</button>`
+    : "";
+  return acctSel+rngSel+clr;
 }
 function dashBarHTML(){
   const all=dashPeriods();
@@ -8246,6 +8260,8 @@ function wireDashPickFilters(){
   if(a) a.onchange=()=>{ DASH_F.acct=a.value; re(); };
   const r=$("#dfRange");
   if(r) r.onchange=()=>{ DASH_F.range=r.value; re(); };
+  const c=$("#dfClear");
+  if(c) c.onclick=()=>{ DASH_F.acct=""; DASH_F.range=""; re(); };
 }
 function wireDashBar(){
   wireDashPickFilters();
@@ -8569,12 +8585,16 @@ function renderDashboard(){
       <button class="act ghost" id="bDashRe">${L("重新整理","Refresh")}</button></div>
     ${dashBarHTML()}
     ${API_NOTE?`<div class="dnote">${esc(API_NOTE)}</div>`:""}
+    <!-- 帳戶層費用不算進毛利,所以它前面不掛減號 —— 掛了就是在說它有被扣掉。
+         中間那條線把它和前面那條算式分開。 -->
     <div class="dflow">
       <div class="dcell"><div class="dk">${L("向客戶收","Charge customer")}</div>
         <div class="dv">${money(d.repriced)}</div></div>
       <div class="dcell dop" data-op="−"><div class="dk">UPS</div>
         <div class="dv">${money(d.billed)}</div></div>
-      <div class="dcell dop" data-op="−"><div class="dk">${L("帳戶層費用","Account charges")}</div>
+      <div class="dcell dop" data-op="="><div class="dk">${L("毛利","Profit")}</div>
+        <div class="dv ${(d.repriced-d.billed)<0?"neg":"pos"}">${money(d.repriced-d.billed)}</div></div>
+      <div class="dcell dapart"><div class="dk">${L("帳戶層費用","Account charges")}</div>
         <div class="dv">${money(d.account)}</div></div>
     </div>
     <div class="dcard">
