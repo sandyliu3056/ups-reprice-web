@@ -550,6 +550,12 @@ td.cells{white-space:normal}
 #p-dash .tcols{flex:1 1 auto;min-width:0;display:flex;align-items:stretch;
   gap:5px;position:relative}
 #p-dash .tgut{flex:0 0 78px}
+/* 左邊那條刻度尺。標籤靠右貼著繪圖區,數字用等寬字才會一位對一位。 */
+#p-dash .tyax{flex:0 0 54px;position:relative}
+#p-dash .tyt{position:absolute;right:9px;transform:translateY(-50%);
+  font-size:10px;font-family:Consolas,monospace;color:var(--muted);white-space:nowrap}
+#p-dash .tgrid{position:absolute;left:0;right:0;height:1px;background:var(--line);
+  opacity:.45;pointer-events:none}
 #p-dash .tlabels{display:flex;gap:5px;padding:4px 2px 0}
 /* 只有三四期的時候別讓柱子撐成一整面牆 —— 那讀起來是色塊,不是趨勢。 */
 #p-dash .tcol{flex:1 1 0;min-width:0;max-width:96px;
@@ -567,8 +573,8 @@ td.cells{white-space:normal}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:1px}
 /* 年份那一行。沒印年份的欄位留同高度的空位(visibility 不是 display),
    否則同一排標籤會有高有低。 */
-#p-dash .tyr{font-size:9.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);
-  text-align:center;white-space:nowrap;padding-top:2px;opacity:.8}
+#p-dash .tyr{font-size:11.5px;font-weight:800;letter-spacing:.08em;color:var(--accent);
+  text-align:center;white-space:nowrap;padding-top:3px}
 #p-dash .tyr.off{visibility:hidden}
 #p-dash .tleg{display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:8px;
   font-size:11.5px;color:var(--muted)}
@@ -7475,7 +7481,10 @@ let DASH_BUSY=false, DASH_DOCBOUND=false;
 let DASH_ALL=false, DASH_ALL_CACHE=null, DASH_ALL_RUN=0;
 /* 全部期別的篩選:帳號、期間、看哪一個指標。只影響畫面,不重算 ——
    重算過的資料留在 DASH_ALL_CACHE 裡,切篩選是即時的。 */
-let DASH_F={acct:"", range:"", measure:"profit"};
+/* 預設看毛利率:毛利金額跟著單量走,一期六千件、一期七百件,柱子高低講的
+   多半是那個月出了多少貨,不是賺得好不好。毛利率和單量無關,期與期之間
+   直接比得起來。 */
+let DASH_F={acct:"", range:"", measure:"margin"};
 const DASH_RANGES=[
   {k:"",   zh:"全部",   en:"All",       days:0},
   {k:"7",  zh:"近一週", en:"1 week",    days:7},
@@ -7710,7 +7719,7 @@ function dashAllHTML(all){
       <span class="cnote">${L("每一期都以目前的費率設定重算",
                               "every period repriced with the current rate settings")}</span>
       <button class="act ghost" id="bAllXls" style="padding:3px 11px;font-size:12px">${
-        L("下載本表 (.xlsx)","Download this table (.xlsx)")}</button></div>
+        L("下載利潤報表 (.xlsx)","Download profit report (.xlsx)")}</button></div>
     ${dashFilterHTML(all)}
     ${empty||dashTrendHTML(ok, multi, accts)}
     ${empty?"":`<div class="tablewrap" style="max-height:none;overflow-x:auto">
@@ -7789,6 +7798,27 @@ function dashTrendHTML(ok, multi, allAccts){
     ? `<div class="tavg" style="top:${avgY.toFixed(1)}%">`
       +`<b>${L("平均 ","avg ")}${isM?avg.toFixed(1)+"%":money(avg)}</b></div>`
     : "";
+  /* 左邊給三、四道刻度。以前柱子只講得出相對高低 —— 一根比隔壁高一截,高
+     多少要自己去下面的表格翻。刻度取整數級距(1／2／2.5／5 的倍數),不是
+     把 hi、lo 直接印出來:印 $4,873 那種數字沒有人拿來對照。
+     線畫得比零線淡,不跟資料搶。 */
+  const ticks=(()=>{
+    const span0=hi-lo;
+    if(!(span0>0)) return [];
+    const raw=span0/5, pw=Math.pow(10,Math.floor(Math.log10(raw))), mm=raw/pw;
+    const step=(mm<=1?1:mm<=1.5?1.5:mm<=2?2:mm<=2.5?2.5:mm<=3?3:mm<=4?4:mm<=5?5:10)*pw;
+    const out=[];
+    for(let v=Math.ceil(lo/step)*step; v<=hi+step*1e-6; v+=step){
+      const yy=yv(v);
+      if(yy<-0.5||yy>100.5) continue;
+      out.push({v:v, y:yy});
+    }
+    return out;
+  })();
+  const grid=ticks.map(t=>`<div class="tgrid" style="top:${t.y.toFixed(2)}%"></div>`).join("");
+  const yaxis=`<div class="tyax">`+ticks.map(t=>
+    `<div class="tyt" style="top:${t.y.toFixed(2)}%">${
+      esc(isM?t.v.toFixed(1)+"%":moneyShort(t.v))}</div>`).join("")+`</div>`;
   const tip=d=>`${esc(d.key)} · ${esc(d.date||"")}`
     +(multi?" · "+esc(dashAcctOf(d).id):"")
     +` · ${esc(d.n.toLocaleString())}${L(" 件"," shipments")}`
@@ -7851,8 +7881,8 @@ function dashTrendHTML(ok, multi, allAccts){
             "margin is independent of volume, so periods compare directly; the dashed line is the weighted average; oldest first")
         : L("柱高為毛利金額,受單量影響;虛線為各期平均,依帳單日由舊到新",
             "bar height is profit, which scales with volume; the dashed line is the average; oldest first")}</span></div>
-    <div class="tplotarea${isM?" tmargin":""}" style="--zero:${zero.toFixed(1)}%">${avgLine}<div class="tcols">${line}${plot}</div><div class="tgut"></div></div>
-    <div class="tlabels">${labels}<div class="tgut"></div></div>
+    <div class="tplotarea${isM?" tmargin":""}" style="--zero:${zero.toFixed(1)}%">${avgLine}${yaxis}<div class="tcols">${grid}${line}${plot}</div><div class="tgut"></div></div>
+    <div class="tlabels"><div class="tyax"></div>${labels}<div class="tgut"></div></div>
     ${legend}
   </div>`;
 }
@@ -7912,10 +7942,10 @@ function exportAllPeriods(){
       return f?{v:(v===""?0:v), t:"n", s:st}:{v:v, t:"s", s:st};
     }));
   });
-  xlWrite([{name:LANG?"All periods":"全部期別", rows:grid,
+  xlWrite([{name:LANG?"Profit by period":"各期利潤", rows:grid,
             cols:[20,12,16,10,16,16,14,10,16,38].map(w=>({w:w})),
             freeze:{r:1,c:0}}],
-    "All_Periods"+((data.map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"")
+    "Profit_Report_By_Period"+((data.map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"")
       .replace(/^(.+)$/,"_$1").replace(/-/g,""))+".xlsx")
   .then(ok=>toast(ok?L("已匯出 "+nOk+" 期","Exported "+nOk+" period"+(nOk===1?"":"s"))
                     :L("已取消存檔","Save cancelled"), ok))
@@ -9808,7 +9838,13 @@ function exportIssues(){
      色,一組的「UPS 實收 / 重算」就框在同一塊顏色裡,和隔壁那組分得開。
      內文用同色系但淡很多的底,分組的直帶一路往下延伸,捲到第兩百列也還
      對得出自己在看哪一組。合計與差額另外一個顏色,它們不是某一種費用。 */
-  const HDR=["DDEBF7","FCE4D6"], BODY=["F3F8FD","FDF4EF"];
+  /* UPS 那一欄一個顏色、重算那一欄一個顏色,整張表由左到右一路都是同一組
+     對照 —— 捲到第四十欄還是一眼認得出哪一欄是誰。以前是「一組一個顏色」,
+     結果同一組的 UPS 和重算長得一模一樣,要靠位置去記哪一欄是哪一欄。
+     組與組之間靠第一列那條合併的標題分開,而標題列是凍結的,永遠看得到。 */
+  const UPSC="DDEBF7", REPC="FCE4D6";      /* 表頭:UPS 藍、重算橘 */
+  const UPSB="EFF6FD", REPB="FDF3EC";      /* 內文:同色系,淡很多 */
+  const GRP=["E8E2D6","F1ECE3"];           /* 第一列的組標題,兩個灰交替 */
   const HDR_FIX="E8E2D6", HDR_SUM="FFF2CC", BODY_SUM="FFFAEE";
   const hcell=(v,fill)=>({v:v, t:"s",
     s:{bold:true, fill:fill, align:"center", wrap:true, border:true}});
@@ -9826,10 +9862,19 @@ function exportIssues(){
   /* ---- 第二張表 ---- */
   const S0=singles.length, P=pairs.length, DIFF=S0+P*2;
   const grp=c=>c<S0?-1:(c>=DIFF?-2:Math.floor((c-S0)/2));
-  const headFill=c=>{ const g=grp(c); return g===-1?HDR_FIX:(g===-2?HDR_SUM
-    :(g===P-1?HDR_SUM:HDR[g%2])); };
-  const bodyFill=c=>{ const g=grp(c); return g===-1?"":(g===-2?BODY_SUM
-    :(g===P-1?BODY_SUM:BODY[g%2])); };
+  const side=c=>((c-S0)%2)===0?0:1;        /* 0 = UPS 實收,1 = 重算 */
+  const headFill=(c,r)=>{
+    const g=grp(c);
+    if(g===-1) return HDR_FIX;
+    if(g===-2) return HDR_SUM;
+    return r===0?GRP[g%2]:(side(c)?REPC:UPSC);
+  };
+  const bodyFill=c=>{
+    const g=grp(c);
+    if(g===-1) return "";
+    if(g===-2) return BODY_SUM;
+    return side(c)?REPB:UPSB;
+  };
   const bodyFmt=c=>{
     const g=grp(c);
     if(g===-1) return (c===1||c===2)?DATE:(c===5?INT:"");
@@ -9837,7 +9882,7 @@ function exportIssues(){
     return g===0?INT:MONEY;                /* 第一組是計費重,磅數不是錢 */
   };
   const wide2=wide.map((row,r)=>row.map((v,c)=>{
-    if(r<2) return hcell(v,headFill(c));
+    if(r<2) return hcell(v,headFill(c,r));
     const f=bodyFmt(c), fill=bodyFill(c);
     if(f===DATE){ const n=serial(v); return n==null?{v:v,t:"s",s:{fill:fill}}
                                                   :{v:n,t:"n",s:{fmt:DATE,fill:fill}}; }
