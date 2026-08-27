@@ -6139,47 +6139,61 @@ $("#bDelChan") && ($("#bDelChan").onclick=()=>{
 });
 $("#bExpRate") && ($("#bExpRate").onclick=()=>{
   const pick=($("#rateChan")||{}).value||"";
-  const [svc,rc]=pick.split("|");
-  if(!svc){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
-  const res=rc==="R";
-  const zn=(CFG.raw.builtin_service_zones||{})[svc]||"";
-  const zones=String(zn).split(",").map(z=>z.trim()).filter(Boolean);
-  /* 已載入的費率帶出來。空白模板倒出去,填的人一存檔就把現有費率換成空的。 */
-  const cur=(CFG.raw.base_rate_tables||[]).find(x=>
-    String(x.service).trim()===svc && String(x.residential).toLowerCase()===String(res));
-  /* cur.columns 是「欄名陣列」,sheetHeader() 吃的是「列陣列」——
-     餵錯會對字串呼叫 .map 直接拋例外,按鈕看起來就是沒反應,
-     而且只有「已載入費率」的渠道會中(沒載表的反而能匯出空模板)。 */
-  const ci=cur?(cur.columns||[]).map(c=>String(c==null?"":c).trim()):[];
-  const cw=ci.indexOf("Weight");
-  const byW={};
-  if(cur&&cw>=0) for(const r of (cur.rows||[])) byW[String(toNum(r[cw]))]=r;
-
-  const head=["Service","Weight",...zones.map(z=>"Zone "+z)];
-  const body=[];
-  for(let wt=1;wt<=150;wt++){
-    const src=byW[String(wt)];
-    body.push([svc,wt,...zones.map(z=>{
-      if(!src) return "";
-      const k=ci.indexOf("Zone "+z), k2=k<0?ci.indexOf(String(z)):k;
-      return k2<0||src[k2]==null||src[k2]===""?"":toNum(src[k2]);
-    })]);
-  }
-  const fname="UPS_BaseRate_"+svc.replace(/[^A-Za-z0-9]+/g,"_")
-    +"_"+(res?"Residential":"Commercial")+".xlsx";
+  const svc0=pick.split("|")[0]||"";
+  if(!svc0){ setStatus(LANG?"Pick a channel first":"請先選渠道"); return; }
+  /* 一個檔兩張分頁:商業一張、住宅一張。以前一次只倒一側,同一條渠道要
+     匯出兩次、填兩個檔、匯入兩次,而那兩份的 Zone 欄和重量列本來就一樣。 */
+  const fam=svcOfChan(svc0);
+  const zn=CFG.raw.builtin_service_zones||{};
+  const keyFor=r=>{
+    const withSuf=fam+(r?" Residential":" Commercial");
+    if(zn[withSuf]!==undefined) return withSuf;
+    if(zn[fam]!==undefined) return fam;
+    return svc0;
+  };
+  const sheetFor=(r)=>{
+    const key=keyFor(r);
+    const zones=String(zn[key]||"").split(",").map(z=>z.trim()).filter(Boolean);
+    /* 已載入的費率帶出來。空白模板倒出去,填的人一存檔就把現有費率換成空的。 */
+    const cur=(CFG.raw.base_rate_tables||[]).find(x=>
+      String(x.service).trim()===key && String(x.residential).toLowerCase()===String(r));
+    /* cur.columns 是「欄名陣列」,sheetHeader() 吃的是「列陣列」——
+       餵錯會對字串呼叫 .map 直接拋例外,按鈕看起來就是沒反應。 */
+    const ci=cur?(cur.columns||[]).map(c=>String(c==null?"":c).trim()):[];
+    const cw=ci.indexOf("Weight");
+    const byW={};
+    if(cur&&cw>=0) for(const row of (cur.rows||[])) byW[String(toNum(row[cw]))]=row;
+    const head=["Service","Weight",...zones.map(z=>"Zone "+z)];
+    const body=[];
+    for(let wt=1;wt<=150;wt++){
+      const srcRow=byW[String(wt)];
+      body.push([key,wt,...zones.map(z=>{
+        if(!srcRow) return "";
+        const k=ci.indexOf("Zone "+z), k2=k<0?ci.indexOf(String(z)):k;
+        return k2<0||srcRow[k2]==null||srcRow[k2]===""?"":toNum(srcRow[k2]);
+      })]);
+    }
+    return {key, zones, aoa:[head,...body]};
+  };
+  const com=sheetFor(false), resi=sheetFor(true);
+  const fname="UPS_BaseRate_"+fam.replace(/[^A-Za-z0-9]+/g,"_")+".xlsx";
   loadXLSX().then(X=>{
     const wb=X.utils.book_new();
-    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet([head,...body]),"Base Rates");
-    /* 桌面版靠這張表認渠道,不能省。它自己也是寫成隱藏表。 */
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(com.aoa),"Commercial");
+    X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(resi.aoa),"Residential");
+    /* 哪一張是哪一條渠道,寫在這裡 —— 匯回來時就不必靠分頁名字猜。
+       一張分頁一列,桌面版讀第一列,讀到的是商業那一張。 */
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet([
-      ["Service","Channel Type","Built By"],
-      [svc,res?"Residential":"Commercial","web"]]),"_ChannelInfo");
+      ["Sheet","Service","Channel Type","Built By"],
+      ["Commercial", com.key, "Commercial","web"],
+      ["Residential", resi.key,"Residential","web"]]),"_ChannelInfo");
     if(wb.Workbook&&wb.Workbook.Sheets){} else wb.Workbook={Sheets:[]};
     wb.Workbook.Sheets=(wb.SheetNames||[]).map(n=>({name:n,Hidden:n==="_ChannelInfo"?1:0}));
     const buf=X.write(wb,{bookType:"xlsx",type:"array"});
     dlBlob(new Blob([buf],{type:"application/octet-stream"}),fname);
-    setStatus((LANG?"Template exported for ":"已匯出模板:")+svc
-      +(LANG?" — opens in the desktop tool too":" — 桌面版可直接匯入"));
+    setStatus((LANG?"Template exported for ":"已匯出模板:")+fam
+      +(LANG?" — one sheet each for commercial and residential"
+            :" — 商業、住宅各一張分頁"));
   }).catch(()=>{
     /* 匯出一律 xlsx。寫檔元件就在站內,載不到代表它沒被部署上去 ——
        這時給不出 xlsx,就說清楚,不要偷偷換成另一種格式的檔。 */
@@ -6193,65 +6207,83 @@ function importRateWorkbook(f){
   return readWorkbookRows(f).then(bk=>{
     const dd=($("#rateChan")||{}).value||"";
     const dsvc=dd.split("|")[0]||"", dres=dd.split("|")[1]==="R";
-    let svc="", res=null, src="";
 
+    /* _ChannelInfo 現在一張分頁一列(舊檔只有一列、也沒有 Sheet 欄,
+       那一列就當成整本的預設)。 */
     const info=bk.sheets["_ChannelInfo"];
+    const bySheet={}; let infoSvc="", infoRes=null;
     if(info&&info.length>1){
-      const ih=sheetHeader(info), si=ih.indexOf("Service"), ci=ih.indexOf("Channel Type");
-      if(si>=0) svc=String(info[1][si]||"").trim();
-      if(ci>=0) res=/resid/i.test(String(info[1][ci]||""));
-      if(svc) src="_ChannelInfo";
-    }
-    /* 費率在第一個不是 _ChannelInfo 而且有資料的表。桌面版叫 Base Rates,
-       但別的名字也吃,免得改個表名就匯不進來。 */
-    const nm=bk.order.find(n=>n!=="_ChannelInfo"&&(bk.sheets[n]||[]).length>1)
-            ||bk.order[0]||"";
-    const rows=bk.sheets[nm]||[];
-    if(rows.length<2) throw new Error(LANG?"that file is empty":"這個檔是空的");
-    const cols=sheetHeader(rows);
-    const wi=cols.indexOf("Weight");
-    if(wi<0) throw new Error(LANG?"no Weight column":"沒有 Weight 欄");
-
-    /* 沒有 _ChannelInfo 就看表身:Service 欄 + Residential 欄(本站匯出的
-       CSV 模板就是這個形狀)。兩個都沒有才退回畫面上選的渠道。 */
-    if(!svc){
-      const si=cols.indexOf("Service"), ri=cols.indexOf("Residential");
-      if(si>=0) svc=String((rows[1]||[])[si]||"").trim();
-      if(ri>=0) res=/^(y|yes|true|r|residential)$/i.test(String((rows[1]||[])[ri]||"").trim());
-      if(svc) src="sheet";
-    }
-    if(!svc){ svc=dsvc; res=dres; src="picker"; }
-    if(res===null||res===undefined) res=/residential/i.test(svc)?true:dres;
-    const rc=res?"R":"C";
-    if(!svc) throw new Error(LANG?"no channel on this file and none picked":"檔案沒有渠道資訊,畫面也沒選");
-    const body=rows.slice(1).filter(r=>String(r[wi]).trim()!=="")
-      .map(r=>cols.map((c,i)=>c==="Weight"?toNum(r[i]):(c==="Service"||c==="Residential"?r[i]:toNum(r[i]))));
-    /* 這條渠道的 Zone 以檔案為準。模板的 Zone 欄就是這條線實際跑的那組,
-       比程式裡的預設可靠 —— 預設只是個起點,像 2nd Day Air AM 那種沒有
-       範本的線,預設給的是 Ground 那組,幾乎一定不對。
-       設定進去之後在「渠道」分頁照樣可以改。 */
-    const fileZones=cols.filter(c=>/^Zone\s+\S+/.test(c))
-      .map(c=>c.replace(/^Zone\s+/,"").trim()).filter(Boolean);
-    let zoneNote="";
-    if(fileZones.length){
-      const zm=CFG.raw.builtin_service_zones||(CFG.raw.builtin_service_zones={});
-      const key=(zm[svc]!==undefined)?svc:(zm[svcOfChan(svc)]!==undefined?svcOfChan(svc):svc);
-      const now=String(zm[key]||"").split(",").map(z=>z.trim()).filter(Boolean).join(",");
-      const next=fileZones.join(",");
-      if(now!==next){
-        zm[key]=fileZones.join(", ");
-        zoneNote=(LANG?"  · zones set from the file: ":"  · Zone 已依檔案設定:")+next;
+      const ih=sheetHeader(info);
+      const hi=ih.indexOf("Sheet"), si=ih.indexOf("Service"), ci=ih.indexOf("Channel Type");
+      for(const r of info.slice(1)){
+        const sv=si>=0?String(r[si]||"").trim():"";
+        const rs=ci>=0?/resid/i.test(String(r[ci]||"")):null;
+        const nm=hi>=0?String(r[hi]||"").trim():"";
+        if(nm) bySheet[nm]={svc:sv,res:rs};
+        else if(!infoSvc){ infoSvc=sv; infoRes=rs; }
       }
     }
+    const names=bk.order.filter(n=>n!=="_ChannelInfo"&&(bk.sheets[n]||[]).length>1);
+    if(!names.length) throw new Error(LANG?"that file is empty":"這個檔是空的");
 
-    const t=CFG.raw.base_rate_tables||(CFG.raw.base_rate_tables=[]);
-    const idx=t.findIndex(x=>x.service===svc && String(x.residential).toLowerCase()===String(rc==="R"));
-    const rec={service:svc,residential:String(rc==="R"),columns:cols,rows:body};
-    if(idx>=0) t[idx]=rec; else t.push(rec);
+    const done=[]; let notes="";
+    for(const nm of names){
+      const rows=bk.sheets[nm]||[];
+      const cols=sheetHeader(rows);
+      const wi=cols.indexOf("Weight");
+      if(wi<0) continue;                       /* 不是費率表就跳過 */
+      let svc="", res=null, src="";
+      const meta=bySheet[nm];
+      if(meta&&meta.svc){ svc=meta.svc; res=meta.res; src="_ChannelInfo"; }
+      if(!svc&&infoSvc){ svc=infoSvc; res=infoRes; src="_ChannelInfo"; }
+      /* 沒有 _ChannelInfo 就看表身:Service 欄 + Residential 欄。 */
+      if(!svc){
+        const si=cols.indexOf("Service"), ri=cols.indexOf("Residential");
+        if(si>=0) svc=String((rows[1]||[])[si]||"").trim();
+        if(ri>=0) res=/^(y|yes|true|r|residential)$/i.test(String((rows[1]||[])[ri]||"").trim());
+        if(svc) src="sheet";
+      }
+      if(!svc){ svc=dsvc; res=dres; src="picker"; }
+      /* 分頁名字是最後一道:兩張分頁的檔就叫 Commercial / Residential。 */
+      if(res===null||res===undefined){
+        if(/resid/i.test(nm)) res=true;
+        else if(/commerc/i.test(nm)) res=false;
+        else res=/residential/i.test(svc)?true:dres;
+      }
+      if(!svc) throw new Error(LANG?"no channel on this file and none picked"
+                                   :"檔案沒有渠道資訊,畫面也沒選");
+      const body=rows.slice(1).filter(r=>String(r[wi]).trim()!=="")
+        .map(r=>cols.map((c,i)=>c==="Weight"?toNum(r[i])
+                                :(c==="Service"||c==="Residential"?r[i]:toNum(r[i]))));
+      /* 這條渠道的 Zone 以檔案為準。模板的 Zone 欄就是這條線實際跑的那組,
+         比程式裡的預設可靠 —— 預設只是個起點。 */
+      const fileZones=cols.filter(c=>/^Zone\s+\S+/.test(c))
+        .map(c=>c.replace(/^Zone\s+/,"").trim()).filter(Boolean);
+      if(fileZones.length){
+        const zm=CFG.raw.builtin_service_zones||(CFG.raw.builtin_service_zones={});
+        const key=(zm[svc]!==undefined)?svc:(zm[svcOfChan(svc)]!==undefined?svcOfChan(svc):svc);
+        const now=String(zm[key]||"").split(",").map(z=>z.trim()).filter(Boolean).join(",");
+        const next=fileZones.join(",");
+        if(now!==next){
+          zm[key]=fileZones.join(", ");
+          notes=(LANG?"  · zones set from the file: ":"  · Zone 已依檔案設定:")+next;
+        }
+      }
+      const t=CFG.raw.base_rate_tables||(CFG.raw.base_rate_tables=[]);
+      const idx=t.findIndex(x=>x.service===svc
+        && String(x.residential).toLowerCase()===String(!!res));
+      const rec={service:svc,residential:String(!!res),columns:cols,rows:body};
+      if(idx>=0) t[idx]=rec; else t.push(rec);
+      done.push({svc,res,rows:body.length,sheet:nm,src});
+    }
+    if(!done.length) throw new Error(LANG?"no Weight column":"沒有 Weight 欄");
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
     if(RATED&&SHIPS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
-    return {svc, res, rows:body.length, sheet:nm, zoneNote,
-            fromFile:src==="_ChannelInfo", dsvc, dres};
+    const first=done[0];
+    return {svc:svcOfChan(first.svc), res:first.res,
+            rows:done.reduce((a,d)=>a+d.rows,0),
+            sheet:done.map(d=>d.sheet).join(" + "), zoneNote:notes,
+            fromFile:done.every(d=>d.src==="_ChannelInfo"), parts:done, dsvc, dres};
   });
 }
 function rateChanLabel(r){
