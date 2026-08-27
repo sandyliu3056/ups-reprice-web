@@ -33,7 +33,9 @@
   .cover { height: 250mm; display: flex; flex-direction: column;
            justify-content: center; page-break-after: always; }
   .cover .bar { height: 6px; background: linear-gradient(90deg,var(--brand) 0 34%,var(--brand-2) 34% 62%,#d9c48e 62% 100%);
-                width: 100%; margin-bottom: 30px; }
+                width: 100%; margin-bottom: 26px; }
+  /* 產品標記。圓角是 SVG 自己畫的,不要再套 border-radius。 */
+  .cover .logo { width: 23mm; height: 23mm; display: block; margin-bottom: 20px; }
   .kicker { font-size: 8.8pt; letter-spacing: .24em; color: var(--brand-2); font-weight: 700; }
   .cover h1 { font-size: 25pt; margin: 12px 0 8px; color: var(--brand); line-height: 1.32; }
   .cover .sub { font-size: 11pt; color: var(--ink-2); }
@@ -125,6 +127,7 @@
 
 <section class="cover">
   <div class="bar"></div>
+  <img class="logo" src="logo.svg" alt="UPS Reprice Platform">
   <div class="kicker">UPS REPRICE PLATFORM · 技術文件</div>
   <h1>UPS 地址驗證 API<br>設定指南</h1>
   <div class="sub">以 UPS 地址分類服務取代系統住宅／商業判定</div>
