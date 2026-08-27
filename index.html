@@ -7868,30 +7868,34 @@ function exportAllPeriods(){
   const gt=tr-tb;
   body.push([L("合計 "+nOk+" 期","Total · "+nOk+(nOk===1?" period":" periods")),"","",tn,
              cents(tr), cents(tb), cents(gt), tr?gt/Math.abs(tr):0, cents(ta), ""]);
-  const MONEY=[4,5,6,8], PCT=[7], DATE=1, COUNT=3;
-  loadXLSX().then(X=>{
-    const ws=X.utils.aoa_to_sheet([head,...body]);
-    const ref=X.utils.decode_range(ws["!ref"]);
-    for(let r=1;r<=ref.e.r;r++){
-      const put=(c,z)=>{ const cell=ws[X.utils.encode_cell({r:r,c:c})];
-        if(cell && typeof cell.v==="number") cell.z=z; };
-      for(const c of MONEY) put(c,"$#,##0.00");
-      for(const c of PCT)   put(c,"0.0%");
-      put(COUNT,"#,##0");
-      put(DATE,"mm/dd/yyyy");
-    }
-    ws["!cols"]=[{wch:20},{wch:12},{wch:14},{wch:10},{wch:16},{wch:16},
-                 {wch:14},{wch:10},{wch:16},{wch:38}];
-    const wb=X.utils.book_new();
-    X.utils.book_append_sheet(wb, ws, LANG?"All periods":"全部期別");
-    const last=data.map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"";
-    dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
-      {type:"application/octet-stream"}),
-      "All_Periods"+(last?"_"+last.replace(/-/g,""):"")+".xlsx").then(ok=>{
-        toast(ok?L("已匯出 "+nOk+" 期","Exported "+nOk+" period"+(nOk===1?"":"s"))
-                :L("已取消存檔","Save cancelled"), ok);
-      });
-  }).catch(()=>{
+  /* 欄位各有各的格式:錢是 $、比例是 %、件數是整數、日期是日期。
+     虧損的那幾格用紅字,和畫面上同一個訊號 —— 一整欄黑字裡要逐格看負號。 */
+  const MONEY="$#,##0.00", PCT="0.0%", INT="#,##0", DATE="mm/dd/yyyy";
+  const fmtOf=c=>c===1?DATE:(c===3?INT:(c===7?PCT:([4,5,6,8].indexOf(c)>=0?MONEY:"")));
+  const HEAD="E8E2D6", FOOT="FFF2CC", RED="C00000";
+  const grid=[head.map(h=>({v:h,t:"s",s:{bold:true,fill:HEAD,align:"center",border:true}}))];
+  body.forEach((row,ri)=>{
+    const last=ri===body.length-1;
+    grid.push(row.map((v,c)=>{
+      const f=fmtOf(c);
+      const st={fmt:f, bold:last||undefined, fill:last?FOOT:undefined};
+      if(typeof v==="number" && v<0 && (c===6||c===7||c===8)) st.color=RED;
+      /* 「沒有金額就寫 0」只適用於金額。日期沒有就留白 —— 寫 0 會被 Excel
+         當成 1900 年那個原點日期印出來,合計列的日期欄跑出一個假日期。 */
+      if(f===DATE) return (v===""||v==null)?{v:"",t:"s",s:st}:{v:v,t:"n",s:st};
+      return f?{v:(v===""?0:v), t:"n", s:st}:{v:v, t:"s", s:st};
+    }));
+  });
+  xlWrite([{name:LANG?"All periods":"全部期別", rows:grid,
+            cols:[20,12,16,10,16,16,14,10,16,38].map(w=>({w:w})),
+            freeze:{r:1,c:0}}],
+    "All_Periods"+((data.map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"")
+      .replace(/^(.+)$/,"_$1").replace(/-/g,""))+".xlsx")
+  .then(ok=>toast(ok?L("已匯出 "+nOk+" 期","Exported "+nOk+" period"+(nOk===1?"":"s"))
+                    :L("已取消存檔","Save cancelled"), ok))
+  .catch(e=>toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false));
+}
+/* 篩選只改畫面h(()=>{
     setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
                 "Export failed: xlsx-0.18.5.full.min.js did not load. Check it sits next to index.html"));
   });
@@ -8498,6 +8502,231 @@ function saveSheet(aoa, sheetName, fname, moneyFrom){
     return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
       {type:"application/octet-stream"}), fname);
   });
+}
+
+/* =====================================================================
+   有樣式的 Excel
+   ---------------------------------------------------------------------
+   SheetJS 的社群版寫得出數字格式,寫不出填色 —— 給它 cell.s 也不會進檔案
+   (實測過:產出來的 styles.xml 只有預設那兩個 fill,儲存格上連 s 屬性都
+   沒有)。要顏色只有兩條路:換一個支援樣式的分支,等於再多一個近 900KB
+   的檔案要跟著部署,少放一個整個匯出就壞掉;或者自己把檔案寫出來。
+   xlsx 本來就是一個 zip 裝著幾份 XML,自己寫得出來,而且從此填色、粗體、
+   框線、凍結窗格、合併都在自己手上,不必再看某一版函式庫支不支援。
+   ===================================================================== */
+function xlCrc32(buf){
+  let c, crc=-1;
+  if(!xlCrc32.T){
+    const T=new Int32Array(256);
+    for(let n=0;n<256;n++){ c=n; for(let k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); T[n]=c; }
+    xlCrc32.T=T;
+  }
+  const T=xlCrc32.T;
+  for(let i=0;i<buf.length;i++) crc=(crc>>>8)^T[(crc^buf[i])&0xFF];
+  return (crc^-1)>>>0;
+}
+/* 壓縮用瀏覽器內建的 deflate-raw。沒有的話整包不壓縮照樣是合法的 zip,
+   只是檔案大一點 —— 匯不出來比較嚴重。 */
+async function xlDeflate(bytes){
+  if(typeof CompressionStream!=="function") return null;
+  try{
+    const cs=new CompressionStream("deflate-raw");
+    const w=cs.writable.getWriter(); w.write(bytes); w.close();
+    return new Uint8Array(await new Response(cs.readable).arrayBuffer());
+  }catch(e){ return null; }
+}
+async function xlZip(files){
+  const enc=new TextEncoder(), parts=[], central=[];
+  let off=0, n=0;
+  for(const f of files){
+    const nameB=enc.encode(f.name), raw=f.bytes, crc=xlCrc32(raw);
+    let data=await xlDeflate(raw), method=8;
+    if(!data || data.length>=raw.length){ data=raw; method=0; }
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0,true);
+    lh.setUint16(8,method,true); lh.setUint16(10,0,true); lh.setUint16(12,0x2821,true);
+    lh.setUint32(14,crc,true); lh.setUint32(18,data.length,true);
+    lh.setUint32(22,raw.length,true);
+    lh.setUint16(26,nameB.length,true); lh.setUint16(28,0,true);
+    parts.push(new Uint8Array(lh.buffer),nameB,data);
+    const cd=new DataView(new ArrayBuffer(46));
+    cd.setUint32(0,0x02014b50,true); cd.setUint16(4,20,true); cd.setUint16(6,20,true);
+    cd.setUint16(8,0,true); cd.setUint16(10,method,true);
+    cd.setUint16(12,0,true); cd.setUint16(14,0x2821,true);
+    cd.setUint32(16,crc,true); cd.setUint32(20,data.length,true);
+    cd.setUint32(24,raw.length,true);
+    cd.setUint16(28,nameB.length,true); cd.setUint16(30,0,true); cd.setUint16(32,0,true);
+    cd.setUint16(34,0,true); cd.setUint16(36,0,true); cd.setUint32(38,0,true);
+    cd.setUint32(42,off,true);
+    central.push(new Uint8Array(cd.buffer),nameB);
+    off+=30+nameB.length+data.length; n++;
+  }
+  const cdSize=central.reduce((a,b)=>a+b.length,0);
+  const eo=new DataView(new ArrayBuffer(22));
+  eo.setUint32(0,0x06054b50,true); eo.setUint16(4,0,true); eo.setUint16(6,0,true);
+  eo.setUint16(8,n,true); eo.setUint16(10,n,true);
+  eo.setUint32(12,cdSize,true); eo.setUint32(16,off,true); eo.setUint16(20,0,true);
+  return new Blob(parts.concat(central,[new Uint8Array(eo.buffer)]),
+                  {type:"application/octet-stream"});
+}
+function xe(v){
+  return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;")
+    /* Excel 讀到控制字元會判整份檔案毀損,直接拿掉 */
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,"");
+}
+/* Excel 不收的工作表名稱字元,而且最長 31 個字。 */
+function xlSheetName(n,i){
+  let t=String(n==null?"":n).replace(/[\\\/\?\*\[\]:]/g,"-").slice(0,31).trim();
+  return t||("Sheet"+(i+1));
+}
+function xlCol(c){ let s=""; c++; while(c>0){ const m=(c-1)%26; s=String.fromCharCode(65+m)+s; c=(c-m-1)/26; } return s; }
+/* 樣式表。同一組樣式只寫一次,儲存格拿到的是它在 cellXfs 裡的序號。
+   style 物件:{fmt, bold, fill:"RRGGBB", color:"RRGGBB", align, wrap, border} */
+function xlStyles(){
+  const fmts=[], fonts=[], fills=["<fill><patternFill patternType=\"none\"/></fill>",
+                                  "<fill><patternFill patternType=\"gray125\"/></fill>"],
+        borders=["<border><left/><right/><top/><bottom/><diagonal/></border>"], xfs=[];
+  const seen={};
+  const put=(arr,xml)=>{ const i=arr.indexOf(xml); return i<0?(arr.push(xml),arr.length-1):i; };
+  function id(st){
+    st=st||{};
+    const k=JSON.stringify([st.fmt||"",!!st.bold,st.fill||"",st.color||"",
+                            st.align||"",!!st.wrap,!!st.border]);
+    if(seen[k]!=null) return seen[k];
+    let numId=0;
+    if(st.fmt){ let i=fmts.indexOf(st.fmt); if(i<0){ fmts.push(st.fmt); i=fmts.length-1; } numId=164+i; }
+    const fontId=put(fonts,"<font><sz val=\"11\"/>"+(st.bold?"<b/>":"")
+      +"<color rgb=\"FF"+(st.color||"000000")+"\"/>"
+      +"<name val=\"Calibri\"/><family val=\"2\"/></font>");
+    const fillId=st.fill
+      ? put(fills,"<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF"+st.fill
+            +"\"/><bgColor indexed=\"64\"/></patternFill></fill>")
+      : 0;
+    const bId=st.border
+      ? put(borders,"<border><left style=\"thin\"><color rgb=\"FFD9D9D9\"/></left>"
+            +"<right style=\"thin\"><color rgb=\"FFD9D9D9\"/></right>"
+            +"<top style=\"thin\"><color rgb=\"FFD9D9D9\"/></top>"
+            +"<bottom style=\"thin\"><color rgb=\"FFD9D9D9\"/></bottom><diagonal/></border>")
+      : 0;
+    const al=(st.align||st.wrap)
+      ? "<alignment"+(st.align?" horizontal=\""+st.align+"\"":"")
+        +(st.wrap?" wrapText=\"1\"":"")+" vertical=\"center\"/>"
+      : "";
+    xfs.push("<xf numFmtId=\""+numId+"\" fontId=\""+fontId+"\" fillId=\""+fillId
+      +"\" borderId=\""+bId+"\" xfId=\"0\""+(numId?" applyNumberFormat=\"1\"":"")+(st.fill?" applyFill=\"1\"":"")
+      +(st.bold||st.color?" applyFont=\"1\"":"")+(st.border?" applyBorder=\"1\"":"")
+      +(al?" applyAlignment=\"1\">"+al+"</xf>":"/>"));
+    return (seen[k]=xfs.length-1);
+  }
+  id({});                              /* 0 號一定要是預設樣式 */
+  function xml(){
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      +"<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+      +(fmts.length?"<numFmts count=\""+fmts.length+"\">"
+          +fmts.map((f,i)=>"<numFmt numFmtId=\""+(164+i)+"\" formatCode=\""+xe(f)+"\"/>").join("")
+          +"</numFmts>":"")
+      +"<fonts count=\""+fonts.length+"\">"+fonts.join("")+"</fonts>"
+      +"<fills count=\""+fills.length+"\">"+fills.join("")+"</fills>"
+      +"<borders count=\""+borders.length+"\">"+borders.join("")+"</borders>"
+      +"<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
+      +"<cellXfs count=\""+xfs.length+"\">"+xfs.join("")+"</cellXfs>"
+      +"<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>"
+      +"<dxfs count=\"0\"/><tableStyles count=\"0\"/></styleSheet>";
+  }
+  return {id, xml};
+}
+/* sheets: [{name, rows:[[cell|value,...]], cols:[{w}], merges:[{s:{r,c},e:{r,c}}], freeze:{r,c}}]
+   cell:  {v, t:"s"|"n", s:樣式物件}。字串一律用 inlineStr,不另外做共用字串表
+   —— 這幾張表最多幾千格,省下來的位元組不值得多一份 XML 和一組索引。 */
+async function xlWrite(sheets, fname){
+  const S=xlStyles();
+  const sheetXml=sheets.map(sh=>{
+    const rows=sh.rows||[];
+    const body=rows.map((row,r)=>{
+      const cells=(row||[]).map((cell,c)=>{
+        if(cell==null||cell==="") return "";
+        const o=(typeof cell==="object"&&!Array.isArray(cell))?cell:{v:cell};
+        if(o.v==null||o.v==="") {
+          const si0=S.id(o.s);
+          return si0?"<c r=\""+xlCol(c)+(r+1)+"\" s=\""+si0+"\"/>":"";
+        }
+        const num=(o.t==="n")||(o.t!=="s"&&typeof o.v==="number");
+        const si=S.id(o.s);
+        const ref=" r=\""+xlCol(c)+(r+1)+"\""+(si?" s=\""+si+"\"":"");
+        return num
+          ? "<c"+ref+"><v>"+(isFinite(o.v)?o.v:0)+"</v></c>"
+          : "<c"+ref+" t=\"inlineStr\"><is><t xml:space=\"preserve\">"+xe(o.v)+"</t></is></c>";
+      }).join("");
+      return cells?"<row r=\""+(r+1)+"\">"+cells+"</row>":"";
+    }).join("");
+    const lastR=Math.max(1,rows.length);
+    const lastC=Math.max(1,...rows.map(r=>(r||[]).length));
+    const fr=(sh.freeze&&sh.freeze.r)||0, fc=(sh.freeze&&sh.freeze.c)||0;
+    const fz=(fr||fc)
+      ? "<pane"+(fc?" xSplit=\""+fc+"\"":"")+(fr?" ySplit=\""+fr+"\"":"")
+        +" topLeftCell=\""+xlCol(fc)+(fr+1)+"\" activePane=\""
+        +(fc&&fr?"bottomRight":(fc?"topRight":"bottomLeft"))+"\" state=\"frozen\"/>"
+      : "";
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      +"<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+      +"<dimension ref=\"A1:"+xlCol(lastC-1)+lastR+"\"/>"
+      +"<sheetViews><sheetView workbookViewId=\"0\">"+fz+"</sheetView></sheetViews>"
+      +"<sheetFormatPr defaultRowHeight=\"15\"/>"
+      +((sh.cols&&sh.cols.length)?"<cols>"+sh.cols.map((c,i)=>
+          "<col min=\""+(i+1)+"\" max=\""+(i+1)+"\" width=\""+(c&&c.w||12)+"\" customWidth=\"1\"/>"
+        ).join("")+"</cols>":"")
+      +"<sheetData>"+body+"</sheetData>"
+      +((sh.merges&&sh.merges.length)?"<mergeCells count=\""+sh.merges.length+"\">"
+          +sh.merges.map(m=>"<mergeCell ref=\""+xlCol(m.s.c)+(m.s.r+1)+":"
+              +xlCol(m.e.c)+(m.e.r+1)+"\"/>").join("")+"</mergeCells>":"")
+      +"</worksheet>";
+  });
+  const enc=new TextEncoder(), B=t=>enc.encode(t);
+  const files=[
+    {name:"[Content_Types].xml", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      +"<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+      +"<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+      +"<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+      +"<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
+      +sheets.map((_,i)=>"<Override PartName=\"/xl/worksheets/sheet"+(i+1)+".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>").join("")
+      +"<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
+      +"<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
+      +"<Override PartName=\"/docProps/app.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>"
+      +"</Types>")},
+    {name:"_rels/.rels", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      +"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+      +"<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"
+      +"<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>"
+      +"<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties\" Target=\"docProps/app.xml\"/>"
+      +"</Relationships>")},
+    {name:"docProps/core.xml", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      +"<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" "
+      +"xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\" "
+      +"xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
+      +"<dc:creator>UPS Reprice</dc:creator><cp:lastModifiedBy>UPS Reprice</cp:lastModifiedBy>"
+      +"</cp:coreProperties>")},
+    {name:"docProps/app.xml", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      +"<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\" "
+      +"xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\">"
+      +"<Application>UPS Reprice</Application></Properties>")},
+    {name:"xl/workbook.xml", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      +"<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
+      +"xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+      +"<bookViews><workbookView/></bookViews><sheets>"
+      +sheets.map((sh,i)=>"<sheet name=\""+xe(xlSheetName(sh.name,i))
+          +"\" sheetId=\""+(i+1)+"\" r:id=\"rId"+(i+1)+"\"/>").join("")
+      +"</sheets></workbook>")},
+    {name:"xl/_rels/workbook.xml.rels", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      +"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+      +sheets.map((_,i)=>"<Relationship Id=\"rId"+(i+1)+"\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet"+(i+1)+".xml\"/>").join("")
+      +"<Relationship Id=\"rId"+(sheets.length+1)+"\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>"
+      +"</Relationships>")},
+  ];
+  sheets.forEach((_,i)=>files.push({name:"xl/worksheets/sheet"+(i+1)+".xml", bytes:B(sheetXml[i])}));
+  /* styles.xml 一定要最後才產:上面跑過每一格,樣式表這時候才收齊。 */
+  files.push({name:"xl/styles.xml", bytes:B(S.xml())});
+  return dlBlob(await xlZip(files), fname);
 }
 
 /* 這一輪要存去哪。瀏覽器只在「使用者剛按下按鈕」那幾秒內准許跳另存視窗,
@@ -9540,55 +9769,66 @@ function exportIssues(){
     wide.push(line);
   }
   const fname=baseName(".xlsx").replace("_Repriced","_Issues");
-  loadXLSX().then(X=>{
-    /* 金額欄一律掛 $#,##0.00,連 0 也是 —— 一欄裡混著 "$1.50" 和 "0",
-       眼睛會停下來確認那個 0 是不是別的東西。 */
-    /* 日期寫成真的日期儲存格(Excel 序列值 + mm/dd/yyyy),不是看起來像日期
-       的字串 —— 字串排序會把 2026-1-5 排在 2026-11-2 前面,而且沒辦法做
-       樞紐分析。序列值的原點是 1899-12-30。 */
-    const serial=v=>{
-      const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||"").trim());
-      if(!m) return null;
-      return Math.round((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000);
-    };
-    const fmt=(ws,moneyCols,dateCols,widths,from)=>{
-      const ref=X.utils.decode_range(ws["!ref"]);
-      for(let r=(from||1);r<=ref.e.r;r++){
-        for(const c of moneyCols){
-          const cell=ws[X.utils.encode_cell({r:r,c:c})];
-          if(cell && typeof cell.v==="number") cell.z="$#,##0.00";
-        }
-        for(const c of dateCols){
-          const ad=X.utils.encode_cell({r:r,c:c}), cell=ws[ad];
-          if(!cell) continue;
-          const n=serial(cell.v);
-          if(n!==null){ cell.t="n"; cell.v=n; cell.z="mm/dd/yyyy"; delete cell.w; }
-        }
-      }
-      ws["!cols"]=widths.map(w=>({wch:w}));
-      return ws;
-    };
-    const detDates=[1,2], detMoney=[11,12,16];
-    const detW=[16,12,12,10,20,8,30,7,22,20,30,11,11,20,6,10,14];
-    /* 金額欄從「計費重」那一組之後開始 —— 重量那兩欄是磅數不是錢。 */
-    const wMoney=[]; for(let c=singles.length+2;c<head1.length;c++) wMoney.push(c);
-    const wideW=[16,12,12,20,8,7,34,14,20,6]
-      .concat([9,9]).concat(cols.flatMap(()=>[12,12])).concat([13,13,12]);
-    const wb=X.utils.book_new();
-    X.utils.book_append_sheet(wb, fmt(X.utils.aoa_to_sheet(det),detMoney,detDates,detW),
-      L("問題明細","Issues"));
-    /* 表頭佔兩列,資料從第三列起 —— fmt 的 from 要跟著往下移,不然第二列的
-       「UPS / 重算」會被當成資料格去套金額格式。 */
-    const wsWide=fmt(X.utils.aoa_to_sheet(wide),wMoney,[1,2],wideW,2);
-    wsWide["!merges"]=merges;
-    X.utils.book_append_sheet(wb, wsWide, L("貨件展開","By shipment"));
-    return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
-      {type:"application/octet-stream"}), fname);
-  }).then(ok=>toast(ok?L("已匯出 "+ISSUES.length+" 項異常 / "+trks.length+" 個追蹤號",
-                         "Exported "+ISSUES.length+" exception(s) across "+trks.length+" shipment(s)")
-                      :L("已取消存檔","Save cancelled"), ok))
-    .catch(()=>toast(L("匯出失敗:xlsx 元件沒有載到",
-                       "Export failed: the xlsx component did not load"), false));
+  /* 日期寫成真的日期儲存格(Excel 序列值 + mm/dd/yyyy),不是看起來像日期的
+     字串 —— 字串排序會把 2026-1-5 排在 2026-11-2 前面,也做不了樞紐分析。
+     序列值的原點是 1899-12-30。 */
+  const serial=v=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||"").trim());
+    return m?Math.round((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000):null;
+  };
+  const MONEY="$#,##0.00", INT="#,##0", DATE="mm/dd/yyyy";
+  /* 底色。三十幾欄橫著排,光看兩列表頭分不出哪兩欄是一組 —— 相鄰的組換一次
+     色,一組的「UPS 實收 / 重算」就框在同一塊顏色裡,和隔壁那組分得開。
+     內文用同色系但淡很多的底,分組的直帶一路往下延伸,捲到第兩百列也還
+     對得出自己在看哪一組。合計與差額另外一個顏色,它們不是某一種費用。 */
+  const HDR=["DDEBF7","FCE4D6"], BODY=["F3F8FD","FDF4EF"];
+  const HDR_FIX="E8E2D6", HDR_SUM="FFF2CC", BODY_SUM="FFFAEE";
+  const hcell=(v,fill)=>({v:v, t:"s",
+    s:{bold:true, fill:fill, align:"center", wrap:true, border:true}});
+
+  /* ---- 第一張表 ---- */
+  const detDates=new Set([1,2]), detMoney=new Set([11,12,16]);
+  const detW=[16,12,12,10,20,8,30,7,22,20,30,11,11,20,6,10,14];
+  const det1=det.map((row,r)=>row.map((v,c)=>{
+    if(r===0) return hcell(v,HDR_FIX);
+    if(detDates.has(c)){ const n=serial(v); return n==null?v:{v:n,t:"n",s:{fmt:DATE}}; }
+    if(detMoney.has(c)) return {v:toNum(v), t:"n", s:{fmt:MONEY}};
+    return v;
+  }));
+
+  /* ---- 第二張表 ---- */
+  const S0=singles.length, P=pairs.length, DIFF=S0+P*2;
+  const grp=c=>c<S0?-1:(c>=DIFF?-2:Math.floor((c-S0)/2));
+  const headFill=c=>{ const g=grp(c); return g===-1?HDR_FIX:(g===-2?HDR_SUM
+    :(g===P-1?HDR_SUM:HDR[g%2])); };
+  const bodyFill=c=>{ const g=grp(c); return g===-1?"":(g===-2?BODY_SUM
+    :(g===P-1?BODY_SUM:BODY[g%2])); };
+  const bodyFmt=c=>{
+    const g=grp(c);
+    if(g===-1) return (c===1||c===2)?DATE:(c===5?INT:"");
+    if(g===-2) return MONEY;
+    return g===0?INT:MONEY;                /* 第一組是計費重,磅數不是錢 */
+  };
+  const wide2=wide.map((row,r)=>row.map((v,c)=>{
+    if(r<2) return hcell(v,headFill(c));
+    const f=bodyFmt(c), fill=bodyFill(c);
+    if(f===DATE){ const n=serial(v); return n==null?{v:v,t:"s",s:{fill:fill}}
+                                                  :{v:n,t:"n",s:{fmt:DATE,fill:fill}}; }
+    if(f) return {v:toNum(v), t:"n", s:{fmt:f, fill:fill}};
+    return {v:v, t:"s", s:{fill:fill}};
+  }));
+  const wideW=[16,12,12,20,8,7,34,14,20,6]
+    .concat([9,9]).concat(cols.flatMap(()=>[12,12])).concat([13,13,12]);
+
+  xlWrite([
+    {name:L("問題明細","Issues"), rows:det1, cols:detW.map(w=>({w:w})), freeze:{r:1,c:0}},
+    {name:L("貨件展開","By shipment"), rows:wide2, cols:wideW.map(w=>({w:w})),
+     merges:merges, freeze:{r:2,c:4}},
+  ], fname)
+  .then(ok=>toast(ok?L("已匯出 "+ISSUES.length+" 項異常 / "+trks.length+" 個追蹤號",
+                       "Exported "+ISSUES.length+" exception(s) across "+trks.length+" shipment(s)")
+                    :L("已取消存檔","Save cancelled"), ok))
+  .catch(e=>toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false));
 }
 
 function renderRate(){
