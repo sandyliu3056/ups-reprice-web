@@ -157,7 +157,7 @@
     <ol><li><b>6.1</b>請求</li><li><b>6.2</b>回應</li>
         <li><b>6.3</b>用戶端行為</li><li><b>6.4</b>代理對 UPS 之呼叫</li></ol></li>
   <li><div class="r">已知限制與導入評估<span class="d">目前不支援的情形、每帳號憑證、導入前的比對程序</span></div>
-    <ol><li><b>7.1</b>本機帳號模式不支援</li><li><b>7.2</b>每帳號獨立憑證</li>
+    <ol><li><b>7.1</b>認證模式須為 Supabase 帳號</li><li><b>7.2</b>每帳號獨立憑證</li>
         <li><b>7.3</b>導入前評估</li></ol></li>
   <li><div class="r">附錄 — 疑難排解<span class="d">畫面訊息對照、狀態碼速查</span></div>
     <ol><li><b>8.1</b>狀態碼速查</li></ol></li>
@@ -375,7 +375,7 @@ supabase link --project-ref &lt;your-project-ref&gt;</pre>
 
 <div class="box">
   <span class="h">本文件的取得位置</span>
-  同一列的<strong>「API 設定指南（PDF）」</strong>即本文件。本文件有中英兩版,按鈕依介面語言取用:中文版為 <span class="mono">UPS-API-Setup-Guide.pdf</span>,英文版為 <span class="mono">UPS-API-Setup-Guide-EN.pdf</span>。兩者均須與 <span class="mono">index.html</span> 置於同一資料夾;僅部署其一時,按鈕取用另一版並於畫面說明,未一併部署時則提示檔案應置之位置,不會無回應。
+  同一列的<strong>「API 設定指南（PDF）」</strong>即本文件,取用介面語言的那一版;其右側的窄鈕(<strong>EN</strong> 或<strong>中文</strong>)取用另一版,不必為此切換介面語言。中文版為 <span class="mono">UPS-API-Setup-Guide.pdf</span>,英文版為 <span class="mono">UPS-API-Setup-Guide-EN.pdf</span>,兩者均須與 <span class="mono">index.html</span> 置於同一資料夾。僅部署其一時,按鈕取用另一版並於畫面說明;兩版皆未部署時提示檔案應置之位置,不會無回應。
 </div>
 
 <figure class="mid">
@@ -474,14 +474,14 @@ supabase link --project-ref &lt;your-project-ref&gt;</pre>
 
 <h2 class="pb"><span class="n">7</span>已知限制與導入評估</h2>
 
-<h3>7.1 本機帳號模式不支援</h3>
+<h3>7.1 認證模式須為 Supabase 帳號</h3>
 
 <div class="box crit">
-  <span class="h">目前部署狀態下端點無法運作</span>
-  代理服務以 <code class="in">auth.getUser()</code> 驗證呼叫者為有效的 Supabase 使用者。系統目前運行於本機帳號模式,不建立 Supabase 工作階段,所有請求將回傳 <code class="in">401</code>,計價全數回退至系統判定。
+  <span class="h">本機帳號模式下端點不會運作</span>
+  代理服務以 <code class="in">auth.getUser()</code> 驗證呼叫者為有效的 Supabase 使用者。<strong>若你的系統以本機帳號模式運行</strong>(帳號寫在 <code class="in">index.html</code>,不建立 Supabase 工作階段),則所有請求將回傳 <code class="in">401</code>,計價全數回退至系統判定 —— 此時第 5 節之設定填了亦無作用。
 </div>
 
-<p>本限制不影響第 3、4 節之執行價值:該二節所驗證者為代理服務與 UPS 憑證,與用戶端認證方式無關,完成後即為可重複使用之基礎設施。第 5 節之設定,須待認證模式切換並完成資料轉移後方能生效。</p>
+<p>此為認證層之前提,與第 3、4 節無涉:該二節所驗證者為代理服務與 UPS 憑證,與用戶端採用何種認證方式無關。故縱使認證模式尚待切換,第 3、4 節仍應先行完成 —— 其成果為可重複使用之基礎設施,不因日後切換而失效。第 5 節之設定,須於認證模式為 Supabase 帳號後方能生效。</p>
 
 <h3>7.2 每帳號獨立憑證</h3>
 

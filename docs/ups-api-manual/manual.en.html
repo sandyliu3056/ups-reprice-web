@@ -149,8 +149,8 @@
   <li><div class="r">Interface reference<span class="d">Request and response, client behaviour, the proxy&rsquo;s call to UPS</span></div>
     <ol><li><b>6.1</b>Request</li><li><b>6.2</b>Response</li>
         <li><b>6.3</b>Client behaviour</li><li><b>6.4</b>The proxy&rsquo;s call to UPS</li></ol></li>
-  <li><div class="r">Known limits and what to weigh<span class="d">What is not supported today, per-account credentials, how to trial it</span></div>
-    <ol><li><b>7.1</b>Local-account mode is not supported</li><li><b>7.2</b>Per-account credentials</li>
+  <li><div class="r">Known limits and what to weigh<span class="d">What sign-in must provide, per-account credentials, how to trial it</span></div>
+    <ol><li><b>7.1</b>Sign-in must use Supabase accounts</li><li><b>7.2</b>Per-account credentials</li>
         <li><b>7.3</b>Before you turn it on</li></ol></li>
   <li><div class="r">Appendix &mdash; troubleshooting<span class="d">On-screen messages, status codes at a glance</span></div>
     <ol><li><b>8.1</b>Status codes at a glance</li></ol></li>
@@ -368,7 +368,7 @@ supabase link --project-ref &lt;your-project-ref&gt;</pre>
 
 <div class="box">
   <span class="h">Where this document comes from</span>
-  The <strong>&ldquo;API Setup Guide (PDF)&rdquo;</strong> button on the same row opens this file. It is <span class="mono">UPS-API-Setup-Guide-EN.pdf</span> (the Chinese edition is <span class="mono">UPS-API-Setup-Guide.pdf</span>), and it must sit in the same folder as <span class="mono">index.html</span>. If it was not deployed alongside, the button says where the file belongs rather than doing nothing.
+  The <strong>&ldquo;API Setup Guide (PDF)&rdquo;</strong> button on the same row gives you the edition matching the interface language; the narrow button beside it (<strong>EN</strong> or <strong>中文</strong>) gives the other one, so you never have to switch the whole interface to send a colleague the other edition. English is <span class="mono">UPS-API-Setup-Guide-EN.pdf</span>, Chinese is <span class="mono">UPS-API-Setup-Guide.pdf</span>; both must sit in the same folder as <span class="mono">index.html</span>. If only one was deployed, the button hands over that one and says so; if neither was, it says where the file belongs rather than doing nothing.
 </div>
 
 <figure class="mid">
@@ -467,14 +467,14 @@ supabase link --project-ref &lt;your-project-ref&gt;</pre>
 
 <h2 class="pb"><span class="n">7</span>Known limits and what to weigh</h2>
 
-<h3>7.1 Local-account mode is not supported</h3>
+<h3>7.1 Sign-in must use Supabase accounts</h3>
 
 <div class="box crit">
-  <span class="h">As currently deployed, the endpoint cannot work</span>
-  The proxy uses <code class="in">auth.getUser()</code> to confirm the caller is a real Supabase user. The system runs in local-account mode, which creates no Supabase session, so every request returns <code class="in">401</code> and pricing falls back to the built-in logic in all cases.
+  <span class="h">In local-account mode the endpoint will not work</span>
+  The proxy uses <code class="in">auth.getUser()</code> to confirm the caller is a real Supabase user. <strong>If your system runs in local-account mode</strong> &mdash; accounts written into <code class="in">index.html</code>, no Supabase session created &mdash; every request returns <code class="in">401</code> and pricing falls back to the built-in logic, so the setting in section 5 has no effect however it is filled in.
 </div>
 
-<p>This does not make sections 3 and 4 pointless: what they verify is the proxy and the UPS credentials, which are independent of how the client authenticates. Once done, that infrastructure is there and reusable. Section 5&rsquo;s setting only takes effect after the authentication model is switched and the accounts migrated.</p>
+<p>This is a condition on the authentication layer, not on sections 3 and 4: what those verify is the proxy and the UPS credentials, which are independent of how the client signs in. So do them first even if the authentication model has yet to change &mdash; what they produce is reusable infrastructure that a later switch does not invalidate. The section 5 setting takes effect once sign-in uses Supabase accounts.</p>
 
 <h3>7.2 Per-account credentials</h3>
 

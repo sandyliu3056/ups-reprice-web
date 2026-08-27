@@ -265,6 +265,10 @@ select:not(.titlebar select) option{color:#000;background:#fff;font-weight:400}
 .bkgrid .selw>select{font-size:12px;padding:5px 26px 5px 10px;border-radius:9px}
 /* 預設門檻沒有「原值」那一欄 —— 這裡填的就是原值本身 */
 .dtgrid{grid-template-columns:1fr 120px}
+/* 手冊按鈕旁邊那一顆:拿另一種語言的那一份。做成一顆窄的,不是第二顆
+   長按鈕 —— 在台灣用中文介面工作的人,要寄英文版給美國客人,不該為了
+   下載一個檔把整個介面切成英文。 */
+.act.manalt{padding-left:9px;padding-right:9px;font-size:11.5px;letter-spacing:.4px}
 /* 利潤報表的兩個選項。原本上下疊兩段字,兩段都在講「向客戶收多少、UPS 收
    多少、差多少」—— 同一組詞排兩次,看起來當然一樣。改成把兩份檔案的長相
    直接畫出來並排:一邊是一列一種費用、兩欄並排比;一邊是一列一期、往下疊。
@@ -1429,6 +1433,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <div class="row">
         <button class="act ghost" id="bResiSrc" data-i18n="btn.resisrc">Configure Source</button>
         <button class="act ghost" id="bManual" data-i18n="btn.manual">API Setup Guide (PDF)</button>
+        <button class="act ghost manalt" id="bManualAlt" title="">中文</button>
         <span id="resiSrcSum" class="affsum"></span>
       </div>
     </div>
@@ -5911,9 +5916,10 @@ function pullFile(url,name){
   a.href=url; a.download=name; a.style.display="none";
   document.body.appendChild(a); a.click(); a.remove();
 }
-$("#bManual") && ($("#bManual").onclick=async()=>{
-  const want=LANG?MANUAL_PDF_EN:MANUAL_PDF_ZH;
-  const alt =LANG?MANUAL_PDF_ZH:MANUAL_PDF_EN;
+/* en=true 拿英文版,否則中文版。兩顆按鈕走同一條路,只差要哪一份。 */
+async function getManual(en){
+  const want=en?MANUAL_PDF_EN:MANUAL_PDF_ZH;
+  const alt =en?MANUAL_PDF_ZH:MANUAL_PDF_EN;
   const at=n=>new URL(n, location.href).href;
   /* file:// 開的時候 fetch 會被同源擋掉,問不到就直接讓瀏覽器去試。 */
   if(!/^https?:$/.test(location.protocol)){ pullFile(at(want),want); return; }
@@ -5929,7 +5935,19 @@ $("#bManual") && ($("#bManual").onclick=async()=>{
   }
   toast(L("找不到 "+want+"。該檔案須與 index.html 置於同一資料夾。",
           "Cannot find "+want+". It must be placed in the same folder as index.html."));
-});
+}
+/* 主按鈕給介面語言那一份;旁邊那顆小的給另一份。標籤寫的是「按下去會拿到
+   哪一種」,所以中文介面時它寫 EN,英文介面時它寫「中文」—— 不是 data-i18n
+   能表達的,切語言時自己重寫。 */
+function paintManualAlt(){
+  const b=$("#bManualAlt");
+  if(!b) return;
+  b.textContent = LANG?"中文":"EN";
+  /* 說明字跟著介面語言,標籤跟著「會拿到哪一份」—— 兩者本來就不同語言。 */
+  b.title = LANG?"Download the Chinese edition":"下載英文版(English edition)";
+}
+$("#bManual")    && ($("#bManual").onclick   =()=>getManual(!!LANG));
+$("#bManualAlt") && ($("#bManualAlt").onclick=()=>getManual(!LANG));
 $("#rsX")      && ($("#rsX").onclick=()=>closeResiSrc());
 $("#rsClose")  && ($("#rsClose").onclick=()=>closeResiSrc());
 $("#rsSave")   && ($("#rsSave").onclick=saveResiSrc);
@@ -11332,6 +11350,7 @@ function applyLang(){
   /* 利潤報表卡片底下那兩行是 JS 寫的,不吃 data-i18n —— 開著視窗切語言的話
      兩張卡片會停在另一種語言。 */
   if($("#prInvWhat") && typeof prPaint==="function"){ try{ prPaint(); }catch(e){} }
+  if(typeof paintManualAlt==="function") paintManualAlt();
   if(typeof CFG!=="undefined" && CFG){
     paintAccFuelSum();
     if($("#afBg") && $("#afBg").classList.contains("on")) renderAccFuel();
