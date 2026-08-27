@@ -85,8 +85,14 @@ Run `supabase/local_settings.sql` once in the Supabase SQL Editor. It creates:
   `local_settings_put`) that require the caller to present the full sync key.
 
 The sync key is computed in the browser at sign-in time as
-`sha256("cfg-sync::" + username + "::" + password)`. It cannot be derived from
-the login hashes stored in the repository. Pressing **Save settings** uploads
+`PBKDF2(password, salt = "ups-reprice::" + username, 600000 rounds, SHA-256)`,
+rendered as 64 hex characters. It cannot be derived from the login hashes
+stored in the repository. The iteration count is what makes guessing expensive:
+a single unsalted SHA-256 can be tried hundreds of millions of times a second,
+and nothing rate-limits the RPC. Salting with the username stops one
+precomputed table from covering every account. Data stored under the previous
+sha256-derived key is moved across automatically at sign-in (`syncMigrate` in
+index.html). Pressing **Save settings** uploads
 the settings under that key; signing in on any other computer with the same
 account and password downloads them again.
 

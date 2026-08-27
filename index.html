@@ -4150,13 +4150,41 @@ async function sha256Hex(text){
   return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 
+/* 同步鑰匙的推導方法版本。存在 session 裡,舊版的 session 一律要求重新登入
+   —— 不然還原回來的是舊鑰匙,一邊讀新的、一邊寫舊的,兩份資料就分岔了。 */
+const SYNC_KV=2;
+/* 雲端那份資料的鑰匙。以前是 sha256("cfg-sync::"+帳號+"::"+密碼) 跑一輪:
+   一台普通機器一秒可以算幾億次,知道帳號的人拿一本常見密碼字典就能把鑰匙
+   一個一個試出來,而且資料庫那頭沒有次數上限。
+   PBKDF2 跑六十萬輪(OWASP 目前對 PBKDF2-SHA256 的建議值),一次推導在
+   一般機器上是十分之一秒上下 —— 本人登入無感,但同一本字典要試完的時間
+   差好幾個數量級。鹽用帳號本身:沒有登入身分就沒地方存每人一組
+   的隨機鹽,但把帳號攪進去,攻擊者就不能算一本通用的對照表拿去對所有人,
+   想開誰的就得專門為那個人重算一遍。
+   輸出仍是 64 位十六進位,和資料庫那邊的 ^[0-9a-f]{64}$ 一致。 */
+async function syncKeyOf(id, pw){
+  if(!(window.crypto&&crypto.subtle))
+    throw new Error(LANG?"This page must be served over https for sign-in to work."
+                       :"登入需要 https,請用 https 開這個網站。");
+  const enc=new TextEncoder();
+  const km=await crypto.subtle.importKey("raw", enc.encode(String(pw)),
+                                         "PBKDF2", false, ["deriveBits"]);
+  const bits=await crypto.subtle.deriveBits(
+    {name:"PBKDF2", salt:enc.encode("ups-reprice::"+id),
+     iterations:600000, hash:"SHA-256"}, km, 256);
+  return [...new Uint8Array(bits)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+/* 舊的算法留著,只為了把舊櫃子裡的東西搬過來(見 syncMigrate)。 */
+function syncKeyLegacy(id, pw){ return sha256Hex("cfg-sync::"+id+"::"+String(pw)); }
+
 const AUTH=(!LOCAL_MODE && window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
   ? window.supabase.createClient(AUTH_CONFIG.url,AUTH_CONFIG.anonKey)
   : null;
 /* 設定同步用的連線。本機帳號模式沒有 Supabase 登入,但設定還是要跨電腦
    跟著帳號走,所以另開一條只跑 RPC 的匿名連線(見 supabase/local_settings.sql)。
-   鑰匙是登入當下用「帳號+密碼」算出來的雜湊 —— 不知道密碼就算不出鑰匙,
-   資料庫那邊也只認鑰匙、不能列清單。Supabase 模式直接沿用 AUTH。 */
+   鑰匙是登入當下用「帳號+密碼」推出來的(見 syncKeyOf,PBKDF2)—— 不知道
+   密碼就算不出鑰匙,資料庫那邊也只認鑰匙、不能列清單。Supabase 模式直接
+   沿用 AUTH。 */
 const SYNC=AUTH || ((window.supabase && AUTH_CONFIG.url && AUTH_CONFIG.anonKey)
   ? window.supabase.createClient(AUTH_CONFIG.url,AUTH_CONFIG.anonKey,
       {auth:{persistSession:false,autoRefreshToken:false}})
@@ -4207,7 +4235,11 @@ async function login(email,pw){
               name:acct.name, role:acct.role,
               /* 雲端同步的鑰匙。跟登入雜湊(帳號:密碼)是不同的算法,
                  所以放在 repo 裡的登入雜湊推不出這把鑰匙。 */
-              sync:await sha256Hex("cfg-sync::"+id+"::"+String(pw))};
+              kv:SYNC_KV,
+              sync:await syncKeyOf(id,pw),
+              /* 舊鑰匙只帶在這次 session 裡,給搬家用。搬完就沒有用處了,
+                 但留著不礙事 —— 它和新鑰匙一樣是同一組密碼推出來的。 */
+              syncOld:await syncKeyLegacy(id,pw)};
     /* sessionStorage:關掉分頁就要重新登入。這道門本來就薄,
        預設不留長效的登入狀態 —— 除非本人勾了「保持登入」。 */
     try{ sessionStorage.setItem(LOCAL_SESSION_KEY,JSON.stringify(me)); }catch(e){}
@@ -4483,7 +4515,10 @@ function cfgPull(){
        抓不到(還沒建表、離線)就維持本機快取,跟原本一樣。 */
     restoreConfig();
     if(!SYNC||!ME||!ME.sync) return Promise.resolve(false);
-    return SYNC.rpc("local_settings_get",{k:ME.sync})
+    /* 先把舊鑰匙底下的東西搬過來,再讀 —— 順序反過來會讀到空的,
+       而且接下來一存就把空的蓋上去。 */
+    return syncMigrate()
+      .then(()=>SYNC.rpc("local_settings_get",{k:ME.sync}))
       .then(({data,error})=>{
         const row=Array.isArray(data)?data[0]:data;
         if(error||!row||!row.config) return false;
@@ -4563,6 +4598,7 @@ function histCloudDelete(keys){
    回傳抓到的期數,0 = 沒有新東西。 */
 async function histCloudPull(){
   if(!LOCAL_MODE||!SYNC||!ME||!ME.sync) return 0;
+  await syncMigrate();
   let list=[];
   try{
     const {data,error}=await SYNC.rpc("local_history_list",{k:ME.sync});
@@ -4597,6 +4633,77 @@ async function histCloudPull(){
   return got;
 }
 
+/* ---- 換鑰匙的搬家 ----
+   推導方法從 sha256 換成 PBKDF2 之後,同一組帳號密碼算出來的鑰匙變了。
+   雲端那些設定和帳單歷史還鎖在舊鑰匙底下,不搬過來的話,使用者下次登入
+   會看到空的 —— 而且接著一存就把空的蓋上去。
+   所以登入時先跑這一段:新鑰匙沒有的,就從舊鑰匙那邊搬,搬完把舊的清掉。
+   跑一次就好,失敗只記 console —— 本機那份一直都在,搬不動不該擋住登入。 */
+/* 兩個地方都要等它跑完才能讀雲端(設定和帳單歷史),所以把那次的 promise
+   存起來共用 —— 各跑各的會變成兩份搬家同時動同一批資料。 */
+let SYNC_MIG_P=null;
+function syncMigrate(){
+  if(!LOCAL_MODE||!SYNC||!ME||!ME.sync||!ME.syncOld||ME.sync===ME.syncOld)
+    return Promise.resolve();
+  if(SYNC_MIG_P) return SYNC_MIG_P;
+  SYNC_MIG_P=syncMigrateRun();
+  return SYNC_MIG_P;
+}
+async function syncMigrateRun(){
+  const NEW=ME.sync, OLD=ME.syncOld;
+  /* rpc 成功時 data 可能本來就是 null(put/del 是 void),所以要把「失敗」
+     和「沒有東西」分開 —— 混在一起的話,每次成功搬完都會被當成失敗,
+     舊的那一份就永遠刪不掉。 */
+  const call=(fn,args)=>SYNC.rpc(fn,args)
+    .then(r=>({ok:!r.error, data:r.data}))
+    .catch(()=>({ok:false, data:null}));
+  const rpc=(fn,args)=>call(fn,args).then(r=>r.ok?r.data:null);
+  const one=d=>Array.isArray(d)?d[0]:d;
+  const work=(async()=>{
+    /* ---- 設定 ---- */
+    /* 第一個請求就打不出去,表示現在連不上(離線、或還沒建表)。那就什麼
+       都不要做,也不要卡在這裡等 —— 沒有連線就沒有東西可搬。把旗子放回去,
+       下次登入再試。 */
+    const probe=await call("local_settings_get",{k:NEW});
+    if(!probe.ok){ SYNC_MIG_P=null; return; }
+    const cur=one(probe.data);
+    const was=one(await rpc("local_settings_get",{k:OLD}));
+    if(was&&was.config){
+      let safe=true;
+      if(!(cur&&cur.config)){
+        const put=await call("local_settings_put",
+                             {k:NEW, cfg:was.config, cfg_name:was.config_name});
+        safe=put.ok;   /* 搬不過去就別倒掉舊的 —— 那是唯一一份 */
+      }
+      /* 這張表沒有刪除函式,把內容寫成 null 就等於把櫃子倒空 ——
+         cfgPull 讀到 config 是空的就當作沒有。 */
+      if(safe) await call("local_settings_put",{k:OLD, cfg:null, cfg_name:null});
+    }
+    /* ---- 帳單歷史 ---- */
+    const oldList=await rpc("local_history_list",{k:OLD});
+    if(!Array.isArray(oldList)||!oldList.length) return;
+    const newList=await rpc("local_history_list",{k:NEW});
+    const have=new Set((Array.isArray(newList)?newList:[]).map(r=>r.invoice));
+    let moved=0;
+    for(const r of oldList){
+      if(!have.has(r.invoice)){
+        const g=one(await rpc("local_history_get",{k:OLD, inv:r.invoice}));
+        /* 讀不到、或寫不進去,就把舊的留著 —— 寧可留一份孤兒,
+           也不要把唯一一份弄丟。下次登入會再試一次。 */
+        if(!g||g.data==null) continue;
+        const put=await call("local_history_put",
+                             {k:NEW, inv:r.invoice, m:g.meta, d:g.data});
+        if(!put.ok) continue;
+        moved++;
+      }
+      await call("local_history_del",{k:OLD, inv:r.invoice});
+    }
+    if(moved) console.info("sync key migration: moved "+moved+" invoice period(s)");
+  })().catch(e=>{ console.warn("sync key migration failed:", (e&&e.message)||e); });
+  /* 搬家再久也不能把登入卡住。到時間就先讓畫面繼續跑,沒搬完的下次登入
+     會再接著搬 —— 搬過的那幾期已經在新鑰匙底下,不會重來。 */
+  await Promise.race([work, new Promise(r=>setTimeout(r,8000))]);
+}
 /* 換人登入(或登出)時把上一個帳號的費率清掉。留著的話,
    下一個人看到的是別人的合約價,而且看不出來。 */
 function cfgReset(){
@@ -4734,6 +4841,8 @@ function setMe(m){
     renderHist();
     if(m) cfgPull();
   }
+  /* 本機那份立刻還原,不要等雲端 —— 搬家只擋住「讀雲端」那兩個動作,
+     擋在這裡的話,登入後馬上匯入的檔案會被晚一步的還原蓋掉。 */
   if(m) restoreHistoryDetail();
 }
 function applyRole(){
@@ -4779,6 +4888,15 @@ async function initAuth(){
       if(saved){
         try{ sessionStorage.setItem(LOCAL_SESSION_KEY,JSON.stringify(saved)); }catch(e){}
       }
+    }
+    /* 推導方法換版之後,舊的 session 帶的是舊鑰匙。還原它會變成「讀新的、
+       寫舊的」,兩份資料就分岔了 —— 所以請他重新登入一次,只有這一次。 */
+    if(saved && saved.kv!==SYNC_KV){
+      try{ sessionStorage.removeItem(LOCAL_SESSION_KEY);
+           localStorage.removeItem(LOCAL_REMEMBER_KEY); }catch(e){}
+      saved=null;
+      setTimeout(()=>{ try{ toast(L("安全性更新,請重新登入一次。",
+        "Security update — please sign in once more."), true); }catch(e){} }, 500);
     }
     /* 只認得名單裡的帳號 —— storage 被手動塞東西也沒用。 */
     if(saved && LOCAL_ACCOUNTS.some(a=>a.user===saved.user && a.role===saved.role))
