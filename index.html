@@ -2677,7 +2677,13 @@ function quoteDeclaredValue(cfg, value){
   return Math.round(Math.max(floor, units*rate)*100)/100;
 }
 
-function priceShipment(cfg, s){
+/* 「跨期單查不到歷史」那句話。要在算完之後判斷它到底算不算一回事,
+   就得認得出它是哪一句。 */
+const RESI_UNSURE_MSG=()=>L("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯",
+    "Cross-period line: this tracking number is not in the history, so Residential/Commercial may be wrong");
+/* force 是內部再算一次用的:{resi:true|false}。給了它就跳過整段住/商判定,
+   直接照指定的算 —— 拿來回答「換另一種判法,錢會不會不一樣」。 */
+function priceShipment(cfg, s, force){
   const issues=[];
   const scan=scanCharges(s.lines, cfg.dynMap, cfg.accFuelOff);
   /* 住/商判定來源(設定在帳單歷史頁):
@@ -2710,7 +2716,8 @@ function priceShipment(cfg, s){
       resBasis=L("帳單商業代碼","Commercial code on the invoice"); return true; }
     return false;
   };
-  if(apiVerdict){ residential=(apiVerdict==="R");
+  if(force){ residential=!!force.resi; resBasis=""; }
+  else if(apiVerdict){ residential=(apiVerdict==="R");
     resBasis=L("API 地址驗證(送達地址)","API address validation (ship-to)"); }
   else if(scan.residentialAdj){ residential=true; resBasis=LANG?"residential adjustment":"住宅重分類"; }
   else if(scan.commercialAdj){ residential=false; resBasis=LANG?"commercial adjustment":"商業重分類"; }
@@ -2733,8 +2740,7 @@ function priceShipment(cfg, s){
     else if(!byCode()){
       residential=svcSaysRes; resiSure=false;
       resBasis=L("服務名稱(跨期,無歷史)","Service name (cross-period, no history)");
-      issues.push(L("跨期單:歷史裡查不到這個追蹤號,住宅/商業可能判錯",
-          "Cross-period line: this tracking number is not in the history, so Residential/Commercial may be wrong"));
+      issues.push(RESI_UNSURE_MSG());
     }
   }
   else if(!byCode()){
@@ -3211,7 +3217,27 @@ function priceShipment(cfg, s){
     for(const m of npb.issues) issues.push(L("第二段運送:","Second movement: ")+m);
   }
 
-  return {s, bw, bwA, residential, resBasis, resiSure, svcSure, channel, base, baseA, netCA, baseWhy,
+  /* 判不出住宅還是商業,不等於這一筆會因此算錯。像只有地址更正、退件回程
+     或尺寸更正差額的那些單子,身上沒有住宅附加費、沒有 DAS,兩種判法算出來
+     是同一個金額 —— 把它們列進異常清單,只是在製造一堆對不出東西的雜訊,
+     而真正該看的那幾筆就埋在裡面了。
+     用另一種判法整筆再算一次:金額一樣就不是問題,金額不一樣才是。退件回程
+     與第二段不跟著翻(它們各自有自己的判定),所以比的正是這一段的差別。 */
+  let resiMoot=false;
+  if(resiSure===false && !force){
+    try{
+      const alt=priceShipment(cfg, s, {resi:!residential});
+      resiMoot = (alt.total===null)===(total===null)
+        && (total===null || Math.abs(toNum(alt.total)-toNum(total))<0.005);
+    }catch(e){ resiMoot=false; }
+  }
+  if(resiMoot){
+    /* 畫面上的明細也不要再說「可能判錯」—— 報表說沒事、明細說可能有事,
+       兩邊講的是同一筆。 */
+    const m=RESI_UNSURE_MSG(), i=issues.indexOf(m);
+    if(i>=0) issues.splice(i,1);
+  }
+  return {s, bw, bwA, residential, resBasis, resiSure, resiMoot, svcSure, channel, base, baseA, netCA, baseWhy,
           baseMissing, missFees:[...missFees], demand,
           acc, accInfo, accTotal, fuel, fuelPct:fp.pct, total, issues, npb, rtn,
           notRepriced:scan.notRepriced,
@@ -7391,7 +7417,7 @@ function dashAgg(){
       chanAgg[ch]=(chanAgg[ch]||0)+tot;
       if(r.svcSure===false){ svcUnsureN++; svcUnsureAmt+=tot; }
       if(r.baseMissing||(r.missFees&&r.missFees.length)){ missN++; missAmt+=tot; }
-      if(r.resiSure===false){ unsureN++; unsureAmt+=tot;
+      if(r.resiSure===false && !r.resiMoot){ unsureN++; unsureAmt+=tot;
         const k=r.resBasis||"";
         (unsureBy[k]=unsureBy[k]||{n:0,amt:0}); unsureBy[k].n++; unsureBy[k].amt+=tot; }
       for(const seg of [r, r.rtn, r.npb]){
@@ -9572,7 +9598,7 @@ function invoiceIssues(){
          沒事;那一筆恰恰是最沒把握的一種。這種情況退回 UPS 實收。 */
       const priced=(r.total!==null && !r.baseMissing);
       const atRisk=priced?toNum(r.total):toNum(s.upsTotal);
-      if(r.resiSure===false)
+      if(r.resiSure===false && !r.resiMoot)
         out.push(Object.assign(at(fl),{kind:"resi",
           item:r.residential?L("判成住宅","Priced as residential")
                             :L("判成商業","Priced as commercial"),
