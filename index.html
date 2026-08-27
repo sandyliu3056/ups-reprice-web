@@ -479,14 +479,8 @@ td.cells{white-space:normal}
    「改這一頁」的按鈕不是同一件事 */
 .tplgrp{display:inline-flex;gap:8px;align-items:center;
   border:1.6px dashed var(--line);border-radius:var(--rad);padding:4px 8px}
-.flatitem{font-size:12px;padding:8px 10px;border:1.5px solid var(--line);
-  border-radius:7px;background:var(--panel)}
-.flatitem .ftop{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.flatitem{display:flex;align-items:center;gap:6px;font-size:12px}
 .flatitem .fl{flex:1;color:var(--text);line-height:1.25}
-.flatitem .fvals{display:flex;gap:12px;flex-wrap:wrap}
-.flatitem .fv{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
-.flatitem .fv i{font-style:normal;font-weight:600;color:var(--accent)}
-.flatitem .fv input.cell{width:66px}
 /* 燃油小視窗:關掉的那一項用刪除線標出來 —— 一整片都是勾的時候,
    沒勾的那一格光靠空白框太容易看漏。 */
 .aff.off{color:#b4441f;text-decoration:line-through}
@@ -7461,25 +7455,25 @@ function renderConfigTabs(){
         ? "This channel has no zones set — add them on the Channels tab."
         : "這個渠道還沒設定 Zone,請在渠道分頁補上。"}</div>`;
 
+  /* 固定金額不分商業／住宅 —— 一項費用一格。UPS 對這些收的是同一個價,
+     分成兩格只是要人把同一個數字打兩次。分區的那幾項(AHS、大包裹)才真的
+     兩邊不同價,那些留在上面的卡片裡並排。 */
   $("#accFlat").innerHTML=flatFees.map(fee=>{
-    const cs=cellsFor(fee);
+    const keys=cellsFor(fee).map(([c])=>fee+"|||"+c).filter(k=>k in t);
+    /* 顯示的是計價真的會用到的那一格:有不帶後綴的先用它,再來是商業。 */
+    const show=[fee+"|||"+fam,fee+"|||"+COM,fee+"|||"+RES].find(k=>k in t);
     return `<div class="flatitem">
-      <div class="ftop"><input type="checkbox" class="accc" value="${
-        esc(cs.map(([c])=>fee+"|||"+c).join("\u241F"))}"${ro}>
-        <span class="fl">${esc(fee)}</span></div>
-      <div class="fvals">${cs.map(([c,n])=>{
-        const k=fee+"|||"+c;
-        return `<label class="fv"><i>${esc(n)}</i><span>$</span>${
-          numIn("acc\u241F"+k, k in t ? t[k] : "")}</label>`;
-      }).join("")}</div>
-    </div>`;
+      <input type="checkbox" class="accc" value="${
+        esc((keys.length?keys:[fee+"|||"+COM]).join("\u241F"))}"${ro}>
+      <span class="fl">${esc(fee)}</span><span>$</span>${
+        numIn("accflat\u241F"+fee+"\u241F"+fam, show?t[show]:"")}</div>`;
   }).join("")||`<div class="empty">—</div>`;
 
   if($("#accCount")) $("#accCount").textContent = LANG
-    ? `${zoneFees.length} zone-banded x ${myZones.length} zones, ${flatFees.length} flat `
-      +`— commercial and residential side by side`
-    : `依 Zone ${zoneFees.length} 項 x ${myZones.length} 個 Zone,固定 ${flatFees.length} 項`
-      +` —— 商業與住宅並排`;
+    ? `${zoneFees.length} zone-banded x ${myZones.length} zones `
+      +`(commercial / residential side by side), ${flatFees.length} flat (one rate)`
+    : `依 Zone ${zoneFees.length} 項 x ${myZones.length} 個 Zone(商業／住宅並排),`
+      +`固定 ${flatFees.length} 項(單一費率)`;
 
   /* 申報價值級距 */
   const a=CFG.raw.accessorial_charges||{};
@@ -10376,6 +10370,18 @@ function editCell(key,val){
     }else{
       if(blank) delete tb[k]; else tb[k]=toNum(val);
     }
+  }else if(p[0]==="accflat"){
+    /* 固定金額不分商業／住宅:一格填的數字,同一族兩條線一起套。
+       計價查的是帶後綴的鍵(Ground Commercial / Ground Residential),
+       所以兩條都要寫 —— 只寫一條的話,另一半永遠查不到費率。
+       舊設定檔如果已經有不帶後綴那一格,它在計價時是優先的,一起更新,
+       不然畫面上改了數字、實際收的還是舊的。 */
+    const tb=CFG.raw.accessorial_rate_table||(CFG.raw.accessorial_rate_table={});
+    const fee=p[1], fam=p[2], blank=String(val).trim()==="";
+    const keys=[channelSurchargeLabel(fam,false),channelSurchargeLabel(fam,true)]
+      .map(c=>fee+"|||"+c);
+    if((fee+"|||"+fam) in tb) keys.push(fee+"|||"+fam);
+    for(const k of keys){ if(blank) delete tb[k]; else tb[k]=toNum(val); }
   }
   CFG=readConfig(CFG.raw);
   DIRTY=true;
