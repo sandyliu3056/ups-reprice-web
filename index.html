@@ -8883,10 +8883,18 @@ function renderDashboard(){
             "No invoice matches the account and period filter above.");
       btns=`<button class="act" id="bClrFilt">${L("清除篩選","Clear the filter")}</button> `+goFiles("ghost");
     } else {
-      /* 「選擇帳單期別」那顆按鈕做的事,就是打開正上方那個選單 —— 選單就在
-         那裡,還比按鈕大。留一句話指路就夠了,按鈕只是多一次點擊。 */
+      /* 這一格說「上面挑一期」,底下卻只擺著一顆「前往匯入檔案」—— 就算它是
+         空心的,那也是這一格唯一的按鈕,手會自己按下去,然後就離開這一頁,
+         而該做的事其實在上面那個選單裡。
+         所以主要按鈕直接做那件事:跑最新的那一期,一下就到。匯入檔案從這一格
+         拿掉 —— 分頁列上本來就有「匯入檔案」,不會走投無路,而擺在這裡只會
+         繼續把人帶走。被篩選擋住的時候,順手給一顆清除篩選。 */
+      const top=shown[0];
       msg=L("上面挑一期帳單,就直接跑那一期的數據。","Pick an invoice above to run its figures.");
-      btns=goFiles("ghost");
+      /* 不在這裡再放一顆清除篩選 —— 上面那條篩選列只要有條件就會自己長一顆,
+         同一個畫面兩顆一樣的按鈕是雜訊。底下那句話已經指著「上面的篩選」。 */
+      btns=`<button class="act" id="bRunTop">${
+          L("執行 "+top.key, "Run "+top.key)}</button>`;
     }
     body.innerHTML=`<div class="dhead">
       <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
@@ -8900,6 +8908,8 @@ function renderDashboard(){
     wireDashBar();
     const cf=$("#bClrFilt");
     if(cf) cf.onclick=()=>{ DASH_F.acct=""; DASH_F.range=""; renderDashboard(); };
+    const rt=$("#bRunTop");
+    if(rt&&shown.length) rt.onclick=()=>dashPickInvoice(shown[0].key);
     return;
   }
   /* 圓餅分的是「類別」,不是「多少」。以前用的是同一個色相由深到淺的
