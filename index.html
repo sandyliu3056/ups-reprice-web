@@ -1085,10 +1085,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
   <div class="lf sketch">
     <h3 class="display"><span class="em">📏</span><span data-i18n="hd.rulesforce">Rules in Force</span></h3>
-    <div class="subtabs" id="sizeSide" style="margin-top:0">
-      <button data-r="C" aria-selected="true"  data-i18n="ct.com">Commercial</button>
-      <button data-r="R" aria-selected="false" data-i18n="ct.res">Residential</button>
-    </div>
     <div class="row" style="margin:10px 0 8px">
       <label class="inlab" style="margin-left:0" data-i18n="th.chan">Channel</label>
       <select id="sizeFilter"></select>
@@ -5976,16 +5972,6 @@ $("#bChanDimClear") && ($("#bChanDimClear").onclick=()=>
 /* 渠道分頁的商業／住宅。整頁都跟著它:費率表選單、下面那張清單、
    新增渠道存進去的那一條,全部只講一種。 */
 let CHAN_SIDE="C";
-/* 尺寸規則那一頁自己的商業／住宅。和渠道分頁分開記:兩頁各看各的,
-   切了一邊不會把另一邊也翻掉。 */
-let SIZE_SIDE="C";
-$("#sizeSide") && ($("#sizeSide").onclick=e=>{
-  const b=e.target.closest("button[data-r]"); if(!b) return;
-  SIZE_SIDE=b.dataset.r;
-  [...$("#sizeSide").children].forEach(x=>x.setAttribute("aria-selected",x===b));
-  const sf=$("#sizeFilter"); if(sf) sf.value="__all";
-  renderConfigTabs();
-});
 $("#chanSide") && ($("#chanSide").onclick=e=>{
   const b=e.target.closest("button[data-r]"); if(!b) return;
   CHAN_SIDE=b.dataset.r;
@@ -7908,29 +7894,36 @@ function renderConfigTabs(){
     "ahs_weight_threshold","ahs_longest_side","ahs_second_side",
     "ahs_cubic_inches","ahs_lg_limit","ahs_min_billable_weight"];
   const ovr2=CFG.raw.channel_rule_overrides||{};
-  /* 商住是分頁,不是渠道名的一部分。名稱寫死商住的只出現在它自己那一側;
-     沒寫的(2nd Day Air)兩側共用同一組門檻,兩邊都列。 */
-  const sideR=(SIZE_SIDE==="R");
-  const zn2=Object.keys(CFG.raw.builtin_service_zones||{})
-    .filter(c=>{ const t=/residential$/i.test(c)?"R":(/commercial$/i.test(c)?"C":"");
-                 return !t || t===(sideR?"R":"C"); })
-    .sort(chanSort);
+  /* 尺寸門檻不分商業／住宅 —— 大包裹、額外處理的門檻是箱子的物理條件,
+     和收件地址是住宅還是公司無關。所以一條服務一列,不是一個渠道名一列:
+     Ground Commercial 和 Ground Residential 併成「Ground」,填一次兩邊
+     一起寫進去,不必同一個數字打兩遍。 */
+  const famKeys=new Map();
+  for(const c of Object.keys(CFG.raw.builtin_service_zones||{})){
+    const f=svcOfChan(c);
+    if(!famKeys.has(f)) famKeys.set(f,[]);
+    famKeys.get(f).push(c);
+  }
+  const zn2=[...famKeys.keys()].sort(chanSort);
   const sf=$("#sizeFilter");
   if(sf){
     const cur=sf.value||"__all";
     sf.innerHTML=`<option value="__all">${LANG?"All channels":"所有渠道"}</option>`
-      +zn2.map(s=>`<option value="${esc(s)}"${s===cur?" selected":""}>${
-        esc(svcOfChan(s))}</option>`).join("");
+      +zn2.map(s=>`<option value="${esc(s)}"${s===cur?" selected":""}>${esc(s)}</option>`).join("");
   }
   const sfv=(sf&&sf.value)||"__all";
   const defRow=`<tr><td><b>${LANG?"Default":"預設"}</b></td>`
     +THR_COLS.map(k=>`<td class="num">${numIn("rule\u241F"+k,g[k])}</td>`).join("")+`</tr>`;
-  const chanRows=zn2.filter(s=>sfv==="__all"||s===sfv).map(svc=>{
-    const o=ovr2[svc]||{};
-    return `<tr><td>${esc(svcOfChan(svc))}</td>`+THR_COLS.map(k=>{
-      const own=o[k]!==undefined && String(o[k])!==String(g[k]);
-      return `<td class="num">${numIn("chan\u241F"+svc+"\u241F"+k, o[k]??g[k])}${
-        own?'<span title="channel value" style="color:var(--run2)">*</span>':""}</td>`;
+  const chanRows=zn2.filter(s=>sfv==="__all"||s===sfv).map(fam=>{
+    const keys=famKeys.get(fam)||[fam];
+    return `<tr><td>${esc(fam)}</td>`+THR_COLS.map(k=>{
+      /* 這一族哪一條有自己設定過就顯示它。族裡兩邊值不同(舊設定檔可能
+         有)時,顯示第一個有值的,而下一次編輯會把兩邊寫成同一個。 */
+      const has=keys.find(c=>(ovr2[c]||{})[k]!==undefined
+                             && String((ovr2[c]||{})[k])!==String(g[k]));
+      const cur=has!==undefined?(ovr2[has]||{})[k]:g[k];
+      return `<td class="num">${numIn("chanfam\u241F"+fam+"\u241F"+k, cur)}${
+        has!==undefined?'<span title="channel value" style="color:var(--run2)">*</span>':""}</td>`;
     }).join("")+`</tr>`;
   }).join("");
   $("#tSize").tBodies[0].innerHTML=(sfv==="__all"?defRow:"")+chanRows;
@@ -10840,6 +10833,15 @@ function editCell(key,val){
     }else{
       if(blank) delete tb[k]; else tb[k]=toNum(val);
     }
+  }else if(p[0]==="chanfam"){
+    /* 尺寸門檻一條服務一列。填一次,這一族底下每一條渠道都寫同一個值 ——
+       Ground Commercial 和 Ground Residential 的箱子門檻不會不一樣。 */
+    const c=CFG.raw.channel_rule_overrides||(CFG.raw.channel_rule_overrides={});
+    const fam=p[1], key=p[2], v=String(val).trim();
+    for(const ch of Object.keys(CFG.raw.builtin_service_zones||{})){
+      if(svcOfChan(ch)!==fam) continue;
+      (c[ch]||(c[ch]={}))[key]=v;
+    }
   }else if(p[0]==="accflat"){
     /* 固定金額不分商業／住宅:一格填的數字,同一族兩條線一起套。
        計價查的是帶後綴的鍵(Ground Commercial / Ground Residential),
@@ -10856,7 +10858,7 @@ function editCell(key,val){
   CFG=readConfig(CFG.raw);
   DIRTY=true;
   /* 渠道門檻改了要重畫,星號(這個渠道自己設定的值)才會出現 */
-  if(p[0]==="chan"||p[0]==="rule"||p[0]==="chg") renderConfigTabs();
+  if(p[0]==="chan"||p[0]==="chanfam"||p[0]==="rule"||p[0]==="chg") renderConfigTabs();
   saveNoteKey(true,"changed");
   setStatus(LANG?"Setting changed":"設定已修改");
   if(RATED && ROWS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
