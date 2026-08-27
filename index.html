@@ -224,6 +224,36 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   width:7px;height:7px;margin-top:-5px;pointer-events:none;
   border-right:2px solid var(--accent);border-bottom:2px solid var(--accent);
   transform:rotate(45deg)}
+/* 頁面內的下拉選單。以前只有儀表板那兩個和批量設定那排是主題化的,其餘
+   十幾個都停在瀏覽器原生樣式 —— 灰白底、系統箭頭,在一頁圓角米色裡特別
+   突兀。這一條把它們全部收進同一個樣子,和 .selw 裡的那個一模一樣。
+   排除四種:標題列那五個是金框配深棕的另一套;已經包在 .selw 裡的不必
+   再來一次;.fold 外面掛著自己的箭頭鈕;.chansel 是表格裡的迷你版。
+   箭頭用兩道漸層拼出來,不是背景圖 —— 圖檔裡的顏色寫死了跟不了主題,
+   漸層吃得到 var(--accent)。 */
+select:not(.titlebar select):not(.selw > select):not(.fold):not(.nice):not(.chansel){
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  font:inherit;font-size:13px;font-weight:600;color:var(--text);
+  background-color:var(--panel);
+  background-image:linear-gradient(45deg,transparent 50%,var(--accent) 50%),
+                   linear-gradient(135deg,var(--accent) 50%,transparent 50%);
+  background-position:right 16px center,right 11px center;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;
+  border:2px solid var(--line);border-radius:11px;
+  padding:6px 30px 6px 12px;cursor:pointer;max-width:100%;
+  transition:background-color .14s,border-color .14s,box-shadow .14s}
+select:not(.titlebar select):not(.selw > select):not(.fold):not(.nice):not(.chansel):hover{
+  background-color:var(--select);border-color:var(--accent)}
+select:not(.titlebar select):not(.selw > select):not(.fold):not(.nice):not(.chansel):focus{
+  outline:none;border-color:var(--run2);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--run2) 25%,transparent)}
+select:not(.titlebar select):not(.selw > select):not(.fold):not(.nice):not(.chansel):focus-visible{
+  outline:3px solid var(--run2);outline-offset:2px}
+select:not(.titlebar select):not(.selw > select):not(.fold):not(.nice):not(.chansel):disabled{
+  opacity:.55;cursor:default;background-color:var(--panel)}
+/* 展開後那片清單是瀏覽器自己畫的,CSS 只碰得到 option 的顏色。
+   至少讓它是白底黑字,不要跟著上面的深色底變成一片看不清楚的東西。 */
+select:not(.titlebar select) option{color:#000;background:#fff;font-weight:400}
 .bkgrid{display:grid;grid-template-columns:1fr 136px 104px;gap:6px 8px;
   align-items:center;font-size:12.5px}
 /* 跟隨預設的那一列,數字是鎖住的:淡色、不能點,一眼分得出哪幾列是自訂的。 */
@@ -394,9 +424,8 @@ select.chansel:disabled{opacity:.6;background:transparent;border-style:dashed;cu
 select.nice{appearance:none;-webkit-appearance:none;-moz-appearance:none;
   font:inherit;font-size:13px;font-weight:600;color:var(--accent);
   background:var(--panel) url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%278%27%3E%3Cpath%20d%3D%27M1%201l5%205%205-5%27%20fill%3D%27none%27%20stroke%3D%27%238a6104%27%20stroke-width%3D%272%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3C%2Fsvg%3E") no-repeat right 12px center;
-  border:2px solid var(--line);border-radius:8px;
-  padding:7px 34px 7px 12px;cursor:pointer;
-  box-shadow:0 1px 3px rgba(53,28,21,.12)}
+  border:2px solid var(--line);border-radius:11px;
+  padding:7px 34px 7px 12px;cursor:pointer}
 select.nice:hover{background-color:var(--select)}
 select.nice:focus{outline:3px solid var(--run2);outline-offset:2px}
 select.nice option{color:#000;background:#fff;font-weight:400}
@@ -595,10 +624,14 @@ td.cells{white-space:normal}
 /* 各期毛利走勢。刻意不是圓餅:圓餅回答「各期佔總額多少比例」,而看帳單
    的人問的是「這一期比上一期好還是壞」—— 那是時間軸的問題,不是佔比。 */
 #p-dash .trend{margin:0 0 14px}
-#p-dash .th2{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:8px}
+#p-dash .th2{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:14px}
 #p-dash .th2 span{font-weight:400;color:var(--muted);margin-left:8px;font-size:11.5px}
+/* 底線交給最下面那道刻度線畫,不要用 border-bottom —— border 會橫跨整個
+   繪圖區,包含左邊那條刻度尺,於是最下面那個標籤(例如 14.0%)被一條線
+   從中間穿過去。刻度線畫在 .tcols 裡面,只跨資料那一段,和上面每一道齊,
+   也不會壓到字。最下面那一格一定有刻度(lo 本身就是刻度),所以線不會少。 */
 #p-dash .tplotarea{display:flex;align-items:stretch;gap:5px;height:152px;
-  padding:0 2px;border-bottom:1px solid var(--line);position:relative}
+  padding:0 2px;position:relative}
 /* 平均線的標籤貼在右端,而右端正好是最後幾根長條 —— 它就這樣蓋在資料上。
    右邊留一條固定寬度的空白給它,長條只畫在 .tcols 裡面;折線的座標也是
    照 .tcols 算的,所以線和點仍然對得上。 */
@@ -610,13 +643,14 @@ td.cells{white-space:normal}
 #p-dash .tyax{flex:0 0 54px;position:relative}
 #p-dash .tyt{position:absolute;right:9px;transform:translateY(-50%);
   font-size:10px;font-family:Consolas,monospace;color:var(--muted);white-space:nowrap}
-/* 最上和最下那兩個刻度剛好落在繪圖區的邊上,置中對齊會有一半在框外被切掉。
-   那兩個往內靠。 */
-#p-dash .tyt.atTop{transform:none}
-#p-dash .tyt.atBot{transform:translateY(-100%)}
+/* 每一個刻度都置中對齊,包含最上和最下那兩個 —— 一排看下來間距才會一致。
+   原本那兩個被往內推(頭的不位移、尾的位移一整行),推完就和隔壁那道擠在
+   一起:量出來中間每對相距 5.5px,頭尾兩對只剩 0.6px。
+   推它們是為了不要凸出繪圖區,但正確的解法是給旁邊留位子,不是把字擠進來
+   —— 所以改成標題和日期列各多讓 6~8px,凸出去的半行剛好落在那段留白裡。 */
 #p-dash .tgrid{position:absolute;left:0;right:0;height:1px;background:var(--line);
   opacity:.45;pointer-events:none}
-#p-dash .tlabels{display:flex;gap:5px;padding:4px 2px 0}
+#p-dash .tlabels{display:flex;gap:5px;padding:12px 2px 0}
 /* 只有三四期的時候別讓柱子撐成一整面牆 —— 那讀起來是色塊,不是趨勢。 */
 #p-dash .tcol{flex:1 1 0;min-width:0;max-width:96px;
   display:flex;flex-direction:column;justify-content:flex-end}
@@ -5292,7 +5326,7 @@ $("#fHist").onchange=e=>{
     renderHist();
     setStatus((LANG?"History ready · ":"歷史已建立 · ")+valid.length
       +(LANG?" file(s)":" 個檔案")
-      +(filed.count?"  ·  "+(LANG?"filed ":"已歸檔 ")+filed.added.length
+      +(filed.count?"  ·  "+(LANG?"imported ":"已匯入 ")+filed.added.length
         +(filed.replaced.length?(LANG?", replaced ":",取代 ")+filed.replaced.length:""):""));
     if(RATED){ $("#bRun").click(); }
   }).catch(err=>{
@@ -6535,8 +6569,8 @@ function stPreviewHTML(key, rows){
       <div><div class="pvh">${L("費用分類","Charge classes")}</div>${clsRows}</div>
     </div>
     <div class="pvnote">${L(
-      "以上為已歸檔帳單行之加總,未經重算。如需以目前費率重算本期,請使用儀表板上方之期別選單。",
-      "Sums of the filed invoice lines. Nothing has been repriced. To reprice this period with the current rates, use the period picker at the top of the dashboard.")}</div>
+      "以上為已匯入帳單行之加總,未經重算。如需以目前費率重算本期,請使用儀表板上方之期別選單。",
+      "Sums of the imported invoice lines. Nothing has been repriced. To reprice this period with the current rates, use the period picker at the top of the dashboard.")}</div>
   </div>`;
 }
 /* 帳單自己的分類代碼。攤開來看的人不必記得 FSC 是什麼。 */
@@ -8004,7 +8038,7 @@ function dashTrendHTML(ok, multi, allAccts){
   })();
   const grid=ticks.map(t=>`<div class="tgrid" style="top:${t.y.toFixed(2)}%"></div>`).join("");
   const yaxis=`<div class="tyax">`+ticks.map(t=>
-    `<div class="tyt${t.y<=1?" atTop":(t.y>=99?" atBot":"")}" style="top:${t.y.toFixed(2)}%">${
+    `<div class="tyt" style="top:${t.y.toFixed(2)}%">${
       esc(isM?t.v.toFixed(1)+"%":moneyShort(t.v))}</div>`).join("")+`</div>`;
   const tip=d=>`${esc(d.key)} · ${esc(d.date||"")}`
     +(multi?" · "+esc(dashAcctOf(d).id):"")
@@ -8116,7 +8150,7 @@ function prPaint(){
      已經知道的數字,不必為了寫這一行先跑十九期。 */
   const nper=(n,zh,en)=>n+L(" 期  ·  "+zh, (n===1?" period":" periods")+"  ·  "+en);
   if(pw) pw.textContent=!a.per
-    ? L("還沒有歸檔的期別","Nothing filed yet")
+    ? L("還沒有匯入的期別","Nothing imported yet")
     : (a.perReady
         ? nper(dashFilter(DASH_ALL_CACHE.data).length, "依上方篩選", "as filtered")
         : nper(dashPeriods().length, "下載時重算", "reprices on download"));
@@ -8308,7 +8342,7 @@ function dashBarHTML(){
   else if(selP){ big=selP.key; small=selP.date||L("沒有帳單日","no invoice date"); }
   else if(cur.length>1){ big=L("本次匯入","This import");
                          small=cur.length+L(" 期 · ", " periods · ")+cur.join(", "); }
-  else if(cur.length===1){ big=cur[0]; small=L("尚未歸檔","not filed to history"); }
+  else if(cur.length===1){ big=cur[0]; small=L("尚未匯入","not imported yet"); }
   else { big=L("選擇帳單期別","Choose an invoice");
          small=list.length?list.length+L(" 期可選"," available")
                           :L("帳單歷史尚無資料","nothing filed yet"); }
@@ -8316,7 +8350,7 @@ function dashBarHTML(){
     ? [[L("帳單日","Invoice date"), selP.date||"—"],
        [L("明細","Detail"), rowsL(selP.rows)],
        [L("貨件","Shipments"), trkL(selP.trk)],
-       [L("歸檔","Filed"), (selP.at||"—").replace("T"," ")]]
+       [L("匯入時間","Imported"), (selP.at||"—").replace("T"," ")]]
     : [];
   /* 沒選任何一期的時候右邊是一片空的,順便把這條選單在做什麼講一句。
      總攬模式不必講 —— 那時候已經選好了,而且卡片標題自己會說。 */
@@ -8758,7 +8792,10 @@ function renderDashboard(){
       <div class="dsub">${d.n} ${L("筆貨件","shipments")}</div></div>
       <button class="act ghost" id="bDashRe">${L("重新整理","Refresh")}</button></div>
     ${dashBarHTML()}
-    ${API_NOTE?`<div class="dnote">${esc(API_NOTE)}</div>`:""}
+    <!-- 住宅／商業判定的提示不放這裡。儀表板是看錢的地方,那是設定沒填完的
+         警告,兩件事;而且這裡印出來是光禿禿一條,沒有前面「住宅／商業判定:」
+         那個標籤,看的人不知道在講哪一件。它留在報表區 —— 那裡有標籤、有
+         上下文,而且是它剛發生的當下。 -->
     <!-- 帳戶層費用不算進毛利,所以它前面不掛減號 —— 掛了就是在說它有被扣掉。
          中間那條線把它和前面那條算式分開。 -->
     <div class="dflow">
@@ -10875,9 +10912,9 @@ function applyTheme(name){
    這裡同一套做法:標了 data-i18n 的節點依語言換字。
    ===================================================================== */
 const I18N={
-  "hd.chandata":["➕ 新增渠道","Add a new channel"],
-  "hd.ratestate":["② 費率表狀態","Rate table state"],
-  "hd.allchan":["📋 已建立的渠道","Channels already set up"],
+  "hd.chandata":["新增渠道","Add a new channel"],
+  "hd.ratestate":["費率表狀態","Rate table state"],
+  "hd.allchan":["已建立的渠道","Channels already set up"],
   "lb.channame":["渠道名稱","Channel name"],
   "lb.reschan":["住宅渠道","Residential channel"],
   "lb.chanon":["啟用此渠道","Enable this channel"],
@@ -10922,7 +10959,7 @@ const I18N={
   "btn.dimapply":["套用到勾選的渠道","Apply to Ticked Channels"],
   "btn.dimreset":["改回預設","Reset to default"],
   "hd.stored":["已匯入的帳單","Stored invoices"],
-  "th.filedat":["歸檔時間","Filed"],
+  "th.filedat":["匯入時間","Imported"],
   "th.rows":["帳單筆數","Rows"],
   "th.trkcount":["追蹤號","Trackings"],
   "btn.chandim":["設定渠道除數","Set Channel DIM"],
