@@ -240,7 +240,16 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   transition:border-color .14s,background .14s}
 .proption:hover{border-color:var(--accent);background:var(--select)}
 .proption.on{border-color:var(--accent)}
-.proption input{margin-top:3px}
+/* 圓鈕自己畫,和站上的方框勾選同一組顏色 */
+.proption input[type="radio"]{appearance:none;-webkit-appearance:none;flex:none;
+  margin:3px 0 0;width:15px;height:15px;border:2px solid var(--line);border-radius:50%;
+  background:var(--panel);cursor:pointer;position:relative;
+  transition:background .12s,border-color .12s}
+.proption input[type="radio"]:hover{border-color:var(--accent)}
+.proption input[type="radio"]:checked{border-color:var(--accent)}
+.proption input[type="radio"]:checked::after{content:"";position:absolute;
+  left:2.5px;top:2.5px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.proption input[type="radio"]:focus-visible{outline:3px solid var(--run2);outline-offset:2px}
 .proption b{display:block;font-size:13.5px;color:var(--ink)}
 .proption i{display:block;font-style:normal;font-size:12px;color:var(--muted);
   line-height:1.6;margin-top:3px}
@@ -431,26 +440,22 @@ td.cells{white-space:normal}
 .bulkchk{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:2px 0}
 /* 原生的勾選框是作業系統畫的:藍色方塊、大小不隨主題走,擺在這些面板裡
    是唯一一個不屬於這頁的東西。自己畫一個,勾起來用主題色。 */
-.chkgrid input[type="checkbox"],.bulkchk input[type="checkbox"],.proption input[type="checkbox"]{
+.chkgrid input[type="checkbox"],.bulkchk input[type="checkbox"]{
   appearance:none;-webkit-appearance:none;flex:none;margin:0;
   width:15px;height:15px;border:2px solid var(--line);border-radius:5px;
   background:var(--panel);cursor:pointer;position:relative;
   transition:background .12s,border-color .12s}
-.chkgrid input[type="checkbox"]:hover,.bulkchk input[type="checkbox"]:hover,
-.proption input[type="checkbox"]:hover{
+.chkgrid input[type="checkbox"]:hover,.bulkchk input[type="checkbox"]:hover{
   border-color:var(--accent)}
-.chkgrid input[type="checkbox"]:checked,.bulkchk input[type="checkbox"]:checked,
-.proption input[type="checkbox"]:checked{
+.chkgrid input[type="checkbox"]:checked,.bulkchk input[type="checkbox"]:checked{
   background:var(--accent);border-color:var(--accent)}
 .chkgrid input[type="checkbox"]:checked::after,
-.bulkchk input[type="checkbox"]:checked::after,
-.proption input[type="checkbox"]:checked::after{
+.bulkchk input[type="checkbox"]:checked::after{
   content:"";position:absolute;left:3px;top:0;width:4px;height:8px;
   border-right:2px solid var(--tab);border-bottom:2px solid var(--tab);
   transform:rotate(42deg)}
 .chkgrid input[type="checkbox"]:focus-visible,
-.bulkchk input[type="checkbox"]:focus-visible,
-.proption input[type="checkbox"]:focus-visible{
+.bulkchk input[type="checkbox"]:focus-visible{
   outline:3px solid var(--run2);outline-offset:2px}
 .bulkval{display:grid;grid-template-columns:minmax(0,1fr) 86px;
   align-items:center;gap:8px;font-size:12px;padding:3px 0}
@@ -645,7 +650,6 @@ td.cells{white-space:normal}
 /* UPS 帳號那一欄:同一天兩張帳單分屬兩個帳號時才畫 */
 #p-dash .atbl td.aa{font-family:Consolas,monospace;font-size:11.5px;color:var(--muted);
   white-space:nowrap}
-#p-dash .atbl th.abarh{font-weight:600}
 .dcard.warn{border-color:var(--neg)}
 .dcard.warn h3{color:var(--neg)}
 .urow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:baseline;
@@ -1330,24 +1334,12 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .atbl tfoot td{border-top:2px solid var(--line);border-bottom:none;
   font-family:var(--titlefam);font-weight:700;padding-top:9px;color:var(--accent)}
 #p-dash .atbl tfoot td.ak{font-size:12px}
-#p-dash .abar{width:104px;padding-left:0!important}
-#p-dash .abartrack{height:10px;border-radius:999px;position:relative;
-  background:color-mix(in srgb,var(--line) 40%,var(--panel))}
-#p-dash .abarfill{position:absolute;top:0;bottom:0;left:0;width:0;border-radius:999px;
-  background:var(--run2);transition:width .7s cubic-bezier(.34,1.25,.5,1)}
-#p-dash .abarfill.neg{background:var(--neg)}
-/* 有虧損的期別才切開:中線是零,往右是賺、往左是虧。跨不跨過中線是形狀,
-   掃一眼就看得到,不必一格一格看顏色。線畫得比軌道深,不然看不出它在那裡。 */
-#p-dash .abartrack.split::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;
-  width:2px;margin-left:-1px;background:var(--ink);opacity:.4}
-#p-dash .abartrack.split .abarfill.pos{left:50%}
-#p-dash .abartrack.split .abarfill.neg{left:auto;right:50%}
 #p-dash .aprog{padding:26px 14px;text-align:center;color:var(--muted);font-size:13px;line-height:1.8}
 #p-dash .aprog b{color:var(--accent);font-family:var(--titlefam)}
 #p-dash .aprogtrack{max-width:320px;margin:11px auto 0;height:7px;border-radius:999px;overflow:hidden;
   background:color-mix(in srgb,var(--line) 40%,var(--panel))}
 #p-dash .aprogfill{height:100%;background:var(--run2);border-radius:999px;transition:width .25s linear}
-@media (prefers-reduced-motion:reduce){#p-dash .abarfill,#p-dash .aprogfill{transition:none}}
+@media (prefers-reduced-motion:reduce){#p-dash .aprogfill{transition:none}}
 #p-dash .dchips{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto}
 #p-dash .dchip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;
   color:var(--muted);border-radius:999px;padding:3px 11px;
@@ -1640,14 +1632,14 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <button class="mx" id="prX">✕</button>
     </div>
     <div class="modalbody">
-      <p class="hint" style="margin:0 0 12px" data-i18n="hint.profitrep">Two ways of looking at the same money: one invoice in depth, or every period side by side. Tick either, or both into one workbook.</p>
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.profitrep">Two ways of looking at the same money: one invoice in depth, or every period side by side. Pick one.</p>
       <label class="proption" id="prLabInv">
-        <input type="checkbox" id="prInv">
+        <input type="radio" name="prPick" id="prInv">
         <span><b data-i18n="lb.prinv">This invoice</b>
           <i data-i18n="lb.prinvsub">Summary plus the cost breakdown — what was charged, what UPS billed, and the difference on every kind of charge.</i>
           <u id="prInvWhat"></u></span></label>
       <label class="proption" id="prLabPer">
-        <input type="checkbox" id="prPer">
+        <input type="radio" name="prPick" id="prPer">
         <span><b data-i18n="lb.prper">All periods</b>
           <i data-i18n="lb.prpersub">One row per invoice period — shipments, charged, billed, profit and margin, with a total.</i>
           <u id="prPerWhat"></u></span></label>
@@ -7808,12 +7800,8 @@ function dashAllHTML(all){
      這是毛利率的通用算法,也讓兩期之間比得起來 —— 用 UPS 當分母的話,
      同樣賺一塊錢,成本低的那一期看起來比較賺。 */
   const gapOf=d=>d.repriced-d.billed;
-  const maxGap=Math.max(1,...ok.map(d=>Math.abs(gapOf(d))));
-  /* 有虧損的期別時才把軌道從中間切開,長條往兩邊長。全部都是賺的時候還留著
-     中線,等於每一列有一半的軌道永遠空著 —— 看起來就像每一根都只長到一半,
-     而它其實已經接近最長。 */
-  const anyLoss=ok.some(d=>gapOf(d)<0);
-  const span=anyLoss?50:100;
+  /* 那一欄拿掉了。毛利和毛利率就在旁邊,那條長條只是把同一個數字再畫一次,
+     而且是「相對於本表最長的一期」—— 一個沒有人會拿來對帳的比例。 */
   const cell=(v,cls)=>`<td class="num ${cls||""}">${money(v)}</td>`;
   const pctCell=(profit,rev)=>{
     if(!rev) return `<td class="num">—</td>`;   /* 沒有收入就沒有毛利率可言 */
@@ -7833,10 +7821,9 @@ function dashAllHTML(all){
     const acell=multi?`<td class="aa">${esc(dashAcctOf(d).id||"—")}</td>`:"";
     if(d.missing) return `<tr class="amiss"><td class="ak">${esc(d.key)}</td>`
       +`<td class="ad">${esc(d.date||"—")}</td>`+acell
-      +`<td colspan="7">${L("只有索引,沒有明細,請重新匯入本期",
+      +`<td colspan="6">${L("只有索引,沒有明細,請重新匯入本期",
                             "index only, no detail — import this period again")}</td></tr>`;
     const g=gapOf(d);
-    const w=Math.min(span, Math.abs(g)/maxGap*span);
     return `<tr><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`+acell
       +`<td class="num">${d.n.toLocaleString()}</td>`
       +cell(d.repriced)+cell(d.billed)
@@ -7844,9 +7831,7 @@ function dashAllHTML(all){
       /* 帳戶層費用不上紅字。它不算進毛利(頁尾就是這樣寫的),用毛利那一組
          顏色去畫它,等於在說它是虧損 —— 而負的帳戶層費用是 UPS 退回來的錢,
          那是進帳,不是虧。既然不屬於這組數字,就別借它們的顏色。 */
-      +cell(d.account)
-      +`<td class="abar"><div class="abartrack${anyLoss?" split":""}">`
-      +`<div class="abarfill ${g<0?"neg":"pos"}" data-w="${w.toFixed(1)}"></div></div></td></tr>`;
+      +cell(d.account)+`</tr>`;
   }).join("");
   const gt=tot.repriced-tot.billed;
   const empty=!ok.length
@@ -7868,21 +7853,13 @@ function dashAllHTML(all){
       <th>${L("向客戶收","Charge customer")}</th><th>UPS</th>
       <th>${L("毛利","Profit")}</th><th>${L("毛利率","Margin")}</th>
       <th>${L("帳戶層費用","Account charges")}</th>
-      <th class="abarh" title="${esc(anyLoss
-        ? L("長條由中線往右是賺、往左是虧;長度是這一期和本表最大一期相比。",
-            "Bars run right of centre for profit and left for a loss; length compares this "
-            +"period with the largest in the table.")
-        : L("長度是這一期的毛利和本表最大一期相比。本表沒有虧損的期別。",
-            "Bar length compares this period's profit with the largest in the table. "
-            +"No period here is a loss."))}">${
-        anyLoss?L("盈虧比較","Profit / loss"):L("毛利比較","Profit, compared")}</th>
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td class="ak" colspan="${multi?3:2}">${L("合計 "+ok.length+" 期",
         "Total · "+ok.length+" period"+(ok.length===1?"":"s"))}</td>
       <td class="num">${tot.n.toLocaleString()}</td>
       ${cell(tot.repriced)}${cell(tot.billed)}
       ${cell(gt, gt<0?"neg":"pos")}${pctCell(gt, tot.repriced)}${cell(tot.account)}
-      <td></td></tr></tfoot></table></div>`}
+      </tr></tfoot></table></div>`}
     <div class="dfoot">${L(
       "毛利 = 向客戶收 − UPS 收;毛利率 = 毛利 ÷ 向客戶收。兩者均不含帳戶層費用 —— 該欄是否計入,由帳務決定。"
         +(multi?"本表含 "+accts.length+" 個 UPS 帳號,同一天可能各有一張帳單。":"")
@@ -8051,7 +8028,7 @@ function dashTrendHTML(ok, multi, allAccts){
             "bar height is profit, which scales with volume. Average "+avgTxt
             +" per period, oldest first")}</span></div>
     <div class="tplotarea${isM?" tmargin":""}" style="--zero:${zero.toFixed(1)}%">${yaxis}<div class="tcols">${grid}${line}${plot}</div><div class="tgut"></div></div>
-    <div class="tlabels"><div class="tyax"></div>${labels}<div class="tgut"></div></div>
+    <div class="tlabels${isM?" tmargin":""}"><div class="tyax"></div>${labels}<div class="tgut"></div></div>
     ${legend}
   </div>`;
 }
@@ -8102,8 +8079,10 @@ function openProfitReport(from){
   PR_FROM=from||"inv";
   const a=prAvail();
   const i=$("#prInv"), pp=$("#prPer");
-  if(i) i.checked=(PR_FROM==="inv")&&a.inv;
-  if(pp) pp.checked=(PR_FROM==="per")&&a.per;
+  /* 單選:從哪顆按鈕進來就選哪一個;那一個不能用就退到另一個。 */
+  const pick=(PR_FROM==="per"&&a.per)?"per":(a.inv?"inv":(a.per?"per":""));
+  if(i) i.checked=(pick==="inv");
+  if(pp) pp.checked=(pick==="per");
   const n=$("#prNote"); if(n) n.textContent="";
   prPaint();
   $("#prBg").classList.add("on");
@@ -8519,14 +8498,10 @@ function renderDashAll(body){
     }</div>`;
     wireDashBar(); return;
   }
-  const paintBars=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
-    body.querySelectorAll(".abarfill").forEach(el=>{
-      if(el.dataset.w!=null) el.style.width=el.dataset.w+"%"; });
-  }));
   const stamp=dashAllStamp();
   if(DASH_ALL_CACHE&&DASH_ALL_CACHE.stamp===stamp){
     body.innerHTML=head+dashBarHTML()+dashAllHTML(DASH_ALL_CACHE.data);
-    wireDashBar(); wireDashFilters(); paintBars(); return;
+    wireDashBar(); wireDashFilters(); return;
   }
   body.innerHTML=head+dashBarHTML()
     +`<div class="dcard"><div class="aprog" id="dashAllProg">`
@@ -10910,7 +10885,7 @@ const I18N={
   "btn.chandim":["設定渠道除數","Set Channel DIM"],
   "btn.defthr":["預設門檻","Default Thresholds"],
   "hd.profitrep":["利潤報表","Profit report"],
-  "hint.profitrep":["同一筆錢的兩種看法:一期看得深,或每一期並排看。勾一個,或兩個一起放進同一個活頁簿。","Two ways of looking at the same money: one invoice in depth, or every period side by side. Tick either, or both into one workbook."],
+  "hint.profitrep":["同一筆錢的兩種看法:一期看得深,或每一期並排看。挑一種。","Two ways of looking at the same money: one invoice in depth, or every period side by side. Pick one."],
   "lb.prinv":["本期","This invoice"],
   "lb.prinvsub":["摘要加費用組成 —— 向客戶收多少、UPS 收多少,以及每一種費用兩邊差多少。","Summary plus the cost breakdown — what was charged, what UPS billed, and the difference on every kind of charge."],
   "lb.prper":["各期","All periods"],
