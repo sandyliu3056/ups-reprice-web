@@ -8677,6 +8677,7 @@ async function xlWrite(sheets, fname){
           "<col min=\""+(i+1)+"\" max=\""+(i+1)+"\" width=\""+(c&&c.w||12)+"\" customWidth=\"1\"/>"
         ).join("")+"</cols>":"")
       +"<sheetData>"+body+"</sheetData>"
+      +(sh.filter?"<autoFilter ref=\""+sh.filter+"\"/>":"")
       +((sh.merges&&sh.merges.length)?"<mergeCells count=\""+sh.merges.length+"\">"
           +sh.merges.map(m=>"<mergeCell ref=\""+xlCol(m.s.c)+(m.s.r+1)+":"
               +xlCol(m.e.c)+(m.e.r+1)+"\"/>").join("")+"</mergeCells>":"")
@@ -9788,7 +9789,7 @@ function exportIssues(){
 
   /* ---- 第一張表 ---- */
   const detDates=new Set([1,2]), detMoney=new Set([11,12,16]);
-  const detW=[16,12,12,10,20,8,30,7,22,20,30,11,11,20,6,10,14];
+  const detW=[16,12,12,13,20,10,30,9,22,20,30,11,12,20,8,12,15];
   const det1=det.map((row,r)=>row.map((v,c)=>{
     if(r===0) return hcell(v,HDR_FIX);
     if(detDates.has(c)){ const n=serial(v); return n==null?v:{v:n,t:"n",s:{fmt:DATE}}; }
@@ -9817,11 +9818,12 @@ function exportIssues(){
     if(f) return {v:toNum(v), t:"n", s:{fmt:f, fill:fill}};
     return {v:v, t:"s", s:{fill:fill}};
   }));
-  const wideW=[16,12,12,20,8,7,34,14,20,6]
+  const wideW=[16,12,12,20,10,10,34,14,20,8]
     .concat([9,9]).concat(cols.flatMap(()=>[12,12])).concat([13,13,12]);
 
   xlWrite([
-    {name:L("問題明細","Issues"), rows:det1, cols:detW.map(w=>({w:w})), freeze:{r:1,c:0}},
+    {name:L("問題明細","Issues"), rows:det1, cols:detW.map(w=>({w:w})), freeze:{r:1,c:0},
+     filter:"A1:"+xlCol(det[0].length-1)+det.length},
     {name:L("貨件展開","By shipment"), rows:wide2, cols:wideW.map(w=>({w:w})),
      merges:merges, freeze:{r:2,c:4}},
   ], fname)
