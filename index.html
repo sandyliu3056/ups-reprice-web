@@ -176,6 +176,9 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
    刻意和儀表板不一樣,免得看的人以為這是重算過的數字。 */
 #tStored tr.stprev td{padding:0;background:var(--stripe)}
 .stprevbox{padding:12px 14px}
+.pvtop{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.pvkey{font-family:var(--titlefam);font-weight:700;font-size:14px;color:var(--accent)}
+.pvtop .pvback{margin-left:auto;padding:3px 11px;font-size:12px;white-space:nowrap}
 .pvstats{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:11px}
 .pvs{flex:1 1 130px;padding:8px 11px;border:2px solid var(--line);
   border-radius:9px;background:var(--panel)}
@@ -224,6 +227,8 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   align-items:center;font-size:12.5px}
 .bkgrid .selw{width:100%}
 .bkgrid .selw>select{font-size:12px;padding:5px 26px 5px 10px;border-radius:9px}
+/* 預設門檻沒有「原值」那一欄 —— 這裡填的就是原值本身 */
+.dtgrid{grid-template-columns:1fr 96px 132px}
 .bkgrid .selw::after{right:10px}
 .bkgrid .bkdef{color:var(--muted);font-size:11.5px;white-space:nowrap}
 .bkgrid .bkh{font-weight:700;color:var(--muted);font-size:11.5px;
@@ -1562,9 +1567,12 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <p class="hint" style="margin:0 0 10px" data-i18n="hint.bulkchan">The fields below start at the current defaults and are ready to edit. Tick one channel and Load to see what that channel actually uses; Apply then writes the fields into every ticked channel. Clear a field to leave that rule untouched; a value equal to the default returns that channel to following the default.</p>
       <div class="subhd" data-i18n="hd.selchan">Select Channels</div>
       <div class="sketch-soft" style="padding:10px 12px;margin-bottom:12px">
-        <div class="row" style="margin-bottom:8px">
+        <div class="row" style="margin-bottom:8px;flex-wrap:wrap;gap:7px">
           <button class="act ghost" id="bkAll" data-i18n="btn.selall">Select All</button>
           <button class="act ghost" id="bkNone" data-i18n="btn.selnone">Deselect All</button>
+          <span style="flex:1 1 auto"></span>
+          <button class="act ghost" id="bkLoad" data-i18n="btn.loadticked">Load values</button>
+          <button class="act ghost" id="bkClear" data-i18n="btn.clearticked">Clear overrides</button>
         </div>
         <div id="bkChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
       </div>
@@ -1582,11 +1590,39 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <div id="bkNote" class="savenote" style="margin-top:8px"></div>
     </div>
     <div class="modalft">
-      <button class="act ghost" id="bkLoad" data-i18n="btn.loadticked">Load Values from Ticked Channel</button>
+      <span></span>
       <span>
-        <button class="act ghost" id="bkClear" data-i18n="btn.clearticked">Clear Overrides on Ticked</button>
-        <button class="act" id="bkApply" data-i18n="btn.applyticked">Apply to Ticked Channels</button>
+        <button class="act" id="bkApply" data-i18n="btn.applyticked">Apply</button>
         <button class="act ghost" id="bkClose" data-i18n="btn.close">Close</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div id="dtBg" class="modalbg">
+  <div class="modal sketch" id="dtModal" style="width:min(860px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.defthr">Default thresholds</span>
+      <button class="mx" id="dtX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p class="hint" style="margin:0 0 10px" data-i18n="hint.defthr">These are the thresholds every channel follows unless it has been given its own. Change one here and every channel without its own value moves with it.</p>
+      <div class="bkwrap">
+        <div class="bkbox sketch-soft">
+          <div class="bkhd"><span class="em">📦</span> <span data-i18n="hd.lpsgrp">Large Package (LPS)</span></div>
+          <div id="dtLps" class="bkgrid dtgrid"></div>
+        </div>
+        <div class="bkbox sketch-soft">
+          <div class="bkhd"><span class="em">📐</span> <span data-i18n="hd.ahsgrp">Additional Handling (AHS)</span></div>
+          <div id="dtAhs" class="bkgrid dtgrid"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modalft">
+      <span></span>
+      <span>
+        <button class="act" id="dtSave" data-i18n="btn.save">Save Settings</button>
+        <button class="act ghost" id="dtClose" data-i18n="btn.close">Close</button>
       </span>
     </div>
   </div>
@@ -1679,10 +1715,10 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 </div>
 
 <div id="stBg" class="modalbg">
-  <div class="modal sketch" id="stModal" style="width:min(760px,100%)">
+  <div class="modal sketch" id="stModal" style="width:min(980px,100%)">
     <div class="modalhd">
       <span data-i18n="hd.stored">Stored invoices</span>
-      <button class="mx" id="stX">✕</button>
+      <span><button class="mx" id="stMax">⤢</button><button class="mx" id="stX">✕</button></span>
     </div>
     <div class="modalbody">
       <div class="strow" id="stSum"></div>
@@ -5209,9 +5245,47 @@ $("#bBilling").onclick=()=>{
   openUrl(UPS_BILLING_CENTER);
 };
 $("#sizeFilter") && ($("#sizeFilter").onchange=()=>renderConfigTabs());
-$("#bDefThr") && ($("#bDefThr").onclick=()=>{
-  if($("#sizeFilter")) $("#sizeFilter").value="__all";
-  renderConfigTabs(); setStatus(LANG?"Showing default thresholds":"顯示預設門檻"); });
+/* 這顆按鈕原本只是把下面那張表的篩選切成「全部渠道」再重畫一次 —— 而那張表
+   本來就已經是全部渠道,所以按下去畫面一模一樣,看起來就是壞的。它叫「預設
+   門檻」,那它就該把預設門檻拿出來給人改。 */
+function dtFields(box, defs){
+  const g=(CFG&&CFG.raw.global_rules)||{};
+  const head=`<span class="bkh">${LANG?"Rule":"規則"}</span>`
+    +`<span class="bkh">${LANG?"Threshold":"門檻值"}</span>`
+    +`<span class="bkh">${LANG?"In use":"是否採用"}</span>`;
+  $(box).innerHTML=head+defs.map(([f,sw,lab])=>{
+    const d=bkDefOf(g,f,sw);
+    const sel=sw
+      ? `<span class="selw"><select id="dtu_${sw}">`
+        +`<option value="YES"${d.u==="YES"?" selected":""}>${bkUseLabel("YES")}</option>`
+        +`<option value="NO"${d.u==="NO"?" selected":""}>${bkUseLabel("NO")}</option></select></span>`
+      : `<span class="bkdef">—</span>`;
+    return `<span>${lab[LANG]}</span>`
+      +`<input class="cell num" id="dtv_${f}" value="${esc(d.v)}">`+sel;
+  }).join("");
+}
+function renderDefThr(){ if(!CFG) return; dtFields("#dtLps",BK_LPS); dtFields("#dtAhs",BK_AHS); }
+function openDefThr(){
+  if(!CFG){ setStatus(L("請先載入設定檔","Load a settings file first")); return; }
+  renderDefThr(); $("#dtBg").classList.add("on");
+}
+$("#bDefThr") && ($("#bDefThr").onclick=openDefThr);
+$("#dtX") && ($("#dtX").onclick=()=>$("#dtBg").classList.remove("on"));
+$("#dtClose") && ($("#dtClose").onclick=()=>$("#dtBg").classList.remove("on"));
+$("#dtBg") && ($("#dtBg").onclick=e=>{ if(e.target===$("#dtBg")) $("#dtBg").classList.remove("on"); });
+$("#dtSave") && ($("#dtSave").onclick=()=>{
+  if(!CFG) return;
+  const g=CFG.raw.global_rules||(CFG.raw.global_rules={});
+  for(const [f,sw] of bkAllDefs().map(d=>[d[0],d[1]])){
+    const v=$("#dtv_"+f);
+    if(v){ const raw=String(v.value).trim(); if(raw!=="") g[f]=raw; }
+    if(sw){ const u=$("#dtu_"+sw); if(u) g[sw]=u.value; }
+  }
+  CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs(); renderDefThr();
+  if(saveSettings())
+    toast(L("預設門檻已儲存,沒有自訂值的渠道跟著改",
+            "Default thresholds saved; every channel without its own value follows them"), true);
+});
 $("#bSaveDim") && ($("#bSaveDim").onclick=()=>{
   CFG.raw.global_rules.default_dim_factor=String($("#defDim").value).trim();
   CFG=readConfig(CFG.raw); DIRTY=true; saveSettings(); renderConfigTabs(); });
@@ -5409,13 +5483,25 @@ function bkFields(box, defs){
         +`<option value="NO"${uv==="NO"?" selected":""}>${bkUseLabel("NO")}</option></select></span>`
       : `<span class="bkdef">—</span>`;
     return `<span>${lab[LANG]}</span>`
-      +`<input class="cell num" id="bkv_${f}" data-init="${esc(val)}"`
+      +`<input class="cell num" id="bkv_${f}" data-init="${esc(val)}" data-def="${esc(d.v)}"`
       +` value="${esc(val)}" placeholder="${blank}">`
       +sel
       +`<span class="bkdef" id="bkd_${f}"></span>`;
   }).join("");
   const el=$(box);
-  el.oninput=bkMarkDiff; el.onchange=bkMarkDiff;
+  el.oninput=bkMarkDiff;
+  el.onchange=e=>{
+    const sel=(e.target&&e.target.tagName==="SELECT")?e.target:null;
+    /* 選了「跟隨預設」,門檻也一起帶回預設值 —— 這一列整列交還給預設,
+       而不是開關交還了、數字還留著上一次填的那個。 */
+    if(sel && sel.value===""){
+      const sw=String(sel.id||"").replace(/^bku_/,"");
+      const hit=bkAllDefs().find(d=>d[1]===sw);
+      const inp=hit?$("#bkv_"+hit[0]):null;
+      if(inp) inp.value=inp.dataset.def||"";
+    }
+    bkMarkDiff();
+  };
 }
 /* 哪幾列被改過,以及改之前是什麼。沒動過的留白 —— 整排重複一次旁邊的
    數字,等於把「我到底改了哪幾項」這個唯一有用的訊息埋掉。
@@ -6393,6 +6479,9 @@ function stPreviewHTML(key, rows){
     +`<i></i><b>${money0(v)}</b></div>`).join("");
   const stat=(lab,val)=>`<div class="pvs"><i>${esc(lab)}</i><b>${val}</b></div>`;
   return `<div class="stprevbox">
+    <div class="pvtop"><span class="pvkey">${esc(key)}</span>
+      <button type="button" class="act ghost pvback">${
+        L("收合,回到清單","Back to the list")}</button></div>
     <div class="pvstats">
       ${stat(L("UPS 實收","UPS billed"), money0(ups))}
       ${stat(L("追蹤號","Trackings"), trk.size.toLocaleString())}
@@ -6416,6 +6505,20 @@ const CLS_ZH={FRT:"運費",FSC:"燃油",ACC:"附加費",ADJ:"調整",MSC:"帳號
 const CLS_EN={FRT:"freight",FSC:"fuel",ACC:"surcharge",ADJ:"adjustment",
   MSC:"account level",MIS:"miscellaneous",INF:"informational"};
 $("#tStored") && ($("#tStored").addEventListener("click",async e=>{
+  /* 攤開的那一格可以很長,原本那顆「收合」在上面一列,讀到一半早就捲出畫面
+     —— 所以預覽自己帶一顆,收完把原來那一列捲回來。 */
+  const back=e.target.closest(".pvback");
+  if(back){
+    const pv=back.closest("tr.stprev");
+    if(pv){
+      const tr0=pv.previousElementSibling;
+      pv.remove();
+      const btn=tr0&&tr0.querySelector(".stRe");
+      if(btn) btn.textContent=LANG?"Preview":"預覽";
+      if(tr0) tr0.scrollIntoView({block:"nearest"});
+    }
+    return;
+  }
   const b2=e.target.closest(".stRe"); if(!b2) return;
   const tr=b2.closest("tr"); if(!tr) return;
   const open=tr.nextElementSibling;
@@ -6433,7 +6536,9 @@ $("#tStored") && ($("#tStored").addEventListener("click",async e=>{
   const row=document.createElement("tr");
   row.className="stprev";
   row.innerHTML=`<td colspan="7">${rows.length?stPreviewHTML(k,rows)
-    :`<div class="stprevbox"><div class="pvnote">${L(
+    :`<div class="stprevbox"><div class="pvtop"><span class="pvkey">${esc(k)}</span>
+      <button type="button" class="act ghost pvback">${
+        L("收合,回到清單","Back to the list")}</button></div><div class="pvnote">${L(
       "本期僅保留索引,未存明細。如需檢視內容,請重新匯入該帳單。",
       "Only the index was retained for this period, not the detail. Re-import the invoice to view its contents.")}</div></div>`}`;
   tr.after(row);
@@ -6473,6 +6578,14 @@ $("#stDelete") && ($("#stDelete").onclick=async()=>{
 });
 function closeStored(){ $("#stBg").classList.remove("on"); }
 $("#bHistStored") && ($("#bHistStored").onclick=openStored);
+/* 攤開一期之後,那一格會比視窗還高,收合的按鈕跟著捲出畫面 —— 所以這裡
+   也給一顆放大,和「已載入費率」那個視窗同一顆。 */
+$("#stMax") && ($("#stMax").onclick=()=>{
+  const m=$("#stModal");
+  m.classList.toggle("max");
+  m.style.removeProperty("width"); m.style.removeProperty("height");
+  $("#stMax").textContent=m.classList.contains("max")?"⤡":"⤢";
+});
 $("#stX") && ($("#stX").onclick=closeStored);
 $("#stClose") && ($("#stClose").onclick=closeStored);
 $("#stBg") && ($("#stBg").onclick=e=>{ if(e.target===$("#stBg")) closeStored(); });
@@ -8311,17 +8424,43 @@ function renderDashboard(){
   DASH_LAST=d;
   if(!d){
     /* 歷史裡有東西的時候,這一頁不是死路:上面那個選單就能挑一期來跑。 */
-    const filed=dashPeriods().length;
+    /* 這一格說「上面挑一期」,底下卻擺一顆最顯眼的實心按鈕寫「前往匯入檔案」
+       —— 眼睛會先看到按鈕,按下去就離開這一頁,而該做的事其實在上面那個
+       選單裡。主要按鈕要就是那件事;歷史裡還沒有東西的時候,匯入才是主要
+       的事,那時候它才該是實心的。 */
+    const all=dashPeriods(), shown=dashFilter(all);
+    const hidden=all.length-shown.length;
+    const goFiles=(cls)=>`<button class="act ${cls}" onclick="showTab('files')">${
+      L("前往匯入檔案","Go to Import Files")}</button>`;
+    let msg, btns;
+    if(!all.length){
+      msg=L("尚無報表資料。請先於「匯入檔案」執行重算。",
+            "No report yet. Run a reprice from Import Files.");
+      btns=goFiles("");
+    } else if(!shown.length){
+      msg=L("目前的帳號／期間條件下沒有帳單可挑。",
+            "No invoice matches the account and period filter above.");
+      btns=`<button class="act" id="bClrFilt">${L("清除篩選","Clear the filter")}</button> `+goFiles("ghost");
+    } else {
+      msg=L("上面挑一期帳單,就直接跑那一期的數據。","Pick an invoice above to run its figures.");
+      btns=`<button class="act" id="bPickInv">${L("選擇帳單期別","Choose an invoice")}</button> `+goFiles("ghost");
+    }
     body.innerHTML=`<div class="dhead">
       <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
       <div class="dsub">${L("本期報表摘要","Current run summary")}</div></div></div>`
       +dashBarHTML()
-      +`<div class="dempty">
-      ${filed
-        ? L("上面挑一期帳單,就直接跑那一期的數據。","Pick an invoice above to run its figures.")
-        : L("尚無報表資料。請先於「匯入檔案」執行重算。","No report yet. Run a reprice from Import Files.")}
-      <div style="margin-top:12px"><button class="act" onclick="showTab('files')">${L("前往匯入檔案","Go to Import Files")}</button></div></div>`;
+      +`<div class="dempty">${msg}
+      ${hidden&&shown.length?`<div style="margin-top:6px;font-size:12.5px">${
+        L("另有 "+hidden+" 期被上面的篩選條件擋住。",
+          hidden+" more period"+(hidden>1?"s are":" is")+" hidden by the filter above.")}</div>`:""}
+      <div style="margin-top:12px">${btns}</div></div>`;
     wireDashBar();
+    /* 下一個 tick 才打開。同一次點擊還在往上冒泡,document 上那個「點外面就
+       關掉」的處理器會在後面收到它,選單會被開了又關。 */
+    const pk=$("#bPickInv");
+    if(pk) pk.onclick=()=>setTimeout(()=>{ const b=$("#dashSel"); if(b) b.click(); },0);
+    const cf=$("#bClrFilt");
+    if(cf) cf.onclick=()=>{ DASH_F.acct=""; DASH_F.range=""; renderDashboard(); };
     return;
   }
   /* 圓餅分的是「類別」,不是「多少」。以前用的是同一個色相由深到淺的
@@ -8585,25 +8724,11 @@ function exportPeriodReport(){
   const F={bold:true,fill:FOOT,align:"right",border:true};
   cb.push([{v:L("合計","Total"),t:"s",s:{bold:true,fill:FOOT,align:"left",border:true}},
     {v:cents(d.repriced),t:"n",s:Object.assign({fmt:MONEY},F)},
-    {v:1,t:"n",s:Object.assign({fmt:PCT},F)},
+    /* 合計那一格的百分比一定是 100%,寫出來沒有告訴任何人任何事 */
+    {v:"",t:"s",s:Object.assign({},F)},
     {v:cents(d.billed),t:"n",s:Object.assign({fmt:MONEY},F)},
-    {v:1,t:"n",s:Object.assign({fmt:PCT},F)},
+    {v:"",t:"s",s:Object.assign({},F)},
     {v:cents(profit),t:"n",s:Object.assign({fmt:MONEY,color:profit<0?RED:undefined},F)}]);
-
-  /* ---- 渠道與 Zone:金額和佔比,和畫面上那兩張圓餅同一組數字 ---- */
-  const share=(obj,title,keyName)=>{
-    const R={align:"right",border:true};
-    const rows=[[hc(keyName,null,"left"),hc(L("重算金額","Repriced")),hc(L("佔比","Share"))]];
-    const tot=Object.values(obj||{}).reduce((a,v)=>a+toNum(v),0);
-    Object.entries(obj||{}).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).forEach(([k,v])=>
-      rows.push([{v:String(k),t:"s",s:{align:"left",border:true}},
-                 {v:cents(v),t:"n",s:Object.assign({fmt:MONEY},R)},
-                 {v:tot?toNum(v)/tot:0,t:"n",s:Object.assign({fmt:PCT},R)}]));
-    rows.push([{v:L("合計","Total"),t:"s",s:{bold:true,fill:FOOT,align:"left",border:true}},
-               {v:cents(tot),t:"n",s:Object.assign({fmt:MONEY,bold:true,fill:FOOT},R)},
-               {v:tot?1:0,t:"n",s:Object.assign({fmt:PCT,bold:true,fill:FOOT},R)}]);
-    return {name:title, rows:rows, cols:[{w:26},{w:16},{w:10}], freeze:{r:1,c:0}};
-  };
 
   const stem=["Profit_Report", acct, keys[0]||"", (invDate||"").replace(/-/g,"")]
     .filter(Boolean).join("_").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
@@ -8611,8 +8736,6 @@ function exportPeriodReport(){
     {name:L("本期摘要","Summary"), rows:sum, cols:[{w:22},{w:24}], freeze:{r:1,c:0}},
     {name:L("費用組成","Cost breakdown"), rows:cb,
      cols:[{w:30},{w:16},{w:13},{w:16},{w:12},{w:15}], freeze:{r:1,c:1}},
-    share(d.chanAgg, L("渠道","Channel"), L("渠道","Channel")),
-    share(d.zoneAgg, "Zone", "Zone"),
   ], stem)
   .then(ok=>toast(ok?L("利潤報表已匯出","Profit report exported")
                     :L("已取消存檔","Save cancelled"), ok))
@@ -10649,6 +10772,8 @@ const I18N={
   "th.trkcount":["追蹤號","Trackings"],
   "btn.chandim":["設定渠道除數","Set Channel DIM"],
   "btn.defthr":["預設門檻","Default Thresholds"],
+  "hd.defthr":["預設門檻","Default thresholds"],
+  "hint.defthr":["這是所有渠道在沒有自訂值時共同遵循的門檻。在這裡改一個,所有沒有自訂值的渠道都會跟著改。","These are the thresholds every channel follows unless it has been given its own. Change one here and every channel without its own value moves with it."],
   "c.longest":["最長邊","Longest"], "c.weight":["實重","Weight"],
   "c.cubic":["材積","Cubic"], "c.second":["第二長邊","2nd Side"],
   "c.minwt":["最低計費重","Min Wt"],
@@ -10714,9 +10839,9 @@ const I18N={
   "hd.valwrite":["要寫入的值","Values to Write"],
   "btn.selall":["全選","Select All"],
   "btn.selnone":["取消全選","Deselect All"],
-  "btn.applyticked":["套用到勾選的渠道","Apply to Ticked Channels"],
-  "btn.loadticked":["載入勾選渠道的現值","Load Values from Ticked Channel"],
-  "btn.clearticked":["清除勾選渠道的覆寫","Clear Overrides on Ticked"],
+  "btn.applyticked":["套用","Apply"],
+  "btn.loadticked":["帶入現值","Load values"],
+  "btn.clearticked":["清除覆寫","Clear overrides"],
   "hint.bulk":["勾渠道,填要寫進去的門檻,按套用。留空的欄位不動。",
     "Tick channels, type the thresholds, apply. A blank field is left alone."],
   "th.amount":["金額","Amount"],
