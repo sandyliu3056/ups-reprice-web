@@ -234,6 +234,20 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
 .bkgrid .selw>select{font-size:12px;padding:5px 26px 5px 10px;border-radius:9px}
 /* 預設門檻沒有「原值」那一欄 —— 這裡填的就是原值本身 */
 .dtgrid{grid-template-columns:1fr 120px}
+/* 利潤報表的兩個選項:一個是勾選框,不是一句話配一個小方塊 —— 整塊都可以點。 */
+.proption{display:flex;gap:11px;align-items:flex-start;padding:12px 14px;margin-bottom:10px;
+  border:2px solid var(--line);border-radius:12px;background:var(--panel);cursor:pointer;
+  transition:border-color .14s,background .14s}
+.proption:hover{border-color:var(--accent);background:var(--select)}
+.proption.on{border-color:var(--accent)}
+.proption input{margin-top:3px}
+.proption b{display:block;font-size:13.5px;color:var(--ink)}
+.proption i{display:block;font-style:normal;font-size:12px;color:var(--muted);
+  line-height:1.6;margin-top:3px}
+.proption u{display:block;text-decoration:none;font-size:11.5px;color:var(--accent);
+  font-family:Consolas,monospace;margin-top:5px}
+.proption.off{opacity:.5;cursor:default}
+.proption.off:hover{border-color:var(--line);background:var(--panel)}
 .bkgrid .selw::after{right:10px}
 .bkgrid .bkdef{color:var(--muted);font-size:11.5px;white-space:nowrap}
 .bkgrid .bkh{font-weight:700;color:var(--muted);font-size:11.5px;
@@ -417,22 +431,26 @@ td.cells{white-space:normal}
 .bulkchk{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:2px 0}
 /* 原生的勾選框是作業系統畫的:藍色方塊、大小不隨主題走,擺在這些面板裡
    是唯一一個不屬於這頁的東西。自己畫一個,勾起來用主題色。 */
-.chkgrid input[type="checkbox"],.bulkchk input[type="checkbox"]{
+.chkgrid input[type="checkbox"],.bulkchk input[type="checkbox"],.proption input[type="checkbox"]{
   appearance:none;-webkit-appearance:none;flex:none;margin:0;
   width:15px;height:15px;border:2px solid var(--line);border-radius:5px;
   background:var(--panel);cursor:pointer;position:relative;
   transition:background .12s,border-color .12s}
-.chkgrid input[type="checkbox"]:hover,.bulkchk input[type="checkbox"]:hover{
+.chkgrid input[type="checkbox"]:hover,.bulkchk input[type="checkbox"]:hover,
+.proption input[type="checkbox"]:hover{
   border-color:var(--accent)}
-.chkgrid input[type="checkbox"]:checked,.bulkchk input[type="checkbox"]:checked{
+.chkgrid input[type="checkbox"]:checked,.bulkchk input[type="checkbox"]:checked,
+.proption input[type="checkbox"]:checked{
   background:var(--accent);border-color:var(--accent)}
 .chkgrid input[type="checkbox"]:checked::after,
-.bulkchk input[type="checkbox"]:checked::after{
+.bulkchk input[type="checkbox"]:checked::after,
+.proption input[type="checkbox"]:checked::after{
   content:"";position:absolute;left:3px;top:0;width:4px;height:8px;
   border-right:2px solid var(--tab);border-bottom:2px solid var(--tab);
   transform:rotate(42deg)}
 .chkgrid input[type="checkbox"]:focus-visible,
-.bulkchk input[type="checkbox"]:focus-visible{
+.bulkchk input[type="checkbox"]:focus-visible,
+.proption input[type="checkbox"]:focus-visible{
   outline:3px solid var(--run2);outline-offset:2px}
 .bulkval{display:grid;grid-template-columns:minmax(0,1fr) 86px;
   align-items:center;gap:8px;font-size:12px;padding:3px 0}
@@ -1315,14 +1333,15 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .abar{width:104px;padding-left:0!important}
 #p-dash .abartrack{height:10px;border-radius:999px;position:relative;
   background:color-mix(in srgb,var(--line) 40%,var(--panel))}
-/* 中線是零。長條全部從左邊起跑、只靠顏色分賺賠的話,要一格一格看顏色才
-   知道哪幾期在虧;跨不跨過中線是形狀,掃一眼就看得到。 */
-#p-dash .abartrack::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;
-  width:1px;background:var(--line)}
-#p-dash .abarfill{position:absolute;top:0;bottom:0;width:0;border-radius:999px;
+#p-dash .abarfill{position:absolute;top:0;bottom:0;left:0;width:0;border-radius:999px;
   background:var(--run2);transition:width .7s cubic-bezier(.34,1.25,.5,1)}
-#p-dash .abarfill.pos{left:50%}
-#p-dash .abarfill.neg{right:50%;background:var(--neg)}
+#p-dash .abarfill.neg{background:var(--neg)}
+/* 有虧損的期別才切開:中線是零,往右是賺、往左是虧。跨不跨過中線是形狀,
+   掃一眼就看得到,不必一格一格看顏色。線畫得比軌道深,不然看不出它在那裡。 */
+#p-dash .abartrack.split::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;
+  width:2px;margin-left:-1px;background:var(--ink);opacity:.4}
+#p-dash .abartrack.split .abarfill.pos{left:50%}
+#p-dash .abartrack.split .abarfill.neg{left:auto;right:50%}
 #p-dash .aprog{padding:26px 14px;text-align:center;color:var(--muted);font-size:13px;line-height:1.8}
 #p-dash .aprog b{color:var(--accent);font-family:var(--titlefam)}
 #p-dash .aprogtrack{max-width:320px;margin:11px auto 0;height:7px;border-radius:999px;overflow:hidden;
@@ -1609,6 +1628,36 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <span>
         <button class="act" id="bkApply" data-i18n="btn.applyticked">Apply</button>
         <button class="act ghost" id="bkClose" data-i18n="btn.close">Close</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div id="prBg" class="modalbg">
+  <div class="modal sketch" id="prModal" style="width:min(580px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.profitrep">Profit report</span>
+      <button class="mx" id="prX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.profitrep">Two ways of looking at the same money: one invoice in depth, or every period side by side. Tick either, or both into one workbook.</p>
+      <label class="proption" id="prLabInv">
+        <input type="checkbox" id="prInv">
+        <span><b data-i18n="lb.prinv">This invoice</b>
+          <i data-i18n="lb.prinvsub">Summary plus the cost breakdown — what was charged, what UPS billed, and the difference on every kind of charge.</i>
+          <u id="prInvWhat"></u></span></label>
+      <label class="proption" id="prLabPer">
+        <input type="checkbox" id="prPer">
+        <span><b data-i18n="lb.prper">All periods</b>
+          <i data-i18n="lb.prpersub">One row per invoice period — shipments, charged, billed, profit and margin, with a total.</i>
+          <u id="prPerWhat"></u></span></label>
+      <div id="prNote" class="savenote" style="margin-top:4px"></div>
+    </div>
+    <div class="modalft">
+      <span></span>
+      <span>
+        <button class="act" id="prGo" data-i18n="btn.prgo">Download (.xlsx)</button>
+        <button class="act ghost" id="prClose" data-i18n="btn.close">Close</button>
       </span>
     </div>
   </div>
@@ -7760,6 +7809,11 @@ function dashAllHTML(all){
      同樣賺一塊錢,成本低的那一期看起來比較賺。 */
   const gapOf=d=>d.repriced-d.billed;
   const maxGap=Math.max(1,...ok.map(d=>Math.abs(gapOf(d))));
+  /* 有虧損的期別時才把軌道從中間切開,長條往兩邊長。全部都是賺的時候還留著
+     中線,等於每一列有一半的軌道永遠空著 —— 看起來就像每一根都只長到一半,
+     而它其實已經接近最長。 */
+  const anyLoss=ok.some(d=>gapOf(d)<0);
+  const span=anyLoss?50:100;
   const cell=(v,cls)=>`<td class="num ${cls||""}">${money(v)}</td>`;
   const pctCell=(profit,rev)=>{
     if(!rev) return `<td class="num">—</td>`;   /* 沒有收入就沒有毛利率可言 */
@@ -7782,8 +7836,7 @@ function dashAllHTML(all){
       +`<td colspan="7">${L("只有索引,沒有明細,請重新匯入本期",
                             "index only, no detail — import this period again")}</td></tr>`;
     const g=gapOf(d);
-    /* 一半的寬度給賺、一半給虧,所以最長的那一根是 50%。 */
-    const w=Math.min(50, Math.abs(g)/maxGap*50);
+    const w=Math.min(span, Math.abs(g)/maxGap*span);
     return `<tr><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`+acell
       +`<td class="num">${d.n.toLocaleString()}</td>`
       +cell(d.repriced)+cell(d.billed)
@@ -7792,7 +7845,7 @@ function dashAllHTML(all){
          顏色去畫它,等於在說它是虧損 —— 而負的帳戶層費用是 UPS 退回來的錢,
          那是進帳,不是虧。既然不屬於這組數字,就別借它們的顏色。 */
       +cell(d.account)
-      +`<td class="abar"><div class="abartrack">`
+      +`<td class="abar"><div class="abartrack${anyLoss?" split":""}">`
       +`<div class="abarfill ${g<0?"neg":"pos"}" data-w="${w.toFixed(1)}"></div></div></td></tr>`;
   }).join("");
   const gt=tot.repriced-tot.billed;
@@ -7804,7 +7857,7 @@ function dashAllHTML(all){
       <span class="cnote">${L("每一期都以目前的費率設定重算",
                               "every period repriced with the current rate settings")}</span>
       <button class="act ghost" id="bAllXls" style="padding:3px 11px;font-size:12px">${
-        L("下載利潤報表 (.xlsx)","Download profit report (.xlsx)")}</button></div>
+        L("利潤報表…","Profit report…")}</button></div>
     ${dashFilterHTML(all)}
     ${empty||dashTrendHTML(ok, multi, accts)}
     ${empty?"":`<div class="tablewrap" style="max-height:none;overflow-x:auto">
@@ -7815,10 +7868,14 @@ function dashAllHTML(all){
       <th>${L("向客戶收","Charge customer")}</th><th>UPS</th>
       <th>${L("毛利","Profit")}</th><th>${L("毛利率","Margin")}</th>
       <th>${L("帳戶層費用","Account charges")}</th>
-      <th class="abarh" title="${esc(L(
-        "長條由中線往右是賺、往左是虧,長度是這一期的毛利和本表最大一期相比。",
-        "Bars run right of centre for profit and left for a loss; length compares this "
-        +"period with the largest in the table."))}">${L("盈虧比較","Profit / loss")}</th>
+      <th class="abarh" title="${esc(anyLoss
+        ? L("長條由中線往右是賺、往左是虧;長度是這一期和本表最大一期相比。",
+            "Bars run right of centre for profit and left for a loss; length compares this "
+            +"period with the largest in the table.")
+        : L("長度是這一期的毛利和本表最大一期相比。本表沒有虧損的期別。",
+            "Bar length compares this period's profit with the largest in the table. "
+            +"No period here is a loss."))}">${
+        anyLoss?L("盈虧比較","Profit / loss"):L("毛利比較","Profit, compared")}</th>
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td class="ak" colspan="${multi?3:2}">${L("合計 "+ok.length+" 期",
         "Total · "+ok.length+" period"+(ok.length===1?"":"s"))}</td>
@@ -7859,8 +7916,19 @@ function dashTrendHTML(ok, multi, allAccts){
      區的邊。
      以前是「資料範圍上下各留 25%」:20.8% 到 -3.9% 的一批資料,下界被推到
      -10%,底下那一格整片空的,還印出一個沒有任何資料靠近的 -10.0%。 */
-  const mx0=isM?Math.max(...vals):Math.max(0,...vals);
-  const mn0=isM?Math.min(...vals):Math.min(0,...vals);
+  let mx0=isM?Math.max(...vals):Math.max(0,...vals);
+  let mn0=isM?Math.min(...vals):Math.min(0,...vals);
+  /* 毛利率至少畫五個百分點。五期的毛利率全都落在 20.3% 到 20.8% 之間時,
+     刻度貼著資料自動縮到 0.5 個百分點,那半點的起伏就被放大成整張圖的高度
+     —— 畫面上是一道陡降,實際上是四捨五入等級的差別。把最小刻度撐開,
+     平的就畫成平的;真的有大起伏時(像 -3.9% 到 20.8%)刻度自己會拉開。 */
+  if(isM){
+    const MIN_SPAN=5;
+    if(mx0-mn0<MIN_SPAN){
+      const mid=(mx0+mn0)/2;
+      mx0=mid+MIN_SPAN/2; mn0=mid-MIN_SPAN/2;
+    }
+  }
   const step=(()=>{
     /* 除以 5 不是 4:20.8% 到 -3.9% 這一批,除以 4 得到 6.2,往上取到 10,
        於是刻度變成 -10/0/10/20/30 —— 上下各多出一整格沒有資料的空白。
@@ -7869,10 +7937,15 @@ function dashTrendHTML(ok, multi, allAccts){
     const pw=Math.pow(10,Math.floor(Math.log10(raw))), mm=raw/pw;
     return (mm<=1?1:mm<=1.5?1.5:mm<=2?2:mm<=2.5?2.5:mm<=3?3:mm<=4?4:mm<=5?5:10)*pw;
   })();
-  let hi=Math.ceil(mx0/step)*step, lo=Math.floor(mn0/step)*step;
+  /* 20.3/0.1 在浮點數裡是 202.99999…,直接 floor 會少一格,而且刻度值會變成
+     20.200000000000003 那種東西 —— 印出來還好,拿去算間距就對不齊了。
+     先按級距的小數位數把值收乾淨。 */
+  const dec=Math.max(0, Math.min(6, -Math.floor(Math.log10(step)+1e-9)));
+  const snap=v=>Number((Math.round(v/step)*step).toFixed(dec));
+  let hi=snap(Math.ceil(mx0/step-1e-9)*step), lo=snap(Math.floor(mn0/step+1e-9)*step);
   /* 最高(或最低)那一筆剛好落在刻度線上時,那顆點會壓在邊框上 —— 再讓一格。 */
-  if(Math.abs(hi-mx0)<step*1e-6) hi+=step;
-  if(Math.abs(mn0-lo)<step*1e-6) lo-=step;
+  if(Math.abs(hi-mx0)<step*1e-6) hi=snap(hi+step);
+  if(Math.abs(mn0-lo)<step*1e-6) lo=snap(lo-step);
   const span=Math.max(0.001, hi-lo);
   const pal=pieCols();
   const acctIx=d=>Math.max(0,(allAccts||[]).indexOf(dashAcctOf(d).id));
@@ -7904,7 +7977,8 @@ function dashTrendHTML(ok, multi, allAccts){
     for(let i=0;i<=Math.round(span/step)+0.5;i++){
       const v=lo+i*step;
       if(v>hi+step*1e-6) break;
-      out.push({v:Math.abs(v)<step*1e-9?0:v, y:yv(v)});
+      const vv=snap(v);
+      out.push({v:Math.abs(vv)<step*1e-9?0:vv, y:yv(vv)});
     }
     return out;
   })();
@@ -7987,18 +8061,101 @@ function dashTrendHTML(ok, multi, allAccts){
    —— 字串排不了序,也沒辦法再拿去算。日期同樣寫成真的日期值。 */
 /* 檔名要看得出這是誰的哪一段。帳號跟著篩選走 —— 選了單一帳號就只寫那一個,
    全部帳號就把它們串起來(超過三個改寫數量,不然檔名會比視窗還長)。 */
-function profitReportName(data){
-  const accts=[...new Set((data||[]).map(d=>dashAcctOf(d).id).filter(Boolean))].sort();
-  const tag=!accts.length?"":(accts.length<=3?accts.join("-"):accts.length+"accounts");
-  const last=(data||[]).map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"";
-  return ["Profit_Report", tag, last.replace(/-/g,"")]
-    .filter(Boolean).join("_").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
+/* 兩種利潤報表:一期看得深(摘要 + 費用組成),或每一期並排看(一期一列)。
+   以前是兩顆分開的按鈕、各存一個檔,要兩份就得跑兩次、拿到兩個檔案。現在
+   同一個視窗裡挑,兩個都勾就是同一本活頁簿裡的三張分頁。 */
+let PR_FROM="inv";
+function prAvail(){
+  return {
+    inv: !!(RATED&&RATED.length),
+    per: !!(dashPeriods().length && CFG && CFG.tableRowCount>0),
+    perReady: !!(DASH_ALL_CACHE&&DASH_ALL_CACHE.data&&DASH_ALL_CACHE.data.length),
+  };
 }
-function exportAllPeriods(){
+function prPaint(){
+  const a=prAvail();
+  const set=(id,labId,ok)=>{
+    const el=$(id), lab=$(labId);
+    if(!el||!lab) return;
+    el.disabled=!ok; if(!ok) el.checked=false;
+    lab.classList.toggle("off", !ok);
+    lab.classList.toggle("on", !!el.checked);
+  };
+  set("#prInv","#prLabInv",a.inv);
+  set("#prPer","#prLabPer",a.per);
+  const keys=dashCurKeys();
+  const iw=$("#prInvWhat");
+  if(iw) iw.textContent=a.inv
+    ? [keys[0]||"", RATED.length.toLocaleString()+L(" 筆貨件"," shipments")]
+        .filter(Boolean).join("  ·  ")
+    : L("目前還沒有算好的報表","No report has been run yet");
+  const pw=$("#prPerWhat");
+  if(pw) pw.textContent=!a.per
+    ? L("帳單歷史裡還沒有期別","Nothing filed to history yet")
+    : (a.perReady
+        ? dashFilter(DASH_ALL_CACHE.data).length+L(" 期(依上方的篩選)"," periods, as filtered above")
+        : L("尚未重算,按下下載會先算一次","not repriced yet — downloading will compute it first"));
+  const go=$("#prGo");
+  if(go) go.disabled=!(($("#prInv")&&$("#prInv").checked)||($("#prPer")&&$("#prPer").checked));
+}
+function openProfitReport(from){
+  PR_FROM=from||"inv";
+  const a=prAvail();
+  const i=$("#prInv"), pp=$("#prPer");
+  if(i) i.checked=(PR_FROM==="inv")&&a.inv;
+  if(pp) pp.checked=(PR_FROM==="per")&&a.per;
+  const n=$("#prNote"); if(n) n.textContent="";
+  prPaint();
+  $("#prBg").classList.add("on");
+}
+async function prDownload(){
+  const wantI=!!($("#prInv")&&$("#prInv").checked);
+  const wantP=!!($("#prPer")&&$("#prPer").checked);
+  if(!wantI&&!wantP) return;
+  const note=t=>{ const n=$("#prNote"); if(n) n.textContent=t||""; };
+  try{
+    /* 「各期並排」要每一期都用目前的費率重算過。還沒算過就在這裡算,
+       進度寫在視窗裡 —— 十九期要跑一陣子,什麼都不說會像當掉。 */
+    if(wantP && !(DASH_ALL_CACHE&&DASH_ALL_CACHE.data)){
+      const stamp=dashAllStamp();
+      const data=await dashAllCompute(async(i,n,key)=>{
+        note(L("正在重算 "+key+"  "+(i+1)+" / "+n, "Repricing "+key+"  "+(i+1)+" / "+n));
+        await new Promise(r=>setTimeout(r,0));
+      });
+      DASH_ALL_CACHE={stamp:stamp, data:data};
+    }
+    const sheets=[]; let accts=[], key="", last="";
+    if(wantI){ const r=prSheetInvoice();
+      if(r){ sheets.push(...r.sheets); accts=accts.concat(r.accts);
+             key=r.key; if(String(r.last)>last) last=String(r.last); } }
+    if(wantP){ const r=prSheetPeriods();
+      if(r){ sheets.push(...r.sheets); accts=accts.concat(r.accts);
+             if(String(r.last)>last) last=String(r.last); } }
+    if(!sheets.length){ note(L("沒有可匯出的內容","Nothing to export")); return; }
+    const acc=[...new Set(accts.filter(Boolean))].sort();
+    const tag=!acc.length?"":(acc.length<=3?acc.join("-"):acc.length+"accounts");
+    const scope=(wantI&&!wantP)?key:((wantP&&!wantI)?"By_Period":"");
+    const name=["Profit_Report", tag, scope, (last||"").replace(/-/g,"")]
+      .filter(Boolean).join("_").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
+    note("");
+    const ok=await xlWrite(sheets, name);
+    $("#prBg").classList.remove("on");
+    toast(ok?L("利潤報表已匯出","Profit report exported"):L("已取消存檔","Save cancelled"), ok);
+  }catch(e){ note(L("匯出失敗:","Export failed: ")+((e&&e.message)||e)); }
+}
+$("#prX") && ($("#prX").onclick=()=>$("#prBg").classList.remove("on"));
+$("#prClose") && ($("#prClose").onclick=()=>$("#prBg").classList.remove("on"));
+$("#prBg") && ($("#prBg").onclick=e=>{ if(e.target===$("#prBg")) $("#prBg").classList.remove("on"); });
+$("#prInv") && ($("#prInv").onchange=prPaint);
+$("#prPer") && ($("#prPer").onchange=prPaint);
+$("#prGo") && ($("#prGo").onclick=prDownload);
+
+/* 只把工作表做出來,不管存檔 —— 存不存、和誰一起存,由利潤報表那個視窗決定。 */
+function prSheetPeriods(){
   const all=(DASH_ALL_CACHE&&DASH_ALL_CACHE.data)||[];
-  if(!all.length){ setStatus(L("目前沒有可匯出的期別資料","No period data to export")); return; }
+  if(!all.length) return null;
   const data=dashFilter(all);
-  if(!data.length){ setStatus(L("這個條件下沒有期別","No periods match this filter")); return; }
+  if(!data.length) return null;
   const serial=iso=>{
     const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||""));
     return m?Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000):"";
@@ -8058,13 +8215,12 @@ function exportAllPeriods(){
       return f?{v:(v===""?0:v), t:"n", s:st}:{v:v, t:"s", s:st};
     }));
   });
-  xlWrite([{name:LANG?"Profit by period":"各期利潤", rows:grid,
-            cols:[20,12,16,10,16,16,14,10,16,38].map(w=>({w:w})),
-            freeze:{r:1,c:0}}],
-    profitReportName(data))
-  .then(ok=>toast(ok?L("已匯出 "+nOk+" 期","Exported "+nOk+" period"+(nOk===1?"":"s"))
-                    :L("已取消存檔","Save cancelled"), ok))
-  .catch(e=>toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false));
+  const accts=[...new Set(data.map(d=>dashAcctOf(d).id).filter(Boolean))].sort();
+  const last=data.map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"";
+  return {sheets:[{name:LANG?"Profit by period":"各期利潤", rows:grid,
+                   cols:[20,12,16,10,16,16,14,10,16,38].map(w=>({w:w})),
+                   freeze:{r:1,c:0}}],
+          accts:accts, last:last, n:nOk};
 }
 /* 篩選只改畫面h(()=>{
     setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
@@ -8079,7 +8235,7 @@ function wireDashFilters(){
     b.onclick=()=>{ DASH_F.measure=b.dataset.m; re(); };
   });
   const x=$("#bAllXls");
-  if(x) x.onclick=exportAllPeriods;
+  if(x) x.onclick=()=>openProfitReport("per");
 }
 /* 選單那一條。RATED 是空的時候也要畫 —— 沒資料的人正是最需要它的人。 */
 /* 帳號與期間兩個下拉。以前它們只長在「全部期別」那張卡片裡,於是想從十九
@@ -8108,7 +8264,7 @@ function dashPickFilters(all){
   const clr=(DASH_F.acct||DASH_F.range)
     ? `<button class="act ghost" id="dfClear" style="padding:4px 11px;font-size:12px"
         title="${esc(L("清除帳號與期間的篩選","Clear the account and period filters"))}">${
-        L("清除篩選","Clear")}</button>`
+        L("清除篩選","Clear filters")}</button>`
     : "";
   return acctSel+rngSel+clr;
 }
@@ -8600,7 +8756,7 @@ function renderDashboard(){
     <div class="dcard">
       <div class="ch"><h3>${L("費用組成","Cost breakdown")}</h3>
         <button class="act ghost" id="bPerXls" style="padding:3px 11px;font-size:12px">${
-          L("下載利潤報表 (.xlsx)","Download profit report (.xlsx)")}</button></div>
+          L("利潤報表…","Profit report…")}</button></div>
       ${compHTML}
     </div>
     <div class="dcard" style="margin-top:12px">
@@ -8617,7 +8773,7 @@ function renderDashboard(){
   const ux=$("#bIssXls");
   if(ux) ux.onclick=exportIssues;
   const px=$("#bPerXls");
-  if(px) px.onclick=exportPeriodReport;
+  if(px) px.onclick=()=>openProfitReport("inv");
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     body.querySelectorAll(".bfill,.zfill,.seg,.cmpfill").forEach(el=>{
       if(el.dataset.w!=null) el.style.width=el.dataset.w+"%"; });
@@ -8651,9 +8807,9 @@ function renderDashboard(){
 /* 這一期的利潤報表。畫面上有什麼就倒什麼 —— 三個頭條數字、費用組成的
    兩側對照、渠道、Zone 分布,四張工作表對應畫面上的四個區塊。
    「全部期別」那一份回答「每一期賺多少」,這一份回答「這一期的錢花在哪」。 */
-function exportPeriodReport(){
+function prSheetInvoice(){
   const d=DASH_LAST||dashAgg();
-  if(!d){ setStatus(L("目前沒有可匯出的資料","Nothing to export")); return; }
+  if(!d) return null;
   const keys=dashCurKeys(), list=dashPeriods();
   const per=keys.map(k=>list.find(x=>x.key===k)).filter(Boolean);
   /* 歸檔索引裡有就用索引的;這一期還沒歸檔(剛跑完還沒存)就直接讀帳單列,
@@ -8716,16 +8872,11 @@ function exportPeriodReport(){
     {v:"",t:"s",s:Object.assign({},F)},
     {v:cents(profit),t:"n",s:Object.assign({fmt:MONEY,color:profit<0?RED:undefined},F)}]);
 
-  const stem=["Profit_Report", acct, keys[0]||"", (invDate||"").replace(/-/g,"")]
-    .filter(Boolean).join("_").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
-  xlWrite([
+  return {sheets:[
     {name:L("本期摘要","Summary"), rows:sum, cols:[{w:22},{w:24}], freeze:{r:1,c:0}},
     {name:L("費用組成","Cost breakdown"), rows:cb,
      cols:[{w:30},{w:16},{w:13},{w:16},{w:12},{w:15}], freeze:{r:1,c:1}},
-  ], stem)
-  .then(ok=>toast(ok?L("利潤報表已匯出","Profit report exported")
-                    :L("已取消存檔","Save cancelled"), ok))
-  .catch(e=>toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false));
+  ], accts:acct?[acct]:[], key:keys[0]||"", last:invDate||""};
 }
 /* 卡片上列出的東西倒成 Excel。兩張工作表:摘要就是畫面上那幾組,明細
    是每一筆貨件為什麼被列進來 —— 只有摘要的話,知道有 8 筆也還是不知道
@@ -10758,6 +10909,13 @@ const I18N={
   "th.trkcount":["追蹤號","Trackings"],
   "btn.chandim":["設定渠道除數","Set Channel DIM"],
   "btn.defthr":["預設門檻","Default Thresholds"],
+  "hd.profitrep":["利潤報表","Profit report"],
+  "hint.profitrep":["同一筆錢的兩種看法:一期看得深,或每一期並排看。勾一個,或兩個一起放進同一個活頁簿。","Two ways of looking at the same money: one invoice in depth, or every period side by side. Tick either, or both into one workbook."],
+  "lb.prinv":["本期","This invoice"],
+  "lb.prinvsub":["摘要加費用組成 —— 向客戶收多少、UPS 收多少,以及每一種費用兩邊差多少。","Summary plus the cost breakdown — what was charged, what UPS billed, and the difference on every kind of charge."],
+  "lb.prper":["各期","All periods"],
+  "lb.prpersub":["一期一列 —— 貨件數、向客戶收、UPS、毛利與毛利率,含合計。","One row per invoice period — shipments, charged, billed, profit and margin, with a total."],
+  "btn.prgo":["下載 (.xlsx)","Download (.xlsx)"],
   "hd.defthr":["預設門檻","Default thresholds"],
   "hint.defthr":["這是所有渠道在沒有自訂值時共同遵循的門檻。在這裡改一個,所有沒有自訂值的渠道都會跟著改。留白就是不使用那一條。","These are the thresholds every channel follows unless it has been given its own. Change one here and every channel without its own value moves with it. Leave a field blank to switch that rule off."],
   "c.longest":["最長邊","Longest"], "c.weight":["實重","Weight"],
