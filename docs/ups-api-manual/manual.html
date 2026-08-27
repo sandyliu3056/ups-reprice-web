@@ -132,7 +132,7 @@
     <dt>文件用途</dt><dd>代理服務的部署程序、憑證設定、驗證方式、介面規格、用戶端設定與已知限制</dd>
     <dt>適用對象</dt><dd>系統管理者(第 1–4、6–7 節)、一般使用者(第 5 節)</dd>
     <dt>前置需求</dt><dd>UPS 開發者帳號、Supabase 專案存取權、Supabase CLI(詳見第 2 節)</dd>
-    <dt>專案識別碼</dt><dd class="mono">snalvdjsnysutmkqjyaa</dd>
+    <dt>專案識別碼</dt><dd>你自己的 Supabase 專案 Reference ID(取得方式見 2.2)。本文件中一律以 <span class="mono">&lt;your-project-ref&gt;</span> 代表</dd>
     <dt>代理原始碼</dt><dd class="mono">supabase/functions/ups-address/index.ts</dd>
   </dl>
 </section>
@@ -227,8 +227,8 @@
 <table>
   <tr><th style="width:22%">項目</th><th>說明</th></tr>
   <tr><td>所需角色</td><td>該專案的 Owner 或 Developer。僅具 Read 權限者無法部署函式,亦無法寫入環境變數</td></tr>
-  <tr><td>專案識別碼</td><td>專案設定頁的 Reference ID,即端點網址中的子網域。本專案為 <span class="mono">snalvdjsnysutmkqjyaa</span></td></tr>
-  <tr><td>需取得的金鑰</td><td>anon key,用於 4.2 之測試,亦寫在 <span class="mono">auth-config.js</span></td></tr>
+  <tr><td>專案識別碼</td><td>專案設定頁(<span class="mono">Settings → General</span>)的 <span class="mono">Reference ID</span>,即端點網址中的子網域。本文件的指令中以 <span class="mono">&lt;your-project-ref&gt;</span> 表示,執行時換成你自己的</td></tr>
+  <tr><td>需取得的金鑰</td><td>anon(publishable)key,用於 4.2 之測試。這把金鑰設計上即為公開值,寫在你部署的 <span class="mono">auth-config.js</span> 內;其安全性由資料表的 RLS 與函式權限保障,不得以 <span class="mono">service_role</span> 金鑰替代</td></tr>
   <tr><td>確認方式</td><td>主控台左側可見 <span class="mono">Edge Functions</span> 項目,即表示權限充足</td></tr>
 </table>
 
@@ -285,7 +285,7 @@ supabase login</pre>
 supabase login
 
 <span class="c"># 於儲存庫根目錄執行,產生 supabase/config.toml</span>
-supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
+supabase link --project-ref &lt;your-project-ref&gt;</pre>
 
 <p>儲存庫目前不含 <code class="in">config.toml</code>,首次部署必須先執行連結。</p>
 
@@ -319,7 +319,7 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 <p>於未附認證資訊之情況下呼叫:</p>
 
 <pre>curl -i -X POST \
-  "https://snalvdjsnysutmkqjyaa.supabase.co/functions/v1/ups-address" \
+  "https://&lt;your-project-ref&gt;.supabase.co/functions/v1/ups-address" \
   -H "Content-Type: application/json" -d "{}"</pre>
 
 <table>
@@ -333,7 +333,7 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 <p>於 Supabase 主控台 <span class="mono">Authentication → Users → Add user</span> 建立測試帳號(電子郵件與密碼,並標記為已確認),再取得權杖:</p>
 
 <pre>curl -X POST \
-  "https://snalvdjsnysutmkqjyaa.supabase.co/auth/v1/token?grant_type=password" \
+  "https://&lt;your-project-ref&gt;.supabase.co/auth/v1/token?grant_type=password" \
   -H "apikey: &lt;anonKey,見 auth-config.js&gt;" \
   -H "Content-Type: application/json" \
   -d '{"email":"&lt;email&gt;","password":"&lt;password&gt;"}'</pre>
@@ -343,7 +343,7 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 <h3>4.3 端點功能驗證</h3>
 
 <pre>curl -X POST \
-  "https://snalvdjsnysutmkqjyaa.supabase.co/functions/v1/ups-address" \
+  "https://&lt;your-project-ref&gt;.supabase.co/functions/v1/ups-address" \
   -H "Authorization: Bearer &lt;access_token&gt;" \
   -H "Content-Type: application/json" \
   -d '{"address":"1600 Pennsylvania Ave NW","city":"Washington",
@@ -375,7 +375,7 @@ supabase link --project-ref snalvdjsnysutmkqjyaa</pre>
 
 <div class="box">
   <span class="h">本文件的取得位置</span>
-  同一列的<strong>「API 設定指南（PDF）」</strong>即本文件。檔案為 <span class="mono">UPS-API-Setup-Guide.pdf</span>,需與 <span class="mono">index.html</span> 置於同一資料夾;未一併部署時,按下按鈕將提示檔案應置之位置,不會無回應。
+  同一列的<strong>「API 設定指南（PDF）」</strong>即本文件。本文件有中英兩版,按鈕依介面語言取用:中文版為 <span class="mono">UPS-API-Setup-Guide.pdf</span>,英文版為 <span class="mono">UPS-API-Setup-Guide-EN.pdf</span>。兩者均須與 <span class="mono">index.html</span> 置於同一資料夾;僅部署其一時,按鈕取用另一版並於畫面說明,未一併部署時則提示檔案應置之位置,不會無回應。
 </div>
 
 <figure class="mid">

@@ -5901,20 +5901,34 @@ $("#bResiSrc") && ($("#bResiSrc").onclick=openResiSrc);
 /* 檔名用 ASCII:Chromium 會把 <a download> 裡的非 ASCII 檔名整個丟掉,
    換成沒有副檔名的 "download",存下來雙擊打不開。同事收到的檔案要能用,
    名字就不能賭瀏覽器的清洗規則。按鈕上的字仍然是中文。 */
-const MANUAL_PDF="UPS-API-Setup-Guide.pdf";
+/* 兩份手冊,跟著介面語言走。中文版沿用原本的檔名(改名會讓已經部署好的
+   那些找不到檔),英文版另外一個 -EN。英文版沒跟著部署的話退回中文版 ——
+   內容一樣,總比什麼都拿不到好。 */
+const MANUAL_PDF_ZH="UPS-API-Setup-Guide.pdf";
+const MANUAL_PDF_EN="UPS-API-Setup-Guide-EN.pdf";
 function pullFile(url,name){
   const a=document.createElement("a");
   a.href=url; a.download=name; a.style.display="none";
   document.body.appendChild(a); a.click(); a.remove();
 }
 $("#bManual") && ($("#bManual").onclick=async()=>{
-  const url=new URL(MANUAL_PDF, location.href).href;
-  if(!/^https?:$/.test(location.protocol)){ pullFile(url,MANUAL_PDF); return; }
-  let ok=false;
-  try{ ok=(await fetch(url,{method:"HEAD"})).ok; }catch(e){ ok=false; }
-  if(ok) pullFile(url,MANUAL_PDF);
-  else toast(L("找不到 "+MANUAL_PDF+"。該檔案須與 index.html 置於同一資料夾。",
-               "Cannot find "+MANUAL_PDF+". It must be placed in the same folder as index.html."));
+  const want=LANG?MANUAL_PDF_EN:MANUAL_PDF_ZH;
+  const alt =LANG?MANUAL_PDF_ZH:MANUAL_PDF_EN;
+  const at=n=>new URL(n, location.href).href;
+  /* file:// 開的時候 fetch 會被同源擋掉,問不到就直接讓瀏覽器去試。 */
+  if(!/^https?:$/.test(location.protocol)){ pullFile(at(want),want); return; }
+  const there=async n=>{
+    try{ return (await fetch(at(n),{method:"HEAD"})).ok; }catch(e){ return false; }
+  };
+  if(await there(want)){ pullFile(at(want),want); return; }
+  if(await there(alt)){
+    pullFile(at(alt),alt);
+    toast(L("這台主機上只有 "+alt+",先給你這一份。",
+            "Only "+alt+" is on this host — downloading that instead."), true);
+    return;
+  }
+  toast(L("找不到 "+want+"。該檔案須與 index.html 置於同一資料夾。",
+          "Cannot find "+want+". It must be placed in the same folder as index.html."));
 });
 $("#rsX")      && ($("#rsX").onclick=()=>closeResiSrc());
 $("#rsClose")  && ($("#rsClose").onclick=()=>closeResiSrc());
