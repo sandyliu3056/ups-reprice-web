@@ -223,8 +223,13 @@ input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   width:7px;height:7px;margin-top:-5px;pointer-events:none;
   border-right:2px solid var(--accent);border-bottom:2px solid var(--accent);
   transform:rotate(45deg)}
-.bkgrid{display:grid;grid-template-columns:1fr 86px 124px 80px;gap:6px 8px;
+.bkhdrow{display:flex;align-items:center;gap:12px}
+.bkadvlab{margin-left:auto;font-size:12px;font-weight:400;color:var(--muted)}
+.bkgrid{display:grid;grid-template-columns:1fr 104px;gap:6px 8px;
   align-items:center;font-size:12.5px}
+.bkgrid.adv{grid-template-columns:1fr 104px 132px}
+/* 留白的格子印的是預設值,用淺色 —— 它不是這條渠道填進去的東西 */
+.bkgrid input.bkv::placeholder{color:var(--muted);opacity:.8}
 .bkgrid .selw{width:100%}
 .bkgrid .selw>select{font-size:12px;padding:5px 26px 5px 10px;border-radius:9px}
 /* 預設門檻沒有「原值」那一欄 —— 這裡填的就是原值本身 */
@@ -1137,7 +1142,9 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 /* 儀表板:所有顏色走 App 的主題變數,切主題整頁跟著變。圓角膠囊風,配合 Scoobi。 */
 #p-dash .dwrap{max-width:1060px;margin:0 auto}
 #p-dash .dhead{margin:0 0 14px;display:flex;align-items:flex-start;gap:12px}
-#p-dash .dhead>button{margin-left:auto}
+/* 按鈕靠右。以前只有一顆按鈕直接掛在 .dhead 底下,加了第二顆之後它們包成
+   一個 span,這條規則就選不到了,兩顆按鈕全部黏在標題後面。 */
+#p-dash .dhead>button,#p-dash .dhead>.dhbtns{margin-left:auto}
 #p-dash .dtitle{font-family:var(--titlefam);font-size:20px;font-weight:700;margin:0;color:var(--accent)}
 #p-dash .dsub{font-size:12.5px;color:var(--muted);margin-top:1px}
 #p-dash .dhbtns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -1564,7 +1571,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <button class="mx" id="bkX">✕</button>
     </div>
     <div class="modalbody">
-      <p class="hint" style="margin:0 0 10px" data-i18n="hint.bulkchan">The fields below start at the current defaults and are ready to edit. Tick one channel and Load to see what that channel actually uses; Apply then writes the fields into every ticked channel. Clear a field to leave that rule untouched; a value equal to the default returns that channel to following the default.</p>
+      <p class="hint" style="margin:0 0 10px" data-i18n="hint.bulkchan">A blank field means the channel follows the default, and the pale number in it is that default; type a number to give the channel its own. Apply writes exactly what is on screen into every ticked channel — a blank clears whatever that channel had. Tick one channel and Load values to see which values it actually overrides.</p>
       <div class="subhd" data-i18n="hd.selchan">Select Channels</div>
       <div class="sketch-soft" style="padding:10px 12px;margin-bottom:12px">
         <div class="row" style="margin-bottom:8px;flex-wrap:wrap;gap:7px">
@@ -1576,7 +1583,9 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         </div>
         <div id="bkChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
       </div>
-      <div class="subhd" data-i18n="hd.valwrite">Values to Write</div>
+      <div class="subhd bkhdrow"><span data-i18n="hd.valwrite">Values to Write</span>
+        <label class="bulkchk bkadvlab"><input type="checkbox" id="bkAdv">
+          <span data-i18n="lb.bkadv">Set on/off too</span></label></div>
       <div class="bkwrap">
         <div class="bkbox sketch-soft">
           <div class="bkhd"><span class="em">📦</span> <span data-i18n="hd.lpsgrp">Large Package (LPS)</span></div>
@@ -5431,17 +5440,18 @@ function bkTicked(){
   return [...document.querySelectorAll(".bkc:checked")].map(c=>c.value);
 }
 function bkNote(m){ const e=$("#bkNote"); if(e) e.textContent=m||""; }
-/* 這是一張「要寫進去什麼」的表單,所以一打開就把目前生效的值填好。
-   以前整片是空白格,空白的意思是「這一項不要動」—— 那個規則只寫在最上面
-   那段說明裡,而畫面上兩個空白控制項並排,看的人只會以為有兩個數值欄。
-   填好之後,要放過哪一項就把那一格清空;有東西可以對照,清空才講得清楚。
-   最右邊那一欄改成只在「這一格和預設不一樣」時才出現值,於是它不再是把
-   旁邊的數字再抄一次,而是回答「我到底改了哪幾項」。 */
-/* [空白, YES, NO] 三個選項在畫面上的字。存進去的值不變。 */
-const BK_USE_ZH=["跟隨預設","要看這條","不看這條"];
-const BK_USE_EN=["Follow default","Check it","Ignore it"];
-/* 一定要是函式:LANG 宣告在這個檔案更後面(在這裡讀它會踩到 TDZ),
-   而且切語言之後它會變 —— 載入時凍成一個常數,切了語言也不會跟著換。 */
+/* 這張表單回答的其實只有一個問題:這條渠道跟隨預設,還是有自己的門檻?
+   那是一個數字加一個「有沒有」,不是三個並排的控制項。所以一列只留一個
+   輸入格:留白就是跟隨預設,而預設值本身用淺色寫在格子裡當提示 —— 想知道
+   自己正在跟隨什麼,不必去別的地方查。填了數字,那就是這條渠道自己的。
+   十一列各配一個「是否採用」下拉,是把最少人動的那件事擺在最前面。它收在
+   「連同啟用狀態」後面,要用再打開。 */
+let BK_ADV=false;
+/* [空白, YES, NO] 三個選項在畫面上的字。存進設定檔的仍然是 YES / NO。
+   一定要是函式:LANG 宣告在這個檔案更後面(在這裡讀它會踩到 TDZ),
+   而且切語言之後它會變。 */
+const BK_USE_ZH=["跟隨預設","啟用","停用"];
+const BK_USE_EN=["Follow default","On","Off"];
 function bkUseLabel(v){
   const i=(v==="YES")?1:(v==="NO"?2:0);
   return (LANG?BK_USE_EN:BK_USE_ZH)[i];
@@ -5453,73 +5463,33 @@ function bkDefOf(g,f,sw){
 function bkFields(box, defs){
   const g=(CFG&&CFG.raw.global_rules)||{};
   /* 重畫時要留住已經填的東西。以前這裡查的是 #bku_<欄位名>,而 select 的
-     id 是 #bku_<開關名> —— 永遠查不到,所以每重畫一次,「是否啟用」選的
-     東西就被打回原狀。 */
+     id 是 #bku_<開關名> —— 永遠查不到,所以每重畫一次就被打回原狀。 */
   const keep={};
   for(const [f,sw] of defs.map(d=>[d[0],d[1]])){
     const v=$("#bkv_"+f); if(v) keep[f]=v.value;
     if(sw){ const u=$("#bku_"+sw); if(u) keep[sw]=u.value; }
   }
-  /* 存進設定檔的仍然是 YES / NO,但畫面上不該出現 YES —— 「啟用:YES」
-     沒有說出啟用的是什麼。這一欄問的是「計價時要不要看這個門檻」,
-     所以選項就照這樣寫。 */
-  const blank=bkUseLabel("");
   const head=`<span class="bkh">${LANG?"Rule":"規則"}</span>`
     +`<span class="bkh">${LANG?"Threshold":"門檻值"}</span>`
-    +`<span class="bkh" title="${esc(LANG
-        ? "Whether this threshold is checked at all when deciding if the surcharge applies. "
-          +"Ignore switches the threshold off; the number beside it is then not used."
-        : "計價判定時要不要看這條門檻。選「不看」就等於把這條門檻關掉,"
-          +"旁邊那個數字不會被用到。")}">${LANG?"In use":"是否採用"}</span>`
-    +`<span class="bkh">${LANG?"Was":"原值"}</span>`;
+    +(BK_ADV?`<span class="bkh">${LANG?"In use":"是否採用"}</span>`:"");
   $(box).innerHTML=head+defs.map(([f,sw,lab])=>{
     const d=bkDefOf(g,f,sw);
-    const val=keep[f]!==undefined?keep[f]:d.v;
-    const uv =sw?(keep[sw]!==undefined?keep[sw]:d.u):"";
-    const sel=sw
-      ? `<span class="selw"><select id="bku_${sw}" data-init="${esc(uv)}">`
-        +`<option value="">${blank}</option>`
+    const val=keep[f]!==undefined?keep[f]:"";
+    const uv =sw?(keep[sw]!==undefined?keep[sw]:""):"";
+    const sel=!BK_ADV?"":(sw
+      ? `<span class="selw"><select id="bku_${sw}">`
+        +`<option value="">${bkUseLabel("")}</option>`
         +`<option value="YES"${uv==="YES"?" selected":""}>${bkUseLabel("YES")}</option>`
         +`<option value="NO"${uv==="NO"?" selected":""}>${bkUseLabel("NO")}</option></select></span>`
-      : `<span class="bkdef">—</span>`;
+      : `<span class="bkdef">—</span>`);
     return `<span>${lab[LANG]}</span>`
-      +`<input class="cell num" id="bkv_${f}" data-init="${esc(val)}" data-def="${esc(d.v)}"`
-      +` value="${esc(val)}" placeholder="${blank}">`
-      +sel
-      +`<span class="bkdef" id="bkd_${f}"></span>`;
+      +`<input class="cell num bkv" id="bkv_${f}" value="${esc(val)}"`
+      +` placeholder="${esc(d.v)}" title="${esc(L(
+          "留白 = 跟隨預設("+d.v+")","Blank = follows the default ("+d.v+")"))}">`
+      +sel;
   }).join("");
   const el=$(box);
-  el.oninput=bkMarkDiff;
-  el.onchange=e=>{
-    const sel=(e.target&&e.target.tagName==="SELECT")?e.target:null;
-    /* 選了「跟隨預設」,門檻也一起帶回預設值 —— 這一列整列交還給預設,
-       而不是開關交還了、數字還留著上一次填的那個。 */
-    if(sel && sel.value===""){
-      const sw=String(sel.id||"").replace(/^bku_/,"");
-      const hit=bkAllDefs().find(d=>d[1]===sw);
-      const inp=hit?$("#bkv_"+hit[0]):null;
-      if(inp) inp.value=inp.dataset.def||"";
-    }
-    bkMarkDiff();
-  };
-}
-/* 哪幾列被改過,以及改之前是什麼。沒動過的留白 —— 整排重複一次旁邊的
-   數字,等於把「我到底改了哪幾項」這個唯一有用的訊息埋掉。
-   這一欄和「套用」寫進去的是同一個判斷:有原值顯示的那幾列才會寫。 */
-function bkChanged(el){
-  if(!el) return false;
-  return String(el.value).trim()!==String(el.dataset.init==null?"":el.dataset.init).trim();
-}
-function bkMarkDiff(){
-  for(const [f,sw] of bkAllDefs().map(d=>[d[0],d[1]])){
-    const out=$("#bkd_"+f); if(!out) continue;
-    const v=$("#bkv_"+f), u=sw?$("#bku_"+sw):null;
-    const bits=[];
-    if(bkChanged(v)) bits.push(String(v.dataset.init||"").trim()||"—");
-    if(bkChanged(u)) bits.push(bkUseLabel(String(u.dataset.init||"").trim()));
-    out.textContent=bits.join(" / ");
-    out.parentNode && 0;
-  }
+  if(el) el.classList.toggle("adv", !!BK_ADV);
 }
 function renderBulkChan(){
   if(!CFG) return;
@@ -5530,7 +5500,6 @@ function renderBulkChan(){
     `<label class="bulkchk"><input type="checkbox" class="bkc" value="${esc(c)}"${
       was.has(c)?" checked":""}> ${esc(c)}</label>`).join("");
   bkFields("#bkLps", BK_LPS); bkFields("#bkAhs", BK_AHS);
-  bkMarkDiff();
 }
 function bkAllDefs(){ return BK_LPS.concat(BK_AHS); }
 /* 勾一條就把它現在的值帶進來,方便照著改。勾多條時不帶 —— 帶誰的都不對。 */
@@ -5539,58 +5508,61 @@ function bulkChanLoad(){
   if(t.length!==1){ bkNote(LANG?"Tick exactly one channel to load from."
                               :"請只勾選一條渠道來帶入現值。"); return; }
   const o=(CFG.raw.channel_rule_overrides||{})[t[0]]||{};
-  const g=CFG.raw.global_rules||{};
-  /* 帶進來的是這條渠道「現在生效」的門檻:有覆寫就用覆寫,沒有就是預設。
-     以前沒有覆寫的欄位帶成空白,而空白的意思是「這一項不要動」—— 於是
-     按下帶入之後,畫面看起來像那條渠道什麼門檻都沒有。 */
+  /* 帶進來的只有「這條渠道自己設過的那幾項」。其餘留白 —— 留白就是跟隨預設,
+     所以這一眼看到的正是它到底自訂了哪幾項,而不是一整片和預設一模一樣的
+     數字要人自己去比對。 */
+  /* 數的是這條渠道實際有的覆寫,不是畫面上有值的格子 —— 「是否採用」那一欄
+     收起來的時候那些 select 根本不存在,照畫面數會少算。 */
+  let own=0;
   for(const [f,sw] of bkAllDefs().map(d=>[d[0],d[1]])){
-    const d=bkDefOf(g,f,sw);
-    const v=$("#bkv_"+f); if(v) v.value=String(o[f]==null?d.v:o[f]);
+    if(o[f]!=null) own++;
+    if(sw && o[sw]!==undefined && o[sw]!=="") own++;
+    const v=$("#bkv_"+f);
+    if(v) v.value=(o[f]==null?"":String(o[f]));
     if(sw){ const u=$("#bku_"+sw);
-      if(u) u.value=(o[sw]===undefined||o[sw]==="")?d.u:(ruleBool(o[sw])?"YES":"NO"); }
+      if(u) u.value=(o[sw]===undefined||o[sw]==="")?"":(ruleBool(o[sw])?"YES":"NO"); }
   }
-  /* 帶進來的那一份就是新的基準。不重設的話,按一下「帶入現值」會讓整張表
-     的每一列都算成「被改過」,接著套用就把整組值寫進所有勾選的渠道。 */
-  for(const [f,sw] of bkAllDefs().map(d=>[d[0],d[1]])){
-    const v=$("#bkv_"+f); if(v) v.dataset.init=v.value;
-    if(sw){ const u=$("#bku_"+sw); if(u) u.dataset.init=u.value; }
-  }
-  bkMarkDiff();
-  bkNote((LANG?"Loaded from ":"已帶入 ")+t[0]);
+  bkNote(L("已帶入 "+t[0]+" —— 它自訂了 "+own+" 項,其餘跟隨預設",
+           "Loaded "+t[0]+" — "+own+" value"+(own===1?"":"s")+" of its own, the rest follow the default"));
 }
 function bulkChanApply(){
   const t=bkTicked();
   if(!t.length){ bkNote(LANG?"Tick at least one channel first.":"請先勾選至少一條渠道。"); return; }
   const g=CFG.raw.global_rules||{};
   const c=CFG.raw.channel_rule_overrides||(CFG.raw.channel_rule_overrides={});
-  let n=0;
+  let set=0, clr=0;
   for(const ch of t){
     const o=c[ch]||(c[ch]={});
-    /* 只動改過的那幾列。欄位現在一打開就填好目前的值,要是照舊「有填就寫」,
-       勾一條渠道按下套用就會把它其他所有覆寫一起洗掉 —— 那幾格明明沒人碰過。
-       清空一格 = 那一項交還給預設,和填成跟預設一樣的效果相同。 */
+    /* 畫面上是什麼,寫進去就是什麼 —— 這張表單叫「要寫入的值」,那它列出來的
+       就該是套用之後那條渠道會長的樣子。留白 = 跟隨預設,所以留白的那幾項會
+       把該渠道原本的自訂值清掉;填了數字就設成那個數字,填得和預設一樣也是
+       交還給預設(留一個和預設相同的自訂值,只會在下次改預設時變成暗雷)。
+       「是否採用」那一欄沒打開的時候完全不碰,不然收起來的東西會被默默清掉。 */
     for(const [f,sw] of bkAllDefs().map(d=>[d[0],d[1]])){
       const el=$("#bkv_"+f);
-      if(bkChanged(el)){
-        const raw=String(el.value).trim();
-        if(raw===""||toNum(raw)===toNum(g[f])) delete o[f]; else o[f]=raw;
-        n++;
+      if(el){
+        const raw=String(el.value).trim(), had=o[f]!==undefined;
+        if(raw===""||toNum(raw)===toNum(g[f])){ if(had){ delete o[f]; clr++; } }
+        else if(String(o[f])!==raw){ o[f]=raw; set++; }
       }
-      if(sw){ const u=$("#bku_"+sw);
-        if(bkChanged(u)){
-          const uv=u.value, want=uv==="YES";
-          if(uv===""||want===(ruleBool(g[sw])!==false)) delete o[sw]; else o[sw]=uv;
-          n++;
-        } }
+      if(sw){
+        const u=$("#bku_"+sw);
+        if(u){
+          const uv=u.value, had=o[sw]!==undefined;
+          if(uv===""||((uv==="YES")===(ruleBool(g[sw])!==false))){ if(had){ delete o[sw]; clr++; } }
+          else if(String(o[sw])!==uv){ o[sw]=uv; set++; }
+        }
+      }
     }
     if(!Object.keys(o).length) delete c[ch];
   }
-  if(!n){ bkNote(LANG?"No rule was changed, so nothing was written."
-                     :"沒有改動任何一項,所以什麼都沒寫入。"); return; }
+  if(!set&&!clr){ bkNote(L("勾選的渠道本來就是這個樣子,沒有東西需要改。",
+                           "The ticked channels already look like this; nothing to change."));
+    return; }
   CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs(); renderBulkChan();
   if(saveSettings())
-    toast((LANG?"Thresholds written to ":"門檻已寫入 ")+t.length
-      +(LANG?" channel(s), saved":" 條渠道,已儲存"), true);
+    toast(L("已寫入 "+set+" 項、清除 "+clr+" 項,共 "+t.length+" 條渠道",
+            "Set "+set+", cleared "+clr+", across "+t.length+" channel"+(t.length===1?"":"s")), true);
   bkNote("");
 }
 function bulkChanClear(){
@@ -5609,6 +5581,7 @@ $("#bBulkChan") && ($("#bBulkChan").onclick=openBulkChan);
 $("#bkX") && ($("#bkX").onclick=()=>$("#bkBg").classList.remove("on"));
 $("#bkClose") && ($("#bkClose").onclick=()=>$("#bkBg").classList.remove("on"));
 $("#bkBg") && ($("#bkBg").onclick=e=>{ if(e.target===$("#bkBg")) $("#bkBg").classList.remove("on"); });
+$("#bkAdv") && ($("#bkAdv").onchange=()=>{ BK_ADV=$("#bkAdv").checked; renderBulkChan(); });
 $("#bkAll") && ($("#bkAll").onclick=()=>document.querySelectorAll(".bkc").forEach(c=>c.checked=true));
 $("#bkNone") && ($("#bkNone").onclick=()=>document.querySelectorAll(".bkc").forEach(c=>c.checked=false));
 $("#bkLoad") && ($("#bkLoad").onclick=bulkChanLoad);
@@ -8187,7 +8160,10 @@ function dashBarHTML(){
     ? `<input id="dashFind" class="dmfind" type="search" autocomplete="off"
         placeholder="${L("輸入期號或日期篩選…","Filter by number or date…")}"
         aria-label="${L("篩選帳單期別","Filter invoices")}">` : "";
+  /* 篩選排在期別前面:先決定看哪個帳號、哪一段期間,再從剩下的裡面挑一期。
+     反過來擺,等於要人先挑完再去縮小挑選範圍。 */
   return `<div class="dbar" id="dashPick">
+    ${dashPickFilters(all)}
     <span class="dbl">${L("帳單期別","Invoice")}</span>
     <div class="dselw">
       <button type="button" class="dsel" id="dashSel" aria-haspopup="listbox"
@@ -8205,7 +8181,6 @@ function dashBarHTML(){
           odd+" filed entr"+(odd>1?"ies":"y")+" had no invoice-shaped number — usually a file that imported with the wrong columns. Not listed here; clear them from Invoice History → Stored Invoices.")}</div>`:""}
       </div>
     </div>
-    ${dashPickFilters(all)}
     ${hint}
     <span class="dchips" id="dashChips">${chips.map(([k,v])=>
       `<span class="dchip">${esc(k)} <b>${esc(v)}</b></span>`).join("")}</span>
@@ -10759,7 +10734,7 @@ const I18N={
   "btn.bulkchan":["批量設定渠道","Bulk Set Channels"],
   "hd.lpsgrp":["大包裹 (LPS)","Large Package (LPS)"],
   "hd.ahsgrp":["額外處理 (AHS)","Additional Handling (AHS)"],
-  "hint.bulkchan":["下面填的是目前的預設值,可以直接改。勾一條渠道按「帶入現值」會換成那條渠道現在生效的門檻;改完按「套用到勾選的渠道」寫進去。要放過某一項,把那一格清空即可;填成和預設一樣,就是把那條渠道交還給預設。","The fields below start at the current defaults and are ready to edit. Tick one channel and Load to see what that channel actually uses; Apply then writes the fields into every ticked channel. Clear a field to leave that rule untouched; a value equal to the default returns that channel to following the default."],
+  "hint.bulkchan":["留白的欄位表示這條渠道跟隨預設,格子裡的淺色數字就是那個預設值;填了數字,那就是這條渠道自己的門檻。按「套用」會把畫面上這一整組寫進所有勾選的渠道 —— 留白的會把該渠道原本的自訂值清掉。勾一條渠道按「帶入現值」,就看得出它目前自訂了哪幾項。","A blank field means the channel follows the default, and the pale number in it is that default; type a number to give the channel its own. Apply writes exactly what is on screen into every ticked channel — a blank clears whatever that channel had. Tick one channel and Load values to see which values it actually overrides."],
   "hd.bulkdim":["批量設定 DIM 除數","Bulk Set DIM Factor"],
   "hd.dimforce":["生效中的 DIM 除數","DIM Factors in Force"],
   "hint.bulkdim":["勾選渠道、填入除數、套用。留空等於清除該渠道的設定,改回沿用預設。","Tick channels, type a divisor, apply. Blank clears the override and follows the global one."],
@@ -10837,6 +10812,7 @@ const I18N={
     "This browser only. A colleague's activity stays on their machine — have them export it, then import it here to merge."],
   "hd.selchan":["選擇渠道","Select Channels"],
   "hd.valwrite":["要寫入的值","Values to Write"],
+  "lb.bkadv":["連同啟用狀態","Set on/off too"],
   "btn.selall":["全選","Select All"],
   "btn.selnone":["取消全選","Deselect All"],
   "btn.applyticked":["套用","Apply"],
