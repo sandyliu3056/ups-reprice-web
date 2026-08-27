@@ -1875,6 +1875,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="modalbody">
       <div class="dfilters" id="stFilters"></div>
       <div class="strow" id="stSum"></div>
+      <div id="stJunk" class="hint" style="color:var(--neg);display:none"></div>
       <div id="stStorage" class="storagebox"></div>
       <div class="tablewrap" style="max-height:52vh"><table id="tStored"><thead><tr>
         <th style="width:34px"><input type="checkbox" class="stcAll" id="stAll" title="Select all"></th>
@@ -7034,9 +7035,24 @@ function renderStored(){
               all.length.toLocaleString()}</span>`:""))
     + stat(LANG?"Rows":"帳單筆數", allRows.toLocaleString())
     + stat(LANG?"Trackings":"追蹤號", allTrk.toLocaleString());
+  /* 期號欄不是期號的那幾筆,不是帳單 —— 曾經有人把重計價報表當帳單匯進來,
+     整份報表就以「Ground Commercial」之類的渠道名在這張清單上佔一格。
+     匯出時已經跳過它們,但它們還佔著瀏覽器的空間,所以這裡標出來讓人刪。 */
+  const bad=list.filter(([k])=>!looksLikeInvoiceNo(k)).map(([k])=>k);
+  const jn=$("#stJunk");
+  if(jn){
+    jn.style.display=bad.length?"":"none";
+    jn.innerHTML=bad.length
+      ? `⚠ ${L(`有 ${bad.length} 筆不是帳單資料(期號欄不是期號)。匯出時已自動跳過,刪掉可以把空間還回來。`,
+               `${bad.length} entr${bad.length>1?"ies are":"y is"} not invoice data — the invoice-number column does not hold an invoice number. The export already skips them; deleting frees the space.`)
+         } <button class="act ghost" id="stPickJunk" style="padding:2px 10px;font-size:12px">${
+             L("勾選這幾筆","Select them")}</button>`
+      : "";
+  }
   $("#tStored").tBodies[0].innerHTML = list.length
     ? list.map(([k,v])=>`<tr><td><input type="checkbox" class="stc" value="${esc(k)}"></td>
-        <td>${esc(k)}</td><td>${esc(normYmd(v.date)||v.date||"—")}</td>
+        <td>${esc(k)}${looksLikeInvoiceNo(k)?"":` <span class="pill no">${
+          L("不是帳單","Not an invoice")}</span>`}</td><td>${esc(normYmd(v.date)||v.date||"—")}</td>
         <td>${(v.rows||0).toLocaleString()}</td><td>${(v.trk||0).toLocaleString()}</td>
         <td>${esc((v.at||"").replace("T"," "))}</td>
         <td><button class="act ghost stRe" data-inv="${esc(k)}" style="padding:3px 11px;font-size:12px">${
@@ -7046,6 +7062,11 @@ function renderStored(){
           ? L("沒有符合篩選條件的期別。","No invoice matches the filters.")
           : L("還沒有任何帳單存進歷史。","No invoices filed yet.")}</td></tr>`;
   const chk=$("#stAll"); if(chk) chk.checked=false;
+  const pick=$("#stPickJunk");
+  if(pick) pick.onclick=()=>{
+    document.querySelectorAll(".stc").forEach(c=>{ if(bad.indexOf(c.value)>=0) c.checked=true; });
+    stPaintDelete();
+  };
   stPaintDelete();
   renderStorageMeter();
 }
