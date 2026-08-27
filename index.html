@@ -2565,11 +2565,13 @@ const ACC_CODE_MAP = {
      NPF(未傳送 PLD 手續費)是可以向客戶收的服務性費用 —— 附加費費率表
        填了金額就照合約收,沒填就照 UPS 實收轉嫁。留空是合理的預設:UPS
        每年調這筆費率,填死一個數字明年就過期了。
-     SCF(運費更正費)只列出、不計入重算總額。
-     兩者 UPS 都不收燃油(實帳單那幾筆 NPF 同一層連 FSC 行都沒有),
+     SCF(運費更正費)重算側完全不碰:不收,也不在重算那一側列出。代碼還是
+       認得的(有 fee 欄),所以 UPS 那一側照樣歸在「運費更正費」這一塊,
+       不會掉進「未知代碼」。
+     NPF 那筆 UPS 不收燃油(實帳單那幾筆同一層連 FSC 行都沒有),
      所以也不進燃油底。 */
   NPF:{fee:"Missing PLD Fee",         ups_fallback:true, nofuel:true},
-  SCF:{fee:"Shipping Correction Fee", info:true,         nofuel:true},
+  SCF:{fee:"Shipping Correction Fee", skip:true},
   /* 地址更正。多數帳單寫在 ADJ 的明細碼欄(AJ),scanCharges 另外處理;
      少數版本會直接寫在描述代碼欄,所以這裡也留一條。 */
   ADC:{fee:"Address Correction"},
@@ -2800,9 +2802,10 @@ function scanCharges(lines, dynMap, fuelOff){
         if(cm.marker==="commercial_adj") commercialAdj=true;
         continue;                     /* 標記行,不是可計價的附加費 */
       }
+      /* 認得、但重算側不收也不列的代碼。要在建桶之前就走掉:一旦進了
+         seen/net,計價那邊就會給它一欄。 */
+      if(cm.skip) continue;
       bucket=cm.fee;
-      /* 只列出、不進總額的:借用自訂附加費 REPORT ONLY 那條路。 */
-      if(cm.info&&bucket) dynMode[bucket]="REPORT ONLY";
       if(cm.nofuel&&bucket) nonFuel.add(bucket);
       if(cm.res&&bucket) resBucket.add(bucket);
     }
@@ -5286,7 +5289,9 @@ const ACC_FLAT_FEES=["DAS Commercial","DAS Residential","DAS Extended Commercial
   "Remote Area - AK","Remote Area - HI","Residential Surcharge","Return To Sender",
   "Reroute","Reschedule Delivery","Returns Electronic Label","Returns Print Label",
   "Signature","Adult Signature","Package Protection","Address Correction",
-  "Direct Delivery Only","Over Maximum Size Surcharge"];
+  "Direct Delivery Only","Over Maximum Size Surcharge",
+  /* 新加的排在最後 —— 前面那一段的順序要和桌面版的模板對得起來。 */
+  "Missing PLD Fee"];
 function feeDisplay(k){ const n=String(k||"").trim(); return FEE_DISPLAY[n]||n; }
 function feeKey(d){ const n=String(d||"").trim(); return FEE_KEY_BY_DISPLAY[n]||n; }
 
@@ -11148,6 +11153,7 @@ function codeHandling(c){
   if(MAIN_LINE.has(c))    return LANG?"Freight / fuel main line":"走運費與燃油主線";
   if(ACC_CODE_MAP[c]){
     const m=ACC_CODE_MAP[c];
+    if(m.skip)   return LANG?"Not repriced":"不列入重算";
     if(m.marker) return LANG?"Marker line":"標記行";
     return m.fee;
   }
@@ -11332,8 +11338,34 @@ $("#bCsv").onclick=async ()=>{
     used.add(name); return name;
   };
 
-  const DET=["Invoice Number","Invoice Date","Tracking","Billed amount","UPS","Profit","Margin"];
-  const OV=["Invoice Number","Invoice Date","UPS","Charge Customer","Profit","Margin"];
+  /* 版面和其他活頁簿同一套:米色標題、黃色合計、負數紅字、日期是真的日期。 */
+  const MONEY="$#,##0.00", PCT="0.0%", DATE="mm/dd/yyyy";
+  const HEAD="E8E2D6", SUM="FFF2CC", RED="C00000";
+  const serial=d=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(schedDate(String(d||""))||"");
+    return m?Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000):null;
+  };
+  const hc=(v,align)=>({v:v,t:"s",
+    s:{bold:true,fill:HEAD,align:align||"center",border:true,wrap:true}});
+  const tx=(v,align)=>({v:v==null?"":String(v),t:"s",s:{align:align||"left",border:true}});
+  const wr=v=>({v:v==null?"":String(v),t:"s",s:{align:"left",border:true,wrap:true}});
+  const nm=(v,fmt,extra)=>({v:toNum(v),t:"n",
+    s:Object.assign({fmt:fmt||MONEY,align:"right",border:true,
+                     color:toNum(v)<0?RED:undefined}, extra||{})});
+  const dc=v=>{ const n=serial(v);
+    return n===null?tx(v,"center"):{v:n,t:"n",s:{fmt:DATE,align:"center",border:true}}; };
+  const ft=(v,fmt)=>({v:typeof v==="number"?v:String(v==null?"":v),
+    t:typeof v==="number"?"n":"s",
+    s:{bold:true,fill:SUM,border:true,fmt:typeof v==="number"?(fmt||MONEY):undefined,
+       align:typeof v==="number"?"right":"left",
+       color:(typeof v==="number"&&v<0)?RED:undefined}});
+
+  const nLines=n=>L(n+" 筆", n+(n===1?" line":" lines"));
+  const DET=[L("期號","Invoice Number"),L("帳單日","Invoice Date"),L("追蹤號","Tracking"),
+             L("向客戶收","Billed amount"),"UPS",L("毛利","Profit"),L("毛利率","Margin")];
+  const OV=[L("期號","Invoice Number"),L("帳單日","Invoice Date"),"UPS",
+            L("向客戶收","Charge Customer"),L("毛利","Profit"),L("毛利率","Margin")];
+  const DCOL=[{w:20},{w:12},{w:22},{w:14},{w:14},{w:14},{w:10}];
   const sheets=[]; const ovRows=[];
   for(const inv of Object.keys(byInv).sort()){
     const ts=byInv[inv];
@@ -11342,70 +11374,88 @@ $("#bCsv").onclick=async ()=>{
       /* 先進位再算 —— Margin 要和同一列印出來的 Billed amount / Profit
          對得起來,拿未進位的金額去除會得出一個對不上的百分比。 */
       const sv=r2(sell[t]||0), cv=r2(cost[t]||0);
-      return [inv,date,t,sv,cv,r2(sv-cv),sv?r6((sv-cv)/sv):0];
+      return [tx(inv),dc(date),tx(t),nm(sv),nm(cv),nm(r2(sv-cv)),
+              nm(sv?r6((sv-cv)/sv):0,PCT)];
     });
-    sheets.push({name:sheetNameFor(date,inv), aoa:[DET,...rows]});
     /* 逐列先進位到分再加總 —— Overview 要等於明細那一張加起來,
        先加後進位會差幾分,對帳單上那是說不清楚的錢。 */
     const sv=ts.reduce((a,t)=>a+r2(sell[t]||0),0), cv=ts.reduce((a,t)=>a+r2(cost[t]||0),0);
+    sheets.push({name:sheetNameFor(date,inv),
+      rows:[DET.map((h,i)=>hc(h,i<3?"left":"center")), ...rows,
+            [ft(L("合計","Total")),ft(""),ft(nLines(ts.length)),
+             ft(r2(sv)),ft(r2(cv)),ft(r2(sv-cv)),ft(sv?r6((sv-cv)/sv):0,PCT)]],
+      cols:DCOL, freeze:{r:1,c:0}});
     ovRows.push([inv,date,r2(cv),r2(sv),r2(sv-cv),sv?r6((sv-cv)/sv):0]);
   }
-  sheets.push({name:"Overview", aoa:[OV,...ovRows]});
+  const ovS=ovRows.reduce((a,r)=>a+r[3],0), ovC=ovRows.reduce((a,r)=>a+r[2],0);
+  sheets.push({name:"Overview",
+    rows:[OV.map((h,i)=>hc(h,i<2?"left":"center")),
+          ...ovRows.map(r=>[tx(r[0]),dc(r[1]),nm(r[2]),nm(r[3]),nm(r[4]),nm(r[5],PCT)]),
+          [ft(L("合計","Total")),ft(""),ft(r2(ovC)),ft(r2(ovS)),ft(r2(ovS-ovC)),
+           ft(ovS?r6((ovS-ovC)/ovS):0,PCT)]],
+    cols:[{w:20},{w:12},{w:14},{w:16},{w:14},{w:10}], freeze:{r:1,c:0}});
 
-  const other=accountRows.map(a=>[a.tracking,"account charge (no tracking)",
-      a.desc,a.code,a.note,a.amount]);
-  for(const t of noCost)
-    other.push([t,"billed to client, not on invoice","","",noteBy[t]||"",r2(sell[t]||0)]);
-  for(const t of notBilled)
-    other.push([t,"on invoice, not billed to client","","",noteBy[t]||"",r2(cost[t]||0)]);
-  if(other.length)
-    sheets.push({name:"Account Charges",
-      aoa:[["Tracking","Type","Charge Description","Code","UPS Note","Amount"],...other]});
+  /* ---- 對不起來的錢 ------------------------------------------------------
+     三種完全不同的東西,以前疊在同一張平表上,靠一欄重複二十幾次的英文句子
+     分辨,而那一欄的每一格都一樣。改成三個區塊:每塊自己的標題(帶筆數與
+     小計)、自己的欄名,欄位的意思因此可以不一樣 —— 帳號層級那塊第三欄是
+     收費代碼,追蹤號那兩塊第三欄是期號,不再有整欄空白。
+     UPS 的備註是一整句大寫英文,壓成一個短標籤放在「原因」欄,原文留在
+     備註欄自動換行 —— 認不出來的就留白,猜一個標籤比留白更糟。 */
+  const whyOf=(note,desc,code)=>{
+    const u=(String(note||"")+" "+String(desc||"")).toUpperCase();
+    const c=String(code||"").toUpperCase();
+    if(u.includes("AUDIT FEE")) return L("運費更正稽核費","Correction audit fee");
+    if(u.includes("GOODWILL"))
+      return u.includes("LARGE PACKAGE")
+        ? L("大型包裹附加費 · 善意退款","Large package surcharge · goodwill credit")
+        : L("善意退款","Goodwill credit");
+    if(u.includes("MISSING PLD")) return L("未傳送 PLD","Missing PLD");
+    if(c==="FSC"||u.includes("FUEL SURCHARGE")) return L("燃油附加費","Fuel surcharge");
+    if(c==="205"||u.includes("SERVICE CHARGE")) return L("服務費","Service charge");
+    if(u.includes("BILLING ADJUSTMENT")) return L("週結帳務調整","Weekly billing adjustment");
+    return "";
+  };
+  const oRows=[], oMerges=[];
+  const blockOf=(title, head, rows)=>{
+    if(!rows.length) return;
+    if(oRows.length) oRows.push([]);                 /* 區塊之間空一列 */
+    const r0=oRows.length;
+    const total=rows.reduce((a,r)=>a+toNum(r[4].v),0);
+    const cap={v:"",t:"s",s:{fill:SUM,border:true}};
+    oRows.push([{v:title+" · "+nLines(rows.length),t:"s",
+                 s:{bold:true,fill:SUM,align:"left",border:true}},
+                cap,cap,cap,ft(r2(total))]);
+    oMerges.push({s:{r:r0,c:0},e:{r:r0,c:3}});
+    oRows.push(head.map((h,i)=>hc(h,i===4?"center":"left")));
+    for(const r of rows) oRows.push(r);
+  };
+  blockOf(L("帳號層級費用","Account-level charges"),
+    [L("收費說明","Charge description"),L("原因","Reason"),L("代碼","Code"),
+     L("UPS 備註","UPS note"),L("金額","Amount")],
+    accountRows.map(a=>[tx(a.desc),tx(whyOf(a.note,a.desc,a.code)),tx(a.code,"center"),
+                        wr(a.note),nm(a.amount)]));
+  blockOf(L("帳單上有、報表上沒有","On invoice, not billed to client"),
+    [L("追蹤號","Tracking"),L("原因","Reason"),L("期號","Invoice"),
+     L("UPS 備註","UPS note"),L("成本","Cost")],
+    notBilled.map(t=>[tx(t),tx(whyOf(noteBy[t],"","")),tx(invNo[t]||"","center"),
+                      wr(noteBy[t]||""),nm(r2(cost[t]||0))]));
+  blockOf(L("報表上有、帳單上沒有","Billed to client, not on invoice"),
+    [L("追蹤號","Tracking"),L("原因","Reason"),L("期號","Invoice"),
+     L("UPS 備註","UPS note"),L("向客戶收","Charged")],
+    noCost.map(t=>[tx(t),tx(whyOf(noteBy[t],"","")),tx(invNo[t]||"","center"),
+                   wr(noteBy[t]||""),nm(r2(sell[t]||0))]));
+  if(oRows.length)
+    sheets.push({name:"Account Charges", rows:oRows, merges:oMerges,
+                 cols:[{w:32},{w:30},{w:11},{w:58},{w:14}]});
 
-  const ok=await saveStatement(sheets, baseName("_Statement.xlsx"));
+  const ok=await xlWrite(sheets, baseName("_Statement.xlsx"));
   const tSell=repKeys.reduce((a,t)=>a+r2(sell[t]||0),0);
   const tCost=invKeys.reduce((a,t)=>a+r2(cost[t]||0),0)+accountTotal;
   setStatus(ok?((LANG?"Statement exported: ":"對帳單已匯出:")+ovRows.length
                 +(LANG?" invoice sheet(s), profit ":" 期,利潤 ")+money(tSell-tCost))
              :L("已取消存檔","Save cancelled"));
 };
-
-/* 多張工作表的對帳單。Margin 走百分比格式、金額兩位小數、
-   期別日期寫成真的日期,標題列凍結 —— 和桌面版那份一致。 */
-function saveStatement(sheets, fname){
-  return loadXLSX().then(X=>{
-    const wb=X.utils.book_new();
-    for(const sh of sheets){
-      const ws=X.utils.aoa_to_sheet(sh.aoa);
-      const head=sh.aoa[0]||[];
-      const ref=X.utils.decode_range(ws["!ref"]);
-      head.forEach((h,c)=>{
-        let fmt=null;
-        if(h==="Margin") fmt="0.00%";
-        else if(["Billed amount","UPS","Profit","Charge Customer","Amount","Net Amount"].includes(h))
-          fmt="#,##0.00";
-        else if(h==="Invoice Date") fmt="mm/dd/yyyy";
-        else return;
-        for(let r=1;r<=ref.e.r;r++){
-          const cell=ws[X.utils.encode_cell({r:r,c:c})];
-          if(!cell) continue;
-          if(h==="Invoice Date"){
-            const iso=typeof cell.v==="string"?schedDate(cell.v):"";
-            const m=iso&&/^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-            if(m){
-              cell.v=Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000);
-              cell.t="n";
-            }
-          }
-          if(typeof cell.v==="number") cell.z=fmt;
-        }
-      });
-      X.utils.book_append_sheet(wb, ws, sh.name);
-    }
-    return dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
-      {type:"application/octet-stream"}), fname);
-  });
-}
 
 /* 桌面版 _SERVICE_PATTERNS 的完整移植(:16811-16888)。順序就是規則:
    normalize_service 回傳第一個命中的,所以「next day air early」一定要
