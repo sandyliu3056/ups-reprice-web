@@ -404,7 +404,26 @@ td.cells{white-space:normal}
 @media(max-width:700px){.bulkwrap{grid-template-columns:1fr}}
 .bulkbox{padding:10px 12px}
 .bulkhd{font-weight:600;color:var(--accent);font-size:13px;margin-bottom:7px}
-.bulkchk{display:flex;align-items:center;gap:6px;font-size:12.5px;padding:2px 0}
+.bulkchk{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:2px 0}
+/* 原生的勾選框是作業系統畫的:藍色方塊、大小不隨主題走,擺在這些面板裡
+   是唯一一個不屬於這頁的東西。自己畫一個,勾起來用主題色。 */
+.chkgrid input[type="checkbox"],.bulkchk input[type="checkbox"]{
+  appearance:none;-webkit-appearance:none;flex:none;margin:0;
+  width:15px;height:15px;border:2px solid var(--line);border-radius:5px;
+  background:var(--panel);cursor:pointer;position:relative;
+  transition:background .12s,border-color .12s}
+.chkgrid input[type="checkbox"]:hover,.bulkchk input[type="checkbox"]:hover{
+  border-color:var(--accent)}
+.chkgrid input[type="checkbox"]:checked,.bulkchk input[type="checkbox"]:checked{
+  background:var(--accent);border-color:var(--accent)}
+.chkgrid input[type="checkbox"]:checked::after,
+.bulkchk input[type="checkbox"]:checked::after{
+  content:"";position:absolute;left:3px;top:0;width:4px;height:8px;
+  border-right:2px solid var(--tab);border-bottom:2px solid var(--tab);
+  transform:rotate(42deg)}
+.chkgrid input[type="checkbox"]:focus-visible,
+.bulkchk input[type="checkbox"]:focus-visible{
+  outline:3px solid var(--run2);outline-offset:2px}
 .bulkval{display:grid;grid-template-columns:minmax(0,1fr) 86px;
   align-items:center;gap:8px;font-size:12px;padding:3px 0}
 .bulkval label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -525,6 +544,12 @@ td.cells{white-space:normal}
 #p-dash .th2 span{font-weight:400;color:var(--muted);margin-left:8px;font-size:11.5px}
 #p-dash .tplotarea{display:flex;align-items:stretch;gap:5px;height:132px;
   padding:0 2px;border-bottom:1px solid var(--line);position:relative}
+/* 平均線的標籤貼在右端,而右端正好是最後幾根長條 —— 它就這樣蓋在資料上。
+   右邊留一條固定寬度的空白給它,長條只畫在 .tcols 裡面;折線的座標也是
+   照 .tcols 算的,所以線和點仍然對得上。 */
+#p-dash .tcols{flex:1 1 auto;min-width:0;display:flex;align-items:stretch;
+  gap:5px;position:relative}
+#p-dash .tgut{flex:0 0 78px}
 #p-dash .tlabels{display:flex;gap:5px;padding:4px 2px 0}
 /* 只有三四期的時候別讓柱子撐成一整面牆 —— 那讀起來是色塊,不是趨勢。 */
 #p-dash .tcol{flex:1 1 0;min-width:0;max-width:96px;
@@ -1264,12 +1289,17 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .atbl tfoot td{border-top:2px solid var(--line);border-bottom:none;
   font-family:var(--titlefam);font-weight:700;padding-top:9px;color:var(--accent)}
 #p-dash .atbl tfoot td.ak{font-size:12px}
-#p-dash .abar{width:96px;padding-left:0!important}
-#p-dash .abartrack{height:9px;border-radius:999px;overflow:hidden;
-  background:color-mix(in srgb,var(--line) 40%,var(--panel));position:relative}
-#p-dash .abarfill{height:100%;border-radius:999px;background:var(--run2);width:0;
-  transition:width .7s cubic-bezier(.34,1.25,.5,1)}
-#p-dash .abarfill.neg{background:var(--neg)}
+#p-dash .abar{width:104px;padding-left:0!important}
+#p-dash .abartrack{height:10px;border-radius:999px;position:relative;
+  background:color-mix(in srgb,var(--line) 40%,var(--panel))}
+/* 中線是零。長條全部從左邊起跑、只靠顏色分賺賠的話,要一格一格看顏色才
+   知道哪幾期在虧;跨不跨過中線是形狀,掃一眼就看得到。 */
+#p-dash .abartrack::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;
+  width:1px;background:var(--line)}
+#p-dash .abarfill{position:absolute;top:0;bottom:0;width:0;border-radius:999px;
+  background:var(--run2);transition:width .7s cubic-bezier(.34,1.25,.5,1)}
+#p-dash .abarfill.pos{left:50%}
+#p-dash .abarfill.neg{right:50%;background:var(--neg)}
 #p-dash .aprog{padding:26px 14px;text-align:center;color:var(--muted);font-size:13px;line-height:1.8}
 #p-dash .aprog b{color:var(--accent);font-family:var(--titlefam)}
 #p-dash .aprogtrack{max-width:320px;margin:11px auto 0;height:7px;border-radius:999px;overflow:hidden;
@@ -7164,10 +7194,23 @@ function reportRows(){
        「本頁數字與匯出報表一致」。在這裡取捨完,底下每一個用這份資料的
        地方(儀表板、Repriced 活頁簿、利潤報表)拿到的就是同一組數字。 */
     for(const c of REPORT_MONEY) o[c]=cents(o[c]);
-    /* Total 是這一列費用欄的和,不是另外算出來的一個數字。兩邊各算一次、
-       又只有一邊取捨到分,同一列就會出現「各欄加起來 ≠ Total」——
-       那張活頁簿是要給客戶的,他們會自己拉一次加總。 */
-    o["Total"]=cents(REPORT_MONEY.reduce((a,c)=>a+toNum(o[c]),0));
+    /* Total 用引擎算出來的金額(和桌面版同一個數字),不是把取捨過的費用欄
+       再加一次 —— round(a+b+c) 和 round(a)+round(b)+round(c) 不一定相等,
+       這一列差一分,699 列就差了四毛五。
+       兩者都要成立:Total 是引擎的數,而費用欄加起來要等於 Total ——
+       那張活頁簿是要給客戶的,他們會自己拉一次加總。所以那一分放進這一列
+       金額最大的那一欄(通常是運費或燃油),一分錢落在四位數上看不出來,
+       而「各欄加起來 ≠ Total」是看得出來的。
+       差超過五分就不是取捨造成的,那是真的有錢對不上 —— 不要把它抹平,
+       Total 照引擎寫,差額留在那裡讓人看得到。 */
+    const want=cents(r.total==null?0:r.total);
+    const off=cents(want-cents(REPORT_MONEY.reduce((a,c)=>a+toNum(o[c]),0)));
+    if(Math.abs(off)>=0.005 && Math.abs(off)<0.05){
+      let big="", bv=0;
+      for(const c of REPORT_MONEY){ const v=Math.abs(toNum(o[c])); if(v>bv){ bv=v; big=c; } }
+      if(big) o[big]=cents(toNum(o[big])+off);
+    }
+    o["Total"]=want;
     return o;
   });
 }
@@ -7435,14 +7478,25 @@ function moneyShort(v){
 function acctNorm(v){
   return String(v||"").trim().replace(/^0+/,"").toUpperCase();
 }
+/* UPS 的期號是「前導零 + 六碼帳號 + 三碼流水號」,而帳號本身可以有數字:
+   000000586Y51326 的帳號是 586Y51,流水號是 326。把結尾的數字整串砍掉,
+   會連帳號尾巴的 51 一起砍掉,推出來的變成 586Y —— 少了兩碼的帳號。
+   對得上這個格式就只砍固定的三碼;對不上就不猜,寧可讓那一期沒有帳號,
+   也不要給一個看起來像帳號的錯字串。 */
+const INV_KEY_RE=/^0+[0-9A-Z]{6}\d{3}$/;
+function acctFromInvoice(k){
+  const s=String(k||"").trim().toUpperCase();
+  if(INV_KEY_RE.test(s)) return s.slice(0,-3).slice(-6);
+  const stem=acctNorm(s).replace(/\d+$/,"");
+  return stem.length===6?stem:"";
+}
 function dashAcctOf(p){
   const a=String((p&&p.acct)||"").trim();
   if(a) return {id:acctNorm(a), guessed:false};
   const k=String((p&&p.key)||"").trim();
-  const stem=acctNorm(k).replace(/\d+$/,"");
-  /* 去掉結尾數字之後什麼都不剩,表示這個期號整串都是數字 —— 那推不出帳號。
-     退回 k 的話,每一期都會變成自己一個「帳號」:帳號欄每列不同、走勢圖
-     每根柱子一個顏色、折線永遠連不起來。推不出來就說推不出來。 */
+  const stem=acctFromInvoice(k);
+  /* 推不出來就說推不出來。退回整個期號的話,每一期都會變成自己一個
+     「帳號」:帳號欄每列不同、走勢圖每根柱子一個顏色、折線永遠連不起來。 */
   if(!stem) return {id:"", guessed:false};
   return {id:stem, guessed:true};
 }
@@ -7611,14 +7665,15 @@ function dashAllHTML(all){
       +`<td colspan="7">${L("只有索引,沒有明細,請重新匯入本期",
                             "index only, no detail — import this period again")}</td></tr>`;
     const g=gapOf(d);
-    const w=Math.min(100, Math.abs(g)/maxGap*100);
+    /* 一半的寬度給賺、一半給虧,所以最長的那一根是 50%。 */
+    const w=Math.min(50, Math.abs(g)/maxGap*50);
     return `<tr><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`+acell
       +`<td class="num">${d.n.toLocaleString()}</td>`
       +cell(d.repriced)+cell(d.billed)
       +cell(g, g<0?"neg":"pos")+pctCell(g, d.repriced)
       +cell(d.account, d.account<0?"neg":"")
       +`<td class="abar"><div class="abartrack">`
-      +`<div class="abarfill${g<0?" neg":""}" data-w="${w.toFixed(1)}"></div></div></td></tr>`;
+      +`<div class="abarfill ${g<0?"neg":"pos"}" data-w="${w.toFixed(1)}"></div></div></td></tr>`;
   }).join("");
   const gt=tot.repriced-tot.billed;
   const empty=!ok.length
@@ -7627,7 +7682,9 @@ function dashAllHTML(all){
   return `<div class="dcard">
     <div class="ch"><h3>${L("全部期別","All periods")}</h3>
       <span class="cnote">${L("每一期都以目前的費率設定重算",
-                              "every period repriced with the current rate settings")}</span></div>
+                              "every period repriced with the current rate settings")}</span>
+      <button class="act ghost" id="bAllXls" style="padding:3px 11px;font-size:12px">${
+        L("下載本表 (.xlsx)","Download this table (.xlsx)")}</button></div>
     ${dashFilterHTML(all)}
     ${empty||dashTrendHTML(ok, multi, accts)}
     ${empty?"":`<div class="tablewrap" style="max-height:none;overflow-x:auto">
@@ -7638,7 +7695,10 @@ function dashAllHTML(all){
       <th>${L("向客戶收","Charge customer")}</th><th>UPS</th>
       <th>${L("毛利","Profit")}</th><th>${L("毛利率","Margin")}</th>
       <th>${L("帳戶層費用","Account charges")}</th>
-      <th class="abarh">${L("毛利相對比例","Profit, relative")}</th>
+      <th class="abarh" title="${esc(L(
+        "長條由中線往右是賺、往左是虧,長度是這一期的毛利和本表最大一期相比。",
+        "Bars run right of centre for profit and left for a loss; length compares this "
+        +"period with the largest in the table."))}">${L("盈虧比較","Profit / loss")}</th>
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td class="ak" colspan="${multi?3:2}">${L("合計 "+ok.length+" 期",
         "Total · "+ok.length+" period"+(ok.length===1?"":"s"))}</td>
@@ -7765,10 +7825,76 @@ function dashTrendHTML(ok, multi, allAccts){
             "margin is independent of volume, so periods compare directly; the dashed line is the weighted average; oldest first")
         : L("柱高為毛利金額,受單量影響;虛線為各期平均,依帳單日由舊到新",
             "bar height is profit, which scales with volume; the dashed line is the average; oldest first")}</span></div>
-    <div class="tplotarea${isM?" tmargin":""}" style="--zero:${zero.toFixed(1)}%">${avgLine}${line}${plot}</div>
-    <div class="tlabels">${labels}</div>
+    <div class="tplotarea${isM?" tmargin":""}" style="--zero:${zero.toFixed(1)}%">${avgLine}<div class="tcols">${line}${plot}</div><div class="tgut"></div></div>
+    <div class="tlabels">${labels}<div class="tgut"></div></div>
     ${legend}
   </div>`;
+}
+/* 畫面上那張表倒成 Excel:篩選過的那幾期、同一組欄位、同一個順序。
+   金額一律寫成數字並套 $ 格式,沒有金額的格子寫 0(顯示成 $0.00),不留白;
+   毛利率寫成真正的比例值再套百分比格式,不是先算成 "20.6%" 這種字串貼上去
+   —— 字串排不了序,也沒辦法再拿去算。日期同樣寫成真的日期值。 */
+function exportAllPeriods(){
+  const all=(DASH_ALL_CACHE&&DASH_ALL_CACHE.data)||[];
+  if(!all.length){ setStatus(L("目前沒有可匯出的期別資料","No period data to export")); return; }
+  const data=dashFilter(all);
+  if(!data.length){ setStatus(L("這個條件下沒有期別","No periods match this filter")); return; }
+  const serial=iso=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso||""));
+    return m?Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000):"";
+  };
+  const head=[L("期別","Invoice"),L("帳單日","Invoice date"),L("UPS 帳號","UPS account"),
+              L("貨件","Shipments"),L("向客戶收","Charge customer"),"UPS",
+              L("毛利","Profit"),L("毛利率","Margin"),L("帳戶層費用","Account charges"),
+              L("備註","Note")];
+  const body=[]; let tn=0,tr=0,tb=0,ta=0,nOk=0;
+  for(const d of data){
+    const a=dashAcctOf(d);
+    const acct=a.id?(a.id+(a.guessed?L("(推得)"," (derived)"):"")):"";
+    if(d.missing){
+      body.push([d.key, serial(d.date), acct, 0,0,0,0,0,0,
+                 L("只有索引,沒有明細,請重新匯入本期",
+                   "Index only, no detail — import this period again")]);
+      continue;
+    }
+    nOk++;
+    const g=cents(d.repriced-d.billed);
+    tn+=d.n; tr+=d.repriced; tb+=d.billed; ta+=d.account;
+    body.push([d.key, serial(d.date), acct, d.n,
+               cents(d.repriced), cents(d.billed), g,
+               d.repriced?(d.repriced-d.billed)/Math.abs(d.repriced):0,
+               cents(d.account), ""]);
+  }
+  const gt=tr-tb;
+  body.push([L("合計 "+nOk+" 期","Total · "+nOk+(nOk===1?" period":" periods")),"","",tn,
+             cents(tr), cents(tb), cents(gt), tr?gt/Math.abs(tr):0, cents(ta), ""]);
+  const MONEY=[4,5,6,8], PCT=[7], DATE=1, COUNT=3;
+  loadXLSX().then(X=>{
+    const ws=X.utils.aoa_to_sheet([head,...body]);
+    const ref=X.utils.decode_range(ws["!ref"]);
+    for(let r=1;r<=ref.e.r;r++){
+      const put=(c,z)=>{ const cell=ws[X.utils.encode_cell({r:r,c:c})];
+        if(cell && typeof cell.v==="number") cell.z=z; };
+      for(const c of MONEY) put(c,"$#,##0.00");
+      for(const c of PCT)   put(c,"0.0%");
+      put(COUNT,"#,##0");
+      put(DATE,"mm/dd/yyyy");
+    }
+    ws["!cols"]=[{wch:20},{wch:12},{wch:14},{wch:10},{wch:16},{wch:16},
+                 {wch:14},{wch:10},{wch:16},{wch:38}];
+    const wb=X.utils.book_new();
+    X.utils.book_append_sheet(wb, ws, LANG?"All periods":"全部期別");
+    const last=data.map(d=>String(d.date||"")).filter(Boolean).sort().pop()||"";
+    dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
+      {type:"application/octet-stream"}),
+      "All_Periods"+(last?"_"+last.replace(/-/g,""):"")+".xlsx").then(ok=>{
+        toast(ok?L("已匯出 "+nOk+" 期","Exported "+nOk+" period"+(nOk===1?"":"s"))
+                :L("已取消存檔","Save cancelled"), ok);
+      });
+  }).catch(()=>{
+    setStatus(L("匯出失敗:xlsx-0.18.5.full.min.js 沒有載到,請確認它和 index.html 放在一起",
+                "Export failed: xlsx-0.18.5.full.min.js did not load. Check it sits next to index.html"));
+  });
 }
 /* 篩選只改畫面,資料留在 DASH_ALL_CACHE 裡 —— 切一次條件要是重跑十九期,
    沒有人會去切第二次。 */
@@ -7781,6 +7907,8 @@ function wireDashFilters(){
   document.querySelectorAll("#p-dash .fsegb").forEach(b=>{
     b.onclick=()=>{ DASH_F.measure=b.dataset.m; re(); };
   });
+  const x=$("#bAllXls");
+  if(x) x.onclick=exportAllPeriods;
 }
 /* 選單那一條。RATED 是空的時候也要畫 —— 沒資料的人正是最需要它的人。 */
 function dashBarHTML(){
