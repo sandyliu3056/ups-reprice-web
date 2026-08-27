@@ -4239,6 +4239,18 @@ const LOCAL_ACCOUNTS=[
   { user:"test",
     hash:"dcb80535322bf94005c1d286e01a112fee9e6f9c5794b1e0ecf718b74be24994",
     name:"Test", role:"admin" },
+  /* 客戶帳號。hash = sha256("帳號:密碼"),帳號一律小寫 —— login() 先把
+     打進來的帳號轉小寫再算,大小寫不同的打法都對得上。
+     每個帳號自己的費率、帳單歷史和雲端那一份都是分開的,彼此看不到。 */
+  { user:"gq_jl",
+    hash:"224b262d9bca105cd1abc9e43abe82c771ce4cf7b6e02b4f258265dc399f02c8",
+    name:"JL", role:"user" },
+  { user:"gq_tw",
+    hash:"b87a6c4f106ddb8d3e7886b664347621208f3ad8c5a47dbd9126b965a5dbd0a7",
+    name:"TW", role:"user" },
+  { user:"gq_pd",
+    hash:"635a72d0569144795b69ae118666f3d11cb0c7e4c50783895e675943e359db3a",
+    name:"PD", role:"user" },
 ];
 const LOCAL_SESSION_KEY="ups_reprice_local_session";
 /* 「保持登入」勾了才寫這把 —— localStorage 關瀏覽器也留著,下次開站免登入。
