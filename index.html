@@ -515,21 +515,46 @@ td.cells{white-space:normal}
   text-align:center;padding-top:3px}
 #p-dash .tlab{font-size:10px;color:var(--muted);text-align:center;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:1px}
+/* 年份那一行。沒印年份的欄位留同高度的空位(visibility 不是 display),
+   否則同一排標籤會有高有低。 */
+#p-dash .tyr{font-size:9.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);
+  text-align:center;white-space:nowrap;padding-top:2px;opacity:.8}
+#p-dash .tyr.off{visibility:hidden}
 #p-dash .tleg{display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:8px;
   font-size:11.5px;color:var(--muted)}
 #p-dash .tleg i{display:inline-block;width:10px;height:10px;border-radius:3px;
   margin-right:6px;vertical-align:-1px}
 /* 篩選列。一排放在圖上面 —— 改條件的人正在看圖,不該去別的地方找開關。 */
 #p-dash .dfilters{display:flex;flex-wrap:wrap;align-items:center;gap:9px 14px;margin:0 0 13px}
-#p-dash .fsel{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
-#p-dash .fsel select{font:inherit;font-size:12.5px;color:var(--text);background:var(--panel);
-  border:2px solid var(--line);border-radius:7px;padding:3px 8px}
-#p-dash .fsel select:focus{outline:none;border-color:var(--accent)}
+#p-dash .fsel{display:flex;align-items:center;gap:8px}
+#p-dash .fsel>span:first-child{font-size:11.5px;font-weight:700;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--muted);white-space:nowrap}
+/* 原生 select 的外框、箭頭和字級都是作業系統給的,擺進這一頁就是另一套
+   設計 —— 旁邊的期別選單和指標切換都是站上的樣式,只有這兩個不是。
+   關掉原生外觀自己畫,邊框、圓角、焦點框都跟 .dsel 同一組。展開後的
+   選項清單仍然由瀏覽器畫,那一層不歸網頁管。 */
+#p-dash .fselw{position:relative;display:inline-flex}
+#p-dash .fsel select{appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  font:inherit;font-size:13px;font-weight:600;color:var(--text);background:var(--panel);
+  border:2px solid var(--line);border-radius:11px;padding:6px 32px 6px 13px;
+  cursor:pointer;min-width:152px;
+  transition:background .14s,border-color .14s,box-shadow .14s}
+#p-dash .fsel select:hover{background:var(--select);border-color:var(--accent)}
+#p-dash .fsel select:focus{outline:none;border-color:var(--run2);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--run2) 25%,transparent)}
+#p-dash .fsel select:focus-visible{outline:3px solid var(--run2);outline-offset:2px}
+/* 箭頭和期別選單的 .dcar 同一個做法:兩條邊轉 45 度。畫在外層,
+   pointer-events:none,點下去仍然是點到 select 本身。 */
+#p-dash .fselw::after{content:"";position:absolute;right:13px;top:50%;
+  width:7px;height:7px;margin-top:-5px;pointer-events:none;
+  border-right:2px solid var(--accent);border-bottom:2px solid var(--accent);
+  transform:rotate(45deg)}
 /* 指標切換:兩個互斥的選項,做成一組連在一起的按鈕,不是下拉 —— 只有兩個
    選項的下拉,要點兩下才換得掉。 */
-#p-dash .fseg{display:inline-flex;border:2px solid var(--line);border-radius:7px;overflow:hidden}
-#p-dash .fsegb{font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;border:0;
-  padding:4px 13px;background:var(--panel);color:var(--muted)}
+#p-dash .fseg{display:inline-flex;border:2px solid var(--line);border-radius:11px;overflow:hidden}
+#p-dash .fsegb{font:inherit;font-size:13px;font-weight:600;cursor:pointer;border:0;
+  padding:6px 15px;background:var(--panel);color:var(--muted)}
+#p-dash .fsegb:hover:not(.on){background:var(--select);color:var(--text)}
 #p-dash .fsegb + .fsegb{border-left:2px solid var(--line)}
 #p-dash .fsegb.on{background:var(--accent);color:var(--tab)}
 /* 平均線:虛線加一個貼在右端的標籤。實線會和資料本身搞混。 */
@@ -1206,11 +1231,14 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .dmi.dmall .dmk{color:var(--run2)}
 #p-dash .dmall-sep{height:1px;background:var(--line);opacity:.6;margin:5px 8px}
 #p-dash .atbl{width:100%;border-collapse:collapse;font-size:12.5px;background:transparent}
+/* 這張表有十欄,而且每一欄都 nowrap —— 撐寬它的是大寫加字距的標題,不是
+   數字本身。標題的字距和左右內距各收一點,整張表就縮得回卡片裡;寬度不夠
+   時仍然可以橫向捲動,但正常視窗下不該一開始就被切掉右邊那一欄。 */
 #p-dash .atbl th{background:transparent;color:var(--muted);font-size:11px;font-weight:700;
-  letter-spacing:.04em;text-transform:uppercase;text-align:right;white-space:nowrap;
-  padding:0 9px 7px;position:static;border-bottom:1px solid var(--line)}
+  letter-spacing:.02em;text-transform:uppercase;text-align:right;white-space:nowrap;
+  padding:0 7px 7px;position:static;border-bottom:1px solid var(--line)}
 #p-dash .atbl th:first-child,#p-dash .atbl th:nth-child(2){text-align:left}
-#p-dash .atbl td{padding:7px 9px;border-bottom:1px solid var(--line);
+#p-dash .atbl td{padding:7px 7px;border-bottom:1px solid var(--line);
   border-bottom-color:color-mix(in srgb,var(--line) 45%,transparent);
   text-align:right;white-space:nowrap}
 /* 期號和日期都是一串數字,用等寬數字才會一位對一位 —— 內文字型的
@@ -1226,7 +1254,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 #p-dash .atbl tfoot td{border-top:2px solid var(--line);border-bottom:none;
   font-family:var(--titlefam);font-weight:700;padding-top:9px;color:var(--accent)}
 #p-dash .atbl tfoot td.ak{font-size:12px}
-#p-dash .abar{width:120px;padding-left:0!important}
+#p-dash .abar{width:96px;padding-left:0!important}
 #p-dash .abartrack{height:9px;border-radius:999px;overflow:hidden;
   background:color-mix(in srgb,var(--line) 40%,var(--panel));position:relative}
 #p-dash .abarfill{height:100%;border-radius:999px;background:var(--run2);width:0;
@@ -7315,11 +7343,19 @@ function moneyShort(v){
   if(a>=1000) return sign+"$"+(a/1000).toFixed(a>=10000?0:1)+"K";
   return sign+"$"+a.toFixed(0);
 }
+/* UPS 的期號是「前導零 + 帳號 + 流水號」,而同一個帳號的期號在不同批
+   資料裡前導零的位數不一定一樣 —— 同一個帳號 ABC123 的兩期,期號可能一個
+   是六個零開頭、另一個是四個零開頭。只去掉結尾流水號的話,它們會變成兩個
+   「帳號」:圖例兩個色塊、折線斷成兩截、篩選選單裡同一個帳號出現兩次。
+   先去前導零、再去結尾數字,兩邊都收斂到 ABC123。 */
+function acctNorm(v){
+  return String(v||"").trim().replace(/^0+/,"").toUpperCase();
+}
 function dashAcctOf(p){
   const a=String((p&&p.acct)||"").trim();
-  if(a) return {id:a, guessed:false};
+  if(a) return {id:acctNorm(a), guessed:false};
   const k=String((p&&p.key)||"").trim();
-  const stem=k.replace(/\d+$/,"");
+  const stem=acctNorm(k).replace(/\d+$/,"");
   /* 去掉結尾數字之後什麼都不剩,表示這個期號整串都是數字 —— 那推不出帳號。
      退回 k 的話,每一期都會變成自己一個「帳號」:帳號欄每列不同、走勢圖
      每根柱子一個顏色、折線永遠連不起來。推不出來就說推不出來。 */
@@ -7442,14 +7478,16 @@ function dashFilterHTML(data){
   }
   const opt=(v,cur,txt)=>`<option value="${esc(v)}"${v===cur?" selected":""}>${esc(txt)}</option>`;
   const acctSel=accts.length>1
-    ? `<label class="fsel"><span>${L("帳號","Account")}</span><select id="dfAcct">`
+    ? `<label class="fsel"><span>${L("帳號","Account")}</span>`
+      +`<span class="fselw"><select id="dfAcct">`
       +opt("",DASH_F.acct,L("全部帳號","All accounts"))
       +accts.map(a=>opt(a.id,DASH_F.acct,a.id+(a.guessed?L(" (推得)"," (derived)"):""))).join("")
-      +`</select></label>`
+      +`</select></span></label>`
     : "";
-  const rngSel=`<label class="fsel"><span>${L("期間","Period")}</span><select id="dfRange">`
+  const rngSel=`<label class="fsel"><span>${L("期間","Period")}</span>`
+    +`<span class="fselw"><select id="dfRange">`
     +DASH_RANGES.map(r=>opt(r.k,DASH_F.range,L(r.zh,r.en))).join("")
-    +`</select></label>`;
+    +`</select></span></label>`;
   const meas=`<span class="fseg">`
     +[["profit",L("毛利","Profit")],["margin",L("毛利率","Margin")]].map(([k,t])=>
       `<button type="button" class="fsegb${DASH_F.measure===k?" on":""}" data-m="${k}">${esc(t)}</button>`
@@ -7596,23 +7634,45 @@ function dashTrendHTML(ok, multi, allAccts){
         +(v>=0?`bottom:${(100-zero).toFixed(1)}%`:`top:${zero.toFixed(1)}%`)+`"></div>`;
     return `<div class="tcol" title="${tip(d)}"><div class="tplot">${inner}</div></div>`;
   }).join("");
+  /* 年份寫在日期底下,而且只在換年的那一欄寫 —— 十九欄都印一次 2026 是
+     十九次同樣的雜訊,但少了它,跨年的兩期看起來就只是 12-26 和 01-02。
+     沒印年份的欄位保留同高度的空位,兩排標籤才對得齊。 */
+  let lastYr="";
   const labels=seq.map(d=>{
     const v=val(d);
+    const iso=String(d.date||"");
+    const yr=iso.slice(0,4);
+    const newYr=!!yr && yr!==lastYr;
+    if(yr) lastYr=yr;
     return `<div class="tcol" title="${tip(d)}">`
       +`<div class="tpct">${isM?v.toFixed(1)+"%":moneyShort(v)}</div>`
-      +`<div class="tlab">${esc(String(d.date||"").slice(5)||d.key.slice(-4))}</div></div>`;
+      +`<div class="tlab">${esc(iso.slice(5)||d.key.slice(-4))}</div>`
+      +`<div class="tyr${newYr?"":" off"}">${esc(yr||"")}</div></div>`;
   }).join("");
-  /* 折線本身:一條 polyline 疊在同一個座標上,點的位置和上面的 .tdot 一致。
-     多帳號時不連線 —— 把 A 帳號的一期連到 B 帳號的下一期,那條線沒有意義。 */
-  const line=(isM && !multi && seq.length>1)
-    ? `<svg class="tline" viewBox="0 0 100 100" preserveAspectRatio="none">`
-      +`<polyline points="${seq.map((d,i)=>
-          ((i+0.5)/seq.length*100).toFixed(2)+","+y(d).toFixed(2)).join(" ")}"/></svg>`
-    : "";
+  /* 折線:一個帳號一條,點的位置和上面的 .tdot 一致。以前多帳號時整張圖
+     一條線都不畫 —— 把 A 帳號的一期連到 B 帳號的下一期確實沒有意義,但
+     連帶把 A 自己的走勢也拿掉了,剩下一片看不出方向的點。線只在同一個
+     帳號的期別之間連,顏色就是它在圖例上的顏色。 */
+  /* 顏色要寫成 style。SVG 的 stroke= 只是「呈現屬性」,任何一條 CSS 規則
+     都壓得過它 —— .tline polyline 已經指定了 stroke,寫成屬性的話每一條線
+     都會畫成同一個顏色,和它自己的那些點對不起來。 */
+  const lineFor=(pts,stroke)=>pts.length<2?"":
+    `<polyline${stroke?` style="stroke:${stroke}"`:""} points="${pts.map(x=>
+      ((x.i+0.5)/seq.length*100).toFixed(2)+","+y(x.d).toFixed(2)).join(" ")}"/>`;
+  let line="";
+  if(isM && seq.length>1){
+    const idx=seq.map((d,i)=>({d,i}));
+    const paths=multi
+      ? (allAccts||[]).map((a,k)=>lineFor(idx.filter(x=>dashAcctOf(x.d).id===a),
+                                          pal[k%pal.length])).join("")
+      : lineFor(idx,"");
+    if(paths) line=`<svg class="tline" viewBox="0 0 100 100" preserveAspectRatio="none">${paths}</svg>`;
+  }
   const legend=multi
     ? `<div class="tleg">${(allAccts||[]).map((a,i)=>
         `<span><i style="background:${pal[i%pal.length]}"></i>${esc(a||L("無帳號","no account"))}</span>`
-      ).join("")}${isM?`<span class="tnote">${L("多帳號並存時不連線","not connected across accounts")}</span>`:""}</div>`
+      ).join("")}${isM?`<span class="tnote">${L("折線各帳號分開連,不跨帳號",
+                                                 "each account is joined on its own; never across accounts")}</span>`:""}</div>`
     : "";
   return `<div class="trend">
     <div class="th2">${isM?L("各期毛利率","Margin by period"):L("各期毛利","Profit by period")}
