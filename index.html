@@ -1069,11 +1069,14 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       </span>
       <input type="file" id="fImportAcc" accept=".csv,.txt,.xlsx,.xls">
     </div>
-    <div class="grid3" style="margin-bottom:12px">
-      <label data-i18n="lb.cfg">Rate file</label>
-      <input id="pathCfg" readonly>
-      <button class="act ghost" id="bCfg" data-i18n="btn.browse">Browse</button>
-      <input type="file" id="fCfg" accept=".json">
+    <!-- 載入設定檔的動作搬到「設定」分頁了。整份設定檔是一次取代全部渠道、
+         附加費、DIM、燃油、Demand 與申報價值級距,擺在這裡緊貼「儲存費率」,
+         看起來像只影響附加費 —— 位置本身在誤導人。這裡只留唯讀的指示:
+         在這一頁改費率的人仍然需要知道自己改的是哪一份。 -->
+    <div class="row" style="margin-bottom:12px">
+      <label class="inlab" style="margin-left:0" data-i18n="lb.cfgnow">Configuration in use</label>
+      <span id="cfgNowAcc" class="affsum"></span>
+      <span class="hint" style="margin:0" data-i18n="hint.cfgwhere">Load or replace it on the Settings tab.</span>
     </div>
 
     <div id="accChanName" class="subhd"></div>
@@ -1485,6 +1488,25 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <section class="page" id="p-setting">
   <div class="lf sketch">
     <h3 class="display"><span class="em">⚙️</span><span data-i18n="hd.setting">Settings</span></h3>
+
+    <!-- 費率設定檔。整份取代,而且是一個帳號設定一次的動作,所以擺在設定的
+         最上面,不跟每期要調的欄位混在一起。載入與儲存放在同一處:載入只寫
+         進這台電腦,要按儲存設定才會寫進帳號 —— 兩顆按鈕分在不同分頁時,
+         第二步就是會被漏掉。 -->
+    <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
+      <div class="subhd" style="margin-top:0" data-i18n="hd.cfgfile">📄 Rate Configuration File</div>
+      <p class="hint" style="margin:8px 0 12px;max-width:880px" data-i18n="hint.cfgfile">This file holds the account's complete pricing configuration. Loading it replaces the current configuration in full.</p>
+      <div class="grid3" style="margin-bottom:10px">
+        <label data-i18n="lb.cfgnow">Configuration in use</label>
+        <input id="pathCfg" readonly>
+        <button class="act ghost" id="bCfg" data-i18n="btn.cfgload">Load File…</button>
+      </div>
+      <div class="row">
+        <button class="act" id="bSaveCfg" data-i18n="btn.save">Save Settings</button>
+        <span class="savenote"></span>
+      </div>
+      <input type="file" id="fCfg" accept=".json">
+    </div>
 
     <!-- 住/商判定來源:和燃油底同一個形狀 —— 摘要一行,點進去設,裡面存 -->
     <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
@@ -5684,6 +5706,12 @@ let CFG=null, INV=null, RATED=null, SHIPS=null, ROWS=null;
    INV_KIND 是 CSV / TXT / XLSX / XLS,INV_SHEET 只有 Excel 才有值。 */
 let INV_NAME="", INV_SIZE=0, INV_KIND="", INV_SHEET="", CFG_LABEL="";
 
+/* 載入的是哪一份設定檔。輸入框在「設定」分頁,附加費設定分頁留一份唯讀的 ——
+   在那一頁改費率的人仍然需要知道自己改的是哪一份,但不需要在那裡更換。 */
+function paintCfgName(name){
+  const box=$("#pathCfg"); if(box) box.value=name;
+  const mirror=$("#cfgNowAcc"); if(mirror) mirror.textContent=name;
+}
 function applyConfig(text,name,remember){
   let zoneFixed=[];
   try{
@@ -5696,7 +5724,7 @@ function applyConfig(text,name,remember){
       +L("這不是有效的 JSON。","That is not valid JSON.")+`</b> ${esc(e.message)}</div>`;
     return false;
   }
-  $("#pathCfg") && ($("#pathCfg").value=name);
+  paintCfgName(name);
   CFG_LABEL=name;
   /* 修好就好,不用每次開檔都跳一個視窗擋在畫面上 —— 渠道分頁的 Zone 欄
      本來就會把未設定的標成紅字,要看的人看得到。 */
@@ -5706,7 +5734,7 @@ function applyConfig(text,name,remember){
       localStorage.setItem(k,text); localStorage.setItem(kn,name); }
     catch(e){
       /* 靜靜吞掉的話,使用者會以為設定已經記住了。講清楚是哪一種失敗。 */
-      $("#pathCfg") && ($("#pathCfg").value=name+" ("+(LANG?"not remembered":"沒有記住")+")");
+      paintCfgName(name+" ("+(LANG?"not remembered":"沒有記住")+")");
       saveNoteKey(false,"loadedno",(e&&e.name)||"Error");
     }
   }
@@ -8361,6 +8389,7 @@ $("#bFuelSave") && ($("#bFuelSave").onclick=()=>{
   CFG=readConfig(CFG.raw); saveSettings(); renderConfigTabs(); closeFuel();
 });
 $("#bCfg") && ($("#bCfg").onclick=()=>$("#fCfg").click());
+$("#bSaveCfg") && ($("#bSaveCfg").onclick=()=>saveSettings());
 $("#bSaveTop") && ($("#bSaveTop").onclick=()=>saveSettings());
 $("#bInv").onclick=()=>$("#fInv").click();
 
@@ -8385,8 +8414,8 @@ function renderReady(okCfg, okInv){
     +L("這個帳號還沒有費率,所以 Generate 是灰的。",
        "This account has no rates yet, so Generate is greyed out.")
     +`</b> `
-    +L("費率是跟著帳號存的:用上面設定檔的 Browse 載入 ups_billing_tool_config.json(或到 Channels 分頁匯入費率),再按 Save Settings,按鈕就會亮。",
-       "Rates are stored per account: load ups_billing_tool_config.json with the settings Browse above (or import rates on the Channels tab), press Save Settings, and the button lights up.")
+    +L("費率隨帳號儲存。請至「⚙️ 設定」分頁載入 ups_billing_tool_config.json(或於「🚚 渠道」分頁匯入費率表),再按「儲存設定」,按鈕就會亮。",
+       "Rates are stored per account. Load ups_billing_tool_config.json on the Settings tab (or import rate tables on the Channels tab), then press Save Settings and the button lights up.")
     +`</div>`;
 }
 
@@ -13108,7 +13137,12 @@ const I18N={
   "ph.pw":["密碼","Password"],
   "th.name":["名稱","Name"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
-  "lb.cfg":["費率檔","Rate file"],
+  "hd.cfgfile":["📄 費率設定檔","📄 Rate Configuration File"],
+  "hint.cfgfile":["ups_billing_tool_config.json 內含本帳號完整的計價設定:渠道、附加費、DIM 除數、燃油、Demand 附加費與申報價值級距。載入時整份取代現行設定。載入後僅儲存於這台電腦,須另按「儲存設定」寫入帳號,其他電腦登入後才會載入。",
+    "ups_billing_tool_config.json holds this account's complete pricing configuration — channels, surcharges, DIM divisors, fuel, demand surcharges and declared value tiers. Loading it replaces the current configuration in full. A loaded file is held on this computer only; press Save Settings to write it to the account, after which other computers load it at sign-in."],
+  "lb.cfgnow":["目前使用的設定檔","Configuration in use"],
+  "btn.cfgload":["載入設定檔…","Load Configuration File…"],
+  "hint.cfgwhere":["載入或更換請至「⚙️ 設定」分頁。","Load or replace it on the Settings tab."],
   "btn.login":["登入","Sign in"],
   "btn.logout":["登出","Sign out"], "cap.theme":["Theme","Theme"], "cap.clock":["Clock","Clock"],
   "hd.signin":["登入","Sign in"],
