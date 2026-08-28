@@ -5300,6 +5300,107 @@ let HIST_RESTORED=false;
    清空是重點:搬完就沒有第二個帳號還看得到它。
    代價講清楚:同一台機器上,先登入的人會拿到那一份。實務上一人一台,
    要改成只有主帳號能收,說一聲。 */
+/* =====================================================================
+   從本機帳號搬到 Supabase 帳號
+   ---------------------------------------------------------------------
+   每個帳號的資料是綁 ME.id 存的:本機模式的 id 是 "local::<帳號>",
+   Supabase 模式是一組 UUID。切過去之後程式到新名下找,什麼都沒有 ——
+   費率、帳單索引、IndexedDB 明細全部「看起來不見了」,而東西其實還在
+   舊名下好好的。這一段就是把它們認領過來。
+
+   防護和 claimLegacy 同一套,而且更嚴:
+     · 只有 Supabase 模式、只有管理員
+     · 只在新名下「什麼都沒有」的時候才動 —— 絕不覆蓋已經有的東西
+     · 這台機器上只有「剛好一個」本機身分有資料時才認領。有兩個以上就
+       不猜是哪一個,寧可什麼都不做並且講出來 —— 猜錯就是把別人的帳單
+       搬進你名下。
+     · 只複製,不刪除。舊的原封不動留著,搬錯了隨時退得回去。
+   ===================================================================== */
+const CLAIMED_KEY="ups_reprice_claimed_v1";
+function localIdentitiesOnThisMachine(){
+  const found=new Set();
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i)||"";
+      for(const base of [CFG_KEY_BASE,HISTINV_KEY,HIST_KEY]){
+        const pre=base+"::local::";
+        if(k.indexOf(pre)===0 && String(localStorage.getItem(k)||"").trim())
+          found.add(k.slice(base.length+2));      /* "local::<帳號>" */
+      }
+    }
+  }catch(e){}
+  return [...found];
+}
+function claimLocalIdentity(){
+  if(LOCAL_MODE || !ME || !ME.id || ME.role!=="admin") return Promise.resolve(null);
+  let done=false;
+  try{ done=localStorage.getItem(CLAIMED_KEY+"::"+ME.id)==="1"; }catch(e){}
+  if(done) return Promise.resolve(null);
+  const mineCfg=(()=>{ try{ return localStorage.getItem(CFG_KEY_BASE+"::"+ME.id); }catch(e){ return null; } })();
+  const mineInv=(()=>{ try{ return localStorage.getItem(HISTINV_KEY+"::"+ME.id); }catch(e){ return null; } })();
+  if(mineCfg||mineInv) return Promise.resolve(null);      /* 已經有自己的了 */
+  const cands=localIdentitiesOnThisMachine();
+  if(cands.length!==1){
+    if(cands.length>1) setStatus(L(
+      "這台機器上有 "+cands.length+" 個本機帳號的資料,無法判斷要搬哪一個 —— 請用「匯出設定／匯入設定」自己搬。",
+      cands.length+" local accounts hold data on this machine; which one to claim is ambiguous — move it yourself with Export/Import settings."));
+    return Promise.resolve(null);
+  }
+  const from=cands[0];
+  /* localStorage:設定、對照表、期別索引 */
+  let moved=0;
+  for(const base of [CFG_KEY_BASE,CFG_NAME_BASE,HIST_KEY,HIST_RULE_KEY,HISTINV_KEY]){
+    try{
+      const v=localStorage.getItem(base+"::"+from);
+      if(v!=null && localStorage.getItem(base+"::"+ME.id)==null){
+        localStorage.setItem(base+"::"+ME.id,v); moved++;
+      }
+    }catch(e){}
+  }
+  /* IndexedDB:帳單明細。整批複製,舊的不刪。 */
+  return idbCopyDatabase(IDB_NAME+"::"+from, idbName()).then(n=>{
+    try{ localStorage.setItem(CLAIMED_KEY+"::"+ME.id,"1"); }catch(e){}
+    HISTINV=null; HIST=null;
+    setStatus(L(
+      "已把「"+from.replace(/^local::/,"")+"」的資料接到這個帳號名下:"+moved+" 項設定、"+n+" 期帳單明細(舊的原封不動留著)。",
+      "Claimed the data from \""+from.replace(/^local::/,"")+"\": "+moved+" setting(s), "+n+" invoice period(s). The originals are left untouched."));
+    return {from, moved, periods:n};
+  }).catch(()=>{ try{ localStorage.setItem(CLAIMED_KEY+"::"+ME.id,"1"); }catch(e){} return null; });
+}
+/* 一個 IndexedDB 整批抄到另一個。來源不存在就當 0 期,不建立空的資料庫。 */
+function idbCopyDatabase(fromName,toName){
+  return new Promise(res=>{
+    let exists=true;
+    const rq=indexedDB.open(fromName);
+    rq.onupgradeneeded=()=>{ exists=false; };   /* 本來沒有,是這次開才建的 */
+    rq.onerror=()=>res(0);
+    rq.onsuccess=()=>{
+      const db=rq.result;
+      if(!exists||!db.objectStoreNames.contains(IDB_STORE)){
+        db.close(); try{ indexedDB.deleteDatabase(fromName); }catch(e){}
+        return res(0);
+      }
+      const g=db.transaction(IDB_STORE,"readonly").objectStore(IDB_STORE).getAll();
+      g.onerror=()=>{ db.close(); res(0); };
+      g.onsuccess=()=>{
+        const recs=g.result||[]; db.close();
+        if(!recs.length) return res(0);
+        const w=indexedDB.open(toName);
+        w.onupgradeneeded=()=>{ const d=w.result;
+          if(!d.objectStoreNames.contains(IDB_STORE))
+            d.createObjectStore(IDB_STORE,{keyPath:"invoice"}); };
+        w.onerror=()=>res(0);
+        w.onsuccess=()=>{
+          const d=w.result;
+          const tx=d.transaction(IDB_STORE,"readwrite"), st=tx.objectStore(IDB_STORE);
+          for(const r of recs) st.put(r);
+          tx.oncomplete=()=>{ d.close(); res(recs.length); };
+          tx.onerror=()=>{ d.close(); res(0); };
+        };
+      };
+    };
+  });
+}
 function claimLegacy(){
   /* 只有主帳號會收。子帳號在別人的機器上登入一次,就把整台機器的帳單
      歷史吸進自己名下 —— 那正是分帳號要避免的事。 */
@@ -5329,7 +5430,7 @@ function claimLegacy(){
 function restoreHistoryDetail(){
   if(HIST_RESTORED) return;
   HIST_RESTORED=true;
-  claimLegacy().then(()=>idbAllRows()).then(rows=>{
+  claimLocalIdentity().then(()=>claimLegacy()).then(()=>idbAllRows()).then(rows=>{
     if(!rows.length) return;
     HISTROWS=rows;
     backfillAccounts(rows);
