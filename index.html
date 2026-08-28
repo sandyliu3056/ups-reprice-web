@@ -1687,15 +1687,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <span><button class="mx" id="dvSMax">⤢</button><button class="mx" id="dvSX">✕</button></span>
     </div>
     <div class="modalbody" style="display:flex;flex-direction:column;min-height:0">
-      <div class="afbar">
-        <label class="inlab" style="margin-left:0" data-i18n="lb.dvfill">Fill the ticked services with</label>
-        <select id="dvPreset" class="nice" style="min-width:230px"></select>
-        <button class="act ghost" id="dvApply" data-i18n="btn.dvapply">Fill</button>
-        <span id="dvApplyNote" style="font-size:12.5px;color:var(--muted)"></span>
-      </div>
       <div class="tablewrap" style="flex:1;min-height:140px;max-height:none">
         <table id="tDv"><thead><tr>
-          <th style="width:34px"><input type="checkbox" id="dvAll"></th>
           <th data-i18n="th.chan">Channel</th>
           <th class="num" data-i18n="lb.dvfree">Free allowance</th>
           <th class="num" data-i18n="lb.dvmin">Minimum charge</th>
@@ -1710,9 +1703,12 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="modalft">
       <span class="row" style="gap:10px">
         <button class="act ghost dvq" id="bDvHelp">? <span data-i18n="btn.dvhelp">Field guide</span></button>
-        <button class="act ghost danger" id="dvClear" data-i18n="btn.dvclear">Clear ticked</button>
+        <span id="dvSaveNote" style="font-size:12.5px;color:var(--muted)"></span>
       </span>
-      <button class="act ghost" id="dvSClose" data-i18n="btn.close">Close</button>
+      <span class="row" style="gap:10px">
+        <button class="act" id="dvSave" data-i18n="btn.save">Save Settings</button>
+        <button class="act ghost" id="dvSClose" data-i18n="btn.close">Close</button>
+      </span>
     </div>
   </div>
 </div>
@@ -3013,7 +3009,7 @@ function dvSettings(cfg, channel){
   const o=(cfg.raw.declared_value_by_channel||{})[fam]||{};
   const n=k=>toNum(o[k]);
   return {free:n("free"), min:n("min"), unit:n("unit"), rate:n("rate"), max:n("max"),
-          own:Object.keys(o).some(k=>String(o[k]).trim()!=="")};
+          flat:n("flat"), own:Object.keys(o).some(k=>String(o[k]).trim()!=="")};
 }
 function dvCap(cfg, channel){ return dvSettings(cfg, channel).max; }
 /* 五個數字合起來到底是什麼收法,用畫的。
@@ -3021,17 +3017,24 @@ function dvCap(cfg, channel){ return dvSettings(cfg, channel).max; }
      平段止於 = floor(最低收費 ÷ 每級距) × 級距單位
    想收 $10 平段、$300 之後才跳,填最低收費 10 / 每級距 1.70 會一路平到
    $500,因為 $10 要到第 6 級距才被超過。這種事用想的想不到,印出來就看到了。 */
-function dvBands(free,min,unit,rate,cap){
+/* 「固定費率適用至」是填的,不是算的。填了就照它:免費額度以上、這個金額
+   以內一律收最低收費,超過之後照級距。留空的話沒有明確的固定區間,最低
+   收費退回去當下限用 —— 那就是舊設定的行為,所以舊檔沿用不會變樣。 */
+function dvBands(free,min,unit,rate,cap,flat){
   if(unit<=0||rate<=0) return null;
-  const flatEnd=Math.floor(Number((min/rate).toFixed(6)))*unit;
-  return {free, min, unit, rate, cap, flatEnd:Math.max(flatEnd,0)};
+  const derived=Math.max(Math.floor(Number((min/rate).toFixed(6)))*unit,0);
+  return {free, min, unit, rate, cap,
+          flatEnd: toNum(flat)>0?toNum(flat):derived, explicit: toNum(flat)>0};
 }
 function dvQuote(b,v){
   if(v<=0) return 0;
   if(b.cap>0&&v>b.cap) v=b.cap;
   if(v<=b.free) return 0;
+  if(b.explicit && v<=b.flatEnd) return Math.round(b.min*100)/100;
   const u=Math.ceil(Number((v/b.unit).toFixed(6)));
-  return Math.round(Math.max(b.min,u*b.rate)*100)/100;
+  /* 明寫了固定區間就照級距走,不再拿最低收費墊底 —— 墊了的話那個區間
+     等於沒填,又會一路平到 floor(最低收費 ÷ 每級距) 那裡去。 */
+  return Math.round((b.explicit?u*b.rate:Math.max(b.min,u*b.rate))*100)/100;
 }
 /* 金額整數就不拖 .00 —— 級距邊界寫成 $300 比 $300.00 好讀。 */
 function dvM(v){ const t=money(v); return t.endsWith(".00")?t.slice(0,-3):t; }
@@ -3043,10 +3046,7 @@ function paintDvHelp(){
   const ov=CFG.raw.declared_value_by_channel||{};
   const fams=dvFamilies();
   const done=fams.filter(f=>DV_KEYS.some(k=>String((ov[f]||{})[k]||"").trim()!==""));
-  const exFam=done[0]||"";
-  const exSrc=exFam?ov[exFam]:DV_LIST_2026;
-  const b=dvBands(toNum(exSrc.free),toNum(exSrc.min),toNum(exSrc.unit),
-                  toNum(exSrc.rate),toNum(exSrc.max));
+  const exSrc=done.length?ov[done[0]]:{};
   const fld=(name,body)=>`<div class="dvf"><i>${String(name).split(/[(（]/)[0].trim()}</i>`
                         +`<p>${body}</p></div>`;
   const step=toNum(exSrc.unit)||100;
@@ -3080,35 +3080,28 @@ function paintDvHelp(){
     +"system <b>prices at the ceiling</b> and <b>reports the shipment as an exception</b>. "
     +"Blank means no ceiling."));
 
-  h+=`<div class="dvsec">${L("「固定費率適用至」是算出來的,不是填的",
-                             "\"Flat up to\" is derived, not entered")}</div>`;
-  if(b){
-    h+=`<p style="margin:0;font-size:13px">${
-        exFam ? L(`以 ${esc(exFam)} 目前的設定為例:`,`Using ${esc(exFam)} as it stands:`)
-              : L("以 UPS 2026 公告價舉例(目前尚無服務設定):",
-                  "Using the UPS 2026 list price as an example (no service is set yet):")}</p>`
-      +`<div class="dvcalc">${L("最低收費","minimum")} ${dvM(b.min)} ÷ `
-      +`${L("每級距收費","per step")} ${dvM(b.rate)} = `
-      +`${Math.floor(Number((b.min/b.rate).toFixed(6)))} ${L("級","steps")}`
-      +`  →  ${L("固定費率適用至","flat up to")} <b>${dvM(b.flatEnd)}</b></div>`
-      +`<p style="margin:8px 0 0;font-size:13px">${L(
-        "欲擴大固定費率的適用範圍,請調高<b>最低收費</b>;欲縮小適用範圍,請調高"
-        +"<b>每級距收費</b>。例:最低收費設為 $10、每級距收費設為 $1.70 時,"
-        +"上述金額為 $500,而非 $300。",
-        "To widen the flat band, raise the <b>minimum charge</b>; to narrow it, raise the "
-        +"<b>per-step</b>. For example, a $10 minimum with a $1.70 step puts the bound at "
-        +"$500, not $300.")}</p>`;
-  }
+  h+=fld(T("th.dvflat"),L(
+    "固定費率收到哪個金額為止。免費額度以上、這個金額以內,一律收<b>最低收費</b>;"
+    +"超過之後才按級距計算。"
+    +"<b>留空</b>表示沒有固定區間,最低收費退回去當<b>下限</b>用 —— "
+    +"此時低金額之所以看起來是一個固定價,是最低收費撐出來的,"
+    +"會一路撐到「最低收費 ÷ 每級距收費」那個級數為止。",
+    "The amount the flat price runs to. Above the free allowance and up to here, the "
+    +"<b>minimum charge</b> is what is billed; only past it does the step calculation "
+    +"apply. <b>Leave it empty</b> for no flat band: the minimum charge then acts as a "
+    +"<b>floor</b>, and the low band it produces runs as far as minimum ÷ per-step."));
 
   const line=(name,d,set)=>{
     if(!set) return `<tr><td>${esc(name)}</td><td colspan="5" style="color:var(--neg)">${
       L("未設定,申報價值不予重算","Not set — declared value is not repriced")}</td></tr>`;
-    const bb=dvBands(d.free,d.min,d.unit,d.rate,d.max);
+    const bb=dvBands(d.free,d.min,d.unit,d.rate,d.max,d.flat);
     if(!bb) return `<tr><td>${esc(name)}</td><td colspan="5" style="color:var(--neg)">${
       L("級距單位或每級距收費未填","Step or per-step is missing")}</td></tr>`;
     return `<tr><td>${esc(name)}</td><td class="num">${dvM(bb.free)}</td>`
       +`<td class="num">${bb.flatEnd>bb.free?dvM(bb.min):"—"}</td>`
-      +`<td class="num">${bb.flatEnd>bb.free?dvM(bb.flatEnd):"—"}</td>`
+      +`<td class="num">${bb.flatEnd>bb.free?dvM(bb.flatEnd)
+          +(bb.explicit?"":` <span style="color:var(--muted)" title="${
+             L("留空,這是最低收費撐出來的","empty - produced by the minimum charge")}">~</span>`):"—"}</td>`
       +`<td class="num">${dvM(bb.rate)} / ${dvM(bb.unit)}</td>`
       +`<td class="num">${bb.cap>0?dvM(bb.cap):L("不設限","none")}</td></tr>`;
   };
@@ -3133,89 +3126,35 @@ function dvFamilies(){
   return [...new Set(Object.keys(CFG.raw.builtin_service_zones||{}).map(svcOfChan))]
     .sort(chanSort);
 }
-const DV_KEYS=["free","min","unit","rate","max"];
-/* UPS 2026 美國境內公告牌價。放在這裡是「填入」用的起手式,不是預設值 ——
-   沒有人按下去,設定裡就不會有這組數字。 */
-const DV_LIST_2026={free:"100", min:"5.10", unit:"100", rate:"1.70", max:"50000"};
+const DV_KEYS=["free","min","unit","rate","max","flat"];
+/* 這裡不放任何費率 —— 和整份設定同一條原則:程式裡不寫費率,費率是你填的。
+   寫死一組「今年的公告價」,明年就是錯的,而且錯得很安靜。
+   所以「填入」只能照已經填好的服務複製:第一條自己打,其餘複製過去。 */
 function renderDvTable(){
   const t=$("#tDv"); if(!t) return;
   const ov=CFG.raw.declared_value_by_channel||{};
-  const fams=dvFamilies();
-  t.tBodies[0].innerHTML=fams.map(fam=>{
+  t.tBodies[0].innerHTML=dvFamilies().map(fam=>{
     const o=ov[fam]||{};
-    const b=dvBands(toNum(o.free),toNum(o.min),toNum(o.unit),toNum(o.rate),toNum(o.max));
     const set=DV_KEYS.some(k=>String(o[k]||"").trim()!=="");
-    const flat=b ? (b.flatEnd>b.free?dvM(b.flatEnd):L("無","none"))
-                 : `<span style="color:var(--neg)">${L("未設定","not set")}</span>`;
-    return `<tr${set?"":' class="dvempty"'}><td><input type="checkbox" class="dvc" value="${esc(fam)}"></td>
-      <td>${esc(fam)}</td>`
+    return `<tr${set?"":' class="dvempty"'}><td>${esc(fam)}</td>`
       +DV_KEYS.map(k=>`<td class="num"><input class="cell num" data-k="dvfam\u241F${esc(fam)}\u241F${k}"`
-        +` value="${esc(o[k]==null?"":o[k])}"></td>`).join("")
-      +`<td class="num">${flat}</td></tr>`;
+        +` value="${esc(o[k]==null?"":o[k])}"></td>`).join("")+`</tr>`;
   }).join("");
-  const sel=$("#dvPreset");
-  if(sel){
-    const cur=sel.value;
-    const done=fams.filter(f=>DV_KEYS.some(k=>String((ov[f]||{})[k]||"").trim()!==""));
-    sel.innerHTML=`<option value="__list">${L("UPS 2026 公告價($1.70 / $100,最低 $5.10)",
-                                              "UPS 2026 list price ($1.70 per $100, $5.10 minimum)")}</option>`
-      +done.map(f=>`<option value="${esc(f)}">${L("照 ","Copy ")}${esc(f)}</option>`).join("");
-    if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
-  }
   if($("#dvFoot")) $("#dvFoot").textContent=L(
     "每一條服務都要自己的費率,沒有預設可以沿用 —— 空白的服務不會重算申報價值。"
-    +"最後一欄是算出來的,不是填的。",
-    "Every service needs its own rates; there is nothing to inherit. A blank service is "
-    +"not repriced. The last column is derived, not entered.");
+    +"「固定費率適用至」留空,就沒有固定區間,最低收費當下限用。",
+    "Every service needs its own rates; there is nothing to inherit, and a blank service "
+    +"is not repriced. Leave \"flat up to\" empty for no flat band: the minimum charge "
+    +"then acts as a floor.");
   document.querySelectorAll("#tDv input.cell[data-k]").forEach(el=>{
     el.onchange=()=>editCell(el.dataset.k, el.value);
   });
-  paintDvTicked();
+  paintDvSaveNote();
 }
-function dvTicked(){ return [...document.querySelectorAll(".dvc:checked")].map(c=>c.value); }
-function paintDvTicked(){
-  const n=dvTicked().length;
-  const ap=$("#dvApply"), cl=$("#dvClear");
-  if(ap) ap.disabled=!n;
-  if(cl) cl.disabled=!n;
-  if($("#dvApplyNote")) $("#dvApplyNote").textContent=n?L("已勾選 "+n+" 條",n+" ticked"):"";
-  document.querySelectorAll("#tDv tbody tr").forEach(tr=>{
-    const c=tr.querySelector(".dvc");
-    tr.classList.toggle("sel", !!(c&&c.checked));
-  });
-}
-function dvFillTicked(){
-  const who=dvTicked(); if(!who.length) return;
-  const src=$("#dvPreset").value;
-  const from = src==="__list" ? DV_LIST_2026
-             : (CFG.raw.declared_value_by_channel||{})[src]||{};
-  const t=CFG.raw.declared_value_by_channel||(CFG.raw.declared_value_by_channel={});
-  let n=0;
-  for(const fam of who){
-    if(fam===src) continue;
-    const o=t[fam]||(t[fam]={});
-    for(const k of DV_KEYS){
-      const v=String(from[k]==null?"":from[k]).trim();
-      if(v==="") delete o[k]; else o[k]=v;
-    }
-    if(!Object.keys(o).length) delete t[fam];
-    n++;
-  }
-  CFG=readConfig(CFG.raw); DIRTY=true;
-  renderDvTable(); paintDvSummary();
-  saveNoteKey(true,"changed");
-  setStatus(L("已填入 "+n+" 條服務","Filled "+n+" service(s)"));
-  if(RATED && ROWS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
-}
-function dvClearTicked(){
-  const who=dvTicked(); if(!who.length) return;
-  const t=CFG.raw.declared_value_by_channel||{};
-  for(const fam of who) delete t[fam];
-  CFG=readConfig(CFG.raw); DIRTY=true;
-  renderDvTable(); paintDvSummary();
-  saveNoteKey(true,"changed");
-  setStatus(L("已清空 "+who.length+" 條服務","Cleared "+who.length+" service(s)"));
-  if(RATED && ROWS){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
+function paintDvSaveNote(){
+  const el=$("#dvSaveNote"); if(!el) return;
+  el.textContent=DIRTY?L("有未儲存的變更","Unsaved changes"):"";
+  el.style.color=DIRTY?"var(--neg)":"var(--muted)";
 }
 /* 設定頁那一行:幾條設好了、費率有幾種。有幾種比有幾條有用 ——
    合約只有一條線打折的時候,「2 種」就是那件事本身。 */
@@ -3231,25 +3170,22 @@ function paintDvSummary(){
   }
   const kinds=new Set(done.map(f=>DV_KEYS.map(k=>String((ov[f]||{})[k]||"").trim()).join("|")));
   el.textContent=L(
-    `${fams.length} 條服務已設定 ${done.length} 條,共 ${kinds.size} 種費率`,
-    `${done.length} of ${fams.length} services set, ${kinds.size} distinct rate${kinds.size>1?"s":""}`)
+    `${fams.length} 條渠道已設定 ${done.length} 條,共 ${kinds.size} 種費率`,
+    `${done.length} of ${fams.length} channels set, ${kinds.size} distinct rate${kinds.size>1?"s":""}`)
     +(done.length<fams.length
       ? L(`;${fams.length-done.length} 條未設定`,`; ${fams.length-done.length} not set`) : "");
 }
 function openDvSet(){
   renderDvTable();
-  const a=$("#dvAll"); if(a) a.checked=false;
   $("#dvSetBg").classList.add("on");
 }
 function quoteDeclaredValue(cfg, value, channel){
   value=toNum(value);
   if(value<=0) return null;
   const d=dvSettings(cfg, channel);
-  if(d.unit<=0||d.rate<=0) return null;
-  if(d.max>0 && value>d.max) value=d.max;
-  if(value<=d.free) return 0;
-  const units=Math.ceil(Number((value/d.unit).toFixed(6)));
-  return Math.round(Math.max(d.min, units*d.rate)*100)/100;
+  /* 畫面上的預覽和真正計價走同一段程式,不可能各算各的。 */
+  const b=dvBands(d.free,d.min,d.unit,d.rate,d.max,d.flat);
+  return b ? dvQuote(b,value) : null;
 }
 
 /* 「跨期單查不到歷史」那句話。要在算完之後判斷它到底算不算一回事,
@@ -6788,22 +6724,21 @@ $("#bExportAcc") && ($("#bExportAcc").onclick=()=>{
   const dvA=CFG.raw.accessorial_charges||{};
   /* 保價級距一條服務一列,外加一列 Default —— 只有 Ground 打折這種合約,
      模板要能把「差別在哪」帶著走,不然收到模板的人只看得到一組數字。 */
-  const dvOvT=CFG.raw.declared_value_by_channel||{};
-  const dvTblRows=[];
-  for(const f of dvFamilies()){
-    const o=dvOvT[f]||{};
-    if(!DV_KEYS.some(k=>String(o[k]||"").trim()!=="")) continue;
-    const c=k=>String(o[k]||"").trim()===""?"":toNum(o[k]);
-    dvTblRows.push([f,c("free"),c("min"),c("unit"),c("rate"),c("max")]);
-  }
+  /* 這份模板是為哪條渠道匯出的,保價級距就只帶那一條 —— 其他分頁也是
+     只帶這條渠道的費率,這裡跟著一致。一個渠道一份模板,一份一列。 */
+  const dvFam=svcOfChan(ch);
+  const dvO=(CFG.raw.declared_value_by_channel||{})[dvFam]||{};
+  const dvC=k=>String(dvO[k]||"").trim()===""?"":toNum(dvO[k]);
+  const dvTblRows=[[dvFam,dvC("free"),dvC("min"),dvC("unit"),dvC("rate"),
+                    dvC("max"),dvC("flat")]];
   loadXLSX().then(X=>{
     const wb=X.utils.book_new();
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet([ahsHead,...ahsRows]),"AHS_LPS");
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(
       [["Fee Type","Amount"],...flatRows]),"FLAT_CHARGES");
     X.utils.book_append_sheet(wb,X.utils.aoa_to_sheet(
-      [["Service","Free up to","Minimum charge","Step","Per step","Max value"],
-       ...dvTblRows]),"DECLARED_VALUE");
+      [["Service","Free up to","Minimum charge","Step","Per step","Max value",
+        "Flat up to"], ...dvTblRows]),"DECLARED_VALUE");
     const buf=X.write(wb,{bookType:"xlsx",type:"array"});
     dlBlob(new Blob([buf],{type:"application/octet-stream"}),fname);
     setStatus((LANG?"Template exported for ":"已匯出模板:")+family.join(" + ")
@@ -6928,7 +6863,7 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
       const map=[["Free up to","dv_free_limit","free"],
                  ["Minimum charge","dv_min_charge","min"],
                  ["Step","dv_unit","unit"],["Per step","dv_unit_rate","rate"],
-                 ["Max value","dv_max","max"]];
+                 ["Max value","dv_max","max"],["Flat up to","","flat"]];
       const a=CFG.raw.accessorial_charges||(CFG.raw.accessorial_charges={});
       const ov=CFG.raw.declared_value_by_channel||(CFG.raw.declared_value_by_channel={});
       const known=new Set([...new Set(Object.keys(CFG.raw.builtin_service_zones||{})
@@ -6967,6 +6902,7 @@ $("#bSetFuel") && ($("#bSetFuel").onclick=()=>openFuel());
 $("#bDvOpen") && ($("#bDvOpen").onclick=()=>openDvSet());
 $("#bDvHelp") && ($("#bDvHelp").onclick=()=>openDvHelp());
 const dvSClose=()=>$("#dvSetBg").classList.remove("on");
+$("#dvSave") && ($("#dvSave").onclick=()=>{ saveSettings(); paintDvSaveNote(); });
 $("#dvSX") && ($("#dvSX").onclick=dvSClose);
 $("#dvSClose") && ($("#dvSClose").onclick=dvSClose);
 $("#dvSetBg") && ($("#dvSetBg").onclick=e=>{ if(e.target===$("#dvSetBg")) dvSClose(); });
@@ -6980,15 +6916,7 @@ $("#dvSMax") && ($("#dvSMax").onclick=()=>{
   }
   $("#dvSMax").textContent=m.classList.contains("max")?"⤡":"⤢";
 });
-$("#tDv") && ($("#tDv").addEventListener("change",e=>{
-  if(e.target.classList.contains("dvc")) paintDvTicked();
-}));
-$("#dvAll") && ($("#dvAll").onchange=()=>{
-  document.querySelectorAll(".dvc").forEach(c=>c.checked=$("#dvAll").checked);
-  paintDvTicked();
-});
-$("#dvApply") && ($("#dvApply").onclick=()=>dvFillTicked());
-$("#dvClear") && ($("#dvClear").onclick=()=>dvClearTicked());
+
 const dvClose=()=>$("#dvBg").classList.remove("on");
 $("#dvHx") && ($("#dvHx").onclick=dvClose);
 $("#dvHClose") && ($("#dvHClose").onclick=dvClose);
@@ -12856,9 +12784,6 @@ const I18N={
   "lb.dvmaxc":["保價上限","Max insurable value"],
   "hd.dvset":["申報價值級距","Declared value rates"],
   "btn.dvset":["設定申報價值級距","Set declared value rates"],
-  "lb.dvfill":["把勾選的服務填成","Fill the ticked services with"],
-  "btn.dvapply":["填入","Fill"],
-  "btn.dvclear":["清空勾選","Clear ticked"],
   "th.dvflat":["固定費率適用至","Flat up to"],
   "btn.dvhelp":["欄位說明","Field guide"],
   "hd.dvhelp":["申報價值級距設定說明","Declared value tiers — field guide"],
