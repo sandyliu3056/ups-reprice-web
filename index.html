@@ -489,17 +489,20 @@ td.cells{white-space:normal}
 .affsum{color:var(--muted);font-size:12.5px}
 #dvRow{gap:14px;flex-wrap:wrap}
 #dvRow label{font-size:12.5px;color:var(--accent);font-weight:600}
-.dvprev{margin:12px 0 4px;border:1.5px solid var(--line);border-radius:var(--rad);
-  background:var(--stripe);padding:11px 14px;font-size:12.5px;max-width:640px}
-.dvprev .dvb{display:flex;justify-content:space-between;gap:16px;padding:3px 0;
-  border-bottom:1px dashed var(--line)}
-.dvprev .dvb:last-of-type{border-bottom:0}
-.dvprev .dvb span{color:var(--muted)}
-.dvprev .dvb b{font-weight:700;white-space:nowrap}
-.dvprev .dvtry{margin-top:9px;padding-top:8px;border-top:1.5px solid var(--line);
-  color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 18px}
-.dvprev .dvtry b{color:var(--text)}
+.dvprev{margin:9px 0 4px;font-size:12.5px;color:var(--muted);line-height:1.7}
+.dvprev b{color:var(--text);font-weight:700}
 .dvprev .dvno{color:var(--neg)}
+.subhd .dvq{margin-left:10px;padding:1px 10px;font-size:12px;vertical-align:2px}
+#dvHelp .dvf{border-left:3px solid var(--line);padding:2px 0 2px 12px;margin:0 0 13px}
+#dvHelp .dvf i{font-style:normal;font-weight:700;color:var(--accent)}
+#dvHelp .dvf u{text-decoration:none;color:var(--muted);font-size:12.5px}
+#dvHelp .dvf p{margin:3px 0 0;font-size:13px}
+#dvHelp .dvsec{font-weight:700;color:var(--accent);margin:18px 0 8px;
+  padding-top:12px;border-top:1.5px solid var(--line)}
+#dvHelp .dvcalc{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  font-size:12.5px;background:var(--stripe);border:1.5px solid var(--line);
+  border-radius:var(--rad);padding:9px 12px;margin:8px 0 0}
+#dvHelp .dvlead{font-size:13px;margin:0 0 16px;color:var(--muted)}
 
 /* 批量設定 */
 .bulkwrap{display:grid;grid-template-columns:minmax(0,0.85fr) minmax(0,1.15fr);gap:14px}
@@ -1068,7 +1071,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div id="accZoneCols" class="zonecols"></div>
     <div class="subhd" data-i18n="hd.flat">Flat amounts</div>
     <div id="accFlat" class="flatgrid"></div>
-    <div class="subhd" data-i18n="hd.dv">Declared value tiers</div>
+    <div class="subhd"><span data-i18n="hd.dv">Declared value tiers</span>
+      <button class="act ghost dvq" id="bDvHelp">? <span data-i18n="btn.dvhelp">What do these mean?</span></button></div>
     <div class="row" id="dvRow"></div>
     <div id="dvPrev" class="dvprev"></div>
 
@@ -1665,6 +1669,19 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="modalbody" id="bkdBody"></div>
   </div>
 </div>
+<div id="dvBg" class="modalbg">
+  <div class="modal sketch" id="dvModal" style="width:min(680px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.dvhelp">How to fill in the declared value tiers</span>
+      <button class="mx" id="dvHx">✕</button>
+    </div>
+    <div class="modalbody" id="dvHelp"></div>
+    <div class="modalft">
+      <span></span><button class="act ghost" id="dvHClose" data-i18n="btn.close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="rvBg" class="modalbg">
   <div class="modal sketch" id="rvModal" style="width:min(880px,100%);height:min(74vh,880px)">
     <div class="modalhd">
@@ -2939,45 +2956,123 @@ function dvQuote(b,v){
 }
 /* 金額整數就不拖 .00 —— 級距邊界寫成 $300 比 $300.00 好讀。 */
 function dvM(v){ const t=money(v); return t.endsWith(".00")?t.slice(0,-3):t; }
+/* 設定頁上只留一句話 —— 那一列是拿來填的,不是拿來讀報表的。
+   數字要看細節、要知道每一格是什麼意思,按旁邊的「?」。 */
+function dvSentence(b){
+  const on=b.flatEnd>b.free?b.flatEnd:b.free;
+  const bits=[];
+  bits.push(b.free>0
+    ? L(`申報 <b>${dvM(b.free)}</b> 以內免費`,`Free up to <b>${dvM(b.free)}</b>`)
+    : L("<b>從第一塊錢</b>就收費",'Charged <b>from the first dollar</b>'));
+  if(b.flatEnd>b.free)
+    bits.push(L(`到 <b>${dvM(b.flatEnd)}</b> 為止一律 <b>${dvM(b.min)}</b>`,
+                `flat <b>${dvM(b.min)}</b> up to <b>${dvM(b.flatEnd)}</b>`));
+  bits.push(L(`超過 <b>${dvM(on)}</b> 之後每 <b>${dvM(b.unit)}</b> 加 <b>${dvM(b.rate)}</b>`,
+              `then <b>${dvM(b.rate)}</b> per <b>${dvM(b.unit)}</b> above <b>${dvM(on)}</b>`));
+  if(b.cap>0) bits.push(L(`最多保到 <b>${dvM(b.cap)}</b>`,
+                          `capped at <b>${dvM(b.cap)}</b>`));
+  return bits.join(L(",",", "))+L("。",".");
+}
 function paintDvPreview(){
   const box=$("#dvPrev"); if(!box) return;
+  const b=dvRead();
+  box.innerHTML = b ? dvSentence(b)
+    : `<span class="dvno">${L(
+        "「級距單位」和「每級距收費」還沒填,申報價值不會重算,報表那一欄會留白。",
+        "Step and per-step are empty, so declared value is not repriced and the column stays blank.")}</span>`;
+  if($("#dvBg")&&$("#dvBg").classList.contains("on")) paintDvHelp();
+}
+/* 讀畫面上現在打的字,不是存下來的設定 —— 說明要跟著手指走。 */
+function dvRead(){
   const g=k=>{ const el=document.querySelector('#dvRow input[data-k="chg\u241F'+k+'"]');
                return toNum(el?el.value:((CFG.raw.accessorial_charges||{})[k])); };
-  const b=dvBands(g("dv_free_limit"),g("dv_min_charge"),g("dv_unit"),
-                  g("dv_unit_rate"),g("dv_max"));
+  return dvBands(g("dv_free_limit"),g("dv_min_charge"),g("dv_unit"),
+                 g("dv_unit_rate"),g("dv_max"));
+}
+/* 「?」視窗:一格一格講「你填這個數字,代表什麼」。
+   數字用現在填的值代進去,講的是這一組設定,不是課本上的例子。 */
+function paintDvHelp(){
+  const box=$("#dvHelp"); if(!box) return;
+  const b=dvRead();
+  const g=k=>{ const el=document.querySelector('#dvRow input[data-k="chg\u241F'+k+'"]');
+               return String(el?el.value:((CFG.raw.accessorial_charges||{})[k]||"")).trim(); };
+  const now=v=>v===""?L("(還沒填)","(empty)"):L("你填了 "+v,"you entered "+v);
+  /* 欄名後面那句「(留白=不設限)」在說明視窗裡是多的 —— 底下整段都在講它。 */
+  const bare=n=>String(n).split(/[(（]/)[0].trim();
+  const fld=(name,val,body)=>`<div class="dvf"><i>${bare(name)}</i> <u>— ${now(val)}</u>`
+                            +`<p>${body}</p></div>`;
+  const F=g("dv_free_limit"), M=g("dv_min_charge"), U=g("dv_unit"),
+        R=g("dv_unit_rate"), C=g("dv_max");
+  const ex=(v,u)=>L(`申報 ${dvM(v)} 算 ${u} 級,不是 ${(v/(toNum(U)||100)).toFixed(1)} 級`,
+                    `${dvM(v)} counts as ${u} steps, not ${(v/(toNum(U)||100)).toFixed(1)}`);
+  let h=`<p class="dvlead">${L(
+    "這五格只在一種情況下會用到:UPS 帳單上出現「申報價值(EVS)」那一行。"
+    +"UPS 沒收這筆,系統就完全不會碰這五個數字。",
+    "These five only matter when the UPS invoice carries a Declared Value (EVS) line. "
+    +"If UPS did not charge it, none of them is used.")}</p>`;
+
+  h+=fld(T("lb.dvfree"),F,L(
+    "這個金額以內不收錢。填 <b>100</b> 就是申報 $100 以內免費;"
+    +"填 <b>0</b> 就是從第一塊錢開始收。",
+    "Nothing is charged up to this amount. <b>100</b> means the first $100 is free; "
+    +"<b>0</b> means you charge from the first dollar."));
+  h+=fld(T("lb.dvmin"),M,L(
+    "只要開始收費,最少收這麼多。金額小的那一段之所以是一個固定價,就是被這一格撐平的。",
+    "Once anything is charged, this is the floor. It is what makes the low band a single flat price."));
+  h+=fld(T("lb.dvunit"),U,L(
+    "每多少錢算一級。<b>不滿一級也算一級</b> —— "+ex(250,Math.ceil(250/(toNum(U)||100)))+"。",
+    "How much money makes one step. <b>A part step counts as a whole one</b> — "
+    +ex(250,Math.ceil(250/(toNum(U)||100)))+"."));
+  h+=fld(T("lb.dvrate"),R,L(
+    "一級收多少。級數是拿<b>整筆申報金額</b>去除,不是只除超過免費額度的部分。",
+    "What one step costs. Steps are counted on the <b>whole declared amount</b>, "
+    +"not just the part above the free allowance."));
+  h+=fld(T("lb.dvmax"),C,L(
+    "UPS 最多賠到這裡。申報再高,超出的部分保不到,"
+    +"所以系統<b>照這個上限計費</b>,並且把那一票<b>標成異常</b>。留白就是不設限。",
+    "UPS covers no more than this. Anything above it is not insured, so the system "
+    +"<b>prices at the ceiling</b> and <b>flags the shipment</b>. Blank means no ceiling."));
+
   if(!b){
-    box.innerHTML=`<div class="dvno">${L(
-      "級距單位和每級距收費都要有值,否則申報價值不會重算,那一欄會留白。",
-      "Step and per-step must both have a value, or declared value is not repriced and the column stays empty.")}</div>`;
-    return;
+    h+=`<div class="dvsec">${L("現在算不出來","Nothing can be computed yet")}</div>`
+      +`<p style="margin:0;font-size:13px">${L(
+        "「級距單位」和「每級距收費」兩格都要有值,少一個,申報價值就不重算,"
+        +"報表那一欄會留白。",
+        "Step and per-step both need a value. Without them declared value is not "
+        +"repriced and the report column stays blank.")}</p>`;
+    box.innerHTML=h; return;
   }
-  const row=(l,r)=>`<div class="dvb"><span>${l}</span><b>${r}</b></div>`;
-  let h="";
-  if(b.free>0) h+=row(`${dvM(0)} – ${dvM(b.free)}`, L("免費","Free"));
-  const start=b.free>0?dvM(b.free+0.01):dvM(0.01);
-  if(b.flatEnd>b.free)
-    h+=row(`${start} – ${dvM(b.flatEnd)}`,
-           `${dvM(b.min)} ${L("固定","flat")}`);
-  const on=b.flatEnd>b.free?dvM(b.flatEnd):dvM(b.free);
-  h+=row(L(`${on} 以上`,`Above ${on}`),
-         L(`每 ${dvM(b.unit)} 收 ${dvM(b.rate)}`,
-           `${dvM(b.rate)} per ${dvM(b.unit)}`));
-  if(b.cap>0)
-    h+=row(L(`保價上限 ${dvM(b.cap)}`,`Insurable ceiling ${dvM(b.cap)}`),
-           L("超過照上限計費並標記","Above this: priced at the ceiling, and flagged"));
-  /* 試算挑會落在不同段的值,不是隨便三個數字。 */
+
+  h+=`<div class="dvsec">${L("固定價收到哪裡結束,是算出來的,不是你設的",
+                             "Where the flat price ends is derived, not set")}</div>`
+    +`<p style="margin:0;font-size:13px">${L(
+      "沒有一格叫「固定價收到哪」。它是這樣來的:",
+      "There is no field for it. It falls out of the other two:")}</p>`
+    +`<div class="dvcalc">${L("最低收費","minimum")} ${dvM(b.min)} ÷ `
+    +`${L("每級距收費","per step")} ${dvM(b.rate)} = `
+    +`${Math.floor(Number((b.min/b.rate).toFixed(6)))} ${L("級","steps")}`
+    +`  →  ${L("固定價收到","flat up to")} <b>${dvM(b.flatEnd)}</b></div>`
+    +`<p style="margin:8px 0 0;font-size:13px">${L(
+      "所以要讓固定價收得更遠,調高<b>最低收費</b>;要讓它提早結束,調高<b>每級距收費</b>。"
+      +"想收 $10 固定價、$300 之後才跳的話 —— 上面這個數字會變成 $500,不是 $300。",
+      "To stretch the flat price further, raise the <b>minimum</b>; to end it sooner, raise "
+      +"the <b>per-step</b>. Ask for a $10 flat with a $1.70 step and the number above "
+      +"becomes $500, not $300.")}</p>`;
+
   const picks=[];
   if(b.free>0) picks.push(b.free);
   if(b.flatEnd>b.free) picks.push(b.flatEnd);
   picks.push((b.flatEnd>b.free?b.flatEnd:b.free)+b.unit);
-  picks.push(b.cap>0 ? b.cap+b.unit
-                     : (b.flatEnd>b.free?b.flatEnd:b.unit)*5);
+  picks.push(b.cap>0?b.cap+b.unit:(b.flatEnd>b.free?b.flatEnd:b.unit)*5);
   const uniq=[...new Set(picks.filter(v=>v>0))].sort((x,y)=>x-y);
-  h+=`<div class="dvtry"><span>${L("試算","Try")}</span>`
-    + uniq.map(v=>`<span>${dvM(v)} → <b>${money(dvQuote(b,v))}</b></span>`).join("")
-    + `</div>`;
+  h+=`<div class="dvsec">${L("這一組設定實際會收多少","What this setting actually charges")}</div>`
+    +`<div class="dvcalc">`
+    +uniq.map(v=>L(`申報 ${dvM(v)} → 收 <b>${money(dvQuote(b,v))}</b>`,
+                   `${dvM(v)} declared → <b>${money(dvQuote(b,v))}</b>`)).join("<br>")
+    +`</div>`;
   box.innerHTML=h;
 }
+function openDvHelp(){ paintDvHelp(); $("#dvBg").classList.add("on"); }
 function quoteDeclaredValue(cfg, value){
   value=toNum(value);
   if(value<=0) return null;
@@ -6675,6 +6770,12 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
   }).then(()=>{ inp.value=""; });
 });
 $("#bSetFuel") && ($("#bSetFuel").onclick=()=>openFuel());
+$("#bDvHelp") && ($("#bDvHelp").onclick=()=>openDvHelp());
+const dvClose=()=>$("#dvBg").classList.remove("on");
+$("#dvHx") && ($("#dvHx").onclick=dvClose);
+$("#dvHClose") && ($("#dvHClose").onclick=dvClose);
+/* 點灰底關掉,和其他視窗一致;點視窗本身不關。 */
+$("#dvBg") && ($("#dvBg").onclick=e=>{ if(e.target===$("#dvBg")) dvClose(); });
 
 $("#bScanInv") && ($("#bScanInv").onclick=()=>{
   if(!ROWS){ setStatus(LANG?"Import an invoice first":"請先匯入帳單"); return; }
@@ -12529,6 +12630,8 @@ const I18N={
   "lb.dvfree":["免費額度","Free allowance"], "lb.dvmin":["最低收費","Minimum charge"],
   "lb.dvunit":["級距單位","Step"], "lb.dvrate":["每級距收費","Per step"],
   "lb.dvmax":["保價上限(留白=不設限)","Max insurable value (blank = none)"],
+  "btn.dvhelp":["這幾格什麼意思","What do these mean?"],
+  "hd.dvhelp":["申報價值級距怎麼填","How to fill in the declared value tiers"],
   "btn.reset":["重設","Reset"],
   "hd.acc":["附加費設定","Surcharge Setup"],
   "hd.fuel":["燃油","Fuel"],
