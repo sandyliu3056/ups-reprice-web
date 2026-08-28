@@ -11055,58 +11055,56 @@ function exportReport(){
   }
   const rows=reportRows();
   const name=reportName();
-  loadXLSX().then(X=>{
-    const aoa=[REPORT_COLS, ...rows.map(r=>REPORT_COLS.map(c=>r[c]))];
-    const ws=X.utils.aoa_to_sheet(aoa);
-    /* 金額欄套 $#,##0.00 並且先四捨五入到分,日期寫成真正的日期值配
-       mm/dd/yyyy —— 桌面版的活頁簿就是這樣,不做的話一格會印成
-       7.2696000000000005,而日期是不能排序的文字。 */
-    const MONEY_FROM=REPORT_COLS.indexOf("Base Rate");
-    const DATE_COL=REPORT_COLS.indexOf("Date");
-    const ref=X.utils.decode_range(ws["!ref"]);
-    for(let r=1;r<=ref.e.r;r++){
-      for(let c=MONEY_FROM;c<=ref.e.c;c++){
-        const cell=ws[X.utils.encode_cell({r:r,c:c})];
-        if(cell && typeof cell.v==="number"){
-          /* Math.round(x*100)/100 會先把 12.074999… 放大成 1207.5 再進位,
-             寫出 12.08,而桌面版的 round() 看到的是真值,寫的是 12.07。
-             toFixed 是對真值取捨,和桌面版一致(1/8 的整數倍那種
-             正中間的值仍有 half-even 差異)。 */
-          cell.v=Number(cell.v.toFixed(2));
-          cell.z="$#,##0.00";
-        }
-      }
-      const dc=ws[X.utils.encode_cell({r:r,c:DATE_COL})];
-      /* 出貨日在帳單上有 2026-08-03 也有 2026/8/3 兩種寫法,
-         先用 schedDate() 正規化,不要只認其中一種。 */
-      const iso=dc && typeof dc.v==="string" ? schedDate(dc.v) : "";
-      if(iso){
-        const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-        /* Excel 的序號起點是 1899-12-30,直接給數字比給 Date 物件穩,
-           Date 物件會被時區推掉一天。 */
-        dc.v=Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000);
-        dc.t="n"; dc.z="mm/dd/yyyy";
-      }
+  /* 這一份以前走 SheetJS。免費版寫不出凍結窗格,所以捲到第二十列就看不到
+     欄名了 —— 而這張表有五十幾欄,認不出欄名等於認不出數字。改用這裡自己
+     的寫檔器:它本來就會寫 <pane state="frozen">,順便補上欄寬(日期欄
+     用 Excel 預設寬度會擠成 ########)。值一個都沒動,只有排版。 */
+  const MONEY="$#,##0.00", DATE="mm/dd/yyyy";
+  const money0=REPORT_COLS.indexOf("Base Rate");
+  const dateCol=REPORT_COLS.indexOf("Date");
+  /* 日期在帳單上有 2026-08-03 也有 2026/8/3 兩種寫法,先正規化再轉序號。
+     Excel 的序號起點是 1899-12-30;直接給數字比給 Date 物件穩,
+     Date 物件會被時區推掉一天。 */
+  const serial=v=>{
+    const iso=(typeof v==="string")?schedDate(v):"";
+    const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||"");
+    return m ? Math.floor((Date.UTC(+m[1],+m[2]-1,+m[3])-Date.UTC(1899,11,30))/86400000) : null;
+  };
+  const grid=[REPORT_COLS.map(h=>({v:h,t:"s"}))];
+  for(const r of rows) grid.push(REPORT_COLS.map((c,i)=>{
+    const v=r[c];
+    if(i===dateCol){
+      const n=serial(v);
+      return n==null ? {v:v==null?"":String(v),t:"s"}
+                     : {v:n,t:"n",s:{fmt:DATE,align:"right"}};
     }
-    const wb=X.utils.book_new();
-    X.utils.book_append_sheet(wb, ws, "Shipment Detail");
-    /* 帳號層級的調整(MSC/MIS)不放進這本活頁簿 —— 照桌面版:
-       這份 Repriced 報表是要給客戶的,UPS 帳戶層的金額不該出現在裡面。
-       錢沒有不見:利潤報表(Statement)的 Account Charges 分頁照舊列出。 */
-    dlBlob(new Blob([X.write(wb,{bookType:"xlsx",type:"array"})],
-      {type:"application/octet-stream"}), name).then(ok=>{
+    if(i>=money0){
+      /* toFixed 是對真值取捨,和桌面版的 round() 一致。Math.round(x*100)/100
+         會先把 12.074999… 放大成 1207.5 再進位,寫出 12.08。 */
+      const n=Number(v)||0;
+      return {v:Number(n.toFixed(2)),t:"n",s:{fmt:MONEY,align:"right"}};
+    }
+    if(typeof v==="number") return {v:v,t:"n",s:{align:"right"}};
+    return {v:v==null?"":String(v),t:"s"};
+  }));
+  /* 欄寬照欄名長度給,夾在 11 到 22 之間(11 才裝得下 mm/dd/yyyy 和 $1,234.56) —— 不設的話 Excel 用 8.43,
+     日期那欄印出來是 ########。 */
+  const cols=REPORT_COLS.map(h=>({w:Math.min(Math.max(String(h).length+2,11),22)}));
+  xlWrite([{name:"Shipment Detail", rows:grid, cols:cols, freeze:{r:1,c:0}}], name)
+    .then(ok=>{
       toast(ok?((LANG?"Report exported · ":"報表已匯出 · ")+rows.length
                 +(LANG?" rows":" 列"))
              :(LANG?"Save cancelled":"已取消存檔"), ok);
+    })
+    .catch(e=>{
+      const m=(e&&e.message)||String(e||"");
+      setStatus(L("匯出失敗:","Export failed: ")+m);
+      toast(L("匯出失敗:","Export failed: ")+m, false);
     });
-  }).catch(e=>{
-    /* 以前這裡不看錯誤內容,一律回報「元件沒載到」—— 寫檔過程中任何一個
-       例外都會被說成別的原因,照著那句話去查永遠查不到。 */
-    const m=(e&&e.message)||String(e||"");
-    setStatus(L("匯出失敗:","Export failed: ")+m);
-    toast(L("匯出失敗:","Export failed: ")+m, false);
-  });
 }
+/* 帳號層級的調整(MSC/MIS)不放進這本活頁簿 —— 照桌面版:這份 Repriced
+   報表是要給客戶的,UPS 帳戶層的金額不該出現在裡面。錢沒有不見:
+   利潤報表(Statement)的 Account Charges 分頁照舊列出。 */
 
 function dynExport(){
   const rows=(DYN_ROWS.length?DYN_ROWS:[
@@ -12998,16 +12996,21 @@ $("#bCsv").onclick=async ()=>{
     return "";
   };
   const oRows=[], oMerges=[];
-  const blockOf=(title, head, rows)=>{
+  /* banner=false:第一塊不寫那條標題列。它是這張表的第一張表格,欄名
+     自己說得清楚是什麼,而擺在 A1 的合併標題會讓 Excel 的第一列不是欄名。
+     後面兩塊照舊要標題 —— 它們接在別的表格後面,沒有標題就分不出來。 */
+  const blockOf=(title, head, rows, banner)=>{
     if(!rows.length) return;
     if(oRows.length) oRows.push([]);                 /* 區塊之間空一列 */
-    const r0=oRows.length;
-    const total=rows.reduce((a,r)=>a+toNum(r[4].v),0);
-    const cap={v:"",t:"s",s:{fill:SUM,border:true}};
-    oRows.push([{v:title,t:"s",
-                 s:{bold:true,fill:SUM,align:"left",border:true}},
-                cap,cap,cap,ft(r2(total))]);
-    oMerges.push({s:{r:r0,c:0},e:{r:r0,c:3}});
+    if(banner!==false){
+      const r0=oRows.length;
+      const total=rows.reduce((a,r)=>a+toNum(r[4].v),0);
+      const cap={v:"",t:"s",s:{fill:SUM,border:true}};
+      oRows.push([{v:title,t:"s",
+                   s:{bold:true,fill:SUM,align:"left",border:true}},
+                  cap,cap,cap,ft(r2(total))]);
+      oMerges.push({s:{r:r0,c:0},e:{r:r0,c:3}});
+    }
     oRows.push(head.map((h,i)=>hc(h,i===4?"center":"left")));
     for(const r of rows) oRows.push(r);
   };
@@ -13015,7 +13018,7 @@ $("#bCsv").onclick=async ()=>{
     [L("收費說明","Charge description"),L("原因","Reason"),L("代碼","Code"),
      L("UPS 備註","UPS note"),L("金額","Amount")],
     accountRows.map(a=>[tx(a.desc),tx(whyOf(a.note,a.desc,a.code)),tx(a.code,"center"),
-                        wr(a.note),nm(a.amount)]));
+                        wr(a.note),nm(a.amount)]), false);
   blockOf(L("帳單上有、報表上沒有","On invoice, not billed to client"),
     [L("追蹤號","Tracking"),L("原因","Reason"),L("期號","Invoice"),
      L("UPS 備註","UPS note"),L("成本","Cost")],
