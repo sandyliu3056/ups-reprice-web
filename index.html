@@ -457,6 +457,9 @@ tbody tr:nth-child(even){background:var(--stripe)}
 tbody tr:hover{background:color-mix(in srgb, var(--select) 45%, transparent)}
 td.num,th.num{text-align:right}
 td.neg{color:var(--neg)}
+#p-recon .mny.neg{color:var(--neg)}
+#p-recon .mny.pos{color:var(--run2)}
+#p-recon tfoot td{border-top:2px solid var(--line);background:var(--stripe)}
 td.wrap{white-space:normal;min-width:190px}
 td.cells{white-space:normal}
 .empty{color:var(--muted);text-align:center;padding:24px 10px;font-size:13px}
@@ -924,6 +927,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
+  <button role="tab" aria-selected="false" data-p="recon"  class="display" data-i18n="tab.recon">Reconciliation</button>
   <button role="tab" aria-selected="false" data-p="dash"   class="display" data-i18n="tab.dash">Dashboard</button>
   <button role="tab" aria-selected="false" data-p="setting" class="display" data-i18n="tab.setting">Settings</button>
   <button role="tab" aria-selected="false" data-p="admin"  class="display" data-i18n="tab.admin">Admin</button>
@@ -1254,6 +1258,50 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 </section>
 
 <!-- ==================== Channels ==================== -->
+<!-- ==================== WMS / TMS 對帳 ==================== -->
+<section class="page" id="p-recon">
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">⚖️</span><span data-i18n="hd.recon">WMS / TMS reconciliation</span></h3>
+    <p class="hint" style="margin:0 0 11px;max-width:74ch" data-i18n="hint.recon">The invoice already holds the charge detail. This file adds the two facts it cannot know: which customer an order belongs to, and what that customer was billed. One order per row; for a multi-package order put every tracking number in one cell, separated by commas.</p>
+    <div class="row">
+      <button class="act ghost sm" id="bReconTpl" data-i18n="btn.recontpl">Download template</button>
+      <button class="act" id="bReconImp" data-i18n="btn.reconimp">Import filled template</button>
+      <input type="file" id="fRecon" accept=".xlsx,.xls,.csv,.txt" style="display:none">
+      <span style="flex:1 1 auto"></span>
+      <button class="act ghost sm" id="bReconXls" data-i18n="btn.reconxls">Export reconciliation</button>
+    </div>
+    <div class="row" style="margin-top:8px"><span id="reconMsg" class="savenote"></span></div>
+  </div>
+
+  <div class="lf sketch" id="reconIssueCard" hidden>
+    <h3 class="display"><span class="em">🚫</span><span data-i18n="hd.reconiss">Rows that could not be accepted</span></h3>
+    <div id="reconIssSum" class="hint" style="margin:0 0 11px"></div>
+    <div class="tablewrap" style="max-height:40vh"><table id="tReconIss"><thead><tr>
+      <th class="num" style="width:70px" data-i18n="th.reconline">Line</th>
+      <th data-i18n="th.reconwhy">Reason</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div class="lf sketch" id="reconResCard" hidden>
+    <h3 class="display"><span class="em">📊</span><span data-i18n="hd.reconres">By customer</span></h3>
+    <div id="reconWarn" hidden></div>
+    <div class="tablewrap" style="max-height:56vh"><table id="tRecon"><thead><tr>
+      <th data-i18n="th.cuscode">Code</th>
+      <th data-i18n="th.cusname">Name</th>
+      <th data-i18n="th.cuslevel">Rate level</th>
+      <th class="num" data-i18n="th.reconorders">Orders</th>
+      <th class="num" data-i18n="th.reconpkgs">Packages</th>
+      <th class="num" data-i18n="th.reconbilled">Billed to customer</th>
+      <th class="num" data-i18n="th.reconups">Charged by UPS</th>
+      <th class="num" data-i18n="th.reconprofit">Profit</th>
+      <th class="num" data-i18n="th.reconmargin">Margin</th>
+      <th class="num" data-i18n="th.reconrep">Recomputed</th>
+      <th class="num" data-i18n="th.recongap">vs UPS</th>
+    </tr></thead><tbody></tbody><tfoot></tfoot></table></div>
+    <p class="hint" style="margin:11px 0 0;max-width:76ch" data-i18n="hint.reconcols">Profit is what the customer paid less what UPS charged. Recomputed is what the customer’s own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement.</p>
+  </div>
+</section>
+
 <section class="page" id="p-chan">
   <div class="lf sketch">
     <h3 class="display"><span class="em">➕</span><span data-i18n="hd.chandata">Add a new channel</span></h3>
@@ -6797,6 +6845,7 @@ function showTab(p){
   if(p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
   if(p==="dash"&&typeof renderDashboard==="function") renderDashboard();
   if(p==="cus"&&typeof renderCustomers==="function") renderCustomers();
+  if(p==="recon"&&typeof renderRecon==="function") renderRecon();
 }
 
 /* =====================================================================
@@ -6843,14 +6892,12 @@ function paintBuild(){
 
 
 /* 分頁切換 */
+/* 分頁切換只留 showTab 一個入口。這裡本來自己抄了一份同樣的邏輯,結果是
+   每加一頁就要記得改兩個地方 —— 客戶那一頁的重畫就是這樣漏掉的,而且這一
+   份還不會把分頁記進 localStorage,重整之後又跳回第一頁。 */
 $("#tabs").addEventListener("click",e=>{
   const b=e.target.closest("button[data-p]"); if(!b) return;
-  [...$("#tabs").children].forEach(x=>x.setAttribute("aria-selected",x===b));
-  document.querySelectorAll(".page").forEach(p=>
-    p.classList.toggle("on", p.id==="p-"+b.dataset.p));
-  sceneShow(b.dataset.p==="files");
-  if(b.dataset.p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
-  if(b.dataset.p==="dash"&&typeof renderDashboard==="function") renderDashboard();
+  showTab(b.dataset.p);
 });
 
 /* ---------------------------------------------------------------------
@@ -10270,6 +10317,329 @@ function dynDelete(){
 }
 const DYN_COLS=["AS Code","AR","Surcharge Name","Type","Fuel Eligible","Enabled"];
 /* =====================================================================
+   WMS / TMS 對帳
+   ---------------------------------------------------------------------
+   照實務的四步走:
+     1. WMS / TMS 出資料 —— 同仁填模板,一張系統單一列
+     2. 用追蹤號對上這一期 UPS 帳單的那幾筆
+     3. 照該客戶指定的費率層級重算
+     4. 三個數字擺在一起:客戶實收、UPS 實收、系統重算
+
+   模板只收四件必填:單號、追蹤號、客戶代號、整張單向客戶收的總額。
+   附加費明細不跟 WMS 要 —— 那些在 UPS 帳單上,帳單上的每一筆都帶著正式
+   代碼;WMS 標籤系統那邊的欄位是各家自己取的,猜不得。
+
+   重算沒有第二套引擎。priceShipment 收的是 cfg 參數而不是全域 CFG,所以
+   「一個客戶一個層級」只是換一份 cfg 傳進去,計價那一側一行都不用改。
+   ===================================================================== */
+const RECON_SHEET="Shipments";
+const RECON_COL={ order:"Order Number", trk:"Tracking Numbers",
+                  cus:"Customer Code",  amt:"Total Amount Billed to Customer",
+                  date:"Ship Date" };
+const RECON_REQ=["order","trk","cus","amt"];
+let RECON=null;
+
+/* 兩側的追蹤號要走同一個正規化,不然「1Z 123 456」和「1Z123456」永遠對不上。
+   只去掉空白和連字號 —— 再多刪就開始改動內容了。 */
+const reconTrk=v=>String(v==null?"":v).toUpperCase().replace(/[\s-]+/g,"");
+const reconTxt=v=>String(v==null?"":v).trim();
+
+/* 每一層的 cfg 只讀一次就留著。readConfig 會往設定裡補預設值,所以給它一份
+   複本 —— 直接讀原件會改到收起來的那一層。
+   回傳 null 的意思是「這個層級已經不在了」,由呼叫端決定怎麼講,不要默默
+   退回現用層當作沒事。 */
+const RECON_CFG=new Map();
+function reconCfgFor(level){
+  const o=rlStore();
+  if(!level||!o||level===o.active) return CFG;
+  if(RECON_CFG.has(level)) return RECON_CFG.get(level);
+  let cfg=null;
+  const raw=o.cfg[level];
+  if(raw){ try{ cfg=readConfig(JSON.parse(JSON.stringify(raw))); }catch(e){ cfg=null; } }
+  RECON_CFG.set(level,cfg);
+  return cfg;
+}
+
+/* --------------------------------------------------------------------
+   模板
+   -------------------------------------------------------------------- */
+async function reconTemplate(){
+  const hd=[RECON_COL.order,RECON_COL.trk,RECON_COL.cus,RECON_COL.amt,RECON_COL.date];
+  const req=new Set([RECON_COL.order,RECON_COL.trk,RECON_COL.cus,RECON_COL.amt]);
+  /* 必填的欄名反白,選填的用淺底。模板裡不寫任何說明文字 —— 說明是另一份
+     文件,混在一起的話同仁會在說明那一列上開始填資料。 */
+  const H=n=>({v:n,t:"s",s:{bold:true,align:"left",
+      fill:req.has(n)?"351C15":"EFE3CB", color:req.has(n)?"FFFFFF":"351C15"}});
+  const CH=n=>({v:n,t:"s",s:{bold:true,align:"left",fill:"351C15",color:"FFFFFF"}});
+  const reg=cusReg();
+  const sheets=[
+    {name:RECON_SHEET, rows:[hd.map(H)], freeze:{r:1,c:0}, filter:"A1:E1",
+     cols:[{w:22},{w:38},{w:18},{w:30},{w:14}]},
+    {name:"Customers", freeze:{r:1,c:0}, cols:[{w:18},{w:34}],
+     rows:[[CH("Customer Code"),CH("Customer Name")]]
+       .concat(reg.map(c=>[c.code, c.name||c.code]))}
+  ];
+  /* 客戶名單是空的就不下驗證 —— 來源範圍指到一列空白,Excel 會判檔案有問題。 */
+  if(reg.length) sheets[0].dv=[{
+    sqref:"C2:C20000",
+    list:"Customers!$A$2:$A$"+(reg.length+1),
+    title:L("代碼不在名單上","Unknown customer code"),
+    msg:L("請從 Customers 分頁選一個代碼。","Pick a code from the Customers sheet.")}];
+  await xlWrite(sheets,"WMS_Reconciliation_Template.xlsx");
+  reconMsg(L("模板已下載,含客戶 "+reg.length+" 筆。",
+             "Template downloaded with "+reg.length+" customer(s)."), true);
+}
+
+/* --------------------------------------------------------------------
+   讀模板
+   -------------------------------------------------------------------- */
+function reconParse(sheetRows){
+  const rows=(sheetRows||[]).filter(r=>(r||[]).some(c=>reconTxt(c)!==""));
+  if(rows.length<2) return {err:L("這份檔案裡沒有資料列。","The file has no data rows.")};
+  const head=rows[0].map(reconTxt);
+  const ix={};
+  for(const k of Object.keys(RECON_COL)){
+    const want=RECON_COL[k].toLowerCase();
+    ix[k]=head.findIndex(h=>h.toLowerCase()===want);
+  }
+  const gone=RECON_REQ.filter(k=>ix[k]<0).map(k=>RECON_COL[k]);
+  if(gone.length) return {err:L("模板少了這幾欄:","The template is missing these columns: ")
+                              +gone.join(", ")};
+  const out=[], issues=[];
+  const seenOrder=new Map(), seenTrk=new Map();
+  const known=new Set(cusReg().map(c=>c.code));
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i], ln=i+1;
+    const cell=k=>ix[k]>=0?reconTxt(r[ix[k]]):"";
+    const order=cell("order");
+    const cus=cusNorm(cell("cus"));
+    const amtRaw=cell("amt");
+    const trks=cell("trk").split(/[,;\n\r]+/).map(reconTrk).filter(Boolean);
+    const blank=[];
+    if(!order)        blank.push(RECON_COL.order);
+    if(!trks.length)  blank.push(RECON_COL.trk);
+    if(!cus)          blank.push(RECON_COL.cus);
+    if(!amtRaw)       blank.push(RECON_COL.amt);
+    if(blank.length){ issues.push({ln, kind:"blank", what:blank.join(", ")}); continue; }
+    if(!/^-?\d+(\.\d+)?$/.test(amtRaw.replace(/[$,\s]/g,""))){
+      issues.push({ln, kind:"amt", what:amtRaw}); continue; }
+    if(!known.has(cus)){ issues.push({ln, kind:"cus", what:cus}); continue; }
+    if(seenOrder.has(order)){
+      issues.push({ln, kind:"dupOrder", what:order, at:seenOrder.get(order)}); continue; }
+    const clash=trks.find(t=>seenTrk.has(t));
+    if(clash){ issues.push({ln, kind:"dupTrk", what:clash, at:seenTrk.get(clash)}); continue; }
+    seenOrder.set(order,ln);
+    for(const t of trks) seenTrk.set(t,ln);
+    out.push({ln, order, trks, cus,
+              amt:cents(toNum(amtRaw.replace(/[$,\s]/g,""))), date:cell("date")});
+  }
+  return {rows:out, issues};
+}
+
+/* --------------------------------------------------------------------
+   對帳
+   -------------------------------------------------------------------- */
+function reconRun(list){
+  const byTrk=new Map();
+  for(const s of (SHIPS||[])){
+    const k=reconTrk(s.tracking);
+    if(k && !byTrk.has(k)) byTrk.set(k,s);
+  }
+  RECON_CFG.clear();
+  const reg=cusReg();
+  const byCode=new Map(reg.map(c=>[c.code,c]));
+  const orders=[], perCus=new Map(), lostLevel=new Set();
+  for(const e of list){
+    const c=byCode.get(e.cus)||{};
+    let cfg=reconCfgFor(c.level);
+    /* 客戶指到一個已經刪掉的層級。用現用的那一層算得出數字,但不能不說 ——
+       不說的話報表看起來一切正常,而它算的根本不是那個客戶的費率。 */
+    if(cfg===null){ lostLevel.add(e.cus); cfg=CFG; }
+    let cost=0, rep=0;
+    const missTrk=[];
+    for(const t of e.trks){
+      const s=byTrk.get(t);
+      if(!s){ missTrk.push(t); continue; }
+      cost+=toNum(s.upsTotal);
+      try{ rep+=cents(toNum(priceShipment(cfg,s).total)); }catch(err){}
+    }
+    const o={ln:e.ln, order:e.order, cus:e.cus, date:e.date,
+             name:(c.name||e.cus), level:c.level||"",
+             pkgs:e.trks.length, found:e.trks.length-missTrk.length, missTrk,
+             amt:e.amt, cost:cents(cost), rep:cents(rep)};
+    o.profit=cents(o.amt-o.cost);
+    o.gap=cents(o.rep-o.cost);
+    orders.push(o);
+    let a=perCus.get(e.cus);
+    if(!a){ a={code:e.cus, name:o.name, level:o.level,
+               orders:0, pkgs:0, found:0, amt:0, cost:0, rep:0}; perCus.set(e.cus,a); }
+    a.orders++; a.pkgs+=o.pkgs; a.found+=o.found;
+    a.amt+=o.amt; a.cost+=o.cost; a.rep+=o.rep;
+  }
+  const cus=[...perCus.values()].map(a=>{
+    a.amt=cents(a.amt); a.cost=cents(a.cost); a.rep=cents(a.rep);
+    a.profit=cents(a.amt-a.cost); a.gap=cents(a.rep-a.cost);
+    a.margin=a.amt?a.profit/Math.abs(a.amt)*100:null;
+    return a;
+  }).sort((x,y)=>y.amt-x.amt);
+  const tot=cus.reduce((t,a)=>({orders:t.orders+a.orders, pkgs:t.pkgs+a.pkgs,
+      found:t.found+a.found, amt:cents(t.amt+a.amt), cost:cents(t.cost+a.cost),
+      rep:cents(t.rep+a.rep)}), {orders:0,pkgs:0,found:0,amt:0,cost:0,rep:0});
+  tot.profit=cents(tot.amt-tot.cost);
+  tot.gap=cents(tot.rep-tot.cost);
+  tot.margin=tot.amt?tot.profit/Math.abs(tot.amt)*100:null;
+  return {orders, cus, tot, lostLevel:[...lostLevel],
+          unmatched:orders.filter(o=>o.found<o.pkgs)};
+}
+
+/* --------------------------------------------------------------------
+   畫面
+   -------------------------------------------------------------------- */
+function reconMsg(m,ok){
+  const e=$("#reconMsg");
+  if(e){ e.textContent=m||""; e.className="savenote"+(m&&!ok?" bad":""); }
+}
+function reconIssueText(it){
+  const at=it.at?L(" (與第 "+it.at+" 列重複)"," (already on line "+it.at+")"):"";
+  switch(it.kind){
+    case "blank":    return L("必填欄位是空的:","Required field empty: ")+it.what;
+    case "amt":      return L("金額不是數字:","Amount is not a number: ")+it.what;
+    case "cus":      return L("這個客戶代號沒有建檔:","No such customer code: ")+it.what;
+    case "dupOrder": return L("單號重複:","Duplicate order number: ")+it.what+at;
+    case "dupTrk":   return L("同一個追蹤號出現在兩張單上:",
+                              "Tracking number claimed twice: ")+it.what+at;
+    default:         return it.what||"";
+  }
+}
+function renderRecon(){
+  const card=$("#reconResCard"), icard=$("#reconIssueCard");
+  const iss=RECON&&RECON.issues&&RECON.issues.length?RECON.issues:null;
+  if(icard){
+    icard.hidden=!iss;
+    const tb=$("#tReconIss")&&$("#tReconIss").tBodies[0];
+    if(tb&&iss) tb.innerHTML=iss.map(it=>
+      `<tr><td class="num">${it.ln}</td><td>${esc(reconIssueText(it))}</td></tr>`).join("");
+    const n=$("#reconIssSum");
+    if(n&&iss) n.textContent=L(
+      "有 "+iss.length+" 列不能收,整份都沒有匯入。改好再匯一次。",
+      iss.length+" row(s) could not be accepted, so nothing was imported. Fix them and import again.");
+  }
+  const r=RECON&&RECON.res;
+  if(card) card.hidden=!r;
+  if(!r) return;
+  const pc=v=>v==null?`<span class="empty">—</span>`
+                     :(v<0?"-":"")+Math.abs(v).toFixed(1)+"%";
+  const sign=v=>`<span class="mny ${v<0?"neg":(v>0?"pos":"")}">${money(v)}</span>`;
+  const tb=$("#tRecon")&&$("#tRecon").tBodies[0];
+  if(tb) tb.innerHTML=r.cus.map(a=>
+    `<tr><td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td>
+      <td>${a.level?esc(cusLevelLabel(a.level)):`<span class="empty">—</span>`}</td>
+      <td class="num">${a.orders}</td>
+      <td class="num">${a.found===a.pkgs?a.pkgs:a.found+" / "+a.pkgs}</td>
+      <td class="num">${money(a.amt)}</td>
+      <td class="num">${money(a.cost)}</td>
+      <td class="num">${sign(a.profit)}</td>
+      <td class="num">${pc(a.margin)}</td>
+      <td class="num">${money(a.rep)}</td>
+      <td class="num">${sign(a.gap)}</td></tr>`).join("")
+    ||`<tr><td colspan="11" class="empty">—</td></tr>`;
+  const tf=$("#tRecon")&&$("#tRecon").tFoot;
+  if(tf) tf.innerHTML=`<tr><td colspan="3"><b>${esc(L("合計","Total"))}</b></td>
+      <td class="num"><b>${r.tot.orders}</b></td>
+      <td class="num"><b>${r.tot.found===r.tot.pkgs?r.tot.pkgs:r.tot.found+" / "+r.tot.pkgs}</b></td>
+      <td class="num"><b>${money(r.tot.amt)}</b></td>
+      <td class="num"><b>${money(r.tot.cost)}</b></td>
+      <td class="num"><b>${sign(r.tot.profit)}</b></td>
+      <td class="num"><b>${pc(r.tot.margin)}</b></td>
+      <td class="num"><b>${money(r.tot.rep)}</b></td>
+      <td class="num"><b>${sign(r.tot.gap)}</b></td></tr>`;
+  const warn=[];
+  if(r.unmatched.length) warn.push(L(
+    "有 "+r.unmatched.length+" 張單的追蹤號在這期帳單上找不到,那幾件的 UPS 成本算 0。",
+    r.unmatched.length+" order(s) have tracking numbers that are not in this invoice; those packages count as zero UPS cost."));
+  if(r.lostLevel.length) warn.push(L(
+    "這幾個客戶指到的費率層級已經不存在,暫時用現在使用中的層級重算:",
+    "These customers point at a rate level that no longer exists, so the level in use was applied instead: ")
+    +r.lostLevel.join(", "));
+  const w=$("#reconWarn");
+  if(w){ w.innerHTML=warn.map(t=>`<div class="note warn">${esc(t)}</div>`).join("");
+         w.hidden=!warn.length; }
+}
+
+/* --------------------------------------------------------------------
+   匯出
+   -------------------------------------------------------------------- */
+async function reconExport(){
+  const r=RECON&&RECON.res; if(!r) return;
+  const HD=n=>({v:n,t:"s",s:{bold:true,fill:"351C15",color:"FFFFFF",align:"left",wrap:true}});
+  const M={fmt:"#,##0.00"};
+  const sum=[["Customer Code","Customer Name","Rate Level","Orders","Packages Matched",
+    "Packages","Billed to Customer","Charged by UPS","Profit","Margin %",
+    "Recomputed","Recomputed vs UPS"].map(HD)]
+   .concat(r.cus.map(a=>[a.code, a.name, a.level?cusLevelLabel(a.level):"",
+     a.orders, a.found, a.pkgs,
+     {v:a.amt,t:"n",s:M},{v:a.cost,t:"n",s:M},{v:a.profit,t:"n",s:M},
+     {v:a.margin==null?0:+a.margin.toFixed(2),t:"n",s:{fmt:"0.00"}},
+     {v:a.rep,t:"n",s:M},{v:a.gap,t:"n",s:M}]));
+  const det=[["Order Number","Ship Date","Customer Code","Rate Level","Tracking Numbers",
+    "Packages","Packages Matched","Not On Invoice","Billed to Customer",
+    "Charged by UPS","Profit","Recomputed","Recomputed vs UPS"].map(HD)]
+   .concat(r.orders.map(o=>[o.order, o.date, o.cus, o.level?cusLevelLabel(o.level):"",
+     "", o.pkgs, o.found, o.missTrk.join(", "),
+     {v:o.amt,t:"n",s:M},{v:o.cost,t:"n",s:M},{v:o.profit,t:"n",s:M},
+     {v:o.rep,t:"n",s:M},{v:o.gap,t:"n",s:M}]));
+  /* 追蹤號整串塞回去 —— 匯出的這份要能拿去對原檔,少了它就得回頭翻模板。 */
+  r.orders.forEach((o,i)=>{ det[i+1][4]=RECON.list[i]?RECON.list[i].trks.join(", "):""; });
+  await xlWrite([
+    {name:"Summary", rows:sum, freeze:{r:1,c:0}, filter:"A1:L1",
+     cols:[{w:16},{w:26},{w:16},{w:9},{w:12},{w:11},{w:16},{w:15},{w:12},{w:11},{w:14},{w:17}]},
+    {name:"Orders", rows:det, freeze:{r:1,c:0}, filter:"A1:M1",
+     cols:[{w:20},{w:12},{w:16},{w:16},{w:34},{w:10},{w:12},{w:22},{w:16},{w:15},{w:12},{w:14},{w:17}]}
+  ], "WMS_Reconciliation.xlsx");
+  reconMsg(L("已匯出。","Exported."), true);
+}
+
+async function reconImport(file){
+  if(!file) return;
+  if(!CFG){ reconMsg(L("請先載入費率設定。","Load a rate configuration first."),false); return; }
+  if(!SHIPS||!SHIPS.length){
+    reconMsg(L("請先匯入這一期的 UPS 帳單,對帳要拿它來比。",
+               "Import this period's UPS invoice first — there is nothing to reconcile against."),false);
+    return; }
+  reconMsg(L("讀取中…","Reading…"),true);
+  let wb=null;
+  try{ wb=await readWorkbookRows(file); }
+  catch(e){ reconMsg(L("這個檔案讀不開:","Could not read the file: ")+(e&&e.message||e),false); return; }
+  const rows=wb.sheets[RECON_SHEET] || wb.sheets[(wb.order||[])[0]] || wb.sheets[""];
+  if(!rows){ reconMsg(L("找不到 "+RECON_SHEET+" 分頁。","No "+RECON_SHEET+" sheet found."),false); return; }
+  const p=reconParse(rows);
+  if(p.err){ RECON=null; renderRecon(); reconMsg(p.err,false); return; }
+  if(p.issues.length){
+    RECON={issues:p.issues, res:null, list:null};
+    renderRecon();
+    reconMsg(L("有 "+p.issues.length+" 列不能收,整份沒有匯入。",
+               p.issues.length+" row(s) rejected, nothing imported."),false);
+    return; }
+  const res=reconRun(p.rows);
+  RECON={issues:[], res, list:p.rows};
+  renderRecon();
+  reconMsg(L("已對帳 "+p.rows.length+" 張單。","Reconciled "+p.rows.length+" order(s)."),true);
+}
+
+function bindRecon(){
+  $("#bReconTpl") && ($("#bReconTpl").onclick=()=>{ reconTemplate().catch(e=>
+    reconMsg(String(e&&e.message||e),false)); });
+  $("#bReconImp") && ($("#bReconImp").onclick=()=>$("#fRecon").click());
+  $("#fRecon") && ($("#fRecon").onchange=e=>{
+    const f=e.target.files&&e.target.files[0];
+    e.target.value="";
+    reconImport(f).catch(err=>reconMsg(String(err&&err.message||err),false));
+  });
+  $("#bReconXls") && ($("#bReconXls").onclick=()=>{ reconExport().catch(e=>
+    reconMsg(String(e&&e.message||e),false)); });
+}
+
+/* =====================================================================
    重計價報表
    ---------------------------------------------------------------------
    欄位與順序照桌面版匯出的活頁簿,工作表名稱也一樣叫 Shipment Detail,
@@ -12219,7 +12589,11 @@ function xlStyles(){
   }
   return {id, xml};
 }
-/* sheets: [{name, rows:[[cell|value,...]], cols:[{w}], merges:[{s:{r,c},e:{r,c}}], freeze:{r,c}}]
+/* sheets: [{name, rows:[[cell|value,...]], cols:[{w}], merges:[{s:{r,c},e:{r,c}}],
+             freeze:{r,c}, filter:"A1:E1", dv:[{sqref, list, title, msg}]}]
+   dv 是資料驗證,目前只做「限定清單」這一種:模板要讓客戶代號那一欄只能從
+   Customers 分頁選,不能自己打。list 收的是來源範圍(可以跨分頁,不必加等號),
+   sqref 是套用的儲存格範圍。
    cell:  {v, t:"s"|"n", s:樣式物件}。字串一律用 inlineStr,不另外做共用字串表
    —— 這幾張表最多幾千格,省下來的位元組不值得多一份 XML 和一組索引。 */
 /* onProgress(已做的列數, 總列數):幾十萬列要跑一分多鐘,整段包在一個
@@ -12281,11 +12655,23 @@ async function xlWrite(sheets, fname, onProgress){
       }
     }
     if(parts.length) chunks.push(ENC.encode(parts.join("")));
+    /* 這幾段的先後有講究:OOXML 規定工作表底下的元素要照 autoFilter →
+       mergeCells → dataValidations 的順序排,顛倒了 Excel 會直接說檔案毀損,
+       而不是忽略那一段。showDropDown="0" 的意思是「顯示下拉」—— 這個屬性
+       是反的,寫成 1 反而把下拉關掉。 */
     chunks.push(ENC.encode("</sheetData>"
       +(sh.filter?"<autoFilter ref=\""+sh.filter+"\"/>":"")
       +((sh.merges&&sh.merges.length)?"<mergeCells count=\""+sh.merges.length+"\">"
           +sh.merges.map(m=>"<mergeCell ref=\""+xlCol(m.s.c)+(m.s.r+1)+":"
               +xlCol(m.e.c)+(m.e.r+1)+"\"/>").join("")+"</mergeCells>":"")
+      +((sh.dv&&sh.dv.length)?"<dataValidations count=\""+sh.dv.length+"\">"
+          +sh.dv.map(d=>"<dataValidation type=\"list\" allowBlank=\"1\""
+              +" showDropDown=\"0\" showInputMessage=\"1\" showErrorMessage=\"1\""
+              +(d.title?" errorTitle=\""+xe(d.title)+"\"":"")
+              +(d.msg?" error=\""+xe(d.msg)+"\"":"")
+              +" sqref=\""+xe(d.sqref)+"\">"
+              +"<formula1>"+xe(String(d.list||"").replace(/^=/,""))+"</formula1>"
+              +"</dataValidation>").join("")+"</dataValidations>":"")
       +"</worksheet>"));
     sheetXml.push(chunks);
   }
@@ -14526,6 +14912,27 @@ const I18N={
   "tab.demand":["⚡ Demand 附加費","⚡ Demand Surcharge"],
   "tab.hist":["📚 帳單歷史","📚 Invoice History"],
   "tab.code":["🔎 代碼查詢","🔎 Code Lookup"],
+  "tab.recon":["⚖️ 對帳","⚖️ Reconciliation"],
+  "hd.recon":["WMS / TMS 對帳","WMS / TMS reconciliation"],
+  "hint.recon":["帳單本身已經有費用明細,這份檔案只補帳單不可能知道的兩件事:這張單是哪個客戶的,以及向那個客戶收了多少。一張系統單一列;一票多件時,把該單的追蹤號全部寫在同一格,用逗號分隔。",
+    "The invoice already holds the charge detail. This file adds the two facts it cannot know: which customer an order belongs to, and what that customer was billed. One order per row; for a multi-package order put every tracking number in one cell, separated by commas."],
+  "btn.recontpl":["下載模板","Download template"],
+  "btn.reconimp":["匯入填好的模板","Import filled template"],
+  "btn.reconxls":["匯出對帳結果","Export reconciliation"],
+  "hd.reconiss":["不能收的資料列","Rows that could not be accepted"],
+  "th.reconline":["列","Line"],
+  "th.reconwhy":["原因","Reason"],
+  "hd.reconres":["依客戶","By customer"],
+  "th.reconorders":["單數","Orders"],
+  "th.reconpkgs":["件數","Packages"],
+  "th.reconbilled":["客戶實收","Billed to customer"],
+  "th.reconups":["UPS 實收","Charged by UPS"],
+  "th.reconprofit":["毛利","Profit"],
+  "th.reconmargin":["毛利率","Margin"],
+  "th.reconrep":["系統重算","Recomputed"],
+  "th.recongap":["對 UPS 差異","vs UPS"],
+  "hint.reconcols":["毛利是客戶實付減去 UPS 實收。系統重算是照該客戶的費率層級算出這幾件本來該是多少;拿它跟 UPS 實收比,看得出帳單與合約有沒有出入。",
+    "Profit is what the customer paid less what UPS charged. Recomputed is what the customer's own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement."],
   "tab.dash":["📊 儀表板","📊 Dashboard"],
   "tab.setting":["⚙️ 設定","⚙️ Settings"],
   "hd.setting":["設定","Settings"],
@@ -14676,6 +15083,11 @@ function applyLang(){
   if($("#prInvWhat") && typeof prPaint==="function"){ try{ prPaint(); }catch(e){} }
   if(typeof paintManualAlt==="function") paintManualAlt();
   if(typeof renderCustomers==="function" && typeof CFG!=="undefined" && CFG) renderCustomers();
+  /* 對帳那一頁的警語、合計列和「不能收的原因」都是算出來的字。不重畫的話,
+     介面切成中文了、表格上方那句還停在英文。 */
+  if(typeof renderRecon==="function" && typeof RECON!=="undefined" && RECON){
+    try{ renderRecon(); }catch(e){}
+  }
   /* 三個帳號視窗的抬頭是算出來的(改的是誰、打了幾個字),開著切語言
      會停在原本那一種。只有開著的那個要重寫。 */
   if($("#uPwBg") && $("#uPwBg").classList.contains("on") && UPW){
@@ -15866,6 +16278,7 @@ step("auth",()=>{
   bindUserAdmin();
   bindCustomers();
   bindLevels();
+  bindRecon();
   bindGap();
   $("#bLoginExport").onclick=()=>exportLoginHistory();
 });
