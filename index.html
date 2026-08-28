@@ -457,6 +457,9 @@ tbody tr:nth-child(even){background:var(--stripe)}
 tbody tr:hover{background:color-mix(in srgb, var(--select) 45%, transparent)}
 td.num,th.num{text-align:right}
 td.neg{color:var(--neg)}
+#chgModal table th,#chgModal table td{padding:3px 9px;line-height:1.45}
+#chgModal table td{font-size:12px}
+#chgModal .modalbody{padding-top:12px}
 #p-recon .mny.neg{color:var(--neg)}
 #p-recon .mny.pos{color:var(--run2)}
 #p-recon tfoot td{border-top:2px solid var(--line);background:var(--stripe)}
@@ -927,7 +930,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
-  <button role="tab" aria-selected="false" data-p="recon"  class="display" data-i18n="tab.recon">Reconciliation</button>
   <button role="tab" aria-selected="false" data-p="dash"   class="display" data-i18n="tab.dash">Dashboard</button>
   <button role="tab" aria-selected="false" data-p="setting" class="display" data-i18n="tab.setting">Settings</button>
   <button role="tab" aria-selected="false" data-p="admin"  class="display" data-i18n="tab.admin">Admin</button>
@@ -1162,7 +1164,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <section class="page" id="p-cus">
   <div class="subtabs" id="cusSide">
     <button data-c="cus" aria-selected="true"  data-i18n="ct.cusreg">Customers</button>
-    <button data-c="chg" aria-selected="false" data-i18n="ct.chgcode">Charge codes</button>
+    <button data-c="recon" aria-selected="false" data-i18n="ct.recon">Reconciliation</button>
   </div>
   <div id="cusPane">
   <div class="lf sketch">
@@ -1172,7 +1174,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <th data-i18n="th.cuscode">Code</th>
       <th data-i18n="th.cusname">Name</th>
       <th data-i18n="th.cuslevel">Rate level</th>
-      <th class="num" data-i18n="th.cusship">This period</th>
+      <th class="num" data-i18n="th.cusrecon">Last reconciliation</th>
       <th></th>
     </tr></thead><tbody></tbody></table></div>
     <div class="row" style="margin-top:9px">
@@ -1183,83 +1185,26 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     </div>
   </div>
 
-  <div class="lf sketch">
-    <h3 class="display"><span class="em">🧩</span><span data-i18n="hd.cusrule">Rules</span></h3>
-    <p class="hint" style="margin:0 0 11px;max-width:62ch" data-i18n="hint.cusrule">Matched top to bottom; the first hit wins, so the order matters. One rule can stand in for dozens of one-by-one assignments, and new orders match it on their own.</p>
-    <div class="tablewrap" style="max-height:34vh"><table id="tCusRule"><thead><tr>
-      <th style="width:64px"></th>
-      <th data-i18n="th.rulefield">Field</th>
-      <th data-i18n="th.ruleop">Match</th>
-      <th data-i18n="th.ruleval">Value</th>
-      <th data-i18n="th.cuscode">Customer</th>
-      <th class="num" data-i18n="th.rulehits">Hits</th>
-      <th></th>
-    </tr></thead><tbody></tbody></table></div>
-    <div class="row" style="margin-top:9px">
-      <span class="foldwrap"><select id="ruField" class="fold"></select></span>
-      <span class="foldwrap"><select id="ruOp" class="fold"></select></span>
-      <input id="ruVal" class="cell" data-i18n-ph="ph.ruleval" style="width:150px;text-align:left">
-      <span class="foldwrap"><select id="ruCus" class="fold"></select></span>
-      <button class="act" id="bRuleAdd" data-i18n="btn.ruleadd">Add rule</button>
-      <span id="ruleMsg" class="savenote"></span>
-    </div>
-  </div>
 
-  <div class="lf sketch">
-    <h3 class="display"><span class="em">📋</span><span data-i18n="hd.cusship">Shipments in this invoice</span></h3>
-    <div id="cusReady"></div>
-    <div class="row" style="margin-bottom:9px">
-      <button class="act ghost sm" id="bCusTickAll" data-i18n="btn.tickunassigned">Tick unassigned</button>
-      <button class="act ghost sm" id="bCusTickNone" data-i18n="btn.selnone">Deselect All</button>
-      <span style="flex:1 1 auto"></span>
-      <label class="inlab" style="margin-left:0" data-i18n="lb.assignto">Assign selected to</label>
-      <span class="foldwrap"><select id="cusBulk" class="fold"></select></span>
-      <button class="act" id="bCusBulk" data-i18n="btn.assign">Assign</button>
-      <button class="act ghost sm" id="bCusTpl" data-i18n="btn.cusexport">Export unassigned list</button>
-    </div>
-    <div class="tablewrap" style="max-height:46vh"><table id="tCusRef"><thead><tr>
-      <th style="width:30px"><input type="checkbox" id="cusAll"></th>
-      <th data-i18n="th.reference">Reference</th>
-      <th data-i18n="th.rulefield">Field</th>
-      <th class="num" data-i18n="th.cusship">Shipments</th>
-      <th class="num" data-i18n="th.amount">Amount</th>
-      <th data-i18n="th.cuscode">Customer</th>
-      <th></th>
-    </tr></thead><tbody></tbody></table></div>
-    <div id="cusSum" class="hint" style="margin:9px 0 0"></div>
-  </div>
   </div>
 
   <!-- 共通語言的另一半:費用的名字。系統內部叫「Residential Surcharge」,
        你們的會計科目可能叫別的,WMS 那邊又是另一個 —— 對外送資料時要送的是
        你自己的代碼,不是這裡的欄名。填了才送,沒填就沿用原本的名稱。 -->
-  <div id="chgPane" hidden>
-    <div class="lf sketch">
-      <h3 class="display"><span class="em">🏷</span><span data-i18n="hd.chgcode">Charge codes</span></h3>
-      <p class="hint" style="margin:0 0 11px;max-width:62ch" data-i18n="hint.chgcode">Give each charge your own code and name. Blank means the charge keeps the name shown here. Nothing about pricing changes — this is what gets sent out when the data leaves this tool.</p>
-      <div class="row" style="margin-bottom:9px">
-        <label class="inlab" style="margin-left:0" data-i18n="lb.search">Search</label>
-        <input id="chgSearch" class="cell" style="width:170px;text-align:left">
-        <span id="chgCount" class="affsum"></span>
-        <span style="flex:1 1 auto"></span>
-        <button class="act ghost sm" id="bChgExport" data-i18n="btn.chgexport">Export codes</button>
-        <button class="act ghost sm" id="bChgImport" data-i18n="btn.chgimport">Import codes</button>
-        <input type="file" id="fChgImport" accept=".csv,.txt,.xlsx,.xls">
-      </div>
-      <div class="tablewrap" style="max-height:62vh"><table id="tChg"><thead><tr>
-        <th data-i18n="th.chgname">Charge</th>
-        <th data-i18n="th.chgups">System code</th>
-        <th data-i18n="th.chgmine">Your code</th>
-        <th data-i18n="th.chgmyname">Your name</th>
-        <th data-i18n="th.chgsrc">Source</th>
-      </tr></thead><tbody></tbody></table></div>
+  <div class="lf sketch" id="chgCard">
+    <h3 class="display"><span class="em">🏷</span><span data-i18n="hd.chgcode">Charge codes</span></h3>
+    <p class="hint" style="margin:0 0 11px;max-width:70ch" data-i18n="hint.chgcode">Give each charge your own code and name. Blank means the charge keeps the name shown here. Nothing about pricing changes — this is what gets sent out when the data leaves this tool.</p>
+    <div class="row">
+      <button class="act" id="bChgView" data-i18n="btn.chgview">View codes</button>
+      <span id="chgCount" class="affsum"></span>
+      <span style="flex:1 1 auto"></span>
+      <button class="act ghost sm" id="bChgExport" data-i18n="btn.chgexport">Export codes</button>
+      <button class="act ghost sm" id="bChgImport" data-i18n="btn.chgimport">Import codes</button>
+      <input type="file" id="fChgImport" accept=".csv,.txt,.xlsx,.xls" style="display:none">
     </div>
   </div>
-</section>
 
-<!-- ==================== Channels ==================== -->
-<!-- ==================== WMS / TMS 對帳 ==================== -->
-<section class="page" id="p-recon">
+  <div id="reconPane" hidden>
   <div class="lf sketch">
     <h3 class="display"><span class="em">⚖️</span><span data-i18n="hd.recon">WMS / TMS reconciliation</span></h3>
     <p class="hint" style="margin:0 0 11px;max-width:74ch" data-i18n="hint.recon">The invoice already holds the charge detail. This file adds the two facts it cannot know: which customer an order belongs to, and what that customer was billed. One order per row; for a multi-package order put every tracking number in one cell, separated by commas.</p>
@@ -1298,10 +1243,13 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <th class="num" data-i18n="th.reconrep">Recomputed</th>
       <th class="num" data-i18n="th.recongap">vs UPS</th>
     </tr></thead><tbody></tbody><tfoot></tfoot></table></div>
-    <p class="hint" style="margin:11px 0 0;max-width:76ch" data-i18n="hint.reconcols">Profit is what the customer paid less what UPS charged. Recomputed is what the customer’s own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement.</p>
+    <p class="hint" style="margin:11px 0 0;max-width:76ch" data-i18n="hint.reconcols">Profit is what the customer paid less what UPS charged. Recomputed is what the customer’s own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement. Charged by UPS excludes account-level charges: they carry no tracking number and belong to no order, so whether they count is your accounting call — the dashboard treats them the same way.</p>
   </div>
+  </div>
+
 </section>
 
+<!-- ==================== Channels ==================== -->
 <section class="page" id="p-chan">
   <div class="lf sketch">
     <h3 class="display"><span class="em">➕</span><span data-i18n="hd.chandata">Add a new channel</span></h3>
@@ -1910,6 +1858,30 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
      自己去另一個分頁一個一個加。這個視窗把「發現」和「補上」接起來。
      預設收費方式是「照帳單收」而不是「重新計價」—— 新代碼還沒有費率,
      選重新計價的話它會以 0 計價,那筆錢就真的少收了。照帳單收至少是成本。 -->
+<div id="chgBg" class="modalbg">
+  <div class="modal sketch" id="chgModal" style="width:min(940px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.chgcode">Charge codes</span>
+      <button class="mx" id="chgX">✕</button>
+    </div>
+    <div class="modalbody">
+      <div class="row" style="margin-bottom:8px">
+        <label class="inlab" style="margin-left:0" data-i18n="lb.search">Search</label>
+        <input id="chgSearch" class="cell" style="width:190px;text-align:left">
+        <span style="flex:1 1 auto"></span>
+        <span id="chgCount2" class="affsum"></span>
+      </div>
+      <div class="tablewrap" style="max-height:min(58vh,520px)"><table id="tChg"><thead><tr>
+        <th data-i18n="th.chgname">Charge</th>
+        <th data-i18n="th.chgups">System code</th>
+        <th data-i18n="th.chgmine">Your code</th>
+        <th data-i18n="th.chgmyname">Your name</th>
+        <th data-i18n="th.chgsrc">Source</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+</div>
+
 <div id="cusEditBg" class="modalbg">
   <div class="modal sketch" id="cusEditModal" style="width:min(520px,100%)">
     <div class="modalhd">
@@ -5569,16 +5541,10 @@ function exportLoginHistory(){
 
    ⚠ 這一段完全不參與計價。priceShipment() 不知道它存在,任何金額都不會
       因為這裡設了什麼而改變。 */
-const CUS_FIELDS=["ACCOUNT","REF1","REF2"];
-const CUS_OPS=["pre","eq","has"];
 function cusReg(){ const a=(CFG&&CFG.raw&&CFG.raw.customers); return Array.isArray(a)?a:[]; }
-function cusRules(){ const a=(CFG&&CFG.raw&&CFG.raw.customer_rules); return Array.isArray(a)?a:[]; }
-function cusMap(){ const o=(CFG&&CFG.raw&&CFG.raw.customer_map); return (o&&typeof o==="object")?o:{}; }
 function cusEnsure(){
   if(!CFG||!CFG.raw) return false;
   if(!Array.isArray(CFG.raw.customers)) CFG.raw.customers=[];
-  if(!Array.isArray(CFG.raw.customer_rules)) CFG.raw.customer_rules=[];
-  if(!CFG.raw.customer_map||typeof CFG.raw.customer_map!=="object") CFG.raw.customer_map={};
   return true;
 }
 function cusNameOf(code){
@@ -5588,54 +5554,6 @@ function cusNameOf(code){
 /* 比對一律轉大寫再比 —— 出貨系統打 so-1234 和 SO-1234 是同一張單,
    為了大小寫讓人多指定一次是沒有道理的。 */
 const cusNorm=v=>String(v==null?"":v).trim().toUpperCase();
-function cusValOf(s, field){
-  if(field==="ACCOUNT") return cusNorm(s&&s.account);
-  if(field==="REF1")    return cusNorm(s&&s.ref1);
-  if(field==="REF2")    return cusNorm(s&&s.ref2);
-  return "";
-}
-function cusRuleHit(s, rule){
-  const v=cusValOf(s, rule.field), t=cusNorm(rule.val);
-  if(!v||!t) return false;
-  return rule.op==="pre" ? v.startsWith(t)
-       : rule.op==="eq"  ? v===t
-       : v.includes(t);
-}
-const cusKey=(field,val)=>field+"\u241F"+cusNorm(val);
-/* 這一筆是誰的。回 {code, by} —— by 是 "rule" 或 "hand",畫面要分開顯示:
-   規則填的要改是去改規則,不是改這一筆。 */
-function cusOf(s){
-  if(!s) return null;
-  for(const r of cusRules()) if(cusRuleHit(s,r)) return {code:r.cus, by:"rule"};
-  const m=cusMap();
-  for(const f of CUS_FIELDS){
-    const v=cusValOf(s,f);
-    if(v && m[cusKey(f,v)]) return {code:m[cusKey(f,v)], by:"hand"};
-  }
-  return null;
-}
-/* 這期出現過的識別值,一個值一列。同一個參考號可能有好幾筆出貨,
-   摺成一列指定一次就好 —— 逐筆指定會讓人重複做同一件事二十遍。 */
-function cusRefRows(){
-  const out=new Map();
-  /* 先建一次索引。逐筆去 RATED 裡找對應的那一列,八萬筆就是八萬乘八萬。 */
-  const byShip=new Map();
-  for(const r of (RATED||[])) if(r&&r.s) byShip.set(r.s,r);
-  for(const s of (SHIPS||[])){
-    /* 一筆貨可能三個欄位都有值。優先用參考號(那才是訂單),都沒有才退回帳號。 */
-    const f=["REF1","REF2","ACCOUNT"].find(x=>cusValOf(s,x))||"";
-    if(!f) continue;
-    const v=cusValOf(s,f), k=cusKey(f,v);
-    let o=out.get(k);
-    if(!o){ o={key:k, field:f, val:v, n:0, amt:0, sample:s}; out.set(k,o); }
-    o.n++;
-    const r=byShip.get(s);
-    o.amt+=toNum(r&&r.total);
-  }
-  return [...out.values()].sort((a,b)=>
-    (a.field===b.field?0:CUS_FIELDS.indexOf(a.field)-CUS_FIELDS.indexOf(b.field))
-    || String(a.val).localeCompare(String(b.val)));
-}
 /* 費用代碼:共通語言的另一半。系統內部叫 "Residential Surcharge",你們的
    會計科目、WMS、客戶各自可能叫別的。這裡登記你自己的代碼與名稱,資料送
    出去時用它。留白就沿用內部名稱 —— 不強迫每一項都取名。
@@ -5898,18 +5816,9 @@ function bindLevels(){
 }
 /* ---- 對照設定的畫面 ---- */
 let CUS_TAB="cus";
+const CUS_PANE={cus:"cusPane", recon:"reconPane"};
 function cusNote(m,ok){ const e=$("#cusMsg"); if(e){ e.textContent=m||"";
   e.className="savenote"+(m&&!ok?" bad":""); } }
-function ruleNote(m,ok){ const e=$("#ruleMsg"); if(e){ e.textContent=m||"";
-  e.className="savenote"+(m&&!ok?" bad":""); } }
-function cusOptionsInto(sel, blank){
-  if(!sel) return;
-  const cur=sel.value;
-  sel.innerHTML=(blank?`<option value="">${L("選擇客戶…","Choose a customer…")}</option>`:"")
-    +cusReg().map(c=>`<option value="${esc(c.code)}">${esc(c.code)}${
-      c.name&&c.name!==c.code?" · "+esc(c.name):""}</option>`).join("");
-  if(cur) sel.value=cur;
-}
 function cusSaveAnd(fn){
   if(!cusEnsure()) return;
   fn();
@@ -5966,13 +5875,6 @@ function saveCusEdit(){
   cusSaveAnd(()=>{
     const c=cusReg().find(x=>x.code===was); if(!c) return;
     c.code=code; c.name=name||code; c.level=level;
-    /* 改代碼時,指著舊代碼的規則和人工指定要一起跟過來。少了這一步,那些
-       出貨當場變成未指定,而畫面上看不出剛剛發生了什麼。 */
-    if(code!==was){
-      for(const r of cusRules()) if(r.cus===was) r.cus=code;
-      const m=CFG.raw.customer_map;
-      for(const k of Object.keys(m)) if(m[k]===was) m[k]=code;
-    }
   });
   closeCusEdit();
   cusNote(L("已更新 "+code,"Updated "+code),true);
@@ -5980,13 +5882,10 @@ function saveCusEdit(){
 function renderCustomers(){
   if(!CFG) return;
   cusEnsure(); chgEnsure();
-  const rows=cusRefRows();
-  /* 每個客戶這期有幾筆 —— 建好客戶之後最先想知道的就是這個。 */
+  /* 「最近對帳」那一欄的來源是最後一次跑的對帳。以前它是靠規則從帳單的參考
+     號猜出這一筆是誰的 —— 現在 WMS 的檔案自己就寫著客戶代號,不必猜了。 */
   const per={};
-  for(const r of rows){
-    const c=cusOf(r.sample);
-    if(c) per[c.code]=(per[c.code]||{n:0,amt:0}), per[c.code].n+=r.n, per[c.code].amt+=r.amt;
-  }
+  for(const a of ((RECON&&RECON.res&&RECON.res.cus)||[])) per[a.code]={n:a.orders, amt:a.amt};
   const reg=cusReg();
   const tb=$("#tCus")&&$("#tCus").tBodies[0];
   if(tb) tb.innerHTML=reg.length?reg.map(c=>{
@@ -6002,70 +5901,6 @@ function renderCustomers(){
   }).join("")
     :`<tr><td colspan="5" class="empty">${L("還沒有客戶。先在下面新增一個。",
        "No customers yet. Add one below.")}</td></tr>`;
-
-  /* 規則:順序會改變結果,所以要看得到順序也要動得了順序。 */
-  const rules=cusRules();
-  const hits={};
-  for(const r of rows){
-    const i=rules.findIndex(x=>cusRuleHit(r.sample,x));
-    if(i>=0) hits[i]=(hits[i]||0)+r.n;
-  }
-  const rb=$("#tCusRule")&&$("#tCusRule").tBodies[0];
-  if(rb) rb.innerHTML=rules.length?rules.map((r,i)=>
-    `<tr><td class="row" style="gap:3px;flex-wrap:nowrap">
-       <button class="act ghost sm" data-rmove="${i}" data-dir="-1"${i===0?" disabled":""}>↑</button>
-       <button class="act ghost sm" data-rmove="${i}" data-dir="1"${i===rules.length-1?" disabled":""}>↓</button></td>
-     <td>${esc(T("cus.field."+r.field)||r.field)}</td>
-     <td>${esc(T("cus.op."+r.op)||r.op)}</td>
-     <td class="mono">${esc(r.val)}</td>
-     <td class="mono">${esc(r.cus)}</td>
-     <td class="num">${hits[i]||`<span class="empty">0</span>`}</td>
-     <td><button class="act ghost sm" data-ruledel="${i}">${L("刪除","Delete")}</button></td></tr>`).join("")
-    :`<tr><td colspan="7" class="empty">${L("還沒有規則。先逐筆指定,看出規律再收成規則。",
-       "No rules yet. Assign a few by hand, then fold the pattern you spot into a rule.")}</td></tr>`;
-
-  /* 這期的出貨。沒有帳單就說沒有帳單,不要給一張空表讓人以為壞了。 */
-  const ready=$("#cusReady");
-  if(ready) ready.innerHTML=rows.length?"":
-    `<div class="note warn" style="margin-bottom:9px">${
-      L("這裡列的是目前載入的那張帳單。還沒匯入帳單,所以沒有東西可以指定。",
-        "This lists the invoice currently loaded. Nothing is loaded, so there is nothing to assign.")}</div>`;
-  const fb=$("#tCusRef")&&$("#tCusRef").tBodies[0];
-  if(fb) fb.innerHTML=rows.length?rows.map((r,i)=>{
-    const c=cusOf(r.sample);
-    const cell=c
-      ? `<span class="pill ok">${esc(c.code)}</span>`
-        +(c.by==="rule"?` <span class="empty">${L("規則","rule")}</span>`:"")
-      : `<span class="pill no">${L("未指定","not assigned")}</span>`;
-    return `<tr><td>${c?"":`<input type="checkbox" class="cusc" data-k="${esc(r.key)}">`}</td>
-      <td class="mono">${esc(r.val)}</td>
-      <td class="empty">${esc(T("cus.field."+r.field)||r.field)}</td>
-      <td class="num">${r.n}</td><td class="num">${money(r.amt)}</td>
-      <td>${cell}</td>
-      <td>${c&&c.by==="hand"?`<button class="act ghost sm" data-cusclr="${esc(r.key)}">${
-          L("清除","Clear")}</button>`:""}</td></tr>`;
-  }).join("")
-    :`<tr><td colspan="7" class="empty">—</td></tr>`;
-
-  const un=rows.filter(r=>!cusOf(r.sample));
-  const unN=un.reduce((a,r)=>a+r.n,0), unAmt=un.reduce((a,r)=>a+r.amt,0);
-  const sum=$("#cusSum");
-  if(sum) sum.innerHTML = !rows.length ? ""
-    : un.length
-      ? `<span style="color:var(--neg);font-weight:700">${L(
-          "還有 "+un.length+" 個參考號("+unN+" 筆,"+money(unAmt)+")沒有指定客戶。",
-          un.length+" reference(s) — "+unN+" shipment(s), "+money(unAmt)+" — have no customer yet.")}</span>`
-      : `<span style="color:var(--run2);font-weight:700">${L(
-          "這期全部對到客戶了。","Every shipment in this invoice has a customer.")}</span>`;
-
-  cusOptionsInto($("#ruCus"),false);
-  cusOptionsInto($("#cusBulk"),true);
-  /* 這兩個選單的選項是算出來的字,不吃 data-i18n —— 在這裡重畫,切語言才跟著換。 */
-  const ff=$("#ruField"), oo=$("#ruOp");
-  if(ff){ const v=ff.value; ff.innerHTML=CUS_FIELDS.map(f=>
-    `<option value="${f}">${esc(T("cus.field."+f))}</option>`).join(""); if(v) ff.value=v; }
-  if(oo){ const v=oo.value; oo.innerHTML=CUS_OPS.map(o=>
-    `<option value="${o}">${esc(T("cus.op."+o))}</option>`).join(""); if(v) oo.value=v; }
   renderChgCodes();
 }
 function renderChgCodes(){
@@ -6093,16 +5928,29 @@ function renderChgCodes(){
       <td class="empty">${esc(T("chg.src."+c.src)||c.src)}</td></tr>`;
   }).join("")||`<tr><td colspan="5" class="empty">—</td></tr>`;
   const done=all.filter(c=>chgCodeOf(c.name)).length;
-  const cc=$("#chgCount");
-  if(cc) cc.textContent=L(
+  const txt=L(
     "共 "+all.length+" 項,已設代碼 "+done+" 項",
     all.length+" charges, "+done+" with a code");
+  /* 同一句話兩個地方要:卡片上一句,視窗裡一句。 */
+  for(const id of ["#chgCount","#chgCount2"]){ const e=$(id); if(e) e.textContent=txt; }
 }
+/* 代碼表是拿來查的,不是拿來填的 —— 填的那條路是匯出、改、匯入。所以它
+   不佔一個分頁,按了才開,關掉就走。 */
+function openChgView(){
+  renderChgCodes();
+  $("#chgBg") && $("#chgBg").classList.add("on");
+  $("#chgSearch") && $("#chgSearch").focus();
+}
+function closeChgView(){ $("#chgBg") && $("#chgBg").classList.remove("on"); }
 function showCusTab(which){
-  CUS_TAB=(which==="chg")?"chg":"cus";
-  const p1=$("#cusPane"), p2=$("#chgPane");
-  if(p1) p1.hidden=(CUS_TAB!=="cus");
-  if(p2) p2.hidden=(CUS_TAB!=="chg");
+  CUS_TAB=CUS_PANE[which]?which:"cus";
+  for(const k of Object.keys(CUS_PANE)){
+    const p=$("#"+CUS_PANE[k]);
+    if(p) p.hidden=(CUS_TAB!==k);
+  }
+  /* 對帳那一頁的內容是算出來的,不是靜態版面 —— 切過來的時候要重畫,
+     不然上一次的結果會停在畫面上。 */
+  if(CUS_TAB==="recon" && typeof renderRecon==="function") renderRecon();
   const side=$("#cusSide");
   if(side) [...side.children].forEach(b=>
     b.setAttribute("aria-selected", b.dataset.c===CUS_TAB));
@@ -6125,16 +5973,6 @@ function bindCustomers(){
     $("#cusCode").value=""; $("#cusName").value="";
     cusNote(L("已新增 "+code,"Added "+code),true);
   });
-  $("#bRuleAdd") && ($("#bRuleAdd").onclick=()=>{
-    const val=($("#ruVal").value||"").trim();
-    const cus=$("#ruCus").value;
-    if(!cus){ ruleNote(L("先新增一個客戶。","Add a customer first."),false); return; }
-    if(!val){ ruleNote(L("請填要比對的值。","Fill in the value to match."),false); return; }
-    cusSaveAnd(()=>CFG.raw.customer_rules.push(
-      {field:$("#ruField").value, op:$("#ruOp").value, val, cus}));
-    $("#ruVal").value="";
-    ruleNote(L("規則已新增。","Rule added."),true);
-  });
   $("#cusEditX")      && ($("#cusEditX").onclick=closeCusEdit);
   $("#cusEditCancel") && ($("#cusEditCancel").onclick=closeCusEdit);
   $("#cusEditSave")   && ($("#cusEditSave").onclick=saveCusEdit);
@@ -6145,50 +5983,17 @@ function bindCustomers(){
     if(ed){ openCusEdit(ed.dataset.cusedit); return; }
     const b=e.target.closest("button[data-cusdel]"); if(!b) return;
     const code=b.dataset.cusdel;
-    const used=cusRules().some(r=>r.cus===code)
-      || Object.values(cusMap()).some(v=>v===code);
-    if(used && !confirm(L("「"+code+"」還被規則或已指定的出貨用著。刪掉的話那些會變成未指定。要繼續嗎?",
-        "\""+code+"\" is still used by rules or assignments. Deleting it leaves those unassigned. Continue?"))) return;
-    cusSaveAnd(()=>{
-      CFG.raw.customers=cusReg().filter(c=>c.code!==code);
-      CFG.raw.customer_rules=cusRules().filter(r=>r.cus!==code);
-      const m=CFG.raw.customer_map;
-      for(const k of Object.keys(m)) if(m[k]===code) delete m[k];
-    });
+    /* 手上這份對帳結果還在用這個代號的話,刪掉之後那幾張單就無主了 ——
+       問一聲再刪。沒在用的就直接刪,不必為了一致性多按一次。 */
+    const inUse=((RECON&&RECON.res&&RECON.res.cus)||[]).some(a=>a.code===code);
+    if(inUse && !confirm(L("目前這份對帳結果裡有「"+code+"」的單。刪掉客戶不會動到那份結果,但下一次匯入就認不得這個代號了。要繼續嗎?",
+        "The current reconciliation still has orders under \""+code+"\". Deleting the customer leaves that result alone, but the next import will not recognise the code. Continue?"))) return;
+    cusSaveAnd(()=>{ CFG.raw.customers=cusReg().filter(c=>c.code!==code); });
   });
-  $("#tCusRule") && ($("#tCusRule").onclick=e=>{
-    const d=e.target.closest("button[data-ruledel]");
-    if(d){ cusSaveAnd(()=>CFG.raw.customer_rules.splice(+d.dataset.ruledel,1)); return; }
-    const m=e.target.closest("button[data-rmove]");
-    if(m){
-      const i=+m.dataset.rmove, j=i+(+m.dataset.dir);
-      const a=CFG.raw.customer_rules;
-      if(j<0||j>=a.length) return;
-      cusSaveAnd(()=>{ const t=a[i]; a[i]=a[j]; a[j]=t; });
-    }
-  });
-  $("#tCusRef") && ($("#tCusRef").onclick=e=>{
-    const b=e.target.closest("button[data-cusclr]"); if(!b) return;
-    cusSaveAnd(()=>{ delete CFG.raw.customer_map[b.dataset.cusclr]; });
-  });
-  $("#cusAll") && ($("#cusAll").onchange=e=>
-    document.querySelectorAll(".cusc").forEach(c=>c.checked=e.target.checked));
-  $("#bCusTickAll") && ($("#bCusTickAll").onclick=()=>
-    document.querySelectorAll(".cusc").forEach(c=>c.checked=true));
-  $("#bCusTickNone") && ($("#bCusTickNone").onclick=()=>{
-    document.querySelectorAll(".cusc").forEach(c=>c.checked=false);
-    const a=$("#cusAll"); if(a) a.checked=false; });
-  $("#bCusBulk") && ($("#bCusBulk").onclick=()=>{
-    const c=$("#cusBulk").value;
-    const keys=[...document.querySelectorAll(".cusc:checked")].map(x=>x.dataset.k);
-    if(!c){ setStatus(L("先選一個客戶","Choose a customer first")); return; }
-    if(!keys.length){ setStatus(L("先勾選要指定的幾列","Tick the rows to assign first")); return; }
-    cusSaveAnd(()=>{ for(const k of keys) CFG.raw.customer_map[k]=c; });
-    toast(L("已指定 "+keys.length+" 個參考號給 "+c,
-            "Assigned "+keys.length+" reference(s) to "+c), true);
-  });
-  $("#bCusTpl") && ($("#bCusTpl").onclick=exportUnassigned);
   $("#chgSearch") && ($("#chgSearch").oninput=()=>renderChgCodes());
+  $("#bChgView") && ($("#bChgView").onclick=openChgView);
+  $("#chgX")     && ($("#chgX").onclick=closeChgView);
+  $("#chgBg")    && ($("#chgBg").onclick=e=>{ if(e.target.id==="chgBg") closeChgView(); });
   $("#bChgExport") && ($("#bChgExport").onclick=exportChgCodes);
   $("#bChgImport") && ($("#bChgImport").onclick=()=>$("#fChgImport").click());
   $("#fChgImport") && ($("#fChgImport").onchange=e=>{
@@ -6197,17 +6002,6 @@ function bindCustomers(){
     e.target.value="";
   });
   showCusTab("cus");
-}
-/* 待指定清單:給對方填的那一份。只倒還沒對到客戶的,對方只要動一欄。 */
-function exportUnassigned(){
-  const rows=cusRefRows().filter(r=>!cusOf(r.sample));
-  if(!rows.length){ setStatus(L("這期已經全部對到客戶了","Everything in this invoice already has a customer")); return; }
-  const aoa=[["Reference","Reference Type","Shipments","Amount","Customer Code","Customer Name"],
-    ...rows.map(r=>[r.val, r.field, r.n, r2(r.amt), "", ""])];
-  saveSheet(aoa,"Unassigned","UPS_Customer_Map.xlsx",-1)
-    .then(ok=>setStatus(ok?L("待指定清單已匯出 —— 對方只要填 Customer Code 那一欄",
-                             "Unassigned list exported — they only fill in Customer Code")
-                          :L("已取消存檔","Save cancelled")));
 }
 /* 匯回代碼表。只認 Charge 和 Your Code / Your Name 三欄,對不到名稱的列
    逐一列出來 —— 安靜地略過等於「我改了但沒生效」,那最難查。 */
@@ -6845,7 +6639,6 @@ function showTab(p){
   if(p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
   if(p==="dash"&&typeof renderDashboard==="function") renderDashboard();
   if(p==="cus"&&typeof renderCustomers==="function") renderCustomers();
-  if(p==="recon"&&typeof renderRecon==="function") renderRecon();
 }
 
 /* =====================================================================
@@ -10375,7 +10168,10 @@ async function reconTemplate(){
   const sheets=[
     {name:RECON_SHEET, rows:[hd.map(H)], freeze:{r:1,c:0}, filter:"A1:E1",
      cols:[{w:22},{w:38},{w:18},{w:30},{w:14}]},
-    {name:"Customers", freeze:{r:1,c:0}, cols:[{w:18},{w:34}],
+    /* 客戶名單只是下拉選單的來源。Excel 的清單驗證一定要指向活頁簿裡的一個
+       範圍,所以這一頁必須存在;但它不是給人填的,所以藏起來 —— 模板打開
+       就只有一頁,要填哪裡沒有第二種解釋。 */
+    {name:"Customers", hidden:true, freeze:{r:1,c:0}, cols:[{w:18},{w:34}],
      rows:[[CH("Customer Code"),CH("Customer Name")]]
        .concat(reg.map(c=>[c.code, c.name||c.code]))}
   ];
@@ -12590,7 +12386,7 @@ function xlStyles(){
   return {id, xml};
 }
 /* sheets: [{name, rows:[[cell|value,...]], cols:[{w}], merges:[{s:{r,c},e:{r,c}}],
-             freeze:{r,c}, filter:"A1:E1", dv:[{sqref, list, title, msg}]}]
+             freeze:{r,c}, filter:"A1:E1", dv:[{sqref, list, title, msg}], hidden:true}]
    dv 是資料驗證,目前只做「限定清單」這一種:模板要讓客戶代號那一欄只能從
    Customers 分頁選,不能自己打。list 收的是來源範圍(可以跨分頁,不必加等號),
    sqref 是套用的儲存格範圍。
@@ -12708,8 +12504,11 @@ async function xlWrite(sheets, fname, onProgress){
       +"<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
       +"xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
       +"<bookViews><workbookView/></bookViews><sheets>"
+      /* sh.hidden 的分頁照樣寫進活頁簿,只是不列在分頁列上 —— 下拉選單的
+         來源範圍要有地方放,但那份名單不是給人填的。 */
       +sheets.map((sh,i)=>"<sheet name=\""+xe(xlSheetName(sh.name,i))
-          +"\" sheetId=\""+(i+1)+"\" r:id=\"rId"+(i+1)+"\"/>").join("")
+          +"\" sheetId=\""+(i+1)+"\""+(sh.hidden?" state=\"hidden\"":"")
+          +" r:id=\"rId"+(i+1)+"\"/>").join("")
       +"</sheets></workbook>")},
     {name:"xl/_rels/workbook.xml.rels", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
       +"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
@@ -14860,6 +14659,9 @@ const I18N={
   "tab.cus":["🔗 對照設定","🔗 Mapping"],
   "ct.cusreg":["客戶","Customers"],
   "ct.chgcode":["費用代碼","Charge codes"],
+  "ct.recon":["對帳","Reconciliation"],
+  "btn.chgview":["檢視代碼","View codes"],
+  "th.cusrecon":["最近對帳","Last reconciliation"],
   "hd.cusreg":["客戶","Customers"],
   "hint.cusreg":["你自己維護的清單。指定費率層級後,這個客戶的出貨就照那一層的費率重算。客戶名單為整個帳號共用,不隨層級切換而改變。",
     "Your own list. Assign a rate level and this customer's shipments are repriced at that level. The list is shared across the whole account and does not change when you switch levels."],
@@ -14912,7 +14714,6 @@ const I18N={
   "tab.demand":["⚡ Demand 附加費","⚡ Demand Surcharge"],
   "tab.hist":["📚 帳單歷史","📚 Invoice History"],
   "tab.code":["🔎 代碼查詢","🔎 Code Lookup"],
-  "tab.recon":["⚖️ 對帳","⚖️ Reconciliation"],
   "hd.recon":["WMS / TMS 對帳","WMS / TMS reconciliation"],
   "hint.recon":["帳單本身已經有費用明細,這份檔案只補帳單不可能知道的兩件事:這張單是哪個客戶的,以及向那個客戶收了多少。一張系統單一列;一票多件時,把該單的追蹤號全部寫在同一格,用逗號分隔。",
     "The invoice already holds the charge detail. This file adds the two facts it cannot know: which customer an order belongs to, and what that customer was billed. One order per row; for a multi-package order put every tracking number in one cell, separated by commas."],
@@ -14931,8 +14732,8 @@ const I18N={
   "th.reconmargin":["毛利率","Margin"],
   "th.reconrep":["系統重算","Recomputed"],
   "th.recongap":["對 UPS 差異","vs UPS"],
-  "hint.reconcols":["毛利是客戶實付減去 UPS 實收。系統重算是照該客戶的費率層級算出這幾件本來該是多少;拿它跟 UPS 實收比,看得出帳單與合約有沒有出入。",
-    "Profit is what the customer paid less what UPS charged. Recomputed is what the customer's own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement."],
+  "hint.reconcols":["毛利是客戶實付減去 UPS 實收。系統重算是照該客戶的費率層級算出這幾件本來該是多少;拿它跟 UPS 實收比,看得出帳單與合約有沒有出入。「UPS 實收」不含帳戶層費用 —— 那些費用沒有追蹤號,對不到任何一張單;該不該計入由帳務決定,和儀表板的處理一致。",
+    "Profit is what the customer paid less what UPS charged. Recomputed is what the customer's own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement. Charged by UPS excludes account-level charges: they carry no tracking number and belong to no order, so whether they count is your accounting call — the dashboard treats them the same way."],
   "tab.dash":["📊 儀表板","📊 Dashboard"],
   "tab.setting":["⚙️ 設定","⚙️ Settings"],
   "hd.setting":["設定","Settings"],
