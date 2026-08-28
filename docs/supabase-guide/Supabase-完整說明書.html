@@ -1,0 +1,956 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>UPS Reprice Platform — Supabase 完整說明書</title>
+<style>
+  @page { size: A4; margin: 17mm 15mm 15mm 15mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "WenQuanYi Zen Hei", "Noto Sans TC", sans-serif;
+    font-size: 10.4pt; line-height: 1.72; color: #2b2019; margin: 0;
+  }
+  h1, h2, h3, h4 { color: #351C15; line-height: 1.4; }
+  h1 { font-size: 19pt; margin: 0 0 4mm; }
+  h2 {
+    font-size: 14pt; margin: 0 0 5mm; padding: 0 0 2.5mm;
+    border-bottom: 2.2pt solid #a9743f;
+  }
+  h2 .num {
+    display: inline-block; background: #a9743f; color: #fff;
+    padding: 0.6mm 2.6mm; margin-right: 2.6mm; border-radius: 1mm;
+    font-size: 11.5pt;
+  }
+  h3 { font-size: 11.8pt; margin: 6.5mm 0 2.5mm; color: #7a4a20; }
+  h3::before { content: "▍"; color: #a9743f; margin-right: 1.2mm; }
+  h4 { font-size: 10.6pt; margin: 4.5mm 0 1.8mm; color: #351C15; }
+  p { margin: 0 0 3mm; }
+  ul, ol { margin: 0 0 3.5mm; padding-left: 6mm; }
+  li { margin-bottom: 1.4mm; }
+  b, strong { color: #351C15; }
+
+  .chapter { page-break-before: always; }
+  .lead { font-size: 10.8pt; color: #5a4535; margin-bottom: 5mm; }
+
+  table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm;
+          font-size: 9.3pt; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th { background: #f3ece3; color: #351C15; text-align: left;
+       padding: 1.8mm 2.4mm; border: 0.4pt solid #d9cbb8; font-weight: bold; }
+  td { padding: 1.8mm 2.4mm; border: 0.4pt solid #ddd2c2; vertical-align: top; }
+  tbody tr:nth-child(even) td { background: #faf7f2; }
+  td.ok  { color: #2f6b3a; font-weight: bold; }
+  td.no  { color: #99552a; }
+  table.keep { page-break-inside: avoid; }
+
+  code, .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 9pt;
+                background: #f4efe8; padding: 0.3mm 1mm; border-radius: 0.8mm;
+                color: #6b3f1c; }
+  pre { background: #2f2620; color: #f0e6d8; padding: 3mm 3.5mm;
+        border-radius: 1.5mm; font-family: "DejaVu Sans Mono", monospace;
+        font-size: 8.6pt; line-height: 1.55; overflow-wrap: break-word;
+        white-space: pre-wrap; margin: 2.5mm 0 4mm; page-break-inside: avoid; }
+  pre .c { color: #9db08c; }
+
+  .box { border: 0.5pt solid #d9cbb8; background: #faf7f2; border-radius: 1.5mm;
+         padding: 3mm 3.5mm; margin: 3mm 0 4.5mm; page-break-inside: avoid; }
+  .warn { border-left: 3pt solid #c0392b; background: #fdf2f0; }
+  .tip  { border-left: 3pt solid #2f6b3a; background: #f1f7f1; }
+  .note { border-left: 3pt solid #a9743f; background: #fbf5ec; }
+  .box .hd { font-weight: bold; color: #351C15; margin-bottom: 1.5mm;
+             font-size: 10.4pt; }
+  .box p:last-child, .box ul:last-child { margin-bottom: 0; }
+
+  .step { border-left: 2.6pt solid #a9743f; padding: 0 0 0 4mm; margin: 0 0 6mm;
+          page-break-inside: avoid; }
+  .step > .t { font-weight: bold; color: #351C15; font-size: 11.2pt;
+               margin-bottom: 1.5mm; }
+  .step .n { display: inline-block; background: #351C15; color: #fff;
+             width: 6.4mm; height: 6.4mm; line-height: 6.4mm; text-align: center;
+             border-radius: 50%; font-size: 9.4pt; margin-right: 2.2mm; }
+  .path { color: #6b3f1c; font-weight: bold; }
+
+  svg { width: 100%; height: auto; display: block; margin: 3mm 0 2mm; }
+  .cap { font-size: 8.8pt; color: #6d5a48; text-align: center;
+         margin: 0 0 5mm; }
+
+  /* cover */
+  .cover { height: 240mm; display: flex; flex-direction: column;
+           justify-content: center; }
+  .cover .kicker { color: #a9743f; letter-spacing: 0.35mm; font-size: 10.5pt;
+                   margin-bottom: 3mm; }
+  .cover h1 { font-size: 27pt; line-height: 1.32; margin-bottom: 5mm; }
+  .cover .sub { font-size: 12.5pt; color: #5a4535; margin-bottom: 9mm;
+                line-height: 1.85; }
+  .cover .rule { height: 2.6pt; background: #a9743f; width: 34mm;
+                 margin-bottom: 9mm; }
+  .cover .meta { font-size: 9.6pt; color: #6d5a48; line-height: 1.9; }
+
+  .toc { margin-top: 4mm; }
+  .toc div { display: flex; border-bottom: 0.4pt dotted #cfc2b0;
+             padding: 2mm 0; font-size: 10.4pt; }
+  .toc .t { flex: 1; }
+  .toc .k { color: #a9743f; font-weight: bold; width: 16mm; }
+  .toc .d { color: #6d5a48; font-size: 9pt; }
+</style>
+</head>
+<body>
+
+<!-- ============================= 封面 ============================= -->
+<section class="cover">
+  <div class="kicker">UPS REPRICE PLATFORM</div>
+  <h1>Supabase 完整說明書</h1>
+  <div class="rule"></div>
+  <div class="sub">
+    白話解釋 Supabase 是什麼、能幫你做什麼<br>
+    你現在這套系統的完整架構圖<br>
+    一步一步:在 Supabase 架設帳號密碼
+  </div>
+  <div class="meta">
+    專案:sandyliu3056/ups-reprice-web<br>
+    分支:claude/supabase-setup-auth-0px1az<br>
+    製作日期:2026 年 8 月 28 日<br>
+    內容依據:此 repo 目前實際的程式碼與設定檔
+  </div>
+</section>
+
+<!-- ============================= 目錄 ============================= -->
+<section class="chapter">
+  <h2><span class="num">目錄</span>這份文件怎麼看</h2>
+  <p class="lead">四個章節,可以分開看。如果你只想趕快把登入弄好,直接翻到第 4 章;
+  但第 3 章最後那一頁的警告請務必先看過。</p>
+
+  <div class="toc">
+    <div><span class="k">第 1 章</span><span class="t">Supabase 是什麼(全部白話)
+      <div class="d">一句話比喻、為什麼你的網站需要它、五個零件、三把鑰匙、費用</div></span></div>
+    <div><span class="k">第 2 章</span><span class="t">我可以拿它幹嘛
+      <div class="d">已經在用的 3 件事、打開開關就有的 3 件事、以後可以做的 4 件事、它做不到的事</div></span></div>
+    <div><span class="k">第 3 章</span><span class="t">你現在的系統架構
+      <div class="d">全景圖、登入流程對照圖、資料放在哪裡、檔案地圖、兩條產品線</div></span></div>
+    <div><span class="k">第 4 章</span><span class="t">一步一步:架設帳號密碼
+      <div class="d">12 個步驟,含所有要貼的 SQL 與設定;最後有排錯對照表</div></span></div>
+  </div>
+
+  <div class="box note" style="margin-top:8mm">
+    <div class="hd">先講一個最重要的事實</div>
+    <p><b>你的網站現在的登入,其實沒有走 Supabase。</b>目前是「本機帳號模式」——
+    帳號和密碼的雜湊值寫在 <code>index.html</code> 裡面。Supabase 現在只被拿來當
+    「跨電腦同步設定和帳單歷史」的置物櫃而已。</p>
+    <p>整套 Supabase 登入的程式碼<b>都已經寫好了,就躺在檔案裡</b>,只是開關沒有打開。
+    第 4 章就是在教你怎麼把它打開。</p>
+  </div>
+</section>
+
+<!-- ============================= 第 1 章 ============================= -->
+<section class="chapter">
+  <h2><span class="num">1</span>Supabase 是什麼(全部白話)</h2>
+
+  <h3>一句話</h3>
+  <p><b>Supabase 是「租來的後端」。</b></p>
+  <p>你的工具現在是一份網頁(<code>index.html</code>),它是一間<b>店面</b>——
+  客人走進來、東西在店裡處理完、拿了就走。Supabase 是店面後方的
+  <b>倉庫、櫃檯、和保全</b>:它幫你存東西、幫你查驗誰能進來、幫你保管
+  不能給客人看到的鑰匙。</p>
+  <p>重點是「租」:你不用買伺服器、不用架資料庫、不用管備份和更新。
+  註冊一個帳號,五分鐘後就有一整套後端可以用,而且這個規模的用量是免費的。</p>
+
+  <h3>為什麼你的網站會需要它</h3>
+  <p>你的工具現在所有事情都發生在使用者自己的瀏覽器裡。這種做法有很大的好處——
+  帳單和費率不會離開那台電腦,速度也快——但有<b>三件事永遠做不到</b>:</p>
+
+  <table>
+    <thead><tr><th style="width:32%">做不到的事</th><th style="width:38%">為什麼</th><th>Supabase 怎麼補</th></tr></thead>
+    <tbody>
+      <tr><td><b>密碼沒有地方放</b></td>
+          <td>網頁裡的任何東西,按 F12 就看得到。就算存的是雜湊值不是明碼,
+              那道鎖也是掛在門外面的——擋君子不擋小人。</td>
+          <td>密碼交給 Supabase 的 Auth 保管。瀏覽器從頭到尾拿不到密碼,
+              只拿到一張有時效的識別證(token)。</td></tr>
+      <tr><td><b>換一台電腦,東西就不見</b></td>
+          <td>設定、帳單歷史都存在那台瀏覽器裡。換電腦、清快取、換瀏覽器,
+              全部歸零。</td>
+          <td>存進 Supabase 的資料庫。人在哪台電腦登入,資料就跟到哪台。</td></tr>
+      <tr><td><b>API 金鑰不能放前端</b></td>
+          <td>UPS 的地址驗證要 Client Secret。放進網頁等於公開,
+              別人可以拿去用你的額度。</td>
+          <td>金鑰放在 Supabase 的 Edge Function 裡。瀏覽器只丟地址進去、
+              拿結果回來,永遠看不到金鑰。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Supabase 的五個零件</h3>
+  <p>Supabase 不是一個東西,是五個服務打包在一起。你不用全部都用——
+  你這個專案目前只用到其中三個。</p>
+
+  <table>
+    <thead><tr><th style="width:20%">零件</th><th style="width:30%">白話比喻</th>
+      <th style="width:34%">你這個專案的用途</th><th style="width:16%">現況</th></tr></thead>
+    <tbody>
+      <tr><td><b>Auth</b><br>認證</td>
+          <td>大樓一樓的櫃檯,查證件、發識別證,識別證過期會自動換新的</td>
+          <td>登入頁的帳號密碼</td>
+          <td class="no">程式已寫好<br>尚未啟用</td></tr>
+      <tr><td><b>Database</b><br>Postgres 資料庫</td>
+          <td>一排檔案櫃,每個抽屜裝一種資料</td>
+          <td>設定同步、帳單歷史、登入紀錄、帳號清單</td>
+          <td class="ok">使用中</td></tr>
+      <tr><td><b>RLS</b><br>列級安全</td>
+          <td>每一份文件自己的鎖,不是整個櫃子一把鎖</td>
+          <td>只有主帳號讀得到登入紀錄;每個人只看得到自己那一列設定</td>
+          <td class="ok">使用中</td></tr>
+      <tr><td><b>Edge Functions</b></td>
+          <td>你在雲端請的一位小助理,幫你做「不能讓客人看到過程」的事</td>
+          <td><code>ups-address</code>(用 UPS 金鑰查住宅/商業地址)、
+              <code>admin-users</code>(用管理員權限開帳號)</td>
+          <td class="no">程式已寫好<br>看你部署了沒</td></tr>
+      <tr><td><b>Storage</b><br>檔案儲存</td>
+          <td>雲端硬碟</td>
+          <td>目前沒用到(帳單檔不上雲,這是刻意的)</td>
+          <td class="no">未使用</td></tr>
+    </tbody>
+  </table>
+
+  <h3>三把鑰匙,千萬不要搞混</h3>
+  <p>這是 Supabase 唯一真的會出事的地方,值得花兩分鐘看懂。Supabase 會給你
+  好幾組看起來很像的字串,但它們的權力天差地遠:</p>
+
+  <table>
+    <thead><tr><th style="width:24%">名稱</th><th style="width:24%">可以放哪裡</th>
+      <th style="width:26%">它能做什麼</th><th>外流的後果</th></tr></thead>
+    <tbody>
+      <tr><td><b>Project URL</b><br><span class="mono">https://xxx.supabase.co</span></td>
+          <td>前端(<code>auth-config.js</code>)</td>
+          <td>只是一個地址</td>
+          <td>沒事。它本來就是要公開的</td></tr>
+      <tr><td><b>anon key</b><br>(新版叫 publishable key)</td>
+          <td>前端(<code>auth-config.js</code>)</td>
+          <td>只能做 RLS 規則<b>允許</b>的事。規則寫好了,它就是安全的</td>
+          <td>沒事。設計上就是要放進瀏覽器的</td></tr>
+      <tr><td><b>service_role key</b><br>(新版叫 secret key)</td>
+          <td><b>只能</b>放 Edge Function 的環境變數。<b>絕對不能</b>進 repo、
+              不能進任何 <code>.js</code>、不能貼給任何人</td>
+          <td><b>繞過所有 RLS。</b>整個資料庫任它讀、任它改、任它刪</td>
+          <td class="no"><b>災難。</b>所有資料全開,而且它不會過期</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box tip">
+    <div class="hd">你的 repo 已經有一道防線</div>
+    <p><code>.githooks/pre-commit</code> 會擋住看起來像 JWT 或 Supabase secret key 的字串,
+    不讓它被 commit 進去。記得裝上它:</p>
+    <pre>git config core.hooksPath .githooks</pre>
+    <p>但別靠它。那是安全網,不是規則本身。</p>
+  </div>
+
+  <h3>要花多少錢</h3>
+  <p>這個規模的工具,<b>免費方案綽綽有餘</b>。Supabase 免費方案大致提供 500 MB 資料庫、
+  每月數萬名活躍使用者、1 GB 檔案儲存(實際數字以官方定價頁為準,他們偶爾會調整)。
+  你這個工具的整個資料庫大概就是幾張小表,連 1 MB 都用不到。</p>
+  <div class="box warn">
+    <div class="hd">免費方案唯一要注意的一件事</div>
+    <p>免費專案如果<b>連續約一週完全沒有任何連線</b>,會被自動暫停(paused)。
+    暫停之後網站的登入就會失敗。</p>
+    <p>解法很簡單:進 Supabase 後台按一下「Restore / Resume」就恢復,資料不會掉。
+    如果你的工具是天天在用的,根本不會碰到這件事。</p>
+  </div>
+</section>
+
+<!-- ============================= 第 2 章 ============================= -->
+<section class="chapter">
+  <h2><span class="num">2</span>我可以拿它幹嘛</h2>
+  <p class="lead">分成四組:<b>A</b> 現在已經在用的、<b>B</b> 程式寫好了只差開關的、
+  <b>C</b> 以後想做可以做的、<b>D</b> 不要拿它做的。</p>
+
+  <h3>A. 現在已經在用的(3 件)</h3>
+
+  <h4>A1 — 跨電腦同步你的費率設定</h4>
+  <p>你在公司存好的費率設定,回家用另一台電腦、同一組帳號密碼登入,設定會自己跟過來。</p>
+  <p>做法很巧妙:瀏覽器在你登入的當下,用
+  <code>sha256("cfg-sync::" + 帳號 + "::" + 密碼)</code> 算出一把「同步鑰匙」,
+  設定就存在那把鑰匙底下。資料庫那張表<b>沒有任何 RLS policy</b>——
+  意思是任何人拿 anon key 直接讀寫都會被擋死,唯一的入口是兩個函式,
+  而那兩個函式<b>一定要你交出完整的 64 位鑰匙</b>才給你那一列,而且沒有任何「列出清單」的路。</p>
+  <p>就像一個憑密碼取物的置物櫃:不知道密碼就算不出鑰匙,也不知道櫃子裡有幾格。</p>
+  <div class="box note">
+    <p><b>副作用要知道:</b>改密碼就等於換一把新鑰匙。舊密碼底下存的設定不會跟過來——
+    改完密碼記得<b>再按一次「儲存設定」</b>。</p>
+  </div>
+
+  <h4>A2 — 跨電腦同步帳單歷史</h4>
+  <p>同一把鑰匙,另一張表。每一期歸檔的帳單會在瀏覽器裡<b>先 gzip 壓縮</b>再上傳;
+  換一台電腦登入,那台電腦沒有的期別就會被抓下來。</p>
+  <p>規則是<b>只增不減</b>:在某台電腦上清掉瀏覽器資料,不會把雲端那份刪掉。
+  這是刻意的——歷史帳單不該因為某個人清了快取就消失。</p>
+
+  <h4>A3 — UPS 地址驗證(住宅 / 商業判定)</h4>
+  <p>住宅和商業的附加費差很多,判錯就算錯。UPS 有一支 API 可以查,
+  但瀏覽器不能直接打——需要 OAuth 金鑰,而且會被 CORS 擋。</p>
+  <p><code>supabase/functions/ups-address</code> 這支 Edge Function 就是中間人:
+  金鑰放在它的環境變數裡,前端只丟地址進去,拿回 R(住宅)/ C(商業)/ U(判不出)。</p>
+  <p>設定的地方在「帳單歷史」頁的 API 端點欄,填
+  <span class="mono">https://&lt;你的專案&gt;.supabase.co/functions/v1/ups-address</span>。</p>
+
+  <h3>B. 程式已經寫好,只差把開關打開(3 件)</h3>
+  <p>以下三件事的程式碼<b>全部都在 repo 裡了</b>,只是因為現在跑在「本機帳號模式」所以沒有生效。
+  第 4 章教的就是怎麼打開。</p>
+
+  <h4>B1 — 真正的帳號密碼登入</h4>
+  <p>密碼由 Supabase 保管,不再寫在 <code>index.html</code> 裡。好處:</p>
+  <ul>
+    <li>要加人、要停權、要改密碼,<b>不用改程式、不用重新部署</b>——在後台點一點就好。</li>
+    <li>密碼不會出現在 repo 裡,也不會留在 Git 歷史裡。</li>
+    <li>登入狀態是有時效的 token,Supabase 會自動換新;離職的人一停權就真的進不來。</li>
+    <li>可以開「忘記密碼」自動寄信重設(前提是那個帳號用的是真的 email)。</li>
+  </ul>
+
+  <h4>B2 — 在網站裡直接開帳號、改角色、刪帳號</h4>
+  <p>Admin 分頁裡的帳號管理。新增帳號需要 <code>service_role</code> 權限,而那把鑰匙
+  絕對不能進瀏覽器,所以做法是:網頁呼叫 <code>admin-users</code> 這支 Edge Function,
+  函式<b>先驗來人是不是主帳號</b>(檢查 token 裡的 <code>app_metadata.role</code>),
+  驗不過直接 403,連你送了什麼都不看。</p>
+  <p>現在這個分頁在本機模式下只能「看」,不能改——因為帳號寫在 <code>index.html</code> 裡,
+  要加人得改檔案再部署一次。</p>
+
+  <h4>B3 — 登入紀錄(誰、什麼時候、用什麼裝置)</h4>
+  <p>現在的「登入紀錄」只看得到<b>這一台瀏覽器</b>的紀錄——同事在他自己電腦上登入,
+  你這邊看不到。切到 Supabase 之後,紀錄寫進資料庫,主帳號可以看到所有人的。</p>
+  <p>寫入的方式也是安全的:瀏覽器<b>不能直接寫</b>那張表(權限被收掉了),
+  只能請一個函式「幫我記一筆」,而那個函式的使用者 ID、email、時間<b>全部是伺服器
+  自己從已驗證的 token 裡取的</b>,不是瀏覽器送什麼就記什麼。</p>
+
+  <h3>C. 以後想做可以做的(4 件)</h3>
+  <table>
+    <thead><tr><th style="width:26%">想做的事</th><th style="width:38%">怎麼做</th><th>準備到哪了</th></tr></thead>
+    <tbody>
+      <tr><td><b>每個帳號自己的費率存雲端</b></td>
+          <td>切到 Supabase 模式後自動生效,存在 <code>user_settings</code> 表,一個帳號一列</td>
+          <td><code>supabase/schema.sql</code> 已經寫好</td></tr>
+      <tr><td><b>給客戶一個唯讀連結</b></td>
+          <td>開一張只讀的表 + 一條 RLS 規則,客戶用連結看自己那期的報表,看不到成本和毛利</td>
+          <td>還沒做,但架構撐得住</td></tr>
+      <tr><td><b>忘記密碼自動重設</b></td>
+          <td>Supabase Auth 內建。但帳號要是真的 email 才收得到信</td>
+          <td>開關在後台,免費</td></tr>
+      <tr><td><b>帳單原始檔存雲端</b></td>
+          <td>用 Storage。但先想清楚要不要——現在「檔案不離開電腦」本身就是一個賣點</td>
+          <td>未使用</td></tr>
+    </tbody>
+  </table>
+
+  <h3>D. 不要拿 Supabase 做的事</h3>
+  <ul>
+    <li><b>它不會幫你算費率。</b>那六萬行的計價引擎在瀏覽器裡跑,不上雲。
+        這是好事:你的計價邏輯是你的資產,不用交給任何人代管,而且大帳單在本機算比較快。</li>
+    <li><b>不要把 <code>service_role</code> 金鑰放進前端</b>,任何理由都不行。
+        需要高權限的事,一律做成 Edge Function。</li>
+    <li><b>它不能保護「已經送到瀏覽器的畫面」。</b>private repo 保護的是原始碼;
+        一個已經登入的人,永遠可以按 F12 看到頁面上的所有東西。要真正藏起來的東西,
+        就不能送到前端。</li>
+  </ul>
+</section>
+
+<!-- ============================= 第 3 章 ============================= -->
+<section class="chapter">
+  <h2><span class="num">3</span>你現在的系統架構</h2>
+  <p class="lead">這一章畫的是<b>現況</b>,不是理想狀態。看得懂這兩張圖,
+  就知道第 4 章那些步驟到底在動什麼。</p>
+
+  <h3>圖 1:全景圖</h3>
+
+<svg viewBox="0 0 760 482" xmlns="http://www.w3.org/2000/svg" font-family="WenQuanYi Zen Hei, sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+            markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" fill="#a9743f"/>
+    </marker>
+  </defs>
+
+  <!-- legend -->
+  <rect x="10" y="8" width="170" height="46" rx="4" fill="#fbf5ec" stroke="#d9cbb8" stroke-width="1"/>
+  <text x="20" y="24" font-size="10.5" font-weight="bold" fill="#351C15">圖例</text>
+  <text x="20" y="38" font-size="10" fill="#2f6b3a">● 現在就在用</text>
+  <text x="20" y="50" font-size="10" fill="#99552a">○ 程式已寫好,未啟用</text>
+
+  <!-- static host -->
+  <rect x="200" y="8" width="360" height="46" rx="4" fill="#f3ece3" stroke="#a9743f" stroke-width="1.4"/>
+  <text x="380" y="27" font-size="12" font-weight="bold" fill="#351C15" text-anchor="middle">靜態主機(Vercel / Cloudflare Pages / GitHub Pages)</text>
+  <text x="380" y="44" font-size="10.5" fill="#6d5a48" text-anchor="middle">只負責把檔案送出去,不跑任何程式</text>
+
+  <!-- python note -->
+  <rect x="580" y="8" width="170" height="46" rx="4" fill="#f6f6f4" stroke="#cfc9c0" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="590" y="23" font-size="10" font-weight="bold" fill="#5a5248">另一條產品線</text>
+  <text x="590" y="36" font-size="9.5" fill="#6d6558">Python 桌面版 / Streamlit</text>
+  <text x="590" y="48" font-size="9.5" fill="#6d6558">完全不碰 Supabase</text>
+
+  <!-- arrow host -> browser -->
+  <line x1="380" y1="54" x2="380" y2="74" stroke="#a9743f" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="392" y="69" font-size="10" fill="#6d5a48">載入 index.html 等 4 個檔</text>
+
+  <!-- browser -->
+  <rect x="10" y="76" width="740" height="224" rx="5" fill="#ffffff" stroke="#351C15" stroke-width="1.6"/>
+  <text x="24" y="97" font-size="13" font-weight="bold" fill="#351C15">① 使用者的瀏覽器 —— 整個工具實際跑的地方</text>
+
+  <rect x="24" y="108" width="170" height="60" rx="3" fill="#f3ece3" stroke="#d9cbb8"/>
+  <text x="109" y="126" font-size="11" font-weight="bold" fill="#6b3f1c" text-anchor="middle">index.html</text>
+  <text x="109" y="142" font-size="10" fill="#2b2019" text-anchor="middle">介面 + 計價引擎</text>
+  <text x="109" y="158" font-size="10" fill="#6d5a48" text-anchor="middle">整個工具就這一份</text>
+
+  <rect x="204" y="108" width="170" height="60" rx="3" fill="#f3ece3" stroke="#d9cbb8"/>
+  <text x="289" y="126" font-size="11" font-weight="bold" fill="#6b3f1c" text-anchor="middle">xlsx.js</text>
+  <text x="289" y="142" font-size="10" fill="#2b2019" text-anchor="middle">讀寫 Excel 檔</text>
+  <text x="289" y="158" font-size="10" fill="#6d5a48" text-anchor="middle">匯出報表用</text>
+
+  <rect x="384" y="108" width="170" height="60" rx="3" fill="#f3ece3" stroke="#d9cbb8"/>
+  <text x="469" y="126" font-size="11" font-weight="bold" fill="#6b3f1c" text-anchor="middle">supabase-js</text>
+  <text x="469" y="142" font-size="10" fill="#2b2019" text-anchor="middle">連線用戶端</text>
+  <text x="469" y="158" font-size="10" fill="#6d5a48" text-anchor="middle">跟雲端說話的嘴巴</text>
+
+  <rect x="564" y="108" width="170" height="60" rx="3" fill="#fbf0e2" stroke="#a9743f" stroke-width="1.3"/>
+  <text x="649" y="126" font-size="11" font-weight="bold" fill="#6b3f1c" text-anchor="middle">auth-config.js</text>
+  <text x="649" y="142" font-size="10" fill="#2b2019" text-anchor="middle">URL / anon key</text>
+  <text x="649" y="158" font-size="10" fill="#c0392b" text-anchor="middle">登入模式的總開關</text>
+
+  <rect x="24" y="182" width="350" height="106" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+  <text x="36" y="201" font-size="11" font-weight="bold" fill="#351C15">本機儲存(只留在這台電腦)</text>
+  <text x="36" y="222" font-size="10" fill="#2b2019">localStorage —— 設定、帳單期別索引</text>
+  <text x="36" y="241" font-size="10" fill="#2b2019">IndexedDB —— 帳單逐筆明細</text>
+  <text x="36" y="260" font-size="10" fill="#2b2019">sessionStorage —— 登入狀態</text>
+  <text x="36" y="279" font-size="9.5" fill="#6d5a48">全部用「帳號 ID」當前綴分開存</text>
+
+  <rect x="384" y="182" width="350" height="106" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+  <text x="396" y="201" font-size="11" font-weight="bold" fill="#351C15">檔案進出(全程不離開這台電腦)</text>
+  <text x="396" y="222" font-size="10" fill="#2b2019">進:UPS 帳單 xlsx / xls / csv</text>
+  <text x="396" y="241" font-size="10" fill="#2b2019">進:合約費率表(一個服務一個檔)</text>
+  <text x="396" y="260" font-size="10" fill="#2b2019">出:客戶報表 / 內部對帳單</text>
+  <text x="396" y="279" font-size="9.5" fill="#2f6b3a">帳單檔不會上傳到任何伺服器</text>
+
+  <!-- arrow browser -> supabase -->
+  <line x1="380" y1="300" x2="380" y2="336" stroke="#a9743f" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="392" y="316" font-size="10.5" fill="#2f6b3a">● 目前唯一實際在用的通道:憑「同步鑰匙」呼叫 RPC,</text>
+  <text x="392" y="330" font-size="10.5" fill="#2f6b3a">   同步設定與帳單歷史</text>
+
+  <!-- supabase -->
+  <rect x="10" y="336" width="740" height="136" rx="5" fill="#ffffff" stroke="#351C15" stroke-width="1.6"/>
+  <text x="24" y="357" font-size="13" font-weight="bold" fill="#351C15">② Supabase 專案(你租來的後端)</text>
+
+  <rect x="24" y="366" width="226" height="94" rx="3" fill="#f6f6f4" stroke="#cfc9c0" stroke-dasharray="4 3"/>
+  <text x="36" y="385" font-size="11" font-weight="bold" fill="#5a5248">Auth 認證</text>
+  <text x="36" y="404" font-size="10" fill="#6d6558">帳號 · 密碼 · Session</text>
+  <text x="36" y="422" font-size="10" fill="#6d6558">角色寫在 app_metadata</text>
+  <text x="36" y="444" font-size="10.5" font-weight="bold" fill="#99552a">○ 目前完全沒有啟用</text>
+
+  <rect x="260" y="366" width="240" height="94" rx="3" fill="#f3ece3" stroke="#a9743f"/>
+  <text x="272" y="385" font-size="11" font-weight="bold" fill="#351C15">Database(Postgres + RLS)</text>
+  <text x="272" y="403" font-size="9.8" fill="#2f6b3a">● local_settings —— 設定</text>
+  <text x="272" y="420" font-size="9.8" fill="#2f6b3a">● local_history —— 帳單歷史</text>
+  <text x="272" y="437" font-size="9.8" fill="#99552a">○ login_history —— 登入紀錄</text>
+  <text x="272" y="454" font-size="9.8" fill="#99552a">○ profiles / user_settings</text>
+
+  <rect x="510" y="366" width="224" height="94" rx="3" fill="#f3ece3" stroke="#a9743f"/>
+  <text x="522" y="385" font-size="11" font-weight="bold" fill="#351C15">Edge Functions</text>
+  <text x="522" y="405" font-size="9.8" fill="#2b2019">ups-address —— UPS 地址驗證</text>
+  <text x="522" y="421" font-size="9.5" fill="#6d5a48">(UPS 金鑰藏在這裡)</text>
+  <text x="522" y="441" font-size="9.8" fill="#99552a">○ admin-users —— 帳號管理</text>
+  <text x="522" y="456" font-size="9.5" fill="#6d5a48">(需要先啟用 Auth)</text>
+</svg>
+  <div class="cap">圖 1 — 現況全景。綠色是現在真的在跑的路;灰色虛線和 ○ 是程式已經寫好、開關還沒打開的部分。</div>
+
+  <h3>圖 2:登入流程,現在 vs 切換後</h3>
+
+<svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg" font-family="WenQuanYi Zen Hei, sans-serif">
+  <defs>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+            markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,1 L9,5 L0,9 z" fill="#8a7a68"/>
+    </marker>
+  </defs>
+
+  <rect x="10" y="8" width="362" height="28" rx="3" fill="#6d5a48"/>
+  <text x="191" y="27" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">現在:本機帳號模式(LOCAL_MODE)</text>
+  <rect x="388" y="8" width="362" height="28" rx="3" fill="#a9743f"/>
+  <text x="569" y="27" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">切換後:Supabase Auth 模式</text>
+
+  <rect x="30" y="48" width="322" height="36" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+  <text x="191" y="71" font-size="11" fill="#2b2019" text-anchor="middle">使用者輸入 帳號 + 密碼</text>
+  <line x1="191" y1="84" x2="191" y2="102" stroke="#8a7a68" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <rect x="30" y="104" width="322" height="36" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+  <text x="191" y="127" font-size="11" fill="#2b2019" text-anchor="middle">瀏覽器自己算 sha256(帳號:密碼)</text>
+  <line x1="191" y1="140" x2="191" y2="158" stroke="#8a7a68" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <rect x="30" y="160" width="322" height="36" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+  <text x="191" y="183" font-size="11" fill="#2b2019" text-anchor="middle">跟 index.html 裡的名單比對</text>
+  <line x1="191" y1="196" x2="191" y2="214" stroke="#8a7a68" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <rect x="30" y="216" width="322" height="36" rx="3" fill="#f1f7f1" stroke="#2f6b3a"/>
+  <text x="191" y="239" font-size="11" font-weight="bold" fill="#2f6b3a" text-anchor="middle">對了就進入工具</text>
+  <text x="191" y="271" font-size="10" fill="#99552a" text-anchor="middle">密碼雜湊寫在網頁裡,誰都看得到</text>
+  <text x="191" y="287" font-size="10" fill="#99552a" text-anchor="middle">要加人 = 改檔案 + 重新部署</text>
+
+  <rect x="408" y="48" width="322" height="36" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+  <text x="569" y="71" font-size="11" fill="#2b2019" text-anchor="middle">使用者輸入 帳號 + 密碼</text>
+  <line x1="569" y1="84" x2="569" y2="102" stroke="#8a7a68" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <rect x="408" y="104" width="322" height="36" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+  <text x="569" y="127" font-size="11" fill="#2b2019" text-anchor="middle">帳號自動補成 帳號@ups-reprice.invalid</text>
+  <line x1="569" y1="140" x2="569" y2="158" stroke="#8a7a68" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <rect x="408" y="160" width="322" height="36" rx="3" fill="#fbf0e2" stroke="#a9743f"/>
+  <text x="569" y="183" font-size="11" fill="#2b2019" text-anchor="middle">送到 Supabase Auth 驗證(密碼不進瀏覽器)</text>
+  <line x1="569" y1="196" x2="569" y2="214" stroke="#8a7a68" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <rect x="408" y="216" width="322" height="36" rx="3" fill="#f1f7f1" stroke="#2f6b3a"/>
+  <text x="569" y="239" font-size="11" font-weight="bold" fill="#2f6b3a" text-anchor="middle">拿到有時效的 token,進入工具</text>
+  <text x="569" y="271" font-size="10" fill="#2f6b3a" text-anchor="middle">密碼由 Supabase 保管,repo 裡沒有密碼</text>
+  <text x="569" y="287" font-size="10" fill="#2f6b3a" text-anchor="middle">要加人 = 後台點一點,不用重新部署</text>
+</svg>
+  <div class="cap">圖 2 — 兩種登入模式。決定走哪一邊的,只有 auth-config.js 裡有沒有 authMode: "supabase" 這一行。</div>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">3</span>你現在的系統架構(續)</h2>
+
+  <h3>現況的三個重點</h3>
+  <div class="box warn">
+    <div class="hd">重點一:登入沒有走 Supabase</div>
+    <p><code>auth-config.js</code> 裡<b>沒有 <code>authMode: "supabase"</code> 這一行</b>,
+    所以程式判定為本機帳號模式。帳號和密碼的雜湊值寫在 <code>index.html</code>
+    的 <code>LOCAL_ACCOUNTS</code> 裡,登入時在瀏覽器裡比對。</p>
+    <p>要換人、加人、改密碼,現在都得<b>改 <code>index.html</code> 再重新部署一次</b>。</p>
+  </div>
+  <div class="box note">
+    <div class="hd">重點二:Supabase 現在只當「置物櫃」</div>
+    <p>雖然沒有登入,但設定和帳單歷史還是有存雲端——用的是一把從
+    「帳號 + 密碼」算出來的同步鑰匙,走兩個特製的資料庫函式。
+    這是為了在還沒接 Auth 之前,先讓換電腦不要掉資料。</p>
+  </div>
+  <div class="box">
+    <div class="hd">重點三:repo 裡有一個沒有被用到的檔案</div>
+    <p><code>index.html</code> 載入的是 <span class="path">auth-config.js</span>(有連字號)。
+    repo 裡另外有一個 <span class="path">authconfig.js</span>(沒有連字號)——
+    <b>沒有任何地方載入它</b>。改那個檔不會有任何效果。</p>
+    <p>建議挑一個時機把它刪掉,免得以後有人改錯檔案、找半天找不到原因。</p>
+  </div>
+
+  <h3>你的資料現在存在哪裡</h3>
+  <table>
+    <thead><tr><th style="width:22%">哪一種資料</th><th style="width:30%">存在哪</th>
+      <th style="width:20%">換電腦還在嗎</th><th>誰看得到</th></tr></thead>
+    <tbody>
+      <tr><td>帳號與密碼</td>
+          <td><code>index.html</code> 的 LOCAL_ACCOUNTS(存的是雜湊,不是明碼)</td>
+          <td class="no">在(寫在程式裡)</td>
+          <td class="no">任何打得開網頁的人都看得到那串雜湊</td></tr>
+      <tr><td>登入狀態</td>
+          <td>sessionStorage;勾了「保持登入」才會寫進 localStorage</td>
+          <td>否</td><td>本人</td></tr>
+      <tr><td>合約費率設定</td>
+          <td>localStorage(快取)+ Supabase <code>local_settings</code></td>
+          <td class="ok">會跟過去(同一組帳號密碼)</td>
+          <td>算得出同步鑰匙的人,也就是知道密碼的人</td></tr>
+      <tr><td>帳單期別索引</td>
+          <td>localStorage + Supabase <code>local_history</code>(gzip 壓縮)</td>
+          <td class="ok">會跟過去</td>
+          <td>同上</td></tr>
+      <tr><td>帳單逐筆明細</td>
+          <td>IndexedDB(本機)</td>
+          <td>要看有沒有同步過那一期</td>
+          <td>本機</td></tr>
+      <tr><td>上傳的帳單 / 費率檔</td>
+          <td>只在記憶體裡,算完就沒了</td>
+          <td>否</td>
+          <td class="ok">沒有人。檔案不上傳</td></tr>
+      <tr><td>登入紀錄</td>
+          <td>本機的活動紀錄(localStorage)</td>
+          <td>否</td>
+          <td>只看得到這一台的紀錄</td></tr>
+    </tbody>
+  </table>
+
+  <h3>檔案地圖</h3>
+  <table>
+    <thead><tr><th style="width:34%">檔案</th><th style="width:38%">是什麼</th><th>要不要上傳到網站</th></tr></thead>
+    <tbody>
+      <tr><td><code>index.html</code></td><td>整個工具:介面 + 計價引擎</td><td class="ok">要</td></tr>
+      <tr><td><code>auth-config.js</code></td><td>登入設定:URL、anon key、模式開關</td><td class="ok">要</td></tr>
+      <tr><td><code>supabase-js-2.112.3.js</code></td><td>Supabase 用戶端</td><td class="ok">要</td></tr>
+      <tr><td><code>xlsx-0.18.5.full.min.js</code></td><td>讀寫 Excel</td><td class="ok">要</td></tr>
+      <tr><td><code>_headers</code> / <code>vercel.json</code> / <code>.nojekyll</code> /
+              <code>web.config</code> / <code>nginx.conf.example</code></td>
+          <td>各家主機的快取設定,避免瀏覽器拿到舊版</td>
+          <td>依你用哪家主機挑一個</td></tr>
+      <tr><td><code>supabase/schema.sql</code></td><td>建 profiles / user_settings 兩張表</td>
+          <td class="no">不上傳。在 Supabase SQL Editor 跑一次</td></tr>
+      <tr><td><code>supabase/login_history.sql</code></td><td>建登入紀錄表 + 安全的寫入函式</td>
+          <td class="no">同上</td></tr>
+      <tr><td><code>supabase/local_settings.sql</code></td><td>建同步用的表與兩個 RPC 函式</td>
+          <td class="no">同上(這支<b>已經跑過了</b>,同步才會通)</td></tr>
+      <tr><td><code>supabase/functions/admin-users/</code></td><td>帳號管理(需要 service_role)</td>
+          <td class="no">部署成 Edge Function</td></tr>
+      <tr><td><code>supabase/functions/ups-address/</code></td><td>UPS 地址驗證代理</td>
+          <td class="no">部署成 Edge Function</td></tr>
+      <tr><td><code>authconfig.js</code></td><td><b>沒有被任何地方載入的舊檔</b></td>
+          <td class="no">不需要,建議刪掉</td></tr>
+      <tr><td><code>UPS_Reprice_Tool.py</code> / <code>engine.py</code> / <code>app.py</code></td>
+          <td>Python 桌面版與 Streamlit 版</td>
+          <td class="no">不上傳,跟網頁版無關</td></tr>
+      <tr><td><code>.githooks/pre-commit</code></td><td>擋住金鑰被 commit 進去的安全網</td>
+          <td class="no">裝在本機:<code>git config core.hooksPath .githooks</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>兩條產品線,不要搞混</h3>
+  <table class="keep">
+    <thead><tr><th style="width:22%"></th><th style="width:39%">網頁版</th><th>Python 版</th></tr></thead>
+    <tbody>
+      <tr><td><b>主檔案</b></td><td><code>index.html</code>(一份就是全部)</td>
+          <td><code>UPS_Reprice_Tool.py</code> + <code>engine.py</code> + <code>app.py</code></td></tr>
+      <tr><td><b>怎麼跑</b></td><td>開網址就好,不用安裝</td>
+          <td>桌面程式,或 <code>streamlit run app.py</code></td></tr>
+      <tr><td><b>登入</b></td><td>有(本機模式 / Supabase 模式)</td><td>沒有</td></tr>
+      <tr><td><b>用到 Supabase 嗎</b></td><td class="ok">會</td><td class="no">完全不會</td></tr>
+      <tr><td><b>計價邏輯</b></td><td colspan="2">兩邊是同一套規則。Python 版的
+          <code>engine.py</code> 直接呼叫桌面版的引擎,不另外抄一份——
+          就是為了避免「網頁版算出來的數字跟桌面版不一樣」</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================= 第 4 章 ============================= -->
+<section class="chapter">
+  <h2><span class="num">4</span>一步一步:在 Supabase 架設帳號密碼</h2>
+  <p class="lead">12 個步驟。前 9 步都在 Supabase 後台點,不用碰程式;
+  第 10 步才改一個檔案的三行字。<b>第 12 步請務必先讀完再開始。</b></p>
+
+  <div class="step">
+    <div class="t"><span class="n">0</span>開始前先確認三件事</div>
+    <ul>
+      <li>你有一個能收信的 email(註冊 Supabase 用)。</li>
+      <li>你知道網站現在部署在哪(Vercel?Cloudflare Pages?GitHub Pages?),
+          而且改了檔案之後你有辦法重新部署。</li>
+      <li><b>先把現在的設定匯出成檔案存好。</b>工具裡「設定」頁有匯出功能——
+          這是第 12 步的保險,做了不吃虧。</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">1</span>建立 Supabase 專案</div>
+    <p>到 <span class="mono">supabase.com</span> → 註冊(可以直接用 GitHub 帳號登入)
+    → <b>New project</b>。要填三樣:</p>
+    <ul>
+      <li><b>Name</b>:隨便取,例如 <code>ups-reprice</code>。</li>
+      <li><b>Database Password</b>:這是<b>資料庫本身</b>的密碼,
+          跟等一下要建的使用者帳號密碼<b>完全是兩回事</b>。
+          存進密碼管理器就好,平常用不到。</li>
+      <li><b>Region</b>:挑離使用者最近的。台灣選 Singapore 或 Tokyo,
+          人在美國就選 US West / US East。</li>
+    </ul>
+    <p>按下去之後大約等一到兩分鐘,專案才會建好。</p>
+    <div class="box tip"><p><b>如果你已經有專案了</b>(你的
+    <code>auth-config.js</code> 裡已經填了一組 URL 和 key,表示你有),
+    這一步跳過,直接從第 2 步確認一下就好。</p></div>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">2</span>拿到 Project URL 和 anon key</div>
+    <p>左側選單最下面的齒輪 <b>Project Settings</b> → <b>API</b>
+    (新版可能叫 <b>API Keys</b>)。抄兩個東西:</p>
+    <ul>
+      <li><b>Project URL</b>,長得像 <span class="mono">https://xxxxxxxx.supabase.co</span></li>
+      <li><b>anon / public key</b>(新版叫 <b>publishable key</b>)</li>
+    </ul>
+    <div class="box warn">
+      <p>同一頁上還有一個 <b>service_role</b>(或 <b>secret</b>)key。
+      <b>那一個不要抄,不要複製,不要貼到任何地方。</b>它會繞過所有安全規則。
+      只有第 8 步的 Edge Function 用得到它,而那個是 Supabase 自己傳給函式的,
+      你根本不用經手。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">3</span>關掉公開註冊 —— 這一步最重要</div>
+    <p><b>Authentication</b> → <b>Sign In / Providers</b> → 點 <b>Email</b> →
+    把 <b>Allow new users to sign up</b> 關掉(有些版本寫
+    <b>Enable Sign Ups</b>)→ Save。</p>
+    <p><b>為什麼一定要關:</b>Supabase 預設是開放註冊的。不關的話,任何知道你網址的人
+    都可以自己註冊一個帳號走進來看你的工具。關掉之後,登入頁還是誰都打得開,
+    但<b>只有你親手開的帳號進得去</b>。</p>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">4</span>建立第一個帳號(你自己的主帳號)</div>
+    <p><b>Authentication</b> → <b>Users</b> → <b>Add user</b> →
+    <b>Create new user</b>。</p>
+    <p>三個欄位:</p>
+    <ul>
+      <li><b>Email</b>:見下面那張表,格式很重要。</li>
+      <li><b>Password</b>:設一個新的,<b>不要沿用以前寫在程式裡的那組</b>——
+          那些已經在 Git 歷史裡了,等於公開。</li>
+      <li><b>Auto Confirm User</b>:<b>一定要勾。</b>不勾的話 Supabase 會等使用者
+          點驗證信,而你用的是收不到信的假網域,結果就是密碼明明對卻登不進去。</li>
+    </ul>
+    <p>Email 要填什麼,取決於你想讓人在登入頁打什麼:</p>
+    <table>
+      <thead><tr><th style="width:30%">你想在登入頁輸入</th><th style="width:38%">Supabase 裡的 Email 就填</th><th>為什麼</th></tr></thead>
+      <tbody>
+        <tr><td><code>sandyliu3056@gmail.com</code></td>
+            <td><code>sandyliu3056@gmail.com</code></td>
+            <td>輸入的字裡有 <code>@</code>,程式會原樣送出</td></tr>
+        <tr><td><code>geniqua_log</code></td>
+            <td><code>geniqua_log@ups-reprice.invalid</code></td>
+            <td>沒有 <code>@</code> 的話,程式會自動補上
+                <code>@ups-reprice.invalid</code> 再送去驗證</td></tr>
+      </tbody>
+    </table>
+    <div class="box note">
+      <p><code>.invalid</code> 是網際網路標準保留下來、<b>永遠不會存在</b>的網域。
+      用它當假信箱很安全:寄不出任何信,也絕對不會誤寄到別人真的信箱。
+      代價是這種帳號不能用「忘記密碼」寄信重設——密碼要由你在後台改。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">5</span>把主帳號設成管理者</div>
+    <p>左側 <b>SQL Editor</b> → <b>New query</b> → 貼上下面這段(email 換成你剛建的)→
+    按 <b>Run</b>:</p>
+<pre><span class="c">-- 把某個帳號設成主帳號(admin)</span>
+update auth.users
+set raw_app_meta_data =
+      coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"admin"}'::jsonb
+where email = 'sandyliu3056@gmail.com';
+
+<span class="c">-- 跑完檢查一下,role 那一欄要出現 admin</span>
+select email, raw_app_meta_data-&gt;&gt;'role' as role from auth.users;</pre>
+    <div class="box">
+      <p><b>為什麼要用 SQL、不能在畫面上點?</b>因為角色一定要寫在
+      <code>app_metadata</code> 這個欄位,<b>那一欄使用者自己改不動</b>。
+      另外一個叫 <code>user_metadata</code> 的欄位長得很像,但使用者自己就能改——
+      角色寫在那裡的話,任何人都能把自己升成管理員。程式只認前者,這是刻意的。</p>
+      <p><b>其他所有帳號不用做任何事</b>,預設就是一般使用者。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">6</span>設定顯示名稱(選做)</div>
+    <p>不設的話,畫面右上角會直接顯示帳號。想顯示「Sandy Liu」就再跑一段:</p>
+<pre>update auth.users
+set raw_user_meta_data =
+      coalesce(raw_user_meta_data, '{}'::jsonb)
+      || '{"display_name":"Sandy Liu"}'::jsonb
+where email = 'sandyliu3056@gmail.com';</pre>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">7</span>跑三支 SQL,把資料表建起來</div>
+    <p>在 <b>SQL Editor</b> 裡,把 repo 的這三個檔案<b>整份貼上、各跑一次</b>。
+    順序沒有關係,三支都可以重複執行,跑第二次不會壞掉:</p>
+    <table>
+      <thead><tr><th style="width:36%">檔案</th><th style="width:30%">建了什麼</th><th>不跑會怎樣</th></tr></thead>
+      <tbody>
+        <tr><td><code>supabase/schema.sql</code></td>
+            <td>profiles、user_settings</td>
+            <td>費率沒辦法存雲端,換電腦要重新匯入</td></tr>
+        <tr><td><code>supabase/login_history.sql</code></td>
+            <td>登入紀錄表 + 安全的寫入函式</td>
+            <td>Admin 頁的登入紀錄會顯示錯誤</td></tr>
+        <tr><td><code>supabase/local_settings.sql</code></td>
+            <td>本機模式的同步表與函式</td>
+            <td><b>你應該已經跑過了</b>(現在的同步就是靠它)。
+                切到 Supabase 模式後這支就用不到了,但留著沒關係</td></tr>
+      </tbody>
+    </table>
+    <p>每一支跑完,畫面下方要出現 <span class="mono">Success. No rows returned</span>
+    之類的訊息。出現紅字就先別往下走,把錯誤訊息記下來。</p>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">8</span>部署兩支 Edge Function(建議做)</div>
+    <p>這一步是為了「以後在網站裡就能開帳號」和「UPS 地址驗證」。
+    <b>不做也能登入</b>,只是加帳號還是得回 Supabase 後台點。</p>
+    <p>在你自己的電腦上(不是 Supabase 後台)開終端機:</p>
+<pre>npm install -g supabase
+supabase login
+supabase link --project-ref <span class="c">&lt;你的 project ref,就是 URL 中間那串&gt;</span>
+
+supabase functions deploy admin-users
+supabase functions deploy ups-address
+
+<span class="c"># 只有 ups-address 需要,填你的 UPS 開發者應用程式金鑰</span>
+supabase secrets set UPS_CLIENT_ID=xxx UPS_CLIENT_SECRET=xxx</pre>
+    <div class="box warn">
+      <div class="hd">部署完還有一個開關要動</div>
+      <p>到 <b>Edge Functions</b> → 點 <b>admin-users</b> → 設定裡把
+      <b>Enforce JWT verification</b> 關掉。</p>
+      <p>看起來反直覺,但這是對的:<b>函式自己會驗身分</b>,而且驗得更嚴——
+      它會檢查來人的 <code>app_metadata.role</code> 是不是 admin,不是就直接 403。
+      平台那層的預設驗證會擋掉正常的呼叫,反而讓 Admin 分頁出現「連不到函式」。</p>
+    </div>
+    <p><code>ups-address</code> 部署完,把它的網址填進工具裡「帳單歷史」頁的 API 端點欄:
+    <span class="mono">https://&lt;你的專案&gt;.supabase.co/functions/v1/ups-address</span></p>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">9</span>設定 Site URL</div>
+    <p><b>Authentication</b> → <b>URL Configuration</b>:</p>
+    <ul>
+      <li><b>Site URL</b> 填你正式網站的網址。</li>
+      <li><b>Redirect URLs</b> 把預覽網址(Vercel 的 preview 之類)加進去。</li>
+    </ul>
+    <p>只用帳號密碼登入的話這一步影響不大,但以後要開「忘記密碼」寄信、
+    或用 Google 登入,信裡的連結就是照這裡設定的網址走的。</p>
+  </div>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">4</span>一步一步:架設帳號密碼(續)</h2>
+
+  <div class="step">
+    <div class="t"><span class="n">10</span>改一個檔案,把開關打開</div>
+    <p>打開 <span class="path">auth-config.js</span>(注意:是<b>有連字號</b>的那個),
+    改成這樣——重點是<b>多了 <code>authMode</code> 這一行</b>:</p>
+<pre>window.UPS_AUTH_CONFIG = {
+  authMode: "supabase",
+  url:      "https://你的專案.supabase.co",
+  anonKey:  "你的 anon / publishable key"
+};</pre>
+    <p>就這樣。<code>index.html</code> 一個字都不用改——整套 Supabase 登入的程式碼
+    本來就在裡面等著,它只是在看這一行決定要走哪一邊。</p>
+    <div class="box tip">
+      <p><b>要退回去也一樣簡單:</b>把 <code>authMode</code> 那一行刪掉或改成別的值,
+      就回到本機帳號模式。這個設計是刻意的——切換是「改設定」,不是「改程式」,
+      所以隨時退得回來。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">11</span>部署,然後驗證</div>
+    <p>把改好的 <code>auth-config.js</code> commit、push,讓主機重新部署。然後:</p>
+    <ol>
+      <li>開網站,看<b>標題列右邊的 BUILD 日期</b>。日期沒有跟著這次部署往前走,
+          就是<b>沒有拿到新檔案</b>,不用再一個一個功能去找哪裡怪。
+          先按 Ctrl+Shift+R(Mac 是 Cmd+Shift+R)強制重新整理。</li>
+      <li>用第 4 步建的帳號密碼登入。</li>
+      <li>登入後看右上角有沒有你的名字,以及 <b>Admin 分頁在不在</b>——
+          在,表示第 5 步的管理者角色設對了。</li>
+      <li>進 Admin 分頁,看得到帳號清單就表示第 8 步的函式也通了。</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <div class="t"><span class="n">12</span>⚠ 切換前一定要知道的一件事</div>
+    <div class="box warn">
+      <div class="hd">切過去之後,你的費率和帳單歷史會「看起來不見了」</div>
+      <p>原因:工具在存東西的時候,是用<b>帳號 ID</b> 當前綴分開存的,
+      這樣同一台電腦換人登入才不會看到別人的合約價。而兩種模式的帳號 ID 不一樣:</p>
+      <ul>
+        <li>本機模式 → <span class="mono">local::sandyliu3056@gmail.com</span></li>
+        <li>Supabase 模式 → 一組 UUID,像
+            <span class="mono">3f7a…-…-…</span></li>
+      </ul>
+      <p>ID 換了,前綴就換了,程式到新的前綴底下找,當然是空的。
+      <b>東西還在,只是在舊的名字底下。</b>目前<b>還沒有</b>自動搬遷的程式碼。</p>
+      <p>另外還有一件事:本機模式那條「同步鑰匙」的雲端同步,切到 Supabase 模式後
+      就不再使用了(費率改存 <code>user_settings</code> 表)。
+      <b>帳單歷史在 Supabase 模式下目前沒有雲端同步</b>,只留在各自的瀏覽器裡。</p>
+    </div>
+
+    <p>所以請從下面三個做法挑一個:</p>
+    <table>
+      <thead><tr><th style="width:16%">做法</th><th style="width:42%">怎麼做</th><th>評價</th></tr></thead>
+      <tbody>
+        <tr><td><b>A 匯出再匯入</b></td>
+            <td>切換<b>之前</b>,在「設定」頁把費率設定匯出成檔案。
+                切換完、用新帳號登入後,再匯入回去。</td>
+            <td class="ok">最穩,不用改任何程式。<b>建議先用這個。</b></td></tr>
+        <tr><td><b>B 先試預覽站</b></td>
+            <td>先在 preview 網址上切,整套流程走一遍確認沒問題,
+                再改正式站。</td>
+            <td class="ok">和 A 搭配著做最好</td></tr>
+        <tr><td><b>C 補搬遷程式</b></td>
+            <td>請人加一段:登入後如果新 ID 名下是空的,而這台電腦上有同名帳號的
+                舊資料,就自動認領過來。</td>
+            <td>最漂亮,但要寫程式和測試</td></tr>
+      </tbody>
+    </table>
+    <p><b>帳單逐筆明細(IndexedDB)</b>同樣會換名字。如果那些期別已經同步到雲端,
+    最保險的做法是切換前先確認每一期都歸檔過。</p>
+  </div>
+
+  <h3>出問題的時候:症狀對照表</h3>
+  <table>
+    <thead><tr><th style="width:32%">畫面上看到的</th><th style="width:30%">真正的原因</th><th>怎麼修</th></tr></thead>
+    <tbody>
+      <tr><td>「auth-config.js 沒有載到、或裡面是空的」</td>
+          <td>那個檔沒跟著部署,或 url / anonKey 沒填</td>
+          <td>確認它和 index.html 放在同一層。直接開
+              <span class="mono">你的網址/auth-config.js</span>,看得到內容才算有上去</td></tr>
+      <tr><td>「supabase-js-2.112.3.js 沒有載到」</td>
+          <td>那個檔沒有一起上傳</td>
+          <td>直接開那個檔的網址,404 就是沒上傳</td></tr>
+      <tr><td>「Email 或密碼不正確」,但密碼你確定沒打錯</td>
+          <td>帳號建立時沒有勾 Auto Confirm</td>
+          <td>後台 Users 那一列看 email 是不是 confirmed。
+              最快的做法是刪掉重建,這次記得勾</td></tr>
+      <tr><td>登得進去,但 Admin 分頁不見了</td>
+          <td>角色沒設,或設了但還在用舊的登入狀態</td>
+          <td>跑第 5 步的 SQL,然後<b>登出再登入一次</b>——
+              角色是寫在登入當下拿到的 token 裡的,舊 token 還是舊角色</td></tr>
+      <tr><td>「連不到 admin-users 函式」</td>
+          <td>①函式沒部署 ②名稱不是剛好 <code>admin-users</code>
+              ③JWT 驗證選項沒關</td>
+          <td>照第 8 步做一次。要分辨是哪一種,開瀏覽器 DevTools 的
+              Network 分頁看那一筆請求</td></tr>
+      <tr><td>登入紀錄頁顯示錯誤</td>
+          <td><code>login_history.sql</code> 沒跑</td>
+          <td>回第 7 步</td></tr>
+      <tr><td>存設定時說「只存在這台電腦,雲端同步失敗」</td>
+          <td>SQL 沒跑完,或專案被暫停了</td>
+          <td>回第 7 步;順便到 Supabase 首頁看專案是不是 <b>Paused</b></td></tr>
+      <tr><td>登入頁說「登入需要 https」</td>
+          <td>你是用 <span class="mono">http://</span> 開的</td>
+          <td>換成 https。瀏覽器的加密功能只在 https 或 localhost 才提供</td></tr>
+      <tr><td>部署完了,但功能還是舊的</td>
+          <td>快取,或主機根本沒部署到</td>
+          <td>網址後面加 <span class="mono">?v=1</span> 試:變新的就是快取問題;
+              還是舊的就是主機那邊沒部署成功</td></tr>
+      <tr><td>登入完,費率和帳單歷史都空了</td>
+          <td>這不是壞掉,是第 12 步講的帳號 ID 換了</td>
+          <td>把切換前匯出的設定檔匯入回來</td></tr>
+    </tbody>
+  </table>
+
+  <h3>上線前的檢查清單</h3>
+  <div class="box">
+    <ul>
+      <li>☐ 公開註冊已經關掉(第 3 步)——<b>這一項沒做等於門沒鎖</b></li>
+      <li>☐ <code>auth-config.js</code> 裡只有 URL 和 anon key,<b>沒有</b> service_role</li>
+      <li>☐ pre-commit hook 裝好了:<code>git config core.hooksPath .githooks</code></li>
+      <li>☐ 所有帳號都用了新密碼,沒有沿用曾經寫在程式裡的那組</li>
+      <li>☐ 三支 SQL 都跑過,沒有紅字</li>
+      <li>☐ 主帳號登入後看得到 Admin 分頁</li>
+      <li>☐ 用一個普通帳號登入試過,確認它<b>看不到</b> Admin 分頁</li>
+      <li>☐ 切換前的費率設定已經匯出存好</li>
+      <li>☐ 部署後 BUILD 日期是新的</li>
+    </ul>
+  </div>
+
+  <h3>以後要加一個人,怎麼做</h3>
+  <p>切到 Supabase 之後,加人有兩條路,<b>兩條都不用改程式、不用重新部署</b>:</p>
+  <ul>
+    <li><b>在網站裡</b>:用主帳號登入 → Admin 分頁 → 新增帳號。
+        (需要第 8 步的 <code>admin-users</code> 已經部署)</li>
+    <li><b>在 Supabase 後台</b>:Authentication → Users → Add user,
+        記得勾 Auto Confirm。</li>
+  </ul>
+  <p>要停權一個人,就在後台把那個帳號刪掉或停用——他手上的登入狀態會過期,
+  之後就再也進不來了。這是切到 Supabase 最實際的一個好處:
+  <b>現在的做法得改 <code>index.html</code> 再部署一次,而且在那之前他還進得來。</b></p>
+
+  <div class="box note" style="margin-top:7mm">
+    <div class="hd">最後,一句老實話</div>
+    <p>這份工具最有價值的東西——那六萬行的計價邏輯——<b>不在 Supabase 裡</b>,
+    它在瀏覽器裡跑,也不會上傳到任何地方。Supabase 管的是「誰能進門」和
+    「換台電腦東西還在不在」。</p>
+    <p>所以切換這件事沒有想像中可怕:弄壞了,把 <code>authMode</code> 那一行刪掉,
+    就回到今天的樣子。</p>
+  </div>
+</section>
+
+</body>
+</html>
