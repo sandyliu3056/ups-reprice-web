@@ -118,6 +118,13 @@ button.act.alt{background:var(--run2);border-color:var(--run2);color:#fff}
 button.act.alt:hover:not(:disabled){background:var(--run2-hover);color:#fff}
 button.act.ghost{background:transparent;color:var(--accent)}
 button.act.ghost:hover:not(:disabled){background:var(--select)}
+/* 表格列裡的操作鈕:同一套配色縮一號。一列四顆全尺寸會把欄寬撐開,
+   而瀏覽器原生的灰按鈕擺在這個版面裡是最顯眼的一塊雜訊。
+   刪除走 --neg —— 全站的負向色,不另外挑一個紅。 */
+button.act.sm{font-size:12px;padding:4px 11px;border-width:1.5px;border-radius:6px;
+  letter-spacing:0}
+button.act.danger{color:var(--neg);border-color:var(--neg);background:transparent}
+button.act.danger:hover:not(:disabled){background:var(--neg);color:#fff}
 button.act:disabled{opacity:.72;cursor:not-allowed;filter:saturate(.55)}
 button.act:focus-visible{outline:3px solid var(--run2);outline-offset:2px}
 /* 檔案輸入框不用 display:none:部分 Safari / WebView 版本對 display:none
@@ -938,17 +945,11 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <section class="page" id="p-admin">
   <div class="lf sketch">
     <h3 class="display"><span class="em">👥</span><span data-i18n="hd.users">Accounts</span></h3>
-    <div class="row" style="margin:12px 0;gap:8px;flex-wrap:wrap">
-      <input id="nuUser" type="text" data-i18n-ph="ph.username" style="min-width:130px">
-      <input id="nuName" type="text" data-i18n-ph="ph.name" style="min-width:130px">
-      <input id="nuEmail" type="email" data-i18n-ph="ph.email" style="min-width:190px">
-      <input id="nuPass" type="password" data-i18n-ph="ph.pw" style="min-width:140px">
-      <select id="nuRole">
-        <option value="user">user</option>
-        <option value="admin">admin</option>
-      </select>
-      <button class="act" id="bUserAdd" data-i18n="btn.useradd">Add account</button>
-      <button id="bUserRefresh" data-i18n="btn.refreshlog">Refresh</button>
+    <!-- 五個欄位攤在標題底下,是這一頁最先看到的東西,而開帳號一個月做不到
+         一次。收進視窗,清單就從第一行開始。 -->
+    <div class="row" style="margin:12px 0;gap:8px">
+      <button class="act" id="bUserNew" data-i18n="btn.useradd">Add account</button>
+      <button class="act ghost" id="bUserRefresh" data-i18n="btn.refreshlog">Refresh</button>
     </div>
     <div id="usersNote"></div>
     <div class="tablewrap" style="max-height:44vh">
@@ -968,7 +969,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="note" data-i18n="hint.loginhistory">Successful sign-ins recorded by Supabase. Only administrators can view this page.</div>
     <div class="row" style="margin:12px 0">
       <button class="act" id="bLoginRefresh" data-i18n="btn.refreshlog">Refresh</button>
-      <button id="bLoginExport" data-i18n="btn.exportlog">Export CSV</button>
+      <button class="act ghost" id="bLoginExport" data-i18n="btn.exportlog">Export Excel</button>
     </div>
     <div id="loginHistoryNote"></div>
     <div class="tablewrap" style="max-height:62vh">
@@ -1069,11 +1070,14 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       </span>
       <input type="file" id="fImportAcc" accept=".csv,.txt,.xlsx,.xls">
     </div>
-    <div class="grid3" style="margin-bottom:12px">
-      <label data-i18n="lb.cfg">Rate file</label>
-      <input id="pathCfg" readonly>
-      <button class="act ghost" id="bCfg" data-i18n="btn.browse">Browse</button>
-      <input type="file" id="fCfg" accept=".json">
+    <!-- 載入設定檔的動作搬到「設定」分頁了。整份設定檔是一次取代全部渠道、
+         附加費、DIM、燃油、Demand 與申報價值級距,擺在這裡緊貼「儲存費率」,
+         看起來像只影響附加費 —— 位置本身在誤導人。這裡只留唯讀的指示:
+         在這一頁改費率的人仍然需要知道自己改的是哪一份。 -->
+    <div class="row" style="margin-bottom:12px">
+      <label class="inlab" style="margin-left:0" data-i18n="lb.cfgnow">Configuration in use</label>
+      <span id="cfgNowAcc" class="affsum"></span>
+      <span class="hint" style="margin:0" data-i18n="hint.cfgwhere">Load or replace it on the Settings tab.</span>
     </div>
 
     <div id="accChanName" class="subhd"></div>
@@ -1486,14 +1490,27 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <div class="lf sketch">
     <h3 class="display"><span class="em">⚙️</span><span data-i18n="hd.setting">Settings</span></h3>
 
+    <!-- 費率設定檔。整份取代,而且是一個帳號設定一次的動作,所以擺在設定的
+         最上面,不跟每期要調的欄位混在一起。載入與儲存放在同一處:載入只寫
+         進這台電腦,要按儲存設定才會寫進帳號 —— 兩顆按鈕分在不同分頁時,
+         第二步就是會被漏掉。 -->
+    <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
+      <div class="subhd" style="margin-top:0" data-i18n="hd.cfgfile">📄 Rate Configuration File</div>
+      <p class="hint" style="margin:8px 0 10px;max-width:880px" data-i18n="hint.cfgshort">The account's complete pricing configuration. Loading one replaces the current configuration in full.</p>
+      <div class="row">
+        <button class="act ghost" id="bCfgOpen" data-i18n="btn.cfgset">Configure</button>
+        <span id="cfgSum" class="affsum"></span>
+      </div>
+    </div>
+
     <!-- 住/商判定來源:和燃油底同一個形狀 —— 摘要一行,點進去設,裡面存 -->
     <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
       <div class="subhd" style="margin-top:0" data-i18n="hd.resisrc">🔄 Residential / Commercial Classification</div>
       <p class="hint" style="margin:8px 0 10px" data-i18n="hint.resisrc">This field takes the proxy endpoint only — the UPS credentials live on the proxy.</p>
       <div class="row">
         <button class="act ghost" id="bResiSrc" data-i18n="btn.resisrc">Configure Source</button>
-        <button class="act ghost" id="bManual" data-i18n="btn.manual">API Setup Guide (PDF)</button>
-        <button class="act ghost manalt" id="bManualAlt" title="">中文</button>
+        <button class="act ghost sm" id="bManual" data-i18n="btn.manual">⤓ API Setup Guide PDF</button>
+        <button class="act ghost sm" id="bManualAlt" title="">⤓ 中文</button>
         <span id="resiSrcSum" class="affsum"></span>
       </div>
     </div>
@@ -1680,6 +1697,174 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="modalbody" id="bkdBody"></div>
   </div>
 </div>
+<!-- 改帳號資料。三個欄位各自不同性質:帳號是登入身分、名稱只是顯示、
+     Email 是聯絡方式不參與登入 —— 所以每一欄底下各有一句說明。 -->
+<!-- 費率設定檔。和這一頁其他兩區同一個形狀:外面一行摘要,點進去才設。
+     載入與儲存在同一個視窗裡 —— 載入只寫進這台電腦,要按儲存設定才會
+     寫進帳號,兩顆按鈕分開放時第二步就是會被漏掉。 -->
+<div id="cfgFileBg" class="modalbg">
+  <div class="modal sketch" id="cfgFileModal" style="width:min(560px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.cfgfile">📄 Rate Configuration File</span>
+      <button class="mx" id="cfgFileX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p class="hint" style="margin:0 0 14px" data-i18n="hint.cfgfile">Loading a file replaces this account's entire pricing configuration.</p>
+      <div class="row" style="margin:0 0 6px;flex-wrap:nowrap">
+        <label class="inlab" style="margin-left:0" data-i18n="lb.cfgnow">Configuration in use</label>
+        <span id="pathCfg" class="affsum" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+        <button class="act ghost sm" id="bCfg" data-i18n="btn.cfgload">Load File…</button>
+      </div>
+      <p class="hint" style="margin:0" data-i18n="hint.cfgsave">Press Save Settings to write it to the account.</p>
+      <input type="file" id="fCfg" accept=".json">
+    </div>
+    <div class="modalft">
+      <span class="savenote"></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="cfgFileClose" data-i18n="btn.close">Close</button>
+        <button class="act" id="bSaveCfg" data-i18n="btn.save">Save Settings</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- 開新帳號。和編輯帳號同一個形狀,多了密碼與角色兩欄。
+     每一欄底下一句說明:五個空格擺在一起,哪一格是登入用的、哪一格
+     只是聯絡資訊,不寫出來沒有人分得出來。 -->
+<!-- 改密碼。以前是瀏覽器的 prompt():樣式管不到、每台電腦長得不一樣,
+     而且你正在幫別人設密碼卻只看得到圓點,打錯了要等對方登不進來才知道。
+     視窗裡寫出改的是誰 —— 清單有五個人時,按錯一行就是改到別人的。 -->
+<div id="uPwBg" class="modalbg">
+  <div class="modal sketch" id="uPwModal" style="width:min(500px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.userpw">Change password</span>
+      <button class="mx" id="uPwX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p id="uPwWho" style="margin:0 0 14px"></p>
+      <label class="inlab" style="margin-left:0" data-i18n="lb.newpw">New password</label>
+      <div class="row" style="margin:4px 0 4px;flex-wrap:nowrap;gap:6px">
+        <input id="uPwVal" type="password" class="cell" autocomplete="new-password"
+               style="flex:1;min-width:0;text-align:left">
+        <button class="act ghost sm" id="uPwEye" type="button" aria-pressed="false"></button>
+      </div>
+      <p id="uPwCount" class="hint" style="margin:0 0 12px"></p>
+      <p class="hint" style="margin:0" data-i18n="hint.newpw">Pass it on to them yourself — nothing is emailed.</p>
+      <div id="uPwNote" class="note warn" style="display:none;margin-top:10px"></div>
+    </div>
+    <div class="modalft">
+      <span></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="uPwClose" data-i18n="btn.close">Close</button>
+        <button class="act" id="uPwSave" data-i18n="btn.saveacct" disabled>Save</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- 刪帳號。原本是瀏覽器的 confirm(),一行字問一件不可逆的事。
+     這裡把連帶消失的東西逐條列出來 —— 按下去之後沒有地方找得回來。 -->
+<div id="uDelBg" class="modalbg">
+  <div class="modal sketch" id="uDelModal" style="width:min(520px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.userdel">Delete account</span>
+      <button class="mx" id="uDelX">✕</button>
+    </div>
+    <div class="modalbody">
+      <p id="uDelWho" style="margin:0 0 12px"></p>
+      <p class="hint" style="margin:0 0 6px" data-i18n="hint.userdelwhat">These go with it:</p>
+      <ul class="hint" style="margin:0 0 12px;padding-left:20px;line-height:1.9">
+        <li data-i18n="hint.userdel1">The Supabase account itself</li>
+        <li data-i18n="hint.userdel2">Their saved rates</li>
+        <li data-i18n="hint.userdel3">Their entry in the account list</li>
+        <li data-i18n="hint.userdel4">Their invoice detail stored in this browser</li>
+      </ul>
+      <p class="hint" style="margin:0;color:var(--neg);font-weight:600" data-i18n="hint.userdelundo">There is no undo and no backup.</p>
+      <div id="uDelNote" class="note warn" style="display:none;margin-top:10px"></div>
+    </div>
+    <div class="modalft">
+      <span></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="uDelClose" data-i18n="btn.close">Close</button>
+        <button class="act danger" id="uDelGo" data-i18n="btn.del">Delete</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div id="uNewBg" class="modalbg">
+  <div class="modal sketch" id="uNewModal" style="width:min(540px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.usernew">New account</span>
+      <button class="mx" id="uNewX">✕</button>
+    </div>
+    <div class="modalbody">
+      <label class="inlab" style="margin-left:0" data-i18n="ph.username">Username</label>
+      <input id="nuUser" type="text" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.nuuser">What they type to sign in. Letters, digits, . _ - only.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="ph.name">Name</label>
+      <input id="nuName" type="text" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.uename">Display only.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="ph.email">Email (optional)</label>
+      <input id="nuEmail" type="email" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.uemail">Contact address only.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="ph.pw">Password</label>
+      <input id="nuPass" type="password" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.nupw">At least 8 characters. Pass it on yourself — nothing is emailed.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="th.role">Role</label>
+      <div class="row" style="margin:4px 0 2px">
+        <span class="foldwrap"><select id="nuRole" class="fold">
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select></span>
+      </div>
+      <p class="hint" style="margin:0 0 4px" data-i18n="hint.nurole">An admin can manage accounts and see this page. Everyone else sees only their own rates and invoices.</p>
+      <div id="uNewNote" class="note warn" style="display:none"></div>
+    </div>
+    <div class="modalft">
+      <span></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="uNewClose" data-i18n="btn.close">Close</button>
+        <button class="act" id="bUserAdd" data-i18n="btn.useradd">Add account</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div id="uEditBg" class="modalbg">
+  <div class="modal sketch" id="uEditModal" style="width:min(540px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.useredit">Edit account</span>
+      <button class="mx" id="uEditX">✕</button>
+    </div>
+    <div class="modalbody">
+      <label class="inlab" style="margin-left:0" data-i18n="ph.username">Username</label>
+      <input id="ueUser" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.ueuser">This is what they type to sign in.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="ph.name">Name</label>
+      <input id="ueName" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.uename">Display name only.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="ph.email">Email (optional)</label>
+      <input id="ueMail" class="cell" type="email" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 4px" data-i18n="hint.uemail">Contact address. It is not used to sign in.</p>
+      <div id="uEditNote" class="note warn" style="display:none"></div>
+    </div>
+    <div class="modalft">
+      <span></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="uEditCancel" data-i18n="btn.close">Close</button>
+        <button class="act" id="uEditSave" data-i18n="btn.saveacct">Save</button>
+      </span>
+    </div>
+  </div>
+</div>
+
 <div id="dvSetBg" class="modalbg">
   <div class="modal sketch" id="dvSetModal" style="width:min(960px,100%);height:min(76vh,900px)">
     <div class="modalhd">
@@ -4625,52 +4810,26 @@ function authMissing(){
     : "auth-config.js 沒有載到、或裡面是空的。它要和 index.html 放在一起,並填好 Project URL 與 anon key。";
   return "";
 }
-/* ===== 本機帳號模式(暫時) =====
-   Supabase 那條路設定好之前先用這個頂著。改回去只要把 LOCAL_MODE 改成
-   false,Supabase 的整套原封不動在下面。
+/* ===== 本機帳號模式 =====
+   Supabase 之前用來頂著的那條路。整套程式留著,但名單是空的 ——
+   帳密曾經寫死在這裡,而 index.html 是發給每一位訪客的檔案:任何人
+   檢視原始碼就看得到帳號和 sha256("帳號:密碼")。那個雜湊沒有加鹽、
+   只跑一輪,弱密碼拿去離線跑字典檔幾秒就還原,外流的是密碼本身,
+   在別處用過同一組就跟著出事。Supabase 接上之後這道門沒有存在的理由。
 
-   檔案裡存的不是密碼,是 sha256(帳號 + ":" + 密碼) 的雜湊 —— repo 是
-   public,明文寫進來就等於公開。但要說清楚:這是純前端的鎖,擋君子
-   不擋小人;費率和帳單都在各自的瀏覽器裡,不在這個檔案裡,所以真正
-   要緊的東西本來就不經過這道門。密碼是暫時的,切回 Supabase 就作廢。 */
-/* 登入模式由 auth-config.js 決定,不再寫死在這裡 —— 切換是設定的事,
-   不是改程式,也隨時退得回來。沒有指定就是本機帳號模式,所以現有部署
-   的行為完全不變;要切 Supabase 就加一行 authMode: "supabase"。
+   要臨時再開一次:把帳號填回 LOCAL_ACCOUNTS,並在 auth-config.js 寫
+   authMode: "local"。hash = sha256("帳號:密碼"),帳號一律小寫。 */
+/* 登入模式由 auth-config.js 決定。要開本機模式必須「明講」——
+   以前的寫法是沒指定就進本機模式,那等於設定檔一旦沒載到(部署漏檔、
+   404、快取出錯),網站會安靜地退回那道比較弱的門,畫面上還不會說。
+   設定檔掉了應該是鎖上門,不是換一把弱鎖,所以判斷反過來:
+   認得的字只有 "local",其餘一律走 Supabase,載不到就明白報錯。
 
-   ⚠ 但先別切。每個帳號的資料是綁 ME.id 存的(whoKey / cfgKeys / idbName),
-   本機模式的 id 是 "local::<帳號>",Supabase 模式是一組 UUID —— 兩者不同,
-   所以切過去之後費率、帳單索引、IndexedDB 明細會全部「看起來不見了」。
-   東西還在舊 key 底下,但畫面上是空的。切之前要先做一次搬遷:登入後
-   若新 id 名下是空的、而這台機器上有同名帳號的舊資料,就認領過來
-   (claimLegacy() 是同一個形狀的東西,可以照著擴充)。那段還沒寫。 */
-const LOCAL_MODE = (AUTH_CONFIG.authMode !== "supabase");
-const LOCAL_ACCOUNTS=[
-  { user:"sandyliu3056@gmail.com",
-    hash:"ccfc40179aad9e5bf82c9bfa48503f59dadeec53970b17ebaa65ca48e076eb65",
-    name:"Sandy Liu", role:"admin" },
-  { user:"geniqua_log",
-    hash:"9bb4feb1506bb39ba86de217f17f0ad20abb17a74b8cebf5526c27920de5c8a2",
-    name:"Geniqua", role:"user" },
-  /* 測試帳號。每個帳號的資料是綁 ME.id 存的(localStorage、IndexedDB),
-     雲端那一份是綁 ME.sync(帳號+密碼推出來的鍵)—— 兩邊都不共用。所以用
-     這個帳號怎麼存、怎麼匯入、怎麼刪都碰不到真正的資料,測完不必收拾。
-     一開始是空的:費率從「匯入檔案」載一份設定檔進來就能開始算。 */
-  { user:"test",
-    hash:"dcb80535322bf94005c1d286e01a112fee9e6f9c5794b1e0ecf718b74be24994",
-    name:"Test", role:"admin" },
-  /* 客戶帳號。hash = sha256("帳號:密碼"),帳號一律小寫 —— login() 先把
-     打進來的帳號轉小寫再算,大小寫不同的打法都對得上。
-     每個帳號自己的費率、帳單歷史和雲端那一份都是分開的,彼此看不到。 */
-  { user:"gq_jl",
-    hash:"224b262d9bca105cd1abc9e43abe82c771ce4cf7b6e02b4f258265dc399f02c8",
-    name:"JL", role:"user" },
-  { user:"gq_tw",
-    hash:"b87a6c4f106ddb8d3e7886b664347621208f3ad8c5a47dbd9126b965a5dbd0a7",
-    name:"TW", role:"user" },
-  { user:"gq_pd",
-    hash:"635a72d0569144795b69ae118666f3d11cb0c7e4c50783895e675943e359db3a",
-    name:"PD", role:"user" },
-];
+   兩種模式的資料是分開的:ME.id 在本機模式是 "local::<帳號>",
+   Supabase 模式是 UUID,而 whoKey / cfgKeys / idbName 都綁著它。
+   切換之後舊資料仍在舊 key 底下,由 claimLocalIdentity() 認領。 */
+const LOCAL_MODE = (AUTH_CONFIG.authMode === "local");
+const LOCAL_ACCOUNTS=[];
 const LOCAL_SESSION_KEY="ups_reprice_local_session";
 /* 「保持登入」勾了才寫這把 —— localStorage 關瀏覽器也留著,下次開站免登入。
    沒勾就維持原本的規則:session 只活在這個分頁。 */
@@ -4936,14 +5095,152 @@ function renderUsers(){
       <td>${u.config_name?esc(u.config_name):`<span class="empty">${
           L("未設定","not set")}</span>`}</td>
       <td class="row" style="gap:6px">
-        ${me?"":`<button data-act="role" data-id="${esc(u.id)}" data-role="${
+        <button class="act ghost sm" data-act="edit" data-id="${esc(u.id)}">${
+          L("編輯","Edit")}</button>
+        ${me?"":`<button class="act ghost sm" data-act="role" data-id="${esc(u.id)}" data-role="${
             u.role==="admin"?"user":"admin"}">${
             u.role==="admin"?L("改成 user","Make user"):L("改成 admin","Make admin")}</button>
-          <button data-act="pw" data-id="${esc(u.id)}">${L("改密碼","Password")}</button>
-          <button data-act="del" data-id="${esc(u.id)}" data-email="${esc(u.username||u.email||"")}">${
-            L("刪除","Delete")}</button>`}
+          <button class="act ghost sm" data-act="pw" data-id="${esc(u.id)}">${
+            L("改密碼","Password")}</button>
+          <button class="act sm danger" data-act="del" data-id="${esc(u.id)}" data-email="${
+            esc(u.username||u.email||"")}">${L("刪除","Delete")}</button>`}
       </td></tr>`;
   }).join("");
+}
+/* 改帳號資料。角色和密碼各自有專用的按鈕,這裡只管三個文字欄位。
+   帳號是登入身分:合成信箱的帳號改了,登入用的信箱要跟著改,那件事在
+   Edge Function 裡做 —— 前端不碰認證資料。 */
+/* 改密碼。眼睛那顆是唯一能看見自己打了什麼的方式,所以規則要嚴:
+   預設遮住、每次開啟重置成遮住、關掉時把值清空 —— 不把別人的密碼
+   留在頁面裡等下一個走過來的人看到。 */
+let UPW=null;
+function pwNote(msg){
+  const el=$("#uPwNote");
+  if(!el) return;
+  el.textContent=msg||"";
+  el.style.display=msg?"":"none";
+}
+function pwMask(on){
+  const f=$("#uPwVal"), b=$("#uPwEye");
+  if(f) f.type=on?"password":"text";
+  if(b){ b.textContent=on?L("\u{1F441} 顯示","\u{1F441} Show"):L("\u{1F441} 隱藏","\u{1F441} Hide");
+         b.setAttribute("aria-pressed", on?"false":"true"); }
+}
+function pwCount(){
+  const n=($("#uPwVal").value||"").length;
+  const el=$("#uPwCount");
+  if(el) el.textContent=L("至少 8 個字元。目前 "+n+" 個。",
+                          "At least 8 characters. "+n+" so far.");
+  const b=$("#uPwSave");
+  if(b) b.disabled = n<8;
+}
+function openUserPw(u){
+  UPW=u;
+  const who=$("#uPwWho");
+  if(who) who.textContent=L(
+    "正在幫 "+(u.username||"")+(u.name?"("+u.name+")":"")+" 設定新密碼。",
+    "Setting a new password for "+(u.username||"")+(u.name?" ("+u.name+")":"")+".");
+  const f=$("#uPwVal"); if(f) f.value="";
+  pwMask(true); pwCount(); pwNote("");
+  $("#uPwBg") && $("#uPwBg").classList.add("on");
+  setTimeout(()=>{ if(f) f.focus(); },30);
+}
+function closeUserPw(){
+  const f=$("#uPwVal"); if(f) f.value="";   /* 不把密碼留在畫面裡 */
+  pwMask(true);
+  $("#uPwBg") && $("#uPwBg").classList.remove("on");
+  UPW=null;
+}
+function saveUserPw(){
+  if(!UPW) return;
+  const pw=$("#uPwVal").value||"";
+  if(pw.length<8){ pwNote(L("密碼至少 8 個字元。","Password must be at least 8 characters.")); return; }
+  adminCall({action:"set_password",user_id:UPW.id,password:pw})
+    .then(()=>{ closeUserPw();
+      usersNote(L("密碼已更新。請自行轉告本人。",
+                  "Password updated. Pass it on to them yourself."),true); })
+    .catch(err=>pwNote(err.message));
+}
+
+/* 刪帳號。不可逆,所以確認這一步自己一個視窗,連帶消失的東西寫出來。 */
+let UDEL=null;
+function delNote(msg){
+  const el=$("#uDelNote");
+  if(!el) return;
+  el.textContent=msg||"";
+  el.style.display=msg?"":"none";
+}
+function openUserDel(u){
+  UDEL=u;
+  const who=$("#uDelWho");
+  if(who) who.textContent=L(
+    "要刪除的是 "+(u.username||"")+(u.contact_email?"("+u.contact_email+")":"")+"。",
+    "About to delete "+(u.username||"")+(u.contact_email?" ("+u.contact_email+")":"")+".");
+  delNote("");
+  $("#uDelBg") && $("#uDelBg").classList.add("on");
+}
+function closeUserDel(){ $("#uDelBg") && $("#uDelBg").classList.remove("on"); UDEL=null; }
+function doUserDel(){
+  if(!UDEL) return;
+  const id=UDEL.id;
+  adminCall({action:"delete",user_id:id})
+    .then(()=>dropLocalHistory(id))
+    .then(()=>{ closeUserDel(); return loadUsers(true); })
+    .then(()=>usersNote(L("已刪除。","Deleted."),true))
+    .catch(err=>delNote(err.message));
+}
+function unNote(msg){
+  const el=$("#uNewNote");
+  if(!el) return;
+  el.textContent=msg||"";
+  el.style.display=msg?"":"none";
+}
+function openUserNew(){
+  ["nuUser","nuName","nuEmail","nuPass"].forEach(i=>{ const e=$("#"+i); if(e) e.value=""; });
+  const r=$("#nuRole"); if(r) r.value="user";
+  unNote("");
+  $("#uNewBg") && $("#uNewBg").classList.add("on");
+  setTimeout(()=>{ const f=$("#nuUser"); if(f) f.focus(); },30);
+}
+function closeUserNew(){ $("#uNewBg") && $("#uNewBg").classList.remove("on"); }
+let UEDIT=null;
+function ueNote(msg){
+  const el=$("#uEditNote");
+  if(!el) return;
+  el.textContent=msg||"";
+  el.style.display=msg?"":"none";
+}
+function openUserEdit(u){
+  UEDIT=u;
+  $("#ueUser") && ($("#ueUser").value=u.username||"");
+  $("#ueName") && ($("#ueName").value=u.name||"");
+  $("#ueMail") && ($("#ueMail").value=u.contact_email||"");
+  ueNote("");
+  $("#uEditBg") && $("#uEditBg").classList.add("on");
+  setTimeout(()=>{ const f=$("#ueUser"); if(f) f.focus(); },30);
+}
+function closeUserEdit(){
+  $("#uEditBg") && $("#uEditBg").classList.remove("on");
+  UEDIT=null;
+}
+function saveUserEdit(){
+  if(!UEDIT) return;
+  const username=($("#ueUser").value||"").trim().toLowerCase();
+  const name=($("#ueName").value||"").trim();
+  const email=($("#ueMail").value||"").trim();
+  if(!/^[a-z0-9._-]{2,}$/.test(username)){
+    ueNote(L("帳號至少兩個字,只能用英數字和 . _ -。",
+             "Username needs at least 2 characters: letters, digits, . _ - only."));
+    return;
+  }
+  const id=UEDIT.id;
+  adminCall({action:"update",user_id:id,username:username,name:name,email:email})
+    .then(()=>{ closeUserEdit(); return loadUsers(true); })
+    .then(()=>usersNote(id===(ME&&ME.id)
+      ? L("帳號已更新。改了帳號的話,下次要用新的帳號登入。",
+          "Account updated. If you changed the username, sign in with the new one next time.")
+      : L("帳號已更新。","Account updated."),true))
+    .catch(err=>ueNote(err.message));
 }
 /* 綁定放在啟動段呼叫。這一段的位置在 $ 宣告之前,
    在這裡直接執行會踩到 TDZ。 */
@@ -4959,19 +5256,14 @@ $("#tUsers") && ($("#tUsers").onclick=e=>{
         loadUsers(true); })
       .catch(err=>usersNote(err.message,false));
   }else if(b.dataset.act==="pw"){
-    const pw=prompt(L("新密碼(至少 8 個字元)","New password (at least 8 characters)")||"");
-    if(!pw) return;
-    adminCall({action:"set_password",user_id:id,password:pw})
-      .then(()=>usersNote(L("密碼已更新。","Password updated."),true))
-      .catch(err=>usersNote(err.message,false));
+    const u=USERS.find(x=>x.id===id);
+    if(u) openUserPw(u);
+  }else if(b.dataset.act==="edit"){
+    const u=USERS.find(x=>x.id===id);
+    if(u) openUserEdit(u);
   }else if(b.dataset.act==="del"){
-    /* 刪帳號會連他的費率一起刪掉,而且救不回來。 */
-    if(!confirm(L("刪除 "+b.dataset.email+" ?他的費率設定會一起消失,無法復原。",
-                  "Delete "+b.dataset.email+"? Their rate settings go too, and this cannot be undone."))) return;
-    adminCall({action:"delete",user_id:id})
-      .then(()=>dropLocalHistory(id))
-      .then(()=>loadUsers(true)).then(()=>usersNote(L("已刪除。","Deleted."),true))
-      .catch(err=>usersNote(err.message,false));
+    const u=USERS.find(x=>x.id===id);
+    if(u) openUserDel(u);
   }
 });
 $("#bUserAdd") && ($("#bUserAdd").onclick=()=>{
@@ -4980,25 +5272,43 @@ $("#bUserAdd") && ($("#bUserAdd").onclick=()=>{
   const email=($("#nuEmail").value||"").trim();
   const pw=$("#nuPass").value||"";
   const role=$("#nuRole").value||"user";
+  /* 失敗要說在視窗裡。寫到視窗外面的話,視窗還開著、人看不到,
+     只覺得按了沒反應。 */
   if(!/^[a-z0-9._-]{2,}$/.test(username)){
-    usersNote(L("帳號至少兩個字,只能用英數字和 . _ -。",
-                "Username needs at least 2 characters: letters, digits, . _ - only."),false);
+    unNote(L("帳號至少兩個字,只能用英數字和 . _ -。",
+             "Username needs at least 2 characters: letters, digits, . _ - only."));
     return;
   }
   if(pw.length<8){
-    usersNote(L("密碼至少 8 個字元。","Password must be at least 8 characters."),false);
+    unNote(L("密碼至少 8 個字元。","Password must be at least 8 characters."));
     return;
   }
   adminCall({action:"create",username:username,name:name,email:email,
              password:pw,role:role})
-    .then(()=>{ $("#nuUser").value=""; $("#nuName").value="";
-      $("#nuEmail").value=""; $("#nuPass").value="";
-      return loadUsers(true); })
+    .then(()=>{ closeUserNew(); return loadUsers(true); })
     .then(()=>usersNote(L("帳號已建立。費率是空白的,由他自己匯入。",
       "Account created. Its rates start empty — they import their own."),true))
-    .catch(err=>usersNote(err.message,false));
+    .catch(err=>unNote(err.message));
 });
 $("#bUserRefresh") && ($("#bUserRefresh").onclick=()=>loadUsers());
+$("#bUserNew")  && ($("#bUserNew").onclick=openUserNew);
+$("#uPwSave")  && ($("#uPwSave").onclick=saveUserPw);
+$("#uPwClose") && ($("#uPwClose").onclick=closeUserPw);
+$("#uPwX")     && ($("#uPwX").onclick=closeUserPw);
+$("#uPwBg")    && ($("#uPwBg").onclick=e=>{ if(e.target.id==="uPwBg") closeUserPw(); });
+$("#uPwVal")   && ($("#uPwVal").oninput=pwCount);
+$("#uPwEye")   && ($("#uPwEye").onclick=()=>pwMask($("#uPwVal").type!=="password"));
+$("#uDelGo")   && ($("#uDelGo").onclick=doUserDel);
+$("#uDelClose")&& ($("#uDelClose").onclick=closeUserDel);
+$("#uDelX")    && ($("#uDelX").onclick=closeUserDel);
+$("#uDelBg")   && ($("#uDelBg").onclick=e=>{ if(e.target.id==="uDelBg") closeUserDel(); });
+$("#uNewClose") && ($("#uNewClose").onclick=closeUserNew);
+$("#uNewX")     && ($("#uNewX").onclick=closeUserNew);
+$("#uNewBg")    && ($("#uNewBg").onclick=e=>{ if(e.target.id==="uNewBg") closeUserNew(); });
+$("#uEditSave")   && ($("#uEditSave").onclick=saveUserEdit);
+$("#uEditCancel") && ($("#uEditCancel").onclick=closeUserEdit);
+$("#uEditX")      && ($("#uEditX").onclick=closeUserEdit);
+$("#uEditBg")     && ($("#uEditBg").onclick=e=>{ if(e.target.id==="uEditBg") closeUserEdit(); });
 }
 
 function exportLoginHistory(){
@@ -5684,6 +5994,15 @@ let CFG=null, INV=null, RATED=null, SHIPS=null, ROWS=null;
    INV_KIND 是 CSV / TXT / XLSX / XLS,INV_SHEET 只有 Excel 才有值。 */
 let INV_NAME="", INV_SIZE=0, INV_KIND="", INV_SHEET="", CFG_LABEL="";
 
+/* 載入的是哪一份設定檔。輸入框在「設定」分頁,附加費設定分頁留一份唯讀的 ——
+   在那一頁改費率的人仍然需要知道自己改的是哪一份,但不需要在那裡更換。 */
+function paintCfgName(name){
+  const box=$("#pathCfg"); if(box) box.textContent=name;
+  const mirror=$("#cfgNowAcc"); if(mirror) mirror.textContent=name;
+  const sum=$("#cfgSum"); if(sum) sum.textContent=name;
+}
+function openCfgFile(){ $("#cfgFileBg") && $("#cfgFileBg").classList.add("on"); }
+function closeCfgFile(){ $("#cfgFileBg") && $("#cfgFileBg").classList.remove("on"); }
 function applyConfig(text,name,remember){
   let zoneFixed=[];
   try{
@@ -5696,7 +6015,7 @@ function applyConfig(text,name,remember){
       +L("這不是有效的 JSON。","That is not valid JSON.")+`</b> ${esc(e.message)}</div>`;
     return false;
   }
-  $("#pathCfg") && ($("#pathCfg").value=name);
+  paintCfgName(name);
   CFG_LABEL=name;
   /* 修好就好,不用每次開檔都跳一個視窗擋在畫面上 —— 渠道分頁的 Zone 欄
      本來就會把未設定的標成紅字,要看的人看得到。 */
@@ -5706,7 +6025,7 @@ function applyConfig(text,name,remember){
       localStorage.setItem(k,text); localStorage.setItem(kn,name); }
     catch(e){
       /* 靜靜吞掉的話,使用者會以為設定已經記住了。講清楚是哪一種失敗。 */
-      $("#pathCfg") && ($("#pathCfg").value=name+" ("+(LANG?"not remembered":"沒有記住")+")");
+      paintCfgName(name+" ("+(LANG?"not remembered":"沒有記住")+")");
       saveNoteKey(false,"loadedno",(e&&e.name)||"Error");
     }
   }
@@ -6631,7 +6950,7 @@ async function getManual(en){
 function paintManualAlt(){
   const b=$("#bManualAlt");
   if(!b) return;
-  b.textContent = LANG?"中文":"EN";
+  b.textContent = "\u2913 "+(LANG?"中文":"EN");
   /* 說明字跟著介面語言,標籤跟著「會拿到哪一份」—— 兩者本來就不同語言。 */
   b.title = LANG?"Download the Chinese edition":"下載英文版(English edition)";
 }
@@ -8361,6 +8680,11 @@ $("#bFuelSave") && ($("#bFuelSave").onclick=()=>{
   CFG=readConfig(CFG.raw); saveSettings(); renderConfigTabs(); closeFuel();
 });
 $("#bCfg") && ($("#bCfg").onclick=()=>$("#fCfg").click());
+$("#bCfgOpen")    && ($("#bCfgOpen").onclick=openCfgFile);
+$("#cfgFileClose")&& ($("#cfgFileClose").onclick=closeCfgFile);
+$("#cfgFileX")    && ($("#cfgFileX").onclick=closeCfgFile);
+$("#cfgFileBg")   && ($("#cfgFileBg").onclick=e=>{ if(e.target.id==="cfgFileBg") closeCfgFile(); });
+$("#bSaveCfg") && ($("#bSaveCfg").onclick=()=>saveSettings());
 $("#bSaveTop") && ($("#bSaveTop").onclick=()=>saveSettings());
 $("#bInv").onclick=()=>$("#fInv").click();
 
@@ -8385,8 +8709,8 @@ function renderReady(okCfg, okInv){
     +L("這個帳號還沒有費率,所以 Generate 是灰的。",
        "This account has no rates yet, so Generate is greyed out.")
     +`</b> `
-    +L("費率是跟著帳號存的:用上面設定檔的 Browse 載入 ups_billing_tool_config.json(或到 Channels 分頁匯入費率),再按 Save Settings,按鈕就會亮。",
-       "Rates are stored per account: load ups_billing_tool_config.json with the settings Browse above (or import rates on the Channels tab), press Save Settings, and the button lights up.")
+    +L("費率隨帳號儲存。請至「⚙️ 設定」分頁載入 ups_billing_tool_config.json(或於「🚚 渠道」分頁匯入費率表),再按「儲存設定」,按鈕就會亮。",
+       "Rates are stored per account. Load ups_billing_tool_config.json on the Settings tab (or import rate tables on the Channels tab), then press Save Settings and the button lights up.")
     +`</div>`;
 }
 
@@ -12768,9 +13092,13 @@ function guessService(d0){
    不是把每個元件改一遍。這裡用 CSS 變數,同一個做法。
    ===================================================================== */
 const THEMES={
-  "Milk Tea":{zh:"奶茶",BG:"#cbb189",PANEL:"#dbc6a4",TAB:"#bfa477",
-    ACCENT:"#a9743f",TEXT:"#3b2f23",LINE:"#a98c63",SELECT:"#e3c79a",
-    STRIPE:"#d3bb96",NEG:"#8c2f2f",RUN:"#a9743f",RUNH:"#8c5e30",
+  /* 奶茶原本整組壓得太暗:底 0.46 亮度,而同組其他淺色主題在 0.84。
+     除了看起來悶,還有兩處量得出來的問題 —— 標籤色對面板只有 2.4:1、
+     按鈕 hover 的白字對底色 4.0:1,兩個都不到 4.5。整組提亮,並把
+     ACCENT 壓深一階補回對比:標籤 4.7、白字 6.2,其餘一併過關。 */
+  "Milk Tea":{zh:"奶茶",BG:"#eee0c8",PANEL:"#fbf4e8",TAB:"#dcc49a",
+    ACCENT:"#855822",TEXT:"#3b2f23",LINE:"#c3a87e",SELECT:"#f0dcb6",
+    STRIPE:"#f3e9d8",NEG:"#9c2f2f",RUN:"#855822",RUNH:"#6b4619",
     RUN2:"#8c5a4a",RUN2H:"#74473a"},
   "Slate":{zh:"灰藍",BG:"#cfd6dd",PANEL:"#e3e8ee",TAB:"#b3bec9",
     ACCENT:"#41586e",TEXT:"#22303c",LINE:"#93a2b1",SELECT:"#c3d2e0",
@@ -12974,7 +13302,34 @@ const I18N={
   "hint.loginhistory":["由 Supabase 記錄成功登入，只有管理員可以查看。失敗登入與 IP 請至 Supabase Auth Logs 查看。",
     "Successful sign-ins recorded by Supabase. Only administrators can view this page. See Supabase Auth Logs for failed attempts and IP addresses."],
   "btn.refreshlog":["重新整理","Refresh"],
-  "btn.exportlog":["匯出 CSV","Export CSV"],
+  "btn.exportlog":["匯出 Excel","Export Excel"],
+  "hd.useredit":["編輯帳號","Edit account"],
+  "hd.usernew":["新增帳號","New account"],
+  "hd.userpw":["改密碼","Change password"],
+  "lb.newpw":["新密碼","New password"],
+  "hint.newpw":["改完請自行轉告本人 —— 系統不會寄出任何信件。對方下次登入要用新密碼。",
+    "Pass it on to them yourself — nothing is ever emailed. They sign in with the new one from now on."],
+  "hd.userdel":["刪除帳號","Delete account"],
+  "btn.del":["刪除","Delete"],
+  "hint.userdelwhat":["會跟著一起消失的:","These go with it:"],
+  "hint.userdel1":["Supabase 上的帳號本身","The Supabase account itself"],
+  "hint.userdel2":["他存的費率","Their saved rates"],
+  "hint.userdel3":["他在帳號清單裡的那一列","Their entry in the account list"],
+  "hint.userdel4":["他存在這台電腦上的帳單明細","Their invoice detail stored in this browser"],
+  "hint.userdelundo":["沒有備份,也沒有復原。","There is no backup and no undo."],
+  "hint.nuuser":["對方登入時要輸入的就是這一個。只能用英數字和 . _ -,至少兩個字。",
+    "What they type to sign in. Letters, digits, . _ - only, at least two characters."],
+  "hint.nupw":["至少 8 個字元。建立後請自行轉告本人 —— 系統不會寄出任何信件。",
+    "At least 8 characters. Pass it on to them yourself — nothing is ever emailed."],
+  "hint.nurole":["admin 可以管理帳號、看得到這一頁;其餘的人只看得到自己的費率與帳單。",
+    "An admin manages accounts and can see this page. Everyone else sees only their own rates and invoices."],
+  "btn.saveacct":["儲存","Save"],
+  "hint.ueuser":["登入時輸入的就是這一個。改了以後,對方要用新的帳號登入,舊的不能用。",
+    "This is what they type to sign in. Change it and they must use the new one; the old will not work."],
+  "hint.uename":["只影響清單上的顯示,與登入無關。",
+    "Display only — it has no bearing on signing in."],
+  "hint.uemail":["聯絡用的信箱,選填,不參與登入,也不會寄出任何信件。",
+    "A contact address. Optional, never used to sign in, and nothing is ever sent to it."],
   "th.email":["Email","Email"],
   "th.device":["瀏覽器／裝置","Browser / Device"],
   "th.role":["角色","Role"],
@@ -13063,7 +13418,7 @@ const I18N={
     "Every surcharge is fuel-eligible by default. Exclude them individually here."],
   "btn.accfuel":["設定適用範圍","Configure Eligibility"],
   "btn.resisrc":["設定判定來源","Configure Source"],
-  "btn.manual":["📄 API 設定指南（PDF）","📄 API Setup Guide (PDF)"],
+  "btn.manual":["\u2913 API 設定指南 PDF","\u2913 API Setup Guide PDF"],
   "hd.accfuelmodal":["附加費燃油適用範圍","Fuel Surcharge Eligibility"],
   /* 這兩顆是勾選的批次操作,以前用結果來命名(「全部都收」/「None charge
      fuel」),看的人得先想通「收燃油」和「打勾」是同一件事才知道會發生什麼。
@@ -13108,7 +13463,17 @@ const I18N={
   "ph.pw":["密碼","Password"],
   "th.name":["名稱","Name"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
-  "lb.cfg":["費率檔","Rate file"],
+  "hd.cfgfile":["📄 費率設定檔","📄 Rate Configuration File"],
+  "hint.cfgshort":["這個帳號完整的計價設定。",
+    "The account's complete pricing configuration."],
+  "btn.cfgset":["設定費率設定檔","Configure"],
+  "hint.cfgfile":["載入一份設定檔,會整份取代這個帳號現行的計價設定。",
+    "Loading a file replaces this account's entire pricing configuration."],
+  "hint.cfgsave":["載入後要按「儲存設定」才會寫進帳號。",
+    "Press Save Settings to write it to the account."],
+  "lb.cfgnow":["目前使用的設定檔","Configuration in use"],
+  "btn.cfgload":["載入設定檔…","Load Configuration File…"],
+  "hint.cfgwhere":["載入或更換請至「⚙️ 設定」分頁。","Load or replace it on the Settings tab."],
   "btn.login":["登入","Sign in"],
   "btn.logout":["登出","Sign out"], "cap.theme":["Theme","Theme"], "cap.clock":["Clock","Clock"],
   "hd.signin":["登入","Sign in"],
@@ -13163,6 +13528,14 @@ function applyLang(){
      兩張卡片會停在另一種語言。 */
   if($("#prInvWhat") && typeof prPaint==="function"){ try{ prPaint(); }catch(e){} }
   if(typeof paintManualAlt==="function") paintManualAlt();
+  /* 三個帳號視窗的抬頭是算出來的(改的是誰、打了幾個字),開著切語言
+     會停在原本那一種。只有開著的那個要重寫。 */
+  if($("#uPwBg") && $("#uPwBg").classList.contains("on") && UPW){
+    const wasMasked = $("#uPwVal").type==="password";
+    const keep = $("#uPwVal").value;
+    openUserPw(UPW); $("#uPwVal").value=keep; pwMask(wasMasked); pwCount();
+  }
+  if($("#uDelBg") && $("#uDelBg").classList.contains("on") && UDEL) openUserDel(UDEL);
   /* 已匯入帳單那個視窗整份是 JS 畫的,開著切語言會停在原本那一種。 */
   if($("#stBg") && $("#stBg").classList.contains("on")
      && typeof renderStored==="function"){ try{ renderStored(); }catch(e){} }

@@ -29,7 +29,9 @@ const UPS_BASE = (Deno.env.get("UPS_BASE") || "https://onlinetools.ups.com").rep
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
+  // 前端送 apikey 一起過來,預檢就必須明著允許它 —— 少列一個,瀏覽器會擋在
+  // preflight,而且只回「Failed to fetch」,看不出是哪個標頭被拒。
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
