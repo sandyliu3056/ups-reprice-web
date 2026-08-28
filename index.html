@@ -526,6 +526,11 @@ td.cells{white-space:normal}
 .bulkbox{padding:10px 12px}
 .bulkhd{font-weight:600;color:var(--accent);font-size:13px;margin-bottom:7px}
 .bulkchk{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:2px 0}
+/* 一條渠道都沒勾的時候,下半部整個變淡且點不動 —— 以前是照著填完一整頁
+   數字、按了 Apply 才被告知「請先勾選渠道」。先後順序要在按之前就看得到。 */
+.bkpick{font-size:12.5px;font-weight:600;margin-top:9px;color:var(--run2)}
+.bkpick.none{color:var(--neg)}
+#bkVals.off{opacity:.38;pointer-events:none;filter:saturate(.5)}
 /* 原生的勾選框是作業系統畫的:藍色方塊、大小不隨主題走,擺在這些面板裡
    是唯一一個不屬於這頁的東西。自己畫一個,勾起來用主題色。 */
 .chkgrid input[type="checkbox"],.bulkchk input[type="checkbox"]{
@@ -1950,7 +1955,9 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
           <button class="act ghost" id="bkClear" data-i18n="btn.clearticked">Clear overrides</button>
         </div>
         <div id="bkChans" class="chkgrid" style="max-height:150px;overflow:auto"></div>
+        <div id="bkPick" class="bkpick"></div>
       </div>
+      <div id="bkVals">
       <div class="subhd" data-i18n="hd.valwrite">Values to Write</div>
       <div class="bkwrap">
         <div class="bkbox sketch-soft">
@@ -1961,6 +1968,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
           <div class="bkhd"><span class="em">📐</span> <span data-i18n="hd.ahsgrp">Additional Handling (AHS)</span></div>
           <div id="bkAhs" class="bkgrid"></div>
         </div>
+      </div>
       </div>
       <div id="bkNote" class="savenote" style="margin-top:8px"></div>
     </div>
@@ -6695,6 +6703,22 @@ function bkTicked(){
   return [...document.querySelectorAll(".bkc:checked")].map(c=>c.value);
 }
 function bkNote(m){ const e=$("#bkNote"); if(e) e.textContent=m||""; }
+/* 勾了幾條、下半部能不能動,兩件事同一個地方決定。每次勾選都重算。 */
+function bkSync(){
+  const n=bkTicked().length;
+  const p=$("#bkPick");
+  if(p){
+    p.className="bkpick"+(n?"":" none");
+    p.textContent = n
+      ? L("已勾選 "+n+" 條渠道。","Ticked "+n+" channel"+(n===1?"":"s")+".")
+      : L("請先勾選要套用的渠道 —— 選好之後下面才填得動。",
+          "Tick the channels to write to first — the fields below stay locked until you do.");
+  }
+  const vals=$("#bkVals"); if(vals) vals.classList.toggle("off", n===0);
+  for(const id of ["bkApply","bkLoad","bkClear"]){
+    const b=$("#"+id); if(b) b.disabled = (n===0);
+  }
+}
 /* 這張表單回答的其實只有一個問題:這條渠道跟隨預設,還是有自己的門檻?
    所以一列就是那個問題加它的答案:先選「跟隨預設」或「自訂」,選了自訂才
    打得動旁邊那個數字。選跟隨預設時把輸入格鎖起來,是因為那一格裡顯示的是
@@ -6756,6 +6780,7 @@ function renderBulkChan(){
     `<label class="bulkchk"><input type="checkbox" class="bkc" value="${esc(c)}"${
       was.has(c)?" checked":""}> ${esc(c)}</label>`).join("");
   bkFields("#bkLps", BK_LPS); bkFields("#bkAhs", BK_AHS);
+  bkSync();
 }
 function bkAllDefs(){ return BK_LPS.concat(BK_AHS); }
 /* 勾一條就把它現在的值帶進來,方便照著改。勾多條時不帶 —— 帶誰的都不對。 */
@@ -6828,8 +6853,11 @@ $("#bBulkChan") && ($("#bBulkChan").onclick=openBulkChan);
 $("#bkX") && ($("#bkX").onclick=()=>$("#bkBg").classList.remove("on"));
 $("#bkClose") && ($("#bkClose").onclick=()=>$("#bkBg").classList.remove("on"));
 $("#bkBg") && ($("#bkBg").onclick=e=>{ if(e.target===$("#bkBg")) $("#bkBg").classList.remove("on"); });
-$("#bkAll") && ($("#bkAll").onclick=()=>document.querySelectorAll(".bkc").forEach(c=>c.checked=true));
-$("#bkNone") && ($("#bkNone").onclick=()=>document.querySelectorAll(".bkc").forEach(c=>c.checked=false));
+$("#bkAll") && ($("#bkAll").onclick=()=>{
+  document.querySelectorAll(".bkc").forEach(c=>c.checked=true); bkSync(); });
+$("#bkNone") && ($("#bkNone").onclick=()=>{
+  document.querySelectorAll(".bkc").forEach(c=>c.checked=false); bkSync(); });
+$("#bkChans") && ($("#bkChans").onchange=bkSync);
 $("#bkLoad") && ($("#bkLoad").onclick=bulkChanLoad);
 $("#bkApply") && ($("#bkApply").onclick=bulkChanApply);
 $("#bkClear") && ($("#bkClear").onclick=bulkChanClear);
