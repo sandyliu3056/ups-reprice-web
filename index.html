@@ -2956,30 +2956,16 @@ function dvQuote(b,v){
 }
 /* 金額整數就不拖 .00 —— 級距邊界寫成 $300 比 $300.00 好讀。 */
 function dvM(v){ const t=money(v); return t.endsWith(".00")?t.slice(0,-3):t; }
-/* 設定頁上只留一句話 —— 那一列是拿來填的,不是拿來讀報表的。
-   數字要看細節、要知道每一格是什麼意思,按旁邊的「?」。 */
-function dvSentence(b){
-  const on=b.flatEnd>b.free?b.flatEnd:b.free;
-  const bits=[];
-  bits.push(b.free>0
-    ? L(`申報 <b>${dvM(b.free)}</b> 以內免費`,`Free up to <b>${dvM(b.free)}</b>`)
-    : L("<b>從第一塊錢</b>就收費",'Charged <b>from the first dollar</b>'));
-  if(b.flatEnd>b.free)
-    bits.push(L(`到 <b>${dvM(b.flatEnd)}</b> 為止一律 <b>${dvM(b.min)}</b>`,
-                `flat <b>${dvM(b.min)}</b> up to <b>${dvM(b.flatEnd)}</b>`));
-  bits.push(L(`超過 <b>${dvM(on)}</b> 之後每 <b>${dvM(b.unit)}</b> 加 <b>${dvM(b.rate)}</b>`,
-              `then <b>${dvM(b.rate)}</b> per <b>${dvM(b.unit)}</b> above <b>${dvM(on)}</b>`));
-  if(b.cap>0) bits.push(L(`最多保到 <b>${dvM(b.cap)}</b>`,
-                          `capped at <b>${dvM(b.cap)}</b>`));
-  return bits.join(L(",",", "))+L("。",".");
-}
+/* 設定頁上不放摘要 —— 那一列是拿來填的。每一格的意思、目前設定會收多少,
+   都在欄名旁邊的「欄位說明」裡。
+   這一格平常不出現,只有設定不完整、申報價值根本不會重算的時候才現身。 */
 function paintDvPreview(){
   const box=$("#dvPrev"); if(!box) return;
-  const b=dvRead();
-  box.innerHTML = b ? dvSentence(b)
-    : `<span class="dvno">${L(
-        "「級距單位」和「每級距收費」還沒填,申報價值不會重算,報表那一欄會留白。",
-        "Step and per-step are empty, so declared value is not repriced and the column stays blank.")}</span>`;
+  const ok=!!dvRead();
+  box.style.display=ok?"none":"";
+  box.innerHTML = ok ? "" : `<span class="dvno">${L(
+      "「級距單位」與「每級距收費」尚未設定,申報價值不予重算,報表該欄位將留空。",
+      "Step and per-step are not set. Declared value will not be repriced and the report column stays blank.")}</span>`;
   if($("#dvBg")&&$("#dvBg").classList.contains("on")) paintDvHelp();
 }
 /* 讀畫面上現在打的字,不是存下來的設定 —— 說明要跟著手指走。 */
@@ -2996,68 +2982,71 @@ function paintDvHelp(){
   const b=dvRead();
   const g=k=>{ const el=document.querySelector('#dvRow input[data-k="chg\u241F'+k+'"]');
                return String(el?el.value:((CFG.raw.accessorial_charges||{})[k]||"")).trim(); };
-  const now=v=>v===""?L("(還沒填)","(empty)"):L("你填了 "+v,"you entered "+v);
-  /* 欄名後面那句「(留白=不設限)」在說明視窗裡是多的 —— 底下整段都在講它。 */
+  const now=v=>v===""?L("尚未設定","not set"):L("目前設定 "+v,"currently "+v);
+  /* 欄名後面的「(留白=不設限)」在說明視窗裡是多的:底下整段都在說明它。 */
   const bare=n=>String(n).split(/[(（]/)[0].trim();
   const fld=(name,val,body)=>`<div class="dvf"><i>${bare(name)}</i> <u>— ${now(val)}</u>`
                             +`<p>${body}</p></div>`;
   const F=g("dv_free_limit"), M=g("dv_min_charge"), U=g("dv_unit"),
         R=g("dv_unit_rate"), C=g("dv_max");
-  const ex=(v,u)=>L(`申報 ${dvM(v)} 算 ${u} 級,不是 ${(v/(toNum(U)||100)).toFixed(1)} 級`,
+  const ex=(v,u)=>L(`申報 ${dvM(v)} 計 ${u} 級,非 ${(v/(toNum(U)||100)).toFixed(1)} 級`,
                     `${dvM(v)} counts as ${u} steps, not ${(v/(toNum(U)||100)).toFixed(1)}`);
   let h=`<p class="dvlead">${L(
-    "這五格只在一種情況下會用到:UPS 帳單上出現「申報價值(EVS)」那一行。"
-    +"UPS 沒收這筆,系統就完全不會碰這五個數字。",
-    "These five only matter when the UPS invoice carries a Declared Value (EVS) line. "
-    +"If UPS did not charge it, none of them is used.")}</p>`;
+    "以下設定僅於 UPS 帳單載有申報價值(EVS)費用時套用;"
+    +"帳單未計收該項費用者,系統不予計算。",
+    "These settings apply only when the UPS invoice carries a Declared Value (EVS) charge. "
+    +"If UPS did not bill it, none of them is used.")}</p>`;
 
   h+=fld(T("lb.dvfree"),F,L(
-    "這個金額以內不收錢。填 <b>100</b> 就是申報 $100 以內免費;"
-    +"填 <b>0</b> 就是從第一塊錢開始收。",
-    "Nothing is charged up to this amount. <b>100</b> means the first $100 is free; "
-    +"<b>0</b> means you charge from the first dollar."));
+    "申報金額在此額度以內不予計費。設為 <b>100</b> 表示 $100 以內免費;"
+    +"設為 <b>0</b> 表示自第一元起計費。",
+    "No charge applies up to this amount. <b>100</b> means the first $100 is free; "
+    +"<b>0</b> means charging starts at the first dollar."));
   h+=fld(T("lb.dvmin"),M,L(
-    "只要開始收費,最少收這麼多。金額小的那一段之所以是一個固定價,就是被這一格撐平的。",
-    "Once anything is charged, this is the floor. It is what makes the low band a single flat price."));
+    "計費後的收費下限。低申報金額區間之所以呈現單一固定費率,即由此下限所形成。",
+    "The floor once a charge applies. It is what turns the low band into a single flat price."));
   h+=fld(T("lb.dvunit"),U,L(
-    "每多少錢算一級。<b>不滿一級也算一級</b> —— "+ex(250,Math.ceil(250/(toNum(U)||100)))+"。",
-    "How much money makes one step. <b>A part step counts as a whole one</b> — "
+    "每一級距所對應的申報金額。<b>不足一級者以一級計</b> —— "
+    +ex(250,Math.ceil(250/(toNum(U)||100)))+"。",
+    "The declared amount that makes one step. <b>A part step counts as a whole one</b> — "
     +ex(250,Math.ceil(250/(toNum(U)||100)))+"."));
   h+=fld(T("lb.dvrate"),R,L(
-    "一級收多少。級數是拿<b>整筆申報金額</b>去除,不是只除超過免費額度的部分。",
-    "What one step costs. Steps are counted on the <b>whole declared amount</b>, "
-    +"not just the part above the free allowance."));
+    "每一級距的費用。級數以<b>申報金額全額</b>換算,非僅就超出免費額度的部分計算。",
+    "The cost of one step. Steps are counted on the <b>full declared amount</b>, "
+    +"not only the part above the free allowance."));
   h+=fld(T("lb.dvmax"),C,L(
-    "UPS 最多賠到這裡。申報再高,超出的部分保不到,"
-    +"所以系統<b>照這個上限計費</b>,並且把那一票<b>標成異常</b>。留白就是不設限。",
-    "UPS covers no more than this. Anything above it is not insured, so the system "
-    +"<b>prices at the ceiling</b> and <b>flags the shipment</b>. Blank means no ceiling."));
+    "UPS 承保責任的上限。申報金額超出部分不在承保範圍,系統<b>以此上限計費</b>,"
+    +"並將該筆貨件<b>列入異常報表</b>。留白表示不設限。",
+    "The ceiling on UPS liability. Any declared amount above it is not covered, so the "
+    +"system <b>prices at the ceiling</b> and <b>reports the shipment as an exception</b>. "
+    +"Blank means no ceiling."));
 
   if(!b){
-    h+=`<div class="dvsec">${L("現在算不出來","Nothing can be computed yet")}</div>`
+    h+=`<div class="dvsec">${L("目前無法計算","Nothing can be computed yet")}</div>`
       +`<p style="margin:0;font-size:13px">${L(
-        "「級距單位」和「每級距收費」兩格都要有值,少一個,申報價值就不重算,"
-        +"報表那一欄會留白。",
-        "Step and per-step both need a value. Without them declared value is not "
+        "「級距單位」與「每級距收費」均須設定。任一欄位未填,申報價值即不予重算,"
+        +"報表該欄位留空。",
+        "Step and per-step both require a value. Without them declared value is not "
         +"repriced and the report column stays blank.")}</p>`;
     box.innerHTML=h; return;
   }
 
-  h+=`<div class="dvsec">${L("固定價收到哪裡結束,是算出來的,不是你設的",
-                             "Where the flat price ends is derived, not set")}</div>`
+  h+=`<div class="dvsec">${L("固定費率的適用範圍由其他欄位推導,無法直接指定",
+                             "The flat band's upper bound is derived, not set")}</div>`
     +`<p style="margin:0;font-size:13px">${L(
-      "沒有一格叫「固定價收到哪」。它是這樣來的:",
-      "There is no field for it. It falls out of the other two:")}</p>`
+      "本頁未設「固定費率適用至何金額」的欄位;該金額由下列算式推導:",
+      "There is no field for it. It follows from the other two:")}</p>`
     +`<div class="dvcalc">${L("最低收費","minimum")} ${dvM(b.min)} ÷ `
     +`${L("每級距收費","per step")} ${dvM(b.rate)} = `
     +`${Math.floor(Number((b.min/b.rate).toFixed(6)))} ${L("級","steps")}`
-    +`  →  ${L("固定價收到","flat up to")} <b>${dvM(b.flatEnd)}</b></div>`
+    +`  →  ${L("固定費率適用至","flat up to")} <b>${dvM(b.flatEnd)}</b></div>`
     +`<p style="margin:8px 0 0;font-size:13px">${L(
-      "所以要讓固定價收得更遠,調高<b>最低收費</b>;要讓它提早結束,調高<b>每級距收費</b>。"
-      +"想收 $10 固定價、$300 之後才跳的話 —— 上面這個數字會變成 $500,不是 $300。",
-      "To stretch the flat price further, raise the <b>minimum</b>; to end it sooner, raise "
-      +"the <b>per-step</b>. Ask for a $10 flat with a $1.70 step and the number above "
-      +"becomes $500, not $300.")}</p>`;
+      "欲擴大固定費率的適用範圍,請調高<b>最低收費</b>;欲縮小適用範圍,請調高"
+      +"<b>每級距收費</b>。例:最低收費設為 $10、每級距收費設為 $1.70 時,"
+      +"上述金額為 $500,而非 $300。",
+      "To widen the flat band, raise the <b>minimum charge</b>; to narrow it, raise the "
+      +"<b>per-step</b>. For example, a $10 minimum with a $1.70 step puts the bound at "
+      +"$500, not $300.")}</p>`;
 
   const picks=[];
   if(b.free>0) picks.push(b.free);
@@ -3065,9 +3054,9 @@ function paintDvHelp(){
   picks.push((b.flatEnd>b.free?b.flatEnd:b.free)+b.unit);
   picks.push(b.cap>0?b.cap+b.unit:(b.flatEnd>b.free?b.flatEnd:b.unit)*5);
   const uniq=[...new Set(picks.filter(v=>v>0))].sort((x,y)=>x-y);
-  h+=`<div class="dvsec">${L("這一組設定實際會收多少","What this setting actually charges")}</div>`
+  h+=`<div class="dvsec">${L("目前設定的計費結果","What this setting charges")}</div>`
     +`<div class="dvcalc">`
-    +uniq.map(v=>L(`申報 ${dvM(v)} → 收 <b>${money(dvQuote(b,v))}</b>`,
+    +uniq.map(v=>L(`申報 ${dvM(v)} → 計收 <b>${money(dvQuote(b,v))}</b>`,
                    `${dvM(v)} declared → <b>${money(dvQuote(b,v))}</b>`)).join("<br>")
     +`</div>`;
   box.innerHTML=h;
@@ -12630,8 +12619,8 @@ const I18N={
   "lb.dvfree":["免費額度","Free allowance"], "lb.dvmin":["最低收費","Minimum charge"],
   "lb.dvunit":["級距單位","Step"], "lb.dvrate":["每級距收費","Per step"],
   "lb.dvmax":["保價上限(留白=不設限)","Max insurable value (blank = none)"],
-  "btn.dvhelp":["這幾格什麼意思","What do these mean?"],
-  "hd.dvhelp":["申報價值級距怎麼填","How to fill in the declared value tiers"],
+  "btn.dvhelp":["欄位說明","Field guide"],
+  "hd.dvhelp":["申報價值級距設定說明","Declared value tiers — field guide"],
   "btn.reset":["重設","Reset"],
   "hd.acc":["附加費設定","Surcharge Setup"],
   "hd.fuel":["燃油","Fuel"],
