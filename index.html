@@ -1168,13 +1168,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <p class="hint" style="margin:9px 0 0;max-width:760px" data-i18n="hint.addchan">A new channel appears on both the commercial and residential side, each with its own base rate table. Only a name that says Commercial or Residential itself stays on that one side.</p>
   </div>
 
-  <!-- 商業／住宅移到這裡。它管的是「在看哪一側的費率表和清單」,而新增渠道
-       跟它無關 —— 加進去的名稱兩側都會出現(bAddChan 根本不看 CHAN_SIDE)。
-       擺在新增的上面,看起來像是在決定新渠道歸哪一側,那是假的。 -->
-  <div class="subtabs" id="chanSide">
-    <button data-r="C" aria-selected="true"  data-i18n="ct.com">Commercial</button>
-    <button data-r="R" aria-selected="false" data-i18n="ct.res">Residential</button>
-  </div>
 
   <div class="lf sketch">
     <h3 class="display"><span class="em">②</span><span data-i18n="hd.ratestate">Rate table state</span></h3>
@@ -6882,15 +6875,6 @@ $("#bChanDimTicked") && ($("#bChanDimTicked").onclick=()=>
 $("#bChanDimClear") && ($("#bChanDimClear").onclick=()=>
   setChanDim(dimTicked(), ""));
 /* 附加費:篩選、勾選移除、範本匯出匯入 */
-/* 渠道分頁的商業／住宅。整頁都跟著它:費率表選單、下面那張清單、
-   新增渠道存進去的那一條,全部只講一種。 */
-let CHAN_SIDE="C";
-$("#chanSide") && ($("#chanSide").onclick=e=>{
-  const b=e.target.closest("button[data-r]"); if(!b) return;
-  CHAN_SIDE=b.dataset.r;
-  [...$("#chanSide").children].forEach(x=>x.setAttribute("aria-selected",x===b));
-  renderConfigTabs();
-});
 $("#demandTabs") && ($("#demandTabs").onclick=e=>{
   const b=e.target.closest("button[data-d]"); if(!b) return;
   DEMAND_TAB=b.dataset.d;
@@ -7029,8 +7013,11 @@ $("#bAddChan") && ($("#bAddChan").onclick=()=>{
   setStatus((LANG?"Added channel ":"已新增渠道 ")+n);
 });
 $("#bDelChan") && ($("#bDelChan").onclick=()=>{
-  const t=[...document.querySelectorAll(".chanc:checked")].map(c=>c.value);
-  if(!t.length){ setStatus(LANG?"Tick a channel first":"請先勾選渠道"); return; }
+  /* 勾的是服務名,底下可能是兩條真的 key(Ground Commercial / Residential)。
+     只刪服務名那一條的話,住宅那半會留下來變成一條沒有主人的渠道。 */
+  const fams=new Set([...document.querySelectorAll(".chanc:checked")].map(c=>c.value));
+  if(!fams.size){ setStatus(LANG?"Tick a channel first":"請先勾選渠道"); return; }
+  const t=Object.keys(CFG.raw.builtin_service_zones||{}).filter(k=>fams.has(svcOfChan(k)));
   for(const s of t){ delete CFG.raw.builtin_service_zones[s];
     if(CFG.raw.channel_rule_overrides) delete CFG.raw.channel_rule_overrides[s]; }
   CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
@@ -8958,7 +8945,11 @@ function renderConfigTabs(){
     : "* = 這個渠道自己設定的值　|　沒有星號 = 沿用預設　|　留空 = 沿用預設";
   if($("#defDim")) $("#defDim").value=g.default_dim_factor??"";
 
-  /* ---- 渠道:三段式。① 新增 ② 費率表狀態 ③ 全部渠道 ---- */
+  /* ---- 渠道:三段式。① 新增 ② 費率表狀態 ③ 全部渠道 ----
+     商業／住宅的分頁拿掉了。模板一個檔就帶兩張分頁(Commercial /
+     Residential),匯入也是一次讀完兩張 —— 分兩側看的意義只剩下「這一側
+     載了幾列」,而那件事一列裡兩個數字就講得完。分頁在的時候,同一條渠道
+     要切過去再看一次才知道另一側到底載了沒有。 */
   const zn=CFG.raw.builtin_service_zones||{};
   const disabled=new Set(CFG.raw.builtin_service_disabled||[]);
   const loaded={};
@@ -8967,49 +8958,65 @@ function renderConfigTabs(){
     loaded[key]=tb.rows.length;
   }
   const isRes=s=>/residential/i.test(s);
-  const rows=[];
+  /* 一條服務一列。名稱本身寫死商住的(Ground Commercial / Ground
+     Residential)是同一條服務的兩半,折成一列;沒寫的(2nd Day Air)本來
+     就一個 key 服務兩側。members 留著真正的 key —— 刪除和查費率都用它。 */
+  const chanFams=[];
+  const chanFamIx={};
   for(const svc of Object.keys(zn).sort(chanSort)){
-    for(const res of (isRes(svc)||/commercial/i.test(svc)?[isRes(svc)]:[false,true])){
-      rows.push({svc,res,zones:zn[svc],
-        n:loaded[svc+(res?"|R":"|C")]||0, on:!disabled.has(svc)});
-    }
+    const fam=svcOfChan(svc);
+    if(chanFamIx[fam]==null){ chanFamIx[fam]=chanFams.length;
+      chanFams.push({fam, members:[], zones:[], on:false, nC:0, nR:0}); }
+    const f=chanFams[chanFamIx[fam]];
+    f.members.push(svc);
+    const z=String(zn[svc]||"").trim();
+    if(z && !f.zones.includes(z)) f.zones.push(z);
+    if(!disabled.has(svc)) f.on=true;
+    /* 名稱寫死一側的,只算那一側;沒寫的兩側都算它自己那張表。 */
+    if(isRes(svc)) f.nR+=loaded[svc+"|R"]||0;
+    else if(/commercial/i.test(svc)) f.nC+=loaded[svc+"|C"]||0;
+    else { f.nC+=loaded[svc+"|C"]||0; f.nR+=loaded[svc+"|R"]||0; }
   }
-  /* 這一側的渠道。名稱本身就寫死商住的(Ground Commercial)只會出現在
-     它自己那一側;沒寫的(2nd Day Air)兩側都有,各自一條費率表。 */
-  const side=(CHAN_SIDE==="R");
-  const mine=rows.filter(r=>r.res===side);
   const cq=(($("#chanSearch")||{}).value||"").toLowerCase();
-  const shown=mine.filter(r=>!cq||r.svc.toLowerCase().includes(cq));
-  $("#tChan").tBodies[0].innerHTML=shown.map(r=>
-    `<tr><td><input type="checkbox" class="chanc" value="${esc(r.svc)}"${ro}></td>
-     <td>${esc(svcOfChan(r.svc))}</td>
-     <td class="wrap" style="font-size:11.5px">${String(r.zones||"").trim()
-        ? esc(r.zones)
+  const shown=chanFams.filter(f=>!cq||f.fam.toLowerCase().includes(cq));
+  const notLoaded=`<span style="color:var(--neg)">${LANG?"not loaded":"未載入"}</span>`;
+  const rateCell=f=>{
+    if(!f.nC&&!f.nR) return notLoaded;
+    const half=(n,zh,en)=>n?`${LANG?en:zh} ${n}`
+      :`<span style="color:var(--neg)">${LANG?en+" —":zh+" —"}</span>`;
+    return `<span style="white-space:nowrap">${half(f.nC,"商業","Com")} · ${
+             half(f.nR,"住宅","Res")}</span>`;
+  };
+  $("#tChan").tBodies[0].innerHTML=shown.map(f=>
+    `<tr><td><input type="checkbox" class="chanc" value="${esc(f.fam)}"${ro}></td>
+     <td>${esc(f.fam)}</td>
+     <td class="wrap" style="font-size:11.5px">${f.zones.length
+        ? esc(f.zones.join(" / "))
         : `<span style="color:var(--neg)">${LANG?"not set":"未設定"}</span>`}</td>
-     <td>${r.n?(LANG?"loaded":"已載入")+" ("+r.n+")"
-              :`<span style="color:var(--neg)">${LANG?"not loaded":"未載入"}</span>`}</td>
-     <td>${r.on?(LANG?"Yes":"是"):(LANG?"No":"否")}</td></tr>`).join("")
+     <td>${rateCell(f)}</td>
+     <td>${f.on?(LANG?"Yes":"是"):(LANG?"No":"否")}</td></tr>`).join("")
     ||`<tr><td colspan="5" class="empty">—</td></tr>`;
   if($("#chanCount")) $("#chanCount").textContent = LANG
-    ? `${shown.length} / ${mine.length} channels` : `顯示 ${shown.length} / ${mine.length} 條渠道`;
+    ? `${shown.length} / ${chanFams.length} channels` : `顯示 ${shown.length} / ${chanFams.length} 條渠道`;
   const rc=$("#rateChan");
   if(rc){
-    /* 選單只寫服務名 —— 商住是分頁的事。值仍然帶著 |C / |R,底下匯出、
-       匯入、看費率那幾顆讀的就是它。 */
+    /* 選單一條服務一個選項。值仍然帶著 |C —— 匯出讀的是它前半段的服務名,
+       兩側的分頁是匯出時自己生的,不靠這個值決定。 */
     const cur=String(rc.value||"").split("|")[0];
-    rc.innerHTML=mine.map(r=>{
-      const v=r.svc+(r.res?"|R":"|C");
-      return `<option value="${esc(v)}"${r.svc===cur?" selected":""}>${
-        esc(svcOfChan(r.svc))}</option>`;
+    rc.innerHTML=chanFams.map(f=>{
+      const v=f.members[0]+"|C";
+      return `<option value="${esc(v)}"${f.members.includes(cur)?" selected":""}>${
+        esc(f.fam)}</option>`;
     }).join("");
   }
   const pick=(rc&&rc.value)||"";
-  const pn=loaded[pick]||0;
-  if($("#rateState")) $("#rateState").innerHTML=pn
-    ? `<div class="note">${LANG?`${pn} rate rows loaded for this channel.`
-                              :`這個渠道已載入 ${pn} 列費率。`}</div>`
-    : `<div class="note">${LANG?"No base rates for this channel yet. Export the template, fill it in, then import."
-                              :"這個渠道還沒有基本運費表。匯出模板、填好、再匯入。"}</div>`;
+  const pf=chanFams[chanFamIx[svcOfChan(String(pick).split("|")[0])]]||{nC:0,nR:0};
+  if($("#rateState")) $("#rateState").innerHTML=(pf.nC||pf.nR)
+    ? `<div class="note">${LANG
+        ? `Loaded for this channel — commercial ${pf.nC||0} row(s), residential ${pf.nR||0}.`
+        : `這個渠道已載入 —— 商業 ${pf.nC||0} 列、住宅 ${pf.nR||0} 列。`}</div>`
+    : `<div class="note">${LANG?"No base rates for this channel yet. Export the template, fill in both sheets, then import."
+                              :"這個渠道還沒有基本運費表。匯出模板、兩張分頁都填好、再匯入。"}</div>`;
 
   /* ---- Demand:四個子分頁 ---- */
   const dcfg=CFG.raw.demand_config||{};
