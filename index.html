@@ -6560,26 +6560,48 @@ function setChanDim(targets, raw){
 }
 /* 勾選、輸入、套用、看結果全部在同一個視窗裡。原本勾選在頁面下方的批量區、
    按鈕在上面的面板,得先捲下去勾再捲上來按。 */
+/* DIM 除數是服務別的性質,跟住商無關 —— 同一個 Ground,送到住宅不會換一個
+   除數。所以這個視窗照服務別列,Ground 商業／住宅折成一條「Ground」,勾一次
+   兩條一起設。計價那邊照舊逐條查 channel_dim_factors,這裡只改「怎麼列、
+   一次寫幾條」,算錢的路徑一個字都沒動。 */
+function dimUnits(){
+  const zn=(CFG&&CFG.raw.builtin_service_zones)||{};
+  const by=new Map();
+  for(const c of Object.keys(zn)){
+    const fam=svcOfChan(c);
+    if(!by.has(fam)) by.set(fam,[]);
+    by.get(fam).push(c);
+  }
+  return [...by.entries()].map(([fam,members])=>({fam,members}))
+    .sort((a,b)=>chanSort(a.fam,b.fam));
+}
+/* 勾的是服務別,送出去的還是真正的渠道名 —— setChanDim() 拿到的東西不變。 */
 function dimTicked(){
-  return [...document.querySelectorAll(".dimc:checked")].map(c=>c.value);
+  const fams=new Set([...document.querySelectorAll(".dimc:checked")].map(c=>c.value));
+  return dimUnits().filter(u=>fams.has(u.fam)).flatMap(u=>u.members);
 }
 function renderDimModal(){
   if(!CFG) return;
-  const zn=CFG.raw.builtin_service_zones||{};
   const m=CFG.raw.channel_dim_factors||{};
-  const was=new Set(dimTicked());
+  const units=dimUnits();
+  const was=new Set([...document.querySelectorAll(".dimc:checked")].map(c=>c.value));
   const box=$("#dimChans");
-  if(box) box.innerHTML=Object.keys(zn).sort(chanSort).map(c=>
-    `<label class="bulkchk"><input type="checkbox" class="dimc" value="${esc(c)}"${
-      was.has(c)?" checked":""}> ${esc(c)}</label>`).join("");
+  if(box) box.innerHTML=units.map(u=>
+    `<label class="bulkchk"><input type="checkbox" class="dimc" value="${esc(u.fam)}"${
+      was.has(u.fam)?" checked":""}> ${esc(u.fam)}</label>`).join("");
   const def=defaultDimDivisor(CFG);
+  const cell=v=>v ? esc(v)
+    : esc(String(def))+`<span style="color:var(--muted)"> (${
+        LANG?"default":"預設"})</span>`;
   const body=$("#tDimForce")&&$("#tDimForce").tBodies[0];
-  if(body) body.innerHTML=Object.keys(zn).sort(chanSort).map(c=>{
-    const own=String(m[c]==null?"":m[c]).trim();
-    return `<tr><td>${esc(c)}</td><td>${own
-      ? esc(own)
-      : esc(String(def))+`<span style="color:var(--muted)"> (${
-          LANG?"default":"預設"})</span>`}</td></tr>`;
+  if(body) body.innerHTML=units.map(u=>{
+    const vals=u.members.map(c=>String(m[c]==null?"":m[c]).trim());
+    if(vals.every(v=>v===vals[0]))
+      return `<tr><td>${esc(u.fam)}</td><td>${cell(vals[0])}</td></tr>`;
+    /* 這個視窗設的話兩條一定同值,但舊設定可能把商業／住宅設成不一樣。
+       折成一行會說謊,所以只有在對不起來的時候攤開來各列一行。 */
+    return u.members.map((c,i)=>
+      `<tr><td>${esc(c)}</td><td>${cell(vals[i])}</td></tr>`).join("");
   }).join("")||`<tr><td colspan="2" class="empty">—</td></tr>`;
 }
 /* 渠道排序:不管在哪個畫面,UPS Ground 一律排最上面(商業在住宅前),
