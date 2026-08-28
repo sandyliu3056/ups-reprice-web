@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>程式內部架構 — 現況與理想</title>
+<style>
+  @page { size: A4 landscape; margin: 7mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font-family: "DejaVu Sans", "WenQuanYi Zen Hei", sans-serif; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  svg { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body>
+
+<!-- ============ 第 1 頁:現況 ============ -->
+<div class="page">
+<svg viewBox="0 0 1060 718" xmlns="http://www.w3.org/2000/svg" xml:space="preserve"
+     font-family="DejaVu Sans, WenQuanYi Zen Hei, sans-serif">
+<defs>
+  <marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="#a9743f"/></marker>
+</defs>
+
+<text x="8" y="24" font-size="20" font-weight="bold" fill="#351C15">程式內部架構(現況)—— index.html 裡面裝了什麼</text>
+<text x="8" y="41" font-size="10.2" fill="#6d5a48">整包工具是一個檔:11,270 行 = 851 行 CSS + 986 行畫面標記 + 9,601 行 JavaScript。下面是那 9,601 行的分法,所有行數都是實際數出來的。</text>
+<rect x="878" y="6" width="174" height="24" rx="3" fill="#6d5a48"/>
+<text x="965" y="22" font-size="11" font-weight="bold" fill="#ffffff" text-anchor="middle">1 個檔案 · 11,270 行</text>
+
+<!-- ===== index.html 外框 ===== -->
+<rect x="8" y="56" width="734" height="656" rx="5" fill="#ffffff" stroke="#351C15" stroke-width="1.8"/>
+<rect x="8" y="56" width="734" height="26" rx="5" fill="#351C15"/>
+<rect x="8" y="74" width="734" height="8" fill="#351C15"/>
+<text x="20" y="74" font-size="11.5" font-weight="bold" fill="#ffffff" font-family="DejaVu Sans Mono">index.html</text>
+<text x="732" y="74" font-size="9.6" fill="#e5d9c8" text-anchor="end">沒有 build、沒有框架、沒有 npm 相依 —— 打開就是它</text>
+
+<!-- ① 畫面層 -->
+<rect x="20" y="90" width="710" height="82" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<text x="30" y="107" font-size="10.6" font-weight="bold" fill="#351C15">① 畫面層(UI)</text>
+<text x="720" y="107" font-size="9" fill="#6d5a48" text-anchor="end">986 行標記 + 851 行 CSS + 1,738 行 JS</text>
+<rect x="30" y="114" width="222" height="50" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="38" y="129" font-size="9.4" font-weight="bold" fill="#6b3f1c">10 個分頁</text>
+<text x="38" y="142" font-size="8.6" fill="#2b2019">匯入・附加費・尺寸・通路・需求</text>
+<text x="38" y="155" font-size="8.6" fill="#2b2019">歷史・代碼・儀表板・設定・Admin</text>
+<rect x="262" y="114" width="222" height="50" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="270" y="129" font-size="9.4" font-weight="bold" fill="#6b3f1c">設定 UI　1,747 行</text>
+<text x="270" y="142" font-size="8.6" fill="#2b2019">與桌面版共用的設定模板</text>
+<text x="270" y="155" font-size="8.6" fill="#6d5a48">附加費・尺寸・通路・Demand 表單</text>
+<rect x="494" y="114" width="236" height="50" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="502" y="129" font-size="9.4" font-weight="bold" fill="#6b3f1c">外觀與體驗　1,738 行</text>
+<text x="502" y="142" font-size="8.6" fill="#2b2019">主題・雙語・倉庫場景・天色天氣</text>
+<text x="502" y="155" font-size="8.6" fill="#6d5a48">跟計價完全無關</text>
+
+<!-- ② 計價引擎 -->
+<rect x="20" y="180" width="710" height="132" rx="3" fill="#eef6ee" stroke="#2f6b3a" stroke-width="1.4"/>
+<text x="30" y="197" font-size="10.6" font-weight="bold" fill="#1f4d29">② 計價引擎　2,234 行 —— 這份工具真正的資產</text>
+<text x="720" y="197" font-size="9" font-weight="bold" fill="#2f6b3a" text-anchor="end">提到 ME / AUTH / supabase / localStorage 的次數:0</text>
+<rect x="30" y="204" width="167" height="48" rx="3" fill="#ffffff" stroke="#bcd6bf"/>
+<text x="38" y="219" font-size="9.4" font-weight="bold" fill="#1f4d29">讀帳單　68</text>
+<text x="38" y="232" font-size="8.4" fill="#2b2019">認出格式、切成一列一件</text>
+<text x="38" y="245" font-size="8.4" fill="#6d5a48">xlsx / xls / 無標題 csv</text>
+<rect x="205" y="204" width="167" height="48" rx="3" fill="#ffffff" stroke="#bcd6bf"/>
+<text x="213" y="219" font-size="9.4" font-weight="bold" fill="#1f4d29">欄位位置　157</text>
+<text x="213" y="232" font-size="8.4" fill="#2b2019">哪一欄是重量、哪一欄</text>
+<text x="213" y="245" font-size="8.4" fill="#2b2019">是區、哪一欄是說明</text>
+<rect x="380" y="204" width="167" height="48" rx="3" fill="#ffffff" stroke="#bcd6bf"/>
+<text x="388" y="219" font-size="9.4" font-weight="bold" fill="#1f4d29">計費重量　178</text>
+<text x="388" y="232" font-size="8.4" fill="#2b2019">材積重 vs 實重,取大</text>
+<text x="388" y="245" font-size="8.4" fill="#6d5a48">AHS / 大件的最低重量</text>
+<rect x="555" y="204" width="175" height="48" rx="3" fill="#ffffff" stroke="#2f6b3a" stroke-width="1.2"/>
+<text x="563" y="219" font-size="9.4" font-weight="bold" fill="#1f4d29">附加費　912　最大一塊</text>
+<text x="563" y="232" font-size="8.4" fill="#2b2019">AHS・大件・住宅・申報</text>
+<text x="563" y="245" font-size="8.4" fill="#2b2019">價值・偏遠・簽收…</text>
+<rect x="30" y="258" width="167" height="48" rx="3" fill="#ffffff" stroke="#bcd6bf"/>
+<text x="38" y="273" font-size="9.4" font-weight="bold" fill="#1f4d29">分層　220</text>
+<text x="38" y="286" font-size="8.4" fill="#2b2019">同一件的好幾列怎麼併</text>
+<text x="38" y="299" font-size="8.4" fill="#6d5a48">FRT / 更正 / 退運</text>
+<rect x="205" y="258" width="167" height="48" rx="3" fill="#ffffff" stroke="#bcd6bf"/>
+<text x="213" y="273" font-size="9.4" font-weight="bold" fill="#1f4d29">燃油　349</text>
+<text x="213" y="286" font-size="8.4" fill="#2b2019">燃油率,以及附加費</text>
+<text x="213" y="299" font-size="8.4" fill="#2b2019">要不要一起算燃油</text>
+<rect x="380" y="258" width="167" height="48" rx="3" fill="#ffffff" stroke="#bcd6bf"/>
+<text x="388" y="273" font-size="9.4" font-weight="bold" fill="#1f4d29">Demand 旺季　113</text>
+<text x="388" y="286" font-size="8.4" fill="#2b2019">四個子表,依週次</text>
+<text x="388" y="299" font-size="8.4" fill="#6d5a48">和件量級距查</text>
+<rect x="555" y="258" width="175" height="48" rx="3" fill="#ffffff" stroke="#bcd6bf"/>
+<text x="563" y="273" font-size="9.4" font-weight="bold" fill="#1f4d29">自訂附加費　178</text>
+<text x="563" y="286" font-size="8.4" fill="#2b2019">你自己加的規則</text>
+<text x="563" y="299" font-size="8.4" fill="#6d5a48">不在 UPS 的表裡</text>
+
+<!-- ③ 報表 -->
+<rect x="20" y="320" width="710" height="80" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<text x="30" y="337" font-size="10.6" font-weight="bold" fill="#351C15">③ 報表輸出與儀表板　2,504 行</text>
+<text x="720" y="337" font-size="9" fill="#6d5a48" text-anchor="end">吃引擎吐出來的逐筆結果,不自己算價</text>
+<rect x="30" y="344" width="222" height="48" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="38" y="359" font-size="9.4" font-weight="bold" fill="#6b3f1c">重計價報表　104</text>
+<text x="38" y="372" font-size="8.6" fill="#2b2019">reportRows() —— 匯出與</text>
+<text x="38" y="385" font-size="8.6" fill="#2b2019">儀表板共用的同一份數字</text>
+<rect x="262" y="344" width="222" height="48" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="270" y="359" font-size="9.4" font-weight="bold" fill="#6b3f1c">匯出 xlsx　852</text>
+<text x="270" y="372" font-size="8.6" fill="#2b2019">客戶報表 + 內部對帳單</text>
+<text x="270" y="385" font-size="8.6" fill="#6d5a48">由 xlsx.js 寫檔</text>
+<rect x="494" y="344" width="236" height="48" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="502" y="359" font-size="9.4" font-weight="bold" fill="#6b3f1c">儀表板與圖表　1,409</text>
+<text x="502" y="372" font-size="8.6" fill="#2b2019">期別選單、趨勢、佔比</text>
+<text x="502" y="385" font-size="8.6" fill="#6d5a48">圖是自己畫的 SVG,沒用套件</text>
+
+<!-- ④ 資料層 -->
+<rect x="20" y="408" width="710" height="80" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<text x="30" y="425" font-size="10.6" font-weight="bold" fill="#351C15">④ 資料層　531 行 —— 東西存在這台電腦裡</text>
+<text x="720" y="425" font-size="9" fill="#6d5a48" text-anchor="end">localStorage 44 處 · IndexedDB 3 處 · sessionStorage 4 處</text>
+<rect x="30" y="432" width="222" height="48" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="38" y="447" font-size="9.4" font-weight="bold" fill="#6b3f1c">跨期歷史　261</text>
+<text x="38" y="460" font-size="8.6" fill="#2b2019">每一期歸檔、跨期更正、</text>
+<text x="38" y="473" font-size="8.6" fill="#2b2019">同一件在不同期的比對</text>
+<rect x="262" y="432" width="222" height="48" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="270" y="447" font-size="9.4" font-weight="bold" fill="#6b3f1c">儲存空間統計　270</text>
+<text x="270" y="460" font-size="8.6" fill="#2b2019">告訴你瀏覽器裡存了多少</text>
+<text x="270" y="473" font-size="8.6" fill="#6d5a48">哪一期佔了多少空間</text>
+<rect x="494" y="432" width="236" height="48" rx="3" fill="#f3ece3" stroke="#e0d3c0"/>
+<text x="502" y="447" font-size="9.4" font-weight="bold" fill="#6b3f1c">實際存放</text>
+<text x="502" y="460" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">localStorage　設定・索引</text>
+<text x="502" y="473" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">IndexedDB　　逐筆明細</text>
+
+<!-- ⑤ 身分層 -->
+<rect x="20" y="496" width="710" height="206" rx="3" fill="#fbf0e2" stroke="#a9743f" stroke-width="1.6"/>
+<text x="30" y="513" font-size="10.6" font-weight="bold" fill="#351C15">⑤ 身分層　738 行 —— 五層裡唯一要換的一層</text>
+<text x="720" y="513" font-size="9" font-weight="bold" fill="#b03a2b" text-anchor="end">全檔 34 次 ME. · 15 次 LOCAL_MODE 分支</text>
+<rect x="30" y="520" width="222" height="180" rx="3" fill="#ffffff" stroke="#e0cbb0"/>
+<text x="38" y="536" font-size="9.6" font-weight="bold" fill="#6b3f1c">登入</text>
+<text x="38" y="552" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">LOCAL_MODE = 沒有 authMode</text>
+<text x="38" y="565" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">LOCAL_ACCOUNTS[]</text>
+<text x="38" y="578" font-size="8.4" fill="#6d5a48">   帳號 + sha256 雜湊 + 角色</text>
+<text x="38" y="594" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">login()</text>
+<text x="38" y="607" font-size="8.4" fill="#6d5a48">   算 sha256(帳號:密碼) 去比對</text>
+<text x="38" y="623" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">authIdentity() / setMe()</text>
+<text x="38" y="636" font-size="8.4" fill="#6d5a48">   組出 ME = { id, role, name, sync }</text>
+<text x="38" y="652" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">applyRole()</text>
+<text x="38" y="665" font-size="8.4" fill="#6d5a48">   決定 Admin 分頁露不露出來</text>
+<text x="38" y="682" font-size="8.4" fill="#b03a2b">Supabase 那條路的程式碼也在這裡,</text>
+<text x="38" y="694" font-size="8.4" fill="#b03a2b">只是沒有被走到</text>
+
+<rect x="262" y="520" width="222" height="180" rx="3" fill="#fdf4ea" stroke="#b3611f" stroke-width="1.6"/>
+<text x="270" y="536" font-size="9.6" font-weight="bold" fill="#b3611f">★ 接縫 —— 身分只從這裡外流</text>
+<text x="270" y="553" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">whoKey()  →  ME.id 或 "anon"</text>
+<text x="270" y="567" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">histKey()  →  期別索引</text>
+<text x="270" y="581" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">histRuleKey()  →  歷史規則</text>
+<text x="270" y="595" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">histInvKey()  →  帳單清單</text>
+<text x="270" y="609" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">idbName()  →  IndexedDB 名</text>
+<text x="270" y="623" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">cfgKeys()  →  費率設定</text>
+<text x="270" y="642" font-size="8.4" fill="#2b2019">六個都是同一個公式:</text>
+<text x="270" y="656" font-size="8.6" font-family="DejaVu Sans Mono" fill="#b3611f">原本的 key + "::" + whoKey()</text>
+<text x="270" y="674" font-size="8.4" font-weight="bold" fill="#b03a2b">身分一換 → 前綴全換 →</text>
+<text x="270" y="682" font-size="8.4" font-weight="bold" fill="#b03a2b">畫面上東西「不見了」</text>
+<text x="270" y="694" font-size="8.4" fill="#6d5a48">(資料還在,在舊前綴底下)</text>
+
+<rect x="494" y="520" width="236" height="180" rx="3" fill="#ffffff" stroke="#e0cbb0"/>
+<text x="502" y="536" font-size="9.6" font-weight="bold" fill="#6b3f1c">雲端同步與帳號管理</text>
+<text x="502" y="552" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">cfgPush() / cfgPull()</text>
+<text x="502" y="565" font-size="8.4" fill="#6d5a48">   費率設定上下雲,鑰匙 = ME.sync</text>
+<text x="502" y="581" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">histCloudPush / Pull / Delete</text>
+<text x="502" y="594" font-size="8.4" fill="#6d5a48">   帳單歷史,先 gzip 再上傳</text>
+<text x="502" y="610" font-size="8.6" font-family="DejaVu Sans Mono" fill="#2b2019">claimLegacy()</text>
+<text x="502" y="623" font-size="8.4" fill="#6d5a48">   認領「分帳號之前」的共用歷史</text>
+<text x="502" y="636" font-size="8.4" fill="#6d5a48">   —— 注意:不是身分搬遷</text>
+<text x="502" y="652" font-size="8.6" font-family="DejaVu Sans Mono" fill="#6d6558">adminCall() / recordLogin()</text>
+<text x="502" y="665" font-size="8.4" fill="#6d6558">   loadUsers() / loadLoginHistory()</text>
+<text x="502" y="682" font-size="8.4" fill="#b03a2b">這四個要有 Supabase 登入才會動,</text>
+<text x="502" y="694" font-size="8.4" fill="#b03a2b">現在等於閒置</text>
+
+<!-- ===== 右欄 ===== -->
+<rect x="754" y="56" width="298" height="286" rx="4" fill="#fdf4ea" stroke="#b3611f" stroke-width="1.4"/>
+<rect x="754" y="56" width="298" height="22" rx="4" fill="#b3611f"/>
+<text x="764" y="71" font-size="10" font-weight="bold" fill="#ffffff">重點一:身分是怎麼滲進整個程式的</text>
+<text x="764" y="94" font-size="8.8" fill="#2b2019">全檔提到 ME. 有 34 次,聽起來像散得到處都是。</text>
+<text x="764" y="107" font-size="8.8" fill="#2b2019">實際上其中 24 次就在身分層自己裡面,引擎和</text>
+<text x="764" y="120" font-size="8.8" fill="#2b2019">資料層合計只有 5 次,UI 只有 2 次。</text>
+<text x="764" y="140" font-size="8.8" font-weight="bold" fill="#b3611f">真正把身分帶進資料的,只有左邊那 6 個函式。</text>
+<text x="764" y="160" font-size="8.8" fill="#2b2019">這件事有兩個意思,一好一壞:</text>
+<text x="764" y="180" font-size="8.8" font-weight="bold" fill="#b03a2b">壞的:換身分 = 換前綴。費率、期別索引、</text>
+<text x="764" y="193" font-size="8.8" fill="#b03a2b">帳單清單、IndexedDB 全部一起改名,畫面上</text>
+<text x="764" y="206" font-size="8.8" fill="#b03a2b">看起來像資料被清空了。</text>
+<text x="764" y="226" font-size="8.8" font-weight="bold" fill="#2f6b3a">好的:要補的搬遷程式很小、很明確 —— 就是</text>
+<text x="764" y="239" font-size="8.8" fill="#2f6b3a">把這 6 個前綴的舊值搬到新值,一個地方改完</text>
+<text x="764" y="252" font-size="8.8" fill="#2f6b3a">全部生效。不是散在 34 個地方要慢慢找。</text>
+<text x="764" y="272" font-size="8.8" fill="#6d5a48">另外有一個小瑕疵:cfgKeys() 沒有呼叫</text>
+<text x="764" y="285" font-size="8.8" fill="#6d5a48">whoKey(),而是自己把同一行邏輯再寫一次。</text>
+<text x="764" y="298" font-size="8.8" fill="#6d5a48">現在結果一樣,但那是兩個真相來源。</text>
+<text x="764" y="318" font-size="8.8" font-weight="bold" fill="#351C15">要動身分之前,先把它改成呼叫 whoKey(),</text>
+<text x="764" y="331" font-size="8.8" font-weight="bold" fill="#351C15">讓接縫真的只有一條。</text>
+
+<rect x="754" y="352" width="298" height="184" rx="4" fill="#eef6ee" stroke="#2f6b3a" stroke-width="1.4"/>
+<rect x="754" y="352" width="298" height="22" rx="4" fill="#2f6b3a"/>
+<text x="764" y="367" font-size="10" font-weight="bold" fill="#ffffff">重點二:計價引擎不知道有沒有登入這回事</text>
+<text x="764" y="390" font-size="8.8" fill="#2b2019">第 1,670 到 3,145 行,共 1,476 行。在這段裡</text>
+<text x="764" y="403" font-size="8.8" fill="#2b2019">搜尋 ME、AUTH、SYNC、supabase、LOCAL_MODE、</text>
+<text x="764" y="416" font-size="8.8" fill="#2b2019">localStorage、indexedDB:</text>
+<text x="764" y="436" font-size="13" font-weight="bold" fill="#2f6b3a">命中 0 次。</text>
+<text x="764" y="458" font-size="8.8" fill="#2b2019">它只吃兩樣東西 —— 一份帳單、一份費率表;</text>
+<text x="764" y="471" font-size="8.8" fill="#2b2019">吐一份逐筆結果。誰在用、有沒有登入、資料</text>
+<text x="764" y="484" font-size="8.8" fill="#2b2019">存在哪,它完全不知道,也不需要知道。</text>
+<text x="764" y="504" font-size="8.8" font-weight="bold" fill="#1f4d29">所以換登入方式,動不到它一個字。</text>
+<text x="764" y="521" font-size="8.8" fill="#6d5a48">這是刻意的,也是這份工具最該保住的性質。</text>
+
+<rect x="754" y="546" width="298" height="166" rx="4" fill="#faf7f2" stroke="#d9cbb8"/>
+<rect x="754" y="546" width="298" height="22" rx="4" fill="#e8ddcd"/>
+<text x="764" y="561" font-size="10" font-weight="bold" fill="#351C15">檔案外面的東西</text>
+<text x="764" y="584" font-size="8.8" font-weight="bold" fill="#6b3f1c">瀏覽器本身提供的</text>
+<text x="764" y="597" font-size="8.6" fill="#2b2019">localStorage · IndexedDB · sessionStorage</text>
+<text x="764" y="610" font-size="8.6" fill="#2b2019">WebCrypto(算 sha256,只在 https 有)</text>
+<text x="764" y="630" font-size="8.8" font-weight="bold" fill="#6b3f1c">另外載入的兩個檔</text>
+<text x="764" y="643" font-size="8.6" fill="#2b2019">supabase-js(連雲端)· xlsx(讀寫 Excel)</text>
+<text x="764" y="663" font-size="8.8" font-weight="bold" fill="#6b3f1c">設定</text>
+<text x="764" y="676" font-size="8.6" fill="#2b2019">auth-config.js —— 三個值,決定走哪條登入</text>
+<text x="764" y="696" font-size="8.8" font-weight="bold" fill="#6b3f1c">雲端</text>
+<text x="764" y="708" font-size="8.6" fill="#2b2019">Supabase RPC ×6 · Edge Function ×2</text>
+</svg>
+</div>
+
+<!-- ============ 第 2 頁:理想 ============ -->
+<div class="page">
+<svg viewBox="0 0 1060 718" xmlns="http://www.w3.org/2000/svg" xml:space="preserve"
+     font-family="DejaVu Sans, WenQuanYi Zen Hei, sans-serif">
+
+<text x="8" y="24" font-size="20" font-weight="bold" fill="#351C15">程式內部架構(理想)—— 只動第五層,其他四層一個字都不改</text>
+<text x="8" y="41" font-size="10.2" fill="#6d5a48">灰色 = 完全不動。綠色 = 已經寫好,只差設定。橘色 = 要補的三塊。這不是重寫,是把身分那一層抽乾淨,然後補上三個缺口。</text>
+<rect x="878" y="6" width="174" height="24" rx="3" fill="#2f6b3a"/>
+<text x="965" y="22" font-size="11" font-weight="bold" fill="#ffffff" text-anchor="middle">要改的:5 層裡的 1 層</text>
+
+<rect x="8" y="56" width="734" height="656" rx="5" fill="#ffffff" stroke="#351C15" stroke-width="1.8"/>
+<rect x="8" y="56" width="734" height="26" rx="5" fill="#351C15"/>
+<rect x="8" y="74" width="734" height="8" fill="#351C15"/>
+<text x="20" y="74" font-size="11.5" font-weight="bold" fill="#ffffff" font-family="DejaVu Sans Mono">index.html</text>
+<text x="732" y="74" font-size="9.6" fill="#e5d9c8" text-anchor="end">仍然是一個檔。理想不是拆檔案,是把一層的責任講清楚</text>
+
+<!-- ①②③ 不動的三層 -->
+<rect x="20" y="90" width="710" height="46" rx="3" fill="#f4f4f2" stroke="#cfc9c0" stroke-dasharray="4 3"/>
+<text x="30" y="108" font-size="10.6" font-weight="bold" fill="#5a5248">① 畫面層(UI)　3,575 行</text>
+<text x="30" y="126" font-size="8.8" fill="#6d6558">10 個分頁・設定表單・主題・雙語・倉庫場景 —— 它只問「現在是誰、是不是主帳號」,不管那個答案是哪裡來的</text>
+<text x="720" y="108" font-size="10" font-weight="bold" fill="#2f6b3a" text-anchor="end">0 行改動</text>
+
+<rect x="20" y="144" width="710" height="46" rx="3" fill="#f4f4f2" stroke="#cfc9c0" stroke-dasharray="4 3"/>
+<text x="30" y="162" font-size="10.6" font-weight="bold" fill="#5a5248">② 計價引擎　2,234 行</text>
+<text x="30" y="180" font-size="8.8" fill="#6d6558">讀帳單・欄位位置・計費重量・附加費・分層・燃油・Demand・自訂附加費 —— 本來就不知道有登入這回事</text>
+<text x="720" y="162" font-size="10" font-weight="bold" fill="#2f6b3a" text-anchor="end">0 行改動</text>
+
+<rect x="20" y="198" width="710" height="46" rx="3" fill="#f4f4f2" stroke="#cfc9c0" stroke-dasharray="4 3"/>
+<text x="30" y="216" font-size="10.6" font-weight="bold" fill="#5a5248">③ 報表輸出與儀表板　2,504 行</text>
+<text x="30" y="234" font-size="8.8" fill="#6d6558">重計價報表・匯出 xlsx・儀表板與圖表 —— 吃引擎吐出來的結果,跟身分無關</text>
+<text x="720" y="216" font-size="10" font-weight="bold" fill="#2f6b3a" text-anchor="end">0 行改動</text>
+
+<!-- ④ 資料層:一個小改動 -->
+<rect x="20" y="252" width="710" height="62" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<text x="30" y="270" font-size="10.6" font-weight="bold" fill="#351C15">④ 資料層　531 行</text>
+<text x="30" y="288" font-size="8.8" fill="#6d5a48">跨期歷史・儲存空間統計・localStorage / IndexedDB 的實際讀寫 —— 存法不變,前綴照樣從接縫拿</text>
+<text x="30" y="305" font-size="8.8" font-weight="bold" fill="#b3611f">▲ 缺口 2:帳單歷史的雲端同步目前寫死只在本機模式跑。要把它接到身分層,讓兩種模式都同步。</text>
+<text x="720" y="270" font-size="10" font-weight="bold" fill="#b3611f" text-anchor="end">一處要改</text>
+
+<!-- ⑤ 身分層:重新設計 -->
+<rect x="20" y="322" width="710" height="380" rx="3" fill="#eef6ee" stroke="#2f6b3a" stroke-width="1.8"/>
+<text x="30" y="341" font-size="10.6" font-weight="bold" fill="#1f4d29">⑤ 身分層 —— 唯一要動的一層。做法:把「身分從哪來」和「身分怎麼用」切開</text>
+
+<!-- 5a 介面 -->
+<rect x="30" y="352" width="330" height="112" rx="3" fill="#ffffff" stroke="#2f6b3a" stroke-width="1.3"/>
+<text x="40" y="369" font-size="9.6" font-weight="bold" fill="#1f4d29">5a　身分提供者:一個小介面</text>
+<text x="40" y="386" font-size="8.6" fill="#2b2019">上面四層要的其實只有這幾樣東西:</text>
+<text x="40" y="402" font-size="8.8" font-family="DejaVu Sans Mono" fill="#6b3f1c">{ id, role, name, sync?,</text>
+<text x="40" y="415" font-size="8.8" font-family="DejaVu Sans Mono" fill="#6b3f1c">  signIn(), signOut(), restore() }</text>
+<text x="40" y="432" font-size="8.6" fill="#2b2019">把它講清楚,底下換什麼實作都行,</text>
+<text x="40" y="445" font-size="8.6" fill="#2b2019">上面完全不用知道。</text>
+<text x="40" y="459" font-size="8.6" fill="#6d5a48">現在是靠散在各處的 LOCAL_MODE 判斷達成同一件事。</text>
+
+<!-- 5b 接縫 -->
+<rect x="370" y="352" width="350" height="112" rx="3" fill="#ffffff" stroke="#2f6b3a" stroke-width="1.3"/>
+<text x="380" y="369" font-size="9.6" font-weight="bold" fill="#1f4d29">5b　★ 接縫 —— 完全不變,這正是重點</text>
+<text x="380" y="386" font-size="8.8" font-family="DejaVu Sans Mono" fill="#2b2019">whoKey() · histKey() · histRuleKey()</text>
+<text x="380" y="399" font-size="8.8" font-family="DejaVu Sans Mono" fill="#2b2019">histInvKey() · idbName() · cfgKeys()</text>
+<text x="380" y="416" font-size="8.6" fill="#2b2019">六個函式一行都不用改。整個程式碰身分只有</text>
+<text x="380" y="429" font-size="8.6" fill="#2b2019">這一條路,所以換掉底下的實作是安全的。</text>
+<text x="380" y="446" font-size="8.6" font-weight="bold" fill="#b3611f">▲ 唯一要順手修的:cfgKeys() 目前自己重算</text>
+<text x="380" y="459" font-size="8.6" font-weight="bold" fill="#b3611f">   一次 ME.id,改成呼叫 whoKey(),來源只留一個。</text>
+
+<!-- 5c 兩種實作 -->
+<rect x="30" y="474" width="330" height="106" rx="3" fill="#f4f4f2" stroke="#cfc9c0"/>
+<text x="40" y="491" font-size="9.6" font-weight="bold" fill="#5a5248">5c　實作一:本機帳號(留著當退路)</text>
+<text x="40" y="508" font-size="8.6" fill="#2b2019">LOCAL_ACCOUNTS[] + sha256(帳號:密碼)</text>
+<text x="40" y="521" font-size="8.6" fill="#2b2019">id = "local::&lt;帳號&gt;"</text>
+<text x="40" y="538" font-size="8.6" fill="#6d6558">不刪掉。切換出問題時,把 authMode 拿掉就退</text>
+<text x="40" y="551" font-size="8.6" fill="#6d6558">回這條路,不用回滾程式碼。</text>
+<text x="40" y="570" font-size="8.6" font-weight="bold" fill="#2f6b3a">現在就是走這一條</text>
+
+<rect x="370" y="474" width="350" height="106" rx="3" fill="#eef6ee" stroke="#2f6b3a" stroke-width="1.3"/>
+<text x="380" y="491" font-size="9.6" font-weight="bold" fill="#1f4d29">5d　實作二:Supabase Auth(程式已經寫好)</text>
+<text x="380" y="508" font-size="8.6" fill="#2b2019">signInWithPassword() → JWT</text>
+<text x="380" y="521" font-size="8.6" fill="#2b2019">id = 帳號的 UUID,role 從 app_metadata 來</text>
+<text x="380" y="538" font-size="8.6" fill="#2b2019">費率改存 user_settings,登入寫 login_history,</text>
+<text x="380" y="551" font-size="8.6" fill="#2b2019">帳號管理走 admin-users</text>
+<text x="380" y="570" font-size="8.6" font-weight="bold" fill="#2f6b3a">在 auth-config.js 加一行 authMode 就走這一條</text>
+
+<!-- 5e 缺口 1 -->
+<rect x="30" y="590" width="690" height="102" rx="3" fill="#fdf4ea" stroke="#b3611f" stroke-width="1.6"/>
+<text x="40" y="608" font-size="9.8" font-weight="bold" fill="#b3611f">▲ 缺口 1:身分搬遷 —— 這一層唯一真的要新寫的東西</text>
+<text x="40" y="626" font-size="8.8" fill="#2b2019">換實作就換 id,換 id 就換前綴。第一次用新身分登入時要做一次:如果新前綴底下是空的,而這台電腦上有同名帳號的舊資料,</text>
+<text x="40" y="639" font-size="8.8" fill="#2b2019">就把六個前綴的內容搬過來 —— 費率設定、期別索引、歷史規則、帳單清單,以及整個 IndexedDB 資料庫。</text>
+<text x="40" y="658" font-size="8.8" font-weight="bold" fill="#2f6b3a">好消息:形狀已經有現成的了。claimLegacy() 做的就是同一件事(認領「分帳號之前」的共用歷史),照著擴充即可。</text>
+<text x="40" y="676" font-size="8.8" fill="#b03a2b">要注意 claimLegacy() 裡那個判斷:只有主帳號會收。共用電腦上,子帳號登入一次就把整台機器的歷史吸走 —— 搬遷也要有同樣的防線。</text>
+
+<!-- ===== 右欄 ===== -->
+<rect x="754" y="56" width="298" height="266" rx="4" fill="#fdf4ea" stroke="#b3611f" stroke-width="1.4"/>
+<rect x="754" y="56" width="298" height="22" rx="4" fill="#b3611f"/>
+<text x="764" y="71" font-size="10" font-weight="bold" fill="#ffffff">要補的三塊,以及各自的份量</text>
+<text x="764" y="95" font-size="9" font-weight="bold" fill="#b3611f">1 · 身分搬遷</text>
+<text x="764" y="109" font-size="8.6" fill="#2b2019">照 claimLegacy() 的形狀寫一個,把六個前綴</text>
+<text x="764" y="122" font-size="8.6" fill="#2b2019">的舊值搬到新值。集中在一個函式裡。</text>
+<text x="764" y="135" font-size="8.6" fill="#6d5a48">不寫也能上線,但每個人第一次登入都要自己</text>
+<text x="764" y="148" font-size="8.6" fill="#6d5a48">匯出再匯入設定。</text>
+<text x="764" y="170" font-size="9" font-weight="bold" fill="#b3611f">2 · 帳單歷史的雲端同步</text>
+<text x="764" y="184" font-size="8.6" fill="#2b2019">histCloudPush / Pull / Delete 現在開頭就擋掉</text>
+<text x="764" y="197" font-size="8.6" fill="#2b2019">非本機模式。需要一張依 auth.uid() 的表加</text>
+<text x="764" y="210" font-size="8.6" fill="#2b2019">RLS,做 local_history 已經在做的事。</text>
+<text x="764" y="223" font-size="8.6" font-weight="bold" fill="#b03a2b">不補的話,切過去等於這個功能退掉。</text>
+<text x="764" y="245" font-size="9" font-weight="bold" fill="#b3611f">3 · 兩個小整理</text>
+<text x="764" y="259" font-size="8.6" fill="#2b2019">cfgKeys() 改成呼叫 whoKey(),接縫只留一條;</text>
+<text x="764" y="272" font-size="8.6" fill="#2b2019">刪掉 authconfig.js —— 沒有任何地方載入它,</text>
+<text x="764" y="285" font-size="8.6" fill="#2b2019">留著只會讓人改錯檔。</text>
+<text x="764" y="307" font-size="8.6" font-weight="bold" fill="#351C15">三塊都很小。難的不是寫,是記得要寫。</text>
+
+<rect x="754" y="332" width="298" height="188" rx="4" fill="#eef6ee" stroke="#2f6b3a" stroke-width="1.4"/>
+<rect x="754" y="332" width="298" height="22" rx="4" fill="#2f6b3a"/>
+<text x="764" y="347" font-size="10" font-weight="bold" fill="#ffffff">為什麼可以只動一層</text>
+<text x="764" y="371" font-size="8.8" fill="#2b2019">因為這份程式碼其實已經分層了,只是沒有把</text>
+<text x="764" y="384" font-size="8.8" fill="#2b2019">界線寫下來:</text>
+<text x="764" y="404" font-size="8.8" fill="#2b2019">· 引擎不碰身分,一次都沒有</text>
+<text x="764" y="417" font-size="8.8" fill="#2b2019">· UI 只問「是誰、是不是主帳號」</text>
+<text x="764" y="430" font-size="8.8" fill="#2b2019">· 資料層只透過 6 個函式拿前綴</text>
+<text x="764" y="450" font-size="8.8" fill="#2b2019">所以「理想」不是把它拆成十個檔案、加一套</text>
+<text x="764" y="463" font-size="8.8" fill="#2b2019">框架。真正的理想是:把已經存在的那條界線</text>
+<text x="764" y="476" font-size="8.8" fill="#2b2019">講明白,讓底下換實作變成一件無聊的事。</text>
+<text x="764" y="497" font-size="8.8" font-weight="bold" fill="#1f4d29">一個檔 11,270 行不是問題。界線模糊才是。</text>
+
+<rect x="754" y="530" width="298" height="182" rx="4" fill="#faf7f2" stroke="#d9cbb8"/>
+<rect x="754" y="530" width="298" height="22" rx="4" fill="#e8ddcd"/>
+<text x="764" y="545" font-size="10" font-weight="bold" fill="#351C15">改完怎麼驗收</text>
+<text x="764" y="569" font-size="8.8" fill="#2b2019">① 第 1,670–3,145 行的 diff 是空的。引擎沒被</text>
+<text x="764" y="582" font-size="8.8" fill="#2b2019">    碰到,計價結果不可能變。</text>
+<text x="764" y="600" font-size="8.8" fill="#2b2019">② 用舊帳號在同一台電腦切過去,登入後費率</text>
+<text x="764" y="613" font-size="8.8" fill="#2b2019">    和帳單歷史自己出現,不用手動匯入。</text>
+<text x="764" y="631" font-size="8.8" fill="#2b2019">③ 在 A 電腦歸檔一期,B 電腦登入後看得到。</text>
+<text x="764" y="649" font-size="8.8" fill="#2b2019">④ 把 authMode 那一行拿掉,重新部署,一切</text>
+<text x="764" y="662" font-size="8.8" fill="#2b2019">    回到今天的樣子,舊資料也還在。</text>
+<text x="764" y="680" font-size="8.8" fill="#2b2019">⑤ 共用電腦上,子帳號登入不會把別人的歷史</text>
+<text x="764" y="693" font-size="8.8" fill="#2b2019">    吸到自己名下。</text>
+<text x="764" y="708" font-size="8.6" font-weight="bold" fill="#6d5a48">五條都過,才算真的換完。</text>
+</svg>
+</div>
+
+</body>
+</html>
