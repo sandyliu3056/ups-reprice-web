@@ -109,8 +109,6 @@
     一步一步:在 Supabase 架設帳號密碼
   </div>
   <div class="meta">
-    專案:sandyliu3056/ups-reprice-web<br>
-    分支:claude/supabase-setup-auth-0px1az<br>
     製作日期:2026 年 8 月 28 日<br>
     內容依據:此 repo 目前實際的程式碼與設定檔
   </div>
@@ -689,11 +687,11 @@
     <table>
       <thead><tr><th style="width:30%">你想在登入頁輸入</th><th style="width:38%">Supabase 裡的 Email 就填</th><th>為什麼</th></tr></thead>
       <tbody>
-        <tr><td><code>sandyliu3056@gmail.com</code></td>
-            <td><code>sandyliu3056@gmail.com</code></td>
+        <tr><td><code>admin@example.com</code></td>
+            <td><code>admin@example.com</code></td>
             <td>輸入的字裡有 <code>@</code>,程式會原樣送出</td></tr>
-        <tr><td><code>geniqua_log</code></td>
-            <td><code>geniqua_log@ups-reprice.invalid</code></td>
+        <tr><td><code>staff01</code></td>
+            <td><code>staff01@ups-reprice.invalid</code></td>
             <td>沒有 <code>@</code> 的話,程式會自動補上
                 <code>@ups-reprice.invalid</code> 再送去驗證</td></tr>
       </tbody>
@@ -713,7 +711,7 @@
 update auth.users
 set raw_app_meta_data =
       coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"admin"}'::jsonb
-where email = 'sandyliu3056@gmail.com';
+where email = 'admin@example.com';
 
 <span class="c">-- 跑完檢查一下,role 那一欄要出現 admin</span>
 select email, raw_app_meta_data-&gt;&gt;'role' as role from auth.users;</pre>
@@ -728,12 +726,12 @@ select email, raw_app_meta_data-&gt;&gt;'role' as role from auth.users;</pre>
 
   <div class="step">
     <div class="t"><span class="n">6</span>設定顯示名稱(選做)</div>
-    <p>不設的話,畫面右上角會直接顯示帳號。想顯示「Sandy Liu」就再跑一段:</p>
+    <p>不設的話,畫面右上角會直接顯示帳號。想顯示「王小明」就再跑一段:</p>
 <pre>update auth.users
 set raw_user_meta_data =
       coalesce(raw_user_meta_data, '{}'::jsonb)
-      || '{"display_name":"Sandy Liu"}'::jsonb
-where email = 'sandyliu3056@gmail.com';</pre>
+      || '{"display_name":"王小明"}'::jsonb
+where email = 'admin@example.com';</pre>
   </div>
 
   <div class="step">
@@ -839,7 +837,7 @@ supabase secrets set UPS_CLIENT_ID=xxx UPS_CLIENT_SECRET=xxx</pre>
       <p>原因:工具在存東西的時候,是用<b>帳號 ID</b> 當前綴分開存的,
       這樣同一台電腦換人登入才不會看到別人的合約價。而兩種模式的帳號 ID 不一樣:</p>
       <ul>
-        <li>本機模式 → <span class="mono">local::sandyliu3056@gmail.com</span></li>
+        <li>本機模式 → <span class="mono">local::&lt;帳號&gt;</span></li>
         <li>Supabase 模式 → 一組 UUID,像
             <span class="mono">3f7a…-…-…</span></li>
       </ul>
