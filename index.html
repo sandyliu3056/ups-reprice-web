@@ -118,6 +118,13 @@ button.act.alt{background:var(--run2);border-color:var(--run2);color:#fff}
 button.act.alt:hover:not(:disabled){background:var(--run2-hover);color:#fff}
 button.act.ghost{background:transparent;color:var(--accent)}
 button.act.ghost:hover:not(:disabled){background:var(--select)}
+/* 表格列裡的操作鈕:同一套配色縮一號。一列四顆全尺寸會把欄寬撐開,
+   而瀏覽器原生的灰按鈕擺在這個版面裡是最顯眼的一塊雜訊。
+   刪除走 --neg —— 全站的負向色,不另外挑一個紅。 */
+button.act.sm{font-size:12px;padding:4px 11px;border-width:1.5px;border-radius:6px;
+  letter-spacing:0}
+button.act.danger{color:var(--neg);border-color:var(--neg);background:transparent}
+button.act.danger:hover:not(:disabled){background:var(--neg);color:#fff}
 button.act:disabled{opacity:.72;cursor:not-allowed;filter:saturate(.55)}
 button.act:focus-visible{outline:3px solid var(--run2);outline-offset:2px}
 /* 檔案輸入框不用 display:none:部分 Safari / WebView 版本對 display:none
@@ -948,7 +955,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <option value="admin">admin</option>
       </select>
       <button class="act" id="bUserAdd" data-i18n="btn.useradd">Add account</button>
-      <button id="bUserRefresh" data-i18n="btn.refreshlog">Refresh</button>
+      <button class="act ghost" id="bUserRefresh" data-i18n="btn.refreshlog">Refresh</button>
     </div>
     <div id="usersNote"></div>
     <div class="tablewrap" style="max-height:44vh">
@@ -968,7 +975,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="note" data-i18n="hint.loginhistory">Successful sign-ins recorded by Supabase. Only administrators can view this page.</div>
     <div class="row" style="margin:12px 0">
       <button class="act" id="bLoginRefresh" data-i18n="btn.refreshlog">Refresh</button>
-      <button id="bLoginExport" data-i18n="btn.exportlog">Export CSV</button>
+      <button class="act ghost" id="bLoginExport" data-i18n="btn.exportlog">Export Excel</button>
     </div>
     <div id="loginHistoryNote"></div>
     <div class="tablewrap" style="max-height:62vh">
@@ -1702,6 +1709,38 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="modalbody" id="bkdBody"></div>
   </div>
 </div>
+<!-- 改帳號資料。三個欄位各自不同性質:帳號是登入身分、名稱只是顯示、
+     Email 是聯絡方式不參與登入 —— 所以每一欄底下各有一句說明。 -->
+<div id="uEditBg" class="modalbg">
+  <div class="modal sketch" id="uEditModal" style="width:min(540px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.useredit">Edit account</span>
+      <button class="mx" id="uEditX">✕</button>
+    </div>
+    <div class="modalbody">
+      <label class="inlab" style="margin-left:0" data-i18n="ph.username">Username</label>
+      <input id="ueUser" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.ueuser">This is what they type to sign in.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="ph.name">Name</label>
+      <input id="ueName" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.uename">Display name only.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="ph.email">Email (optional)</label>
+      <input id="ueMail" class="cell" type="email" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 4px" data-i18n="hint.uemail">Contact address. It is not used to sign in.</p>
+      <div id="uEditNote" class="note warn" style="display:none"></div>
+    </div>
+    <div class="modalft">
+      <span></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="uEditCancel" data-i18n="btn.close">Close</button>
+        <button class="act" id="uEditSave" data-i18n="btn.saveacct">Save</button>
+      </span>
+    </div>
+  </div>
+</div>
+
 <div id="dvSetBg" class="modalbg">
   <div class="modal sketch" id="dvSetModal" style="width:min(960px,100%);height:min(76vh,900px)">
     <div class="modalhd">
@@ -4958,14 +4997,59 @@ function renderUsers(){
       <td>${u.config_name?esc(u.config_name):`<span class="empty">${
           L("未設定","not set")}</span>`}</td>
       <td class="row" style="gap:6px">
-        ${me?"":`<button data-act="role" data-id="${esc(u.id)}" data-role="${
+        <button class="act ghost sm" data-act="edit" data-id="${esc(u.id)}">${
+          L("編輯","Edit")}</button>
+        ${me?"":`<button class="act ghost sm" data-act="role" data-id="${esc(u.id)}" data-role="${
             u.role==="admin"?"user":"admin"}">${
             u.role==="admin"?L("改成 user","Make user"):L("改成 admin","Make admin")}</button>
-          <button data-act="pw" data-id="${esc(u.id)}">${L("改密碼","Password")}</button>
-          <button data-act="del" data-id="${esc(u.id)}" data-email="${esc(u.username||u.email||"")}">${
-            L("刪除","Delete")}</button>`}
+          <button class="act ghost sm" data-act="pw" data-id="${esc(u.id)}">${
+            L("改密碼","Password")}</button>
+          <button class="act sm danger" data-act="del" data-id="${esc(u.id)}" data-email="${
+            esc(u.username||u.email||"")}">${L("刪除","Delete")}</button>`}
       </td></tr>`;
   }).join("");
+}
+/* 改帳號資料。角色和密碼各自有專用的按鈕,這裡只管三個文字欄位。
+   帳號是登入身分:合成信箱的帳號改了,登入用的信箱要跟著改,那件事在
+   Edge Function 裡做 —— 前端不碰認證資料。 */
+let UEDIT=null;
+function ueNote(msg){
+  const el=$("#uEditNote");
+  if(!el) return;
+  el.textContent=msg||"";
+  el.style.display=msg?"":"none";
+}
+function openUserEdit(u){
+  UEDIT=u;
+  $("#ueUser") && ($("#ueUser").value=u.username||"");
+  $("#ueName") && ($("#ueName").value=u.name||"");
+  $("#ueMail") && ($("#ueMail").value=u.contact_email||"");
+  ueNote("");
+  $("#uEditBg") && $("#uEditBg").classList.add("on");
+  setTimeout(()=>{ const f=$("#ueUser"); if(f) f.focus(); },30);
+}
+function closeUserEdit(){
+  $("#uEditBg") && $("#uEditBg").classList.remove("on");
+  UEDIT=null;
+}
+function saveUserEdit(){
+  if(!UEDIT) return;
+  const username=($("#ueUser").value||"").trim().toLowerCase();
+  const name=($("#ueName").value||"").trim();
+  const email=($("#ueMail").value||"").trim();
+  if(!/^[a-z0-9._-]{2,}$/.test(username)){
+    ueNote(L("帳號至少兩個字,只能用英數字和 . _ -。",
+             "Username needs at least 2 characters: letters, digits, . _ - only."));
+    return;
+  }
+  const id=UEDIT.id;
+  adminCall({action:"update",user_id:id,username:username,name:name,email:email})
+    .then(()=>{ closeUserEdit(); return loadUsers(true); })
+    .then(()=>usersNote(id===(ME&&ME.id)
+      ? L("帳號已更新。改了帳號的話,下次要用新的帳號登入。",
+          "Account updated. If you changed the username, sign in with the new one next time.")
+      : L("帳號已更新。","Account updated."),true))
+    .catch(err=>ueNote(err.message));
 }
 /* 綁定放在啟動段呼叫。這一段的位置在 $ 宣告之前,
    在這裡直接執行會踩到 TDZ。 */
@@ -4986,6 +5070,9 @@ $("#tUsers") && ($("#tUsers").onclick=e=>{
     adminCall({action:"set_password",user_id:id,password:pw})
       .then(()=>usersNote(L("密碼已更新。","Password updated."),true))
       .catch(err=>usersNote(err.message,false));
+  }else if(b.dataset.act==="edit"){
+    const u=USERS.find(x=>x.id===id);
+    if(u) openUserEdit(u);
   }else if(b.dataset.act==="del"){
     /* 刪帳號會連他的費率一起刪掉,而且救不回來。 */
     if(!confirm(L("刪除 "+b.dataset.email+" ?他的費率設定會一起消失,無法復原。",
@@ -5021,6 +5108,10 @@ $("#bUserAdd") && ($("#bUserAdd").onclick=()=>{
     .catch(err=>usersNote(err.message,false));
 });
 $("#bUserRefresh") && ($("#bUserRefresh").onclick=()=>loadUsers());
+$("#uEditSave")   && ($("#uEditSave").onclick=saveUserEdit);
+$("#uEditCancel") && ($("#uEditCancel").onclick=closeUserEdit);
+$("#uEditX")      && ($("#uEditX").onclick=closeUserEdit);
+$("#uEditBg")     && ($("#uEditBg").onclick=e=>{ if(e.target.id==="uEditBg") closeUserEdit(); });
 }
 
 function exportLoginHistory(){
@@ -13003,7 +13094,15 @@ const I18N={
   "hint.loginhistory":["由 Supabase 記錄成功登入，只有管理員可以查看。失敗登入與 IP 請至 Supabase Auth Logs 查看。",
     "Successful sign-ins recorded by Supabase. Only administrators can view this page. See Supabase Auth Logs for failed attempts and IP addresses."],
   "btn.refreshlog":["重新整理","Refresh"],
-  "btn.exportlog":["匯出 CSV","Export CSV"],
+  "btn.exportlog":["匯出 Excel","Export Excel"],
+  "hd.useredit":["編輯帳號","Edit account"],
+  "btn.saveacct":["儲存","Save"],
+  "hint.ueuser":["登入時輸入的就是這一個。改了以後,對方要用新的帳號登入,舊的不能用。",
+    "This is what they type to sign in. Change it and they must use the new one; the old will not work."],
+  "hint.uename":["只影響清單上的顯示,與登入無關。",
+    "Display only — it has no bearing on signing in."],
+  "hint.uemail":["聯絡用的信箱,選填,不參與登入,也不會寄出任何信件。",
+    "A contact address. Optional, never used to sign in, and nothing is ever sent to it."],
   "th.email":["Email","Email"],
   "th.device":["瀏覽器／裝置","Browser / Device"],
   "th.role":["角色","Role"],

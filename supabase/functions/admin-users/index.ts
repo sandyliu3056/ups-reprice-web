@@ -136,6 +136,47 @@ Deno.serve(async (req) => {
       return reply({ user: { id: data.user?.id, username, role } });
     }
 
+    if (action === "update") {
+      if (!userId) return reply({ error: "user_id required" }, 400);
+      if (!/^[a-z0-9._-]{2,}$/.test(username)) {
+        return reply({ error: "username: at least 2 of a-z 0-9 . _ -" }, 400);
+      }
+      const { data: cur, error: curErr } = await admin.auth.admin.getUserById(userId);
+      if (curErr || !cur?.user) return reply({ error: "no such account" }, 400);
+      const meta = (cur.user.user_metadata || {}) as Record<string, unknown>;
+      const authEmail = String(cur.user.email || "").toLowerCase();
+      const synthetic = authEmail.endsWith(`@${DOMAIN}`);
+      // 角色與密碼不從這裡改 —— 各有專用的動作,混在一起容易誤觸。
+      const patch: Record<string, unknown> = {
+        user_metadata: {
+          ...meta,
+          username,
+          display_name: name || username,
+          contact_email: contactEmail,
+        },
+      };
+      // 帳號就是登入身分。合成信箱的帳號改了帳號,登入信箱要跟著改,否則
+      // 清單上寫著新帳號、實際能登入的還是舊的。
+      // 用真 email 開的帳號不動它的登入信箱:那是本人登入用的東西,
+      // 不是這個表格在管的欄位。
+      if (synthetic && email && email !== authEmail) patch.email = email;
+      const { error } = await admin.auth.admin.updateUserById(userId, patch);
+      if (error) {
+        const m = /already/i.test(error.message)
+          ? `username "${username}" is taken`
+          : error.message;
+        return reply({ error: m }, 400);
+      }
+      await admin.from("profiles").update({
+        username,
+        name: name || username,
+        contact_email: contactEmail,
+        email: (patch.email as string) || authEmail,
+        updated_at: new Date().toISOString(),
+      }).eq("id", userId);
+      return reply({ ok: true, email_changed: !!patch.email });
+    }
+
     if (action === "set_role") {
       if (!userId) return reply({ error: "user_id required" }, 400);
       if (userId === who.user.id && role !== "admin") {
