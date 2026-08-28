@@ -930,7 +930,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
-  <button role="tab" aria-selected="false" data-p="dash"   class="display" data-i18n="tab.dash">Dashboard</button>
   <button role="tab" aria-selected="false" data-p="setting" class="display" data-i18n="tab.setting">Settings</button>
   <button role="tab" aria-selected="false" data-p="admin"  class="display" data-i18n="tab.admin">Admin</button>
 </div>
@@ -1014,8 +1013,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div class="readyrow" id="filesReady"></div>
     <div id="invNote"></div>
     <div class="row" style="margin-top:14px">
-      <button class="act run" id="bRun" data-i18n="btn.run" disabled>Generate Reprice Report</button>
-      <button class="act alt" id="bCsv" data-i18n="btn.csv" disabled>Generate Profit Report</button>
+      <button class="act run" id="bRun" data-i18n="btn.process" disabled>Process Invoice</button>
     </div>
     <div class="row" style="margin-top:14px">
       <button class="act ghost" id="bSaveTop" data-i18n="btn.save">Save Settings</button>
@@ -1602,10 +1600,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   #p-dash .dmenu{transition:none}
   #p-dash .dspin{animation:none}}
 </style>
-<section class="page" id="p-dash">
-  <div class="dwrap" id="dashBody"></div>
-</section>
-
 <!-- ==================== Settings ==================== -->
 <section class="page" id="p-setting">
   <div class="lf sketch">
@@ -6656,7 +6650,6 @@ function showTab(p){
     s.classList.toggle("on", s.id==="p-"+p));
   sceneShow(p==="files");
   if(p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
-  if(p==="dash"&&typeof renderDashboard==="function") renderDashboard();
   if(p==="cus"&&typeof renderCustomers==="function") renderCustomers();
 }
 
@@ -13286,9 +13279,8 @@ async function runReport(ing, ships){
       .then(()=>prefetchAddressClass(SHIPS).catch(()=>0))
       .then(()=>{
     RATED=SHIPS.map(s=>priceShipment(CFG,s));
-    /* 活頁簿先倒出來,再更新畫面。順序反過來的話,任何一個畫面函式出錯
-       都會把使用者按 Generate 真正要的那份檔案一起帶走。 */
-    exportReport();
+    /* 這支工具不倒重計價活頁簿 —— 按下去要的是「把帳單算好,好拿去對帳」,
+       不是每次都掉一份幾萬列的檔案下來。要那份檔案請用重算工具。 */
     /* 住宅／商業改用系統判定,這是一則說明,不是這次跑批失敗 —— 以前它走
        toast(…, false):紅底、驚嘆號、而且不會自己消失,就卡在報表產出的
        前一刻。從按下 Generate 的人看過去,那就是「先跳一個錯,才生出帳單」。
@@ -14242,7 +14234,7 @@ let HIST_PAGE=0, HIST_Q=null;
    每個期號一張工作表(表名 MMDDYY),外加 Overview;
    帳戶層的費用與對不上的追蹤號放在 Account Charges。
    賣價來自報表的 Total,成本直接取帳單上該追蹤號所有層的淨額總和。 */
-$("#bCsv").onclick=async ()=>{
+$("#bCsv") && ($("#bCsv").onclick=async ()=>{
   if(!RATED||!RATED.length){ setStatus(L("請先產生報表","Build a report first")); return; }
   const r2=v=>Math.round(v*100)/100;
   const r6=v=>Math.round(v*1e6)/1e6;
@@ -14408,7 +14400,7 @@ $("#bCsv").onclick=async ()=>{
   setStatus(ok?((LANG?"Statement exported: ":"對帳單已匯出:")+ovRows.length
                 +(LANG?" invoice sheet(s), profit ":" 期,利潤 ")+money(tSell-tCost))
              :L("已取消存檔","Save cancelled"));
-};
+});
 
 /* 桌面版 _SERVICE_PATTERNS 的完整移植(:16811-16888)。順序就是規則:
    normalize_service 回傳第一個命中的,所以「next day air early」一定要
@@ -14872,7 +14864,6 @@ const I18N={
   "th.recongap":["對 UPS 差異","vs UPS"],
   "hint.reconcols":["毛利是客戶實付減去 UPS 實收。系統重算是照該客戶的費率層級算出這幾件本來該是多少;拿它跟 UPS 實收比,看得出帳單與合約有沒有出入。「UPS 實收」不含帳戶層費用 —— 那些費用沒有追蹤號,對不到任何一張單;該不該計入由帳務決定,和儀表板的處理一致。",
     "Profit is what the customer paid less what UPS charged. Recomputed is what the customer's own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement. Charged by UPS excludes account-level charges: they carry no tracking number and belong to no order, so whether they count is your accounting call — the dashboard treats them the same way."],
-  "tab.dash":["📊 儀表板","📊 Dashboard"],
   "tab.setting":["⚙️ 設定","⚙️ Settings"],
   "hd.setting":["設定","Settings"],
   "hint.setting":["重新計價的一般行為設定,改動會存到你的帳號。","General repricing behaviour. Changes are saved to your account."],

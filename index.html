@@ -460,9 +460,6 @@ td.neg{color:var(--neg)}
 #chgModal table th,#chgModal table td{padding:3px 9px;line-height:1.45}
 #chgModal table td{font-size:12px}
 #chgModal .modalbody{padding-top:12px}
-#p-recon .mny.neg{color:var(--neg)}
-#p-recon .mny.pos{color:var(--run2)}
-#p-recon tfoot td{border-top:2px solid var(--line);background:var(--stripe)}
 td.wrap{white-space:normal;min-width:190px}
 td.cells{white-space:normal}
 .empty{color:var(--muted);text-align:center;padding:24px 10px;font-size:13px}
@@ -926,7 +923,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <button role="tab" aria-selected="false" data-p="rules"  class="display" data-i18n="tab.rules">Surcharge Setup</button>
   <button role="tab" aria-selected="false" data-p="size"   class="display" data-i18n="tab.size">Size Rules</button>
   <button role="tab" aria-selected="false" data-p="chan"   class="display" data-i18n="tab.chan">Channels</button>
-  <button role="tab" aria-selected="false" data-p="cus"    class="display" data-i18n="tab.cus">Mapping</button>
+  <button role="tab" aria-selected="false" data-p="chg"    class="display" data-i18n="tab.chg">Charge Codes</button>
   <button role="tab" aria-selected="false" data-p="demand" class="display" data-i18n="tab.demand">Demand Surcharge</button>
   <button role="tab" aria-selected="false" data-p="hist"   class="display" data-i18n="tab.hist">Invoice History</button>
   <button role="tab" aria-selected="false" data-p="code"   class="display" data-i18n="tab.code">Code Lookup</button>
@@ -1157,35 +1154,13 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
 </section>
 
-<!-- ==================== 客戶對照 ====================
-     帳單上沒有「這批貨是誰的」這個欄位。這一頁把帳單上有的東西(UPS 帳號、
-     兩個參考號)對到你自己的客戶代碼 —— 那個代碼才是以後接 WMS 的共通語言。
-     這一頁不參與計價,任何金額都不會因為這裡設了什麼而改變。 -->
-<section class="page" id="p-cus">
-  <div class="subtabs" id="cusSide">
-    <button data-c="cus" aria-selected="true"  data-i18n="ct.cusreg">Customers</button>
-    <button data-c="recon" aria-selected="false" data-i18n="ct.recon">Reconciliation</button>
-  </div>
-  <div id="cusPane">
-  <div class="lf sketch">
-    <h3 class="display"><span class="em">👤</span><span data-i18n="hd.cusreg">Customers</span></h3>
-    <p class="hint" style="margin:0 0 11px;max-width:62ch" data-i18n="hint.cusreg">Your own list. Assign a rate level and this customer’s shipments are repriced at that level. The list is shared across the whole account and does not change when you switch levels.</p>
-    <div class="tablewrap" style="max-height:30vh"><table id="tCus"><thead><tr>
-      <th data-i18n="th.cuscode">Code</th>
-      <th data-i18n="th.cusname">Name</th>
-      <th data-i18n="th.cuslevel">Rate level</th>
-      <th class="num" data-i18n="th.cusrecon">Last reconciliation</th>
-      <th></th>
-    </tr></thead><tbody></tbody></table></div>
-    <div class="row" style="margin-top:9px">
-      <input id="cusCode" class="cell" data-i18n-ph="ph.cuscode" style="width:150px;text-align:left">
-      <input id="cusName" class="cell" data-i18n-ph="ph.cusname" style="width:190px;text-align:left">
-      <button class="act" id="bCusAdd" data-i18n="btn.cusadd">Add customer</button>
-      <span id="cusMsg" class="savenote"></span>
-    </div>
-  </div>
-
-
+<!-- ==================== 費用代碼 ====================
+     共通語言:系統內部叫「Residential Surcharge」,你們的會計科目可能叫別的,
+     對外送資料時要送的是你自己的代碼,不是這裡的欄名。填了才送,沒填就沿用
+     原本的名稱。這一頁不參與計價。
+     客戶名單與 WMS/TMS 對帳搬去 UPS Reconciliation 了 —— 重算和對帳是兩件事,
+     這支工具只管重算。 -->
+<section class="page" id="p-chg">
   <div class="lf sketch" id="chgCard">
     <h3 class="display"><span class="em">🏷</span><span data-i18n="hd.chgcode">Charge codes</span></h3>
     <p class="hint" style="margin:0 0 11px;max-width:70ch" data-i18n="hint.chgcode">Give each charge your own code and name. Blank means the charge keeps the name shown here. Nothing about pricing changes — this is what gets sent out when the data leaves this tool.</p>
@@ -1198,58 +1173,8 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <input type="file" id="fChgImport" accept=".csv,.txt,.xlsx,.xls" style="display:none">
     </div>
   </div>
-  </div>
-
-  <!-- 共通語言的另一半:費用的名字。系統內部叫「Residential Surcharge」,
-       你們的會計科目可能叫別的,WMS 那邊又是另一個 —— 對外送資料時要送的是
-       你自己的代碼,不是這裡的欄名。填了才送,沒填就沿用原本的名稱。 -->
-
-  <div id="reconPane" hidden>
-  <div class="lf sketch">
-    <h3 class="display"><span class="em">⚖️</span><span data-i18n="hd.recon">WMS / TMS reconciliation</span></h3>
-    <p class="hint" style="margin:0 0 11px;max-width:74ch" data-i18n="hint.recon">The invoice already holds the charge detail. This file adds the two facts it cannot know: which customer an order belongs to, and what that customer was billed. One order per row; for a multi-package order put every tracking number in one cell, separated by commas.</p>
-    <div class="row">
-      <button class="act ghost sm" id="bReconTpl" data-i18n="btn.recontpl">Download template</button>
-      <button class="act" id="bReconImp" data-i18n="btn.reconimp">Import filled template</button>
-      <input type="file" id="fRecon" accept=".xlsx,.xls,.csv,.txt" style="display:none">
-      <span style="flex:1 1 auto"></span>
-      <button class="act ghost sm" id="bReconXls" data-i18n="btn.reconxls">Export reconciliation</button>
-    </div>
-    <div class="row" style="margin-top:8px"><span id="reconMsg" class="savenote"></span></div>
-  </div>
-
-  <div class="lf sketch" id="reconIssueCard" hidden>
-    <h3 class="display"><span class="em">🚫</span><span data-i18n="hd.reconiss">Rows that could not be accepted</span></h3>
-    <div id="reconIssSum" class="hint" style="margin:0 0 11px"></div>
-    <div class="tablewrap" style="max-height:40vh"><table id="tReconIss"><thead><tr>
-      <th class="num" style="width:70px" data-i18n="th.reconline">Line</th>
-      <th data-i18n="th.reconwhy">Reason</th>
-    </tr></thead><tbody></tbody></table></div>
-  </div>
-
-  <div class="lf sketch" id="reconResCard" hidden>
-    <h3 class="display"><span class="em">📊</span><span data-i18n="hd.reconres">By customer</span></h3>
-    <div id="reconWarn" hidden></div>
-    <div class="tablewrap" style="max-height:56vh"><table id="tRecon"><thead><tr>
-      <th data-i18n="th.cuscode">Code</th>
-      <th data-i18n="th.cusname">Name</th>
-      <th data-i18n="th.cuslevel">Rate level</th>
-      <th class="num" data-i18n="th.reconorders">Orders</th>
-      <th class="num" data-i18n="th.reconpkgs">Packages</th>
-      <th class="num" data-i18n="th.reconbilled">Billed to customer</th>
-      <th class="num" data-i18n="th.reconups">Charged by UPS</th>
-      <th class="num" data-i18n="th.reconprofit">Profit</th>
-      <th class="num" data-i18n="th.reconmargin">Margin</th>
-      <th class="num" data-i18n="th.reconrep">Recomputed</th>
-      <th class="num" data-i18n="th.recongap">vs UPS</th>
-    </tr></thead><tbody></tbody><tfoot></tfoot></table></div>
-    <p class="hint" style="margin:11px 0 0;max-width:76ch" data-i18n="hint.reconcols">Profit is what the customer paid less what UPS charged. Recomputed is what the customer’s own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement. Charged by UPS excludes account-level charges: they carry no tracking number and belong to no order, so whether they count is your accounting call — the dashboard treats them the same way.</p>
-  </div>
-  </div>
-
 </section>
 
-<!-- ==================== Channels ==================== -->
 <section class="page" id="p-chan">
   <div class="lf sketch">
     <h3 class="display"><span class="em">➕</span><span data-i18n="hd.chandata">Add a new channel</span></h3>
@@ -1878,35 +1803,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <th data-i18n="th.chgmyname">Your name</th>
         <th data-i18n="th.chgsrc">Source</th>
       </tr></thead><tbody></tbody></table></div>
-    </div>
-  </div>
-</div>
-
-<div id="cusEditBg" class="modalbg">
-  <div class="modal sketch" id="cusEditModal" style="width:min(520px,100%)">
-    <div class="modalhd">
-      <span data-i18n="hd.cusedit">Edit customer</span>
-      <button class="mx" id="cusEditX">✕</button>
-    </div>
-    <div class="modalbody">
-      <label class="inlab" style="margin-left:0" data-i18n="th.cuscode">Code</label>
-      <input id="ceCode" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
-      <p class="hint" style="margin:0 0 12px" data-i18n="hint.cecode">Letters, digits, . _ - only. Change it and every rule and assignment pointing at this customer follows.</p>
-
-      <label class="inlab" style="margin-left:0" data-i18n="th.cusname">Name</label>
-      <input id="ceName" class="cell" style="width:100%;text-align:left;margin:4px 0 12px">
-
-      <label class="inlab" style="margin-left:0" data-i18n="th.cuslevel">Rate level</label>
-      <span class="foldwrap" style="display:block;margin:4px 0 2px"><select id="ceLevel" class="fold" style="width:100%"></select></span>
-      <p class="hint" style="margin:0 0 4px" data-i18n="hint.celevel">This customer’s shipments are repriced at this level.</p>
-      <div id="cusEditNote" class="note warn" style="display:none;margin-top:10px"></div>
-    </div>
-    <div class="modalft">
-      <span></span>
-      <span class="row" style="gap:8px">
-        <button class="act ghost" id="cusEditCancel" data-i18n="btn.close">Close</button>
-        <button class="act" id="cusEditSave" data-i18n="btn.cussave">Save customer</button>
-      </span>
     </div>
   </div>
 </div>
@@ -5524,36 +5420,6 @@ function exportLoginHistory(){
     .then(ok=>setStatus(ok?L("登入紀錄已匯出","Login history exported")
                           :L("已取消存檔","Save cancelled")));
 }
-/* =====================================================================
-   客戶對照
-   ---------------------------------------------------------------------
-   帳單上沒有「這批貨是誰的」。有的只是 UPS 帳號和兩個參考號 —— 那是出貨時
-   自己帶進去的字串。這一段把那些字串對到你自己的客戶代碼。
-
-   客戶代碼是刻意獨立於費率的:WMS 那邊知道「這張單是 ACME 的」,它不知道
-   也不該知道你賣 ACME 什麼價。以後接系統,對方給的就是這個代碼,價錢那一
-   層留在你自己手上。
-
-   兩種指定,規則優先:
-     · 規則  —— 由上往下,第一個命中的算數。一條抵幾十筆,新單自己命中。
-     · 逐筆  —— 規則收不掉的個案,手動指定,記在 customer_map 裡。
-   兩者都存在 CFG.raw,所以跟費率一起存、一起跟著帳號走。
-
-   ⚠ 這一段完全不參與計價。priceShipment() 不知道它存在,任何金額都不會
-      因為這裡設了什麼而改變。 */
-function cusReg(){ const a=(CFG&&CFG.raw&&CFG.raw.customers); return Array.isArray(a)?a:[]; }
-function cusEnsure(){
-  if(!CFG||!CFG.raw) return false;
-  if(!Array.isArray(CFG.raw.customers)) CFG.raw.customers=[];
-  return true;
-}
-function cusNameOf(code){
-  const c=cusReg().find(x=>x.code===code);
-  return c?(c.name||c.code):code;
-}
-/* 比對一律轉大寫再比 —— 出貨系統打 so-1234 和 SO-1234 是同一張單,
-   為了大小寫讓人多指定一次是沒有道理的。 */
-const cusNorm=v=>String(v==null?"":v).trim().toUpperCase();
 /* 費用代碼:共通語言的另一半。系統內部叫 "Residential Surcharge",你們的
    會計科目、WMS、客戶各自可能叫別的。這裡登記你自己的代碼與名稱,資料送
    出去時用它。留白就沿用內部名稱 —— 不強迫每一項都取名。
@@ -5788,7 +5654,7 @@ function bindLevels(){
           "There are unsaved changes. Switching stores this level first, then loads \""+nm+"\". Continue?"))) return;
       if(rlSwitch(b.dataset.lvluse)){
         renderLevels(); renderConfigTabs();
-        if(typeof renderCustomers==="function") renderCustomers();
+        if(typeof renderChgCodes==="function") renderChgCodes();
         toast(L("已切換到「"+nm+"」。","Switched to \""+nm+"\"."),true);
       }else lvlMsg(L("切換失敗。","Could not switch."),false);
       return;
@@ -5814,95 +5680,7 @@ function bindLevels(){
     }
   });
 }
-/* ---- 對照設定的畫面 ---- */
-let CUS_TAB="cus";
-const CUS_PANE={cus:"cusPane", recon:"reconPane"};
-function cusNote(m,ok){ const e=$("#cusMsg"); if(e){ e.textContent=m||"";
-  e.className="savenote"+(m&&!ok?" bad":""); } }
-function cusSaveAnd(fn){
-  if(!cusEnsure()) return;
-  fn();
-  CFG=readConfig(CFG.raw); DIRTY=true;
-  renderCustomers();
-  saveSettings();
-}
-/* 客戶指到的層級要顯示名字,不是內部 id。層級被刪掉的話照樣把 id 顯出來 ——
-   悄悄顯示成「未指定」會讓人以為本來就沒設過。 */
-function cusLevelLabel(id){
-  if(!id) return "";
-  const o=rlStore();
-  const e=o&&o.list.find(x=>x.id===id);
-  return e?e.name:id+L(" (層級已刪除)"," (level deleted)");
-}
-let CUS_EDIT="";
-function cusEditNote(m){
-  const e=$("#cusEditNote"); if(!e) return;
-  e.textContent=m||""; e.style.display=m?"":"none";
-}
-function openCusEdit(code){
-  const c=cusReg().find(x=>x.code===code); if(!c) return;
-  CUS_EDIT=code;
-  $("#ceCode") && ($("#ceCode").value=c.code);
-  $("#ceName") && ($("#ceName").value=c.name||"");
-  const sel=$("#ceLevel");
-  if(sel){
-    const list=((rlStore()||{}).list)||[];
-    /* 指到一個已經被刪掉的層級時也要選得回原值,不然開一次視窗就被清空。 */
-    const gone=c.level&&!list.some(e=>e.id===c.level);
-    sel.innerHTML=`<option value="">${esc(L("未指定","Not set"))}</option>`
-      +list.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")
-      +(gone?`<option value="${esc(c.level)}">${esc(cusLevelLabel(c.level))}</option>`:"");
-    sel.value=c.level||"";
-  }
-  cusEditNote("");
-  $("#cusEditBg") && $("#cusEditBg").classList.add("on");
-  $("#ceCode") && $("#ceCode").focus();
-}
-function closeCusEdit(){
-  CUS_EDIT="";
-  $("#cusEditBg") && $("#cusEditBg").classList.remove("on");
-}
-function saveCusEdit(){
-  const was=CUS_EDIT; if(!was) return;
-  const code=cusNorm($("#ceCode").value);
-  const name=($("#ceName").value||"").trim();
-  const level=(($("#ceLevel")||{}).value)||"";
-  if(!/^[A-Z0-9._-]{2,}$/.test(code)){
-    cusEditNote(L("代碼至少兩個字,只能用英數字和 . _ - —— 以後要送給別的系統,中文會出事。",
-                  "A code needs at least 2 characters: letters, digits, . _ - only.")); return; }
-  if(code!==was && cusReg().some(c=>c.code===code)){
-    cusEditNote(L("這個代碼已經有了。","That code already exists.")); return; }
-  cusSaveAnd(()=>{
-    const c=cusReg().find(x=>x.code===was); if(!c) return;
-    c.code=code; c.name=name||code; c.level=level;
-  });
-  closeCusEdit();
-  cusNote(L("已更新 "+code,"Updated "+code),true);
-}
-function renderCustomers(){
-  if(!CFG) return;
-  cusEnsure(); chgEnsure();
-  /* 「最近對帳」那一欄的來源是最後一次跑的對帳。以前它是靠規則從帳單的參考
-     號猜出這一筆是誰的 —— 現在 WMS 的檔案自己就寫著客戶代號,不必猜了。 */
-  const per={};
-  for(const a of ((RECON&&RECON.res&&RECON.res.cus)||[])) per[a.code]={n:a.orders, amt:a.amt};
-  const reg=cusReg();
-  const tb=$("#tCus")&&$("#tCus").tBodies[0];
-  if(tb) tb.innerHTML=reg.length?reg.map(c=>{
-    const p=per[c.code];
-    const lv=cusLevelLabel(c.level);
-    return `<tr><td class="mono">${esc(c.code)}</td><td>${esc(c.name||"")}</td>
-      <td>${lv?esc(lv):`<span class="empty">—</span>`}</td>
-      <td class="num">${p?p.n+" · "+money(p.amt):`<span class="empty">—</span>`}</td>
-      <td class="row" style="gap:6px;flex-wrap:nowrap">
-        <button class="act ghost sm" data-cusedit="${esc(c.code)}">${L("編輯","Edit")}</button>
-        <button class="act sm danger" data-cusdel="${esc(c.code)}">${L("刪除","Delete")}</button>
-      </td></tr>`;
-  }).join("")
-    :`<tr><td colspan="5" class="empty">${L("還沒有客戶。先在下面新增一個。",
-       "No customers yet. Add one below.")}</td></tr>`;
-  renderChgCodes();
-}
+/* ---- 費用代碼的畫面 ---- */
 function renderChgCodes(){
   if(!CFG) return;
   chgEnsure();
@@ -5942,58 +5720,11 @@ function openChgView(){
   $("#chgSearch") && $("#chgSearch").focus();
 }
 function closeChgView(){ $("#chgBg") && $("#chgBg").classList.remove("on"); }
-function showCusTab(which){
-  CUS_TAB=CUS_PANE[which]?which:"cus";
-  for(const k of Object.keys(CUS_PANE)){
-    const p=$("#"+CUS_PANE[k]);
-    if(p) p.hidden=(CUS_TAB!==k);
-  }
-  /* 對帳那一頁的內容是算出來的,不是靜態版面 —— 切過來的時候要重畫,
-     不然上一次的結果會停在畫面上。 */
-  if(CUS_TAB==="recon" && typeof renderRecon==="function") renderRecon();
-  const side=$("#cusSide");
-  if(side) [...side.children].forEach(b=>
-    b.setAttribute("aria-selected", b.dataset.c===CUS_TAB));
-}
-function bindCustomers(){
-  $("#cusSide") && ($("#cusSide").onclick=e=>{
-    const b=e.target.closest("button[data-c]"); if(!b) return;
-    showCusTab(b.dataset.c); renderCustomers();
-  });
-
-  $("#bCusAdd") && ($("#bCusAdd").onclick=()=>{
-    const code=cusNorm($("#cusCode").value);
-    const name=($("#cusName").value||"").trim();
-    if(!/^[A-Z0-9._-]{2,}$/.test(code)){
-      cusNote(L("代碼至少兩個字,只能用英數字和 . _ - —— 以後要送給別的系統,中文會出事。",
-                "A code needs at least 2 characters: letters, digits, . _ - only."),false); return; }
-    if(cusReg().some(c=>c.code===code)){
-      cusNote(L("這個代碼已經有了。","That code already exists."),false); return; }
-    cusSaveAnd(()=>CFG.raw.customers.push({code, name:name||code, level:""}));
-    $("#cusCode").value=""; $("#cusName").value="";
-    cusNote(L("已新增 "+code,"Added "+code),true);
-  });
-  $("#cusEditX")      && ($("#cusEditX").onclick=closeCusEdit);
-  $("#cusEditCancel") && ($("#cusEditCancel").onclick=closeCusEdit);
-  $("#cusEditSave")   && ($("#cusEditSave").onclick=saveCusEdit);
-  $("#cusEditBg")     && ($("#cusEditBg").onclick=e=>{
-    if(e.target.id==="cusEditBg") closeCusEdit(); });
-  $("#tCus") && ($("#tCus").onclick=e=>{
-    const ed=e.target.closest("button[data-cusedit]");
-    if(ed){ openCusEdit(ed.dataset.cusedit); return; }
-    const b=e.target.closest("button[data-cusdel]"); if(!b) return;
-    const code=b.dataset.cusdel;
-    /* 手上這份對帳結果還在用這個代號的話,刪掉之後那幾張單就無主了 ——
-       問一聲再刪。沒在用的就直接刪,不必為了一致性多按一次。 */
-    const inUse=((RECON&&RECON.res&&RECON.res.cus)||[]).some(a=>a.code===code);
-    if(inUse && !confirm(L("目前這份對帳結果裡有「"+code+"」的單。刪掉客戶不會動到那份結果,但下一次匯入就認不得這個代號了。要繼續嗎?",
-        "The current reconciliation still has orders under \""+code+"\". Deleting the customer leaves that result alone, but the next import will not recognise the code. Continue?"))) return;
-    cusSaveAnd(()=>{ CFG.raw.customers=cusReg().filter(c=>c.code!==code); });
-  });
-  $("#chgSearch") && ($("#chgSearch").oninput=()=>renderChgCodes());
-  $("#bChgView") && ($("#bChgView").onclick=openChgView);
-  $("#chgX")     && ($("#chgX").onclick=closeChgView);
-  $("#chgBg")    && ($("#chgBg").onclick=e=>{ if(e.target.id==="chgBg") closeChgView(); });
+function bindCharges(){
+  $("#chgSearch")  && ($("#chgSearch").oninput=()=>renderChgCodes());
+  $("#bChgView")   && ($("#bChgView").onclick=openChgView);
+  $("#chgX")       && ($("#chgX").onclick=closeChgView);
+  $("#chgBg")      && ($("#chgBg").onclick=e=>{ if(e.target.id==="chgBg") closeChgView(); });
   $("#bChgExport") && ($("#bChgExport").onclick=exportChgCodes);
   $("#bChgImport") && ($("#bChgImport").onclick=()=>$("#fChgImport").click());
   $("#fChgImport") && ($("#fChgImport").onchange=e=>{
@@ -6001,7 +5732,6 @@ function bindCustomers(){
     if(f) importChgCodes(f);
     e.target.value="";
   });
-  showCusTab("cus");
 }
 /* 匯回代碼表。只認 Charge 和 Your Code / Your Name 三欄,對不到名稱的列
    逐一列出來 —— 安靜地略過等於「我改了但沒生效」,那最難查。 */
@@ -6638,7 +6368,7 @@ function showTab(p){
   sceneShow(p==="files");
   if(p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
   if(p==="dash"&&typeof renderDashboard==="function") renderDashboard();
-  if(p==="cus"&&typeof renderCustomers==="function") renderCustomers();
+  if(p==="chg"&&typeof renderChgCodes==="function") renderChgCodes();
 }
 
 /* =====================================================================
@@ -10109,332 +9839,6 @@ function dynDelete(){
   setStatus((LANG?"Deleted ":"已刪除 ")+gone.length);
 }
 const DYN_COLS=["AS Code","AR","Surcharge Name","Type","Fuel Eligible","Enabled"];
-/* =====================================================================
-   WMS / TMS 對帳
-   ---------------------------------------------------------------------
-   照實務的四步走:
-     1. WMS / TMS 出資料 —— 同仁填模板,一張系統單一列
-     2. 用追蹤號對上這一期 UPS 帳單的那幾筆
-     3. 照該客戶指定的費率層級重算
-     4. 三個數字擺在一起:客戶實收、UPS 實收、系統重算
-
-   模板只收四件必填:單號、追蹤號、客戶代號、整張單向客戶收的總額。
-   附加費明細不跟 WMS 要 —— 那些在 UPS 帳單上,帳單上的每一筆都帶著正式
-   代碼;WMS 標籤系統那邊的欄位是各家自己取的,猜不得。
-
-   重算沒有第二套引擎。priceShipment 收的是 cfg 參數而不是全域 CFG,所以
-   「一個客戶一個層級」只是換一份 cfg 傳進去,計價那一側一行都不用改。
-   ===================================================================== */
-const RECON_SHEET="Shipments";
-const RECON_COL={ order:"Order Number", trk:"Tracking Numbers",
-                  cus:"Customer Code",  amt:"Total Amount Billed to Customer",
-                  date:"Ship Date" };
-const RECON_REQ=["order","trk","cus","amt"];
-let RECON=null;
-
-/* 兩側的追蹤號要走同一個正規化,不然「1Z 123 456」和「1Z123456」永遠對不上。
-   只去掉空白和連字號 —— 再多刪就開始改動內容了。 */
-const reconTrk=v=>String(v==null?"":v).toUpperCase().replace(/[\s-]+/g,"");
-const reconTxt=v=>String(v==null?"":v).trim();
-
-/* 每一層的 cfg 只讀一次就留著。readConfig 會往設定裡補預設值,所以給它一份
-   複本 —— 直接讀原件會改到收起來的那一層。
-   回傳 null 的意思是「這個層級已經不在了」,由呼叫端決定怎麼講,不要默默
-   退回現用層當作沒事。 */
-const RECON_CFG=new Map();
-function reconCfgFor(level){
-  const o=rlStore();
-  if(!level||!o||level===o.active) return CFG;
-  if(RECON_CFG.has(level)) return RECON_CFG.get(level);
-  let cfg=null;
-  const raw=o.cfg[level];
-  if(raw){ try{ cfg=readConfig(JSON.parse(JSON.stringify(raw))); }catch(e){ cfg=null; } }
-  RECON_CFG.set(level,cfg);
-  return cfg;
-}
-
-/* --------------------------------------------------------------------
-   模板
-   -------------------------------------------------------------------- */
-async function reconTemplate(){
-  const hd=[RECON_COL.order,RECON_COL.trk,RECON_COL.cus,RECON_COL.amt,RECON_COL.date];
-  const req=new Set([RECON_COL.order,RECON_COL.trk,RECON_COL.cus,RECON_COL.amt]);
-  /* 必填的欄名反白,選填的用淺底。模板裡不寫任何說明文字 —— 說明是另一份
-     文件,混在一起的話同仁會在說明那一列上開始填資料。 */
-  const H=n=>({v:n,t:"s",s:{bold:true,align:"left",
-      fill:req.has(n)?"351C15":"EFE3CB", color:req.has(n)?"FFFFFF":"351C15"}});
-  const CH=n=>({v:n,t:"s",s:{bold:true,align:"left",fill:"351C15",color:"FFFFFF"}});
-  const reg=cusReg();
-  const sheets=[
-    {name:RECON_SHEET, rows:[hd.map(H)], freeze:{r:1,c:0}, filter:"A1:E1",
-     cols:[{w:22},{w:38},{w:18},{w:30},{w:14}]},
-    /* 客戶名單只是下拉選單的來源。Excel 的清單驗證一定要指向活頁簿裡的一個
-       範圍,所以這一頁必須存在;但它不是給人填的,所以藏起來 —— 模板打開
-       就只有一頁,要填哪裡沒有第二種解釋。 */
-    {name:"Customers", hidden:true, freeze:{r:1,c:0}, cols:[{w:18},{w:34}],
-     rows:[[CH("Customer Code"),CH("Customer Name")]]
-       .concat(reg.map(c=>[c.code, c.name||c.code]))}
-  ];
-  /* 客戶名單是空的就不下驗證 —— 來源範圍指到一列空白,Excel 會判檔案有問題。 */
-  if(reg.length) sheets[0].dv=[{
-    sqref:"C2:C20000",
-    list:"Customers!$A$2:$A$"+(reg.length+1),
-    title:L("代碼不在名單上","Unknown customer code"),
-    msg:L("請從 Customers 分頁選一個代碼。","Pick a code from the Customers sheet.")}];
-  await xlWrite(sheets,"WMS_Reconciliation_Template.xlsx");
-  reconMsg(L("模板已下載,含客戶 "+reg.length+" 筆。",
-             "Template downloaded with "+reg.length+" customer(s)."), true);
-}
-
-/* --------------------------------------------------------------------
-   讀模板
-   -------------------------------------------------------------------- */
-function reconParse(sheetRows){
-  const rows=(sheetRows||[]).filter(r=>(r||[]).some(c=>reconTxt(c)!==""));
-  if(rows.length<2) return {err:L("這份檔案裡沒有資料列。","The file has no data rows.")};
-  const head=rows[0].map(reconTxt);
-  const ix={};
-  for(const k of Object.keys(RECON_COL)){
-    const want=RECON_COL[k].toLowerCase();
-    ix[k]=head.findIndex(h=>h.toLowerCase()===want);
-  }
-  const gone=RECON_REQ.filter(k=>ix[k]<0).map(k=>RECON_COL[k]);
-  if(gone.length) return {err:L("模板少了這幾欄:","The template is missing these columns: ")
-                              +gone.join(", ")};
-  const out=[], issues=[];
-  const seenOrder=new Map(), seenTrk=new Map();
-  const known=new Set(cusReg().map(c=>c.code));
-  for(let i=1;i<rows.length;i++){
-    const r=rows[i], ln=i+1;
-    const cell=k=>ix[k]>=0?reconTxt(r[ix[k]]):"";
-    const order=cell("order");
-    const cus=cusNorm(cell("cus"));
-    const amtRaw=cell("amt");
-    const trks=cell("trk").split(/[,;\n\r]+/).map(reconTrk).filter(Boolean);
-    const blank=[];
-    if(!order)        blank.push(RECON_COL.order);
-    if(!trks.length)  blank.push(RECON_COL.trk);
-    if(!cus)          blank.push(RECON_COL.cus);
-    if(!amtRaw)       blank.push(RECON_COL.amt);
-    if(blank.length){ issues.push({ln, kind:"blank", what:blank.join(", ")}); continue; }
-    if(!/^-?\d+(\.\d+)?$/.test(amtRaw.replace(/[$,\s]/g,""))){
-      issues.push({ln, kind:"amt", what:amtRaw}); continue; }
-    if(!known.has(cus)){ issues.push({ln, kind:"cus", what:cus}); continue; }
-    if(seenOrder.has(order)){
-      issues.push({ln, kind:"dupOrder", what:order, at:seenOrder.get(order)}); continue; }
-    const clash=trks.find(t=>seenTrk.has(t));
-    if(clash){ issues.push({ln, kind:"dupTrk", what:clash, at:seenTrk.get(clash)}); continue; }
-    seenOrder.set(order,ln);
-    for(const t of trks) seenTrk.set(t,ln);
-    out.push({ln, order, trks, cus,
-              amt:cents(toNum(amtRaw.replace(/[$,\s]/g,""))), date:cell("date")});
-  }
-  return {rows:out, issues};
-}
-
-/* --------------------------------------------------------------------
-   對帳
-   -------------------------------------------------------------------- */
-function reconRun(list){
-  const byTrk=new Map();
-  for(const s of (SHIPS||[])){
-    const k=reconTrk(s.tracking);
-    if(k && !byTrk.has(k)) byTrk.set(k,s);
-  }
-  RECON_CFG.clear();
-  const reg=cusReg();
-  const byCode=new Map(reg.map(c=>[c.code,c]));
-  const orders=[], perCus=new Map(), lostLevel=new Set();
-  for(const e of list){
-    const c=byCode.get(e.cus)||{};
-    let cfg=reconCfgFor(c.level);
-    /* 客戶指到一個已經刪掉的層級。用現用的那一層算得出數字,但不能不說 ——
-       不說的話報表看起來一切正常,而它算的根本不是那個客戶的費率。 */
-    if(cfg===null){ lostLevel.add(e.cus); cfg=CFG; }
-    let cost=0, rep=0;
-    const missTrk=[];
-    for(const t of e.trks){
-      const s=byTrk.get(t);
-      if(!s){ missTrk.push(t); continue; }
-      cost+=toNum(s.upsTotal);
-      try{ rep+=cents(toNum(priceShipment(cfg,s).total)); }catch(err){}
-    }
-    const o={ln:e.ln, order:e.order, cus:e.cus, date:e.date,
-             name:(c.name||e.cus), level:c.level||"",
-             pkgs:e.trks.length, found:e.trks.length-missTrk.length, missTrk,
-             amt:e.amt, cost:cents(cost), rep:cents(rep)};
-    o.profit=cents(o.amt-o.cost);
-    o.gap=cents(o.rep-o.cost);
-    orders.push(o);
-    let a=perCus.get(e.cus);
-    if(!a){ a={code:e.cus, name:o.name, level:o.level,
-               orders:0, pkgs:0, found:0, amt:0, cost:0, rep:0}; perCus.set(e.cus,a); }
-    a.orders++; a.pkgs+=o.pkgs; a.found+=o.found;
-    a.amt+=o.amt; a.cost+=o.cost; a.rep+=o.rep;
-  }
-  const cus=[...perCus.values()].map(a=>{
-    a.amt=cents(a.amt); a.cost=cents(a.cost); a.rep=cents(a.rep);
-    a.profit=cents(a.amt-a.cost); a.gap=cents(a.rep-a.cost);
-    a.margin=a.amt?a.profit/Math.abs(a.amt)*100:null;
-    return a;
-  }).sort((x,y)=>y.amt-x.amt);
-  const tot=cus.reduce((t,a)=>({orders:t.orders+a.orders, pkgs:t.pkgs+a.pkgs,
-      found:t.found+a.found, amt:cents(t.amt+a.amt), cost:cents(t.cost+a.cost),
-      rep:cents(t.rep+a.rep)}), {orders:0,pkgs:0,found:0,amt:0,cost:0,rep:0});
-  tot.profit=cents(tot.amt-tot.cost);
-  tot.gap=cents(tot.rep-tot.cost);
-  tot.margin=tot.amt?tot.profit/Math.abs(tot.amt)*100:null;
-  return {orders, cus, tot, lostLevel:[...lostLevel],
-          unmatched:orders.filter(o=>o.found<o.pkgs)};
-}
-
-/* --------------------------------------------------------------------
-   畫面
-   -------------------------------------------------------------------- */
-function reconMsg(m,ok){
-  const e=$("#reconMsg");
-  if(e){ e.textContent=m||""; e.className="savenote"+(m&&!ok?" bad":""); }
-}
-function reconIssueText(it){
-  const at=it.at?L(" (與第 "+it.at+" 列重複)"," (already on line "+it.at+")"):"";
-  switch(it.kind){
-    case "blank":    return L("必填欄位是空的:","Required field empty: ")+it.what;
-    case "amt":      return L("金額不是數字:","Amount is not a number: ")+it.what;
-    case "cus":      return L("這個客戶代號沒有建檔:","No such customer code: ")+it.what;
-    case "dupOrder": return L("單號重複:","Duplicate order number: ")+it.what+at;
-    case "dupTrk":   return L("同一個追蹤號出現在兩張單上:",
-                              "Tracking number claimed twice: ")+it.what+at;
-    default:         return it.what||"";
-  }
-}
-function renderRecon(){
-  const card=$("#reconResCard"), icard=$("#reconIssueCard");
-  const iss=RECON&&RECON.issues&&RECON.issues.length?RECON.issues:null;
-  if(icard){
-    icard.hidden=!iss;
-    const tb=$("#tReconIss")&&$("#tReconIss").tBodies[0];
-    if(tb&&iss) tb.innerHTML=iss.map(it=>
-      `<tr><td class="num">${it.ln}</td><td>${esc(reconIssueText(it))}</td></tr>`).join("");
-    const n=$("#reconIssSum");
-    if(n&&iss) n.textContent=L(
-      "有 "+iss.length+" 列不能收,整份都沒有匯入。改好再匯一次。",
-      iss.length+" row(s) could not be accepted, so nothing was imported. Fix them and import again.");
-  }
-  const r=RECON&&RECON.res;
-  if(card) card.hidden=!r;
-  if(!r) return;
-  const pc=v=>v==null?`<span class="empty">—</span>`
-                     :(v<0?"-":"")+Math.abs(v).toFixed(1)+"%";
-  const sign=v=>`<span class="mny ${v<0?"neg":(v>0?"pos":"")}">${money(v)}</span>`;
-  const tb=$("#tRecon")&&$("#tRecon").tBodies[0];
-  if(tb) tb.innerHTML=r.cus.map(a=>
-    `<tr><td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td>
-      <td>${a.level?esc(cusLevelLabel(a.level)):`<span class="empty">—</span>`}</td>
-      <td class="num">${a.orders}</td>
-      <td class="num">${a.found===a.pkgs?a.pkgs:a.found+" / "+a.pkgs}</td>
-      <td class="num">${money(a.amt)}</td>
-      <td class="num">${money(a.cost)}</td>
-      <td class="num">${sign(a.profit)}</td>
-      <td class="num">${pc(a.margin)}</td>
-      <td class="num">${money(a.rep)}</td>
-      <td class="num">${sign(a.gap)}</td></tr>`).join("")
-    ||`<tr><td colspan="11" class="empty">—</td></tr>`;
-  const tf=$("#tRecon")&&$("#tRecon").tFoot;
-  if(tf) tf.innerHTML=`<tr><td colspan="3"><b>${esc(L("合計","Total"))}</b></td>
-      <td class="num"><b>${r.tot.orders}</b></td>
-      <td class="num"><b>${r.tot.found===r.tot.pkgs?r.tot.pkgs:r.tot.found+" / "+r.tot.pkgs}</b></td>
-      <td class="num"><b>${money(r.tot.amt)}</b></td>
-      <td class="num"><b>${money(r.tot.cost)}</b></td>
-      <td class="num"><b>${sign(r.tot.profit)}</b></td>
-      <td class="num"><b>${pc(r.tot.margin)}</b></td>
-      <td class="num"><b>${money(r.tot.rep)}</b></td>
-      <td class="num"><b>${sign(r.tot.gap)}</b></td></tr>`;
-  const warn=[];
-  if(r.unmatched.length) warn.push(L(
-    "有 "+r.unmatched.length+" 張單的追蹤號在這期帳單上找不到,那幾件的 UPS 成本算 0。",
-    r.unmatched.length+" order(s) have tracking numbers that are not in this invoice; those packages count as zero UPS cost."));
-  if(r.lostLevel.length) warn.push(L(
-    "這幾個客戶指到的費率層級已經不存在,暫時用現在使用中的層級重算:",
-    "These customers point at a rate level that no longer exists, so the level in use was applied instead: ")
-    +r.lostLevel.join(", "));
-  const w=$("#reconWarn");
-  if(w){ w.innerHTML=warn.map(t=>`<div class="note warn">${esc(t)}</div>`).join("");
-         w.hidden=!warn.length; }
-}
-
-/* --------------------------------------------------------------------
-   匯出
-   -------------------------------------------------------------------- */
-async function reconExport(){
-  const r=RECON&&RECON.res; if(!r) return;
-  const HD=n=>({v:n,t:"s",s:{bold:true,fill:"351C15",color:"FFFFFF",align:"left",wrap:true}});
-  const M={fmt:"#,##0.00"};
-  const sum=[["Customer Code","Customer Name","Rate Level","Orders","Packages Matched",
-    "Packages","Billed to Customer","Charged by UPS","Profit","Margin %",
-    "Recomputed","Recomputed vs UPS"].map(HD)]
-   .concat(r.cus.map(a=>[a.code, a.name, a.level?cusLevelLabel(a.level):"",
-     a.orders, a.found, a.pkgs,
-     {v:a.amt,t:"n",s:M},{v:a.cost,t:"n",s:M},{v:a.profit,t:"n",s:M},
-     {v:a.margin==null?0:+a.margin.toFixed(2),t:"n",s:{fmt:"0.00"}},
-     {v:a.rep,t:"n",s:M},{v:a.gap,t:"n",s:M}]));
-  const det=[["Order Number","Ship Date","Customer Code","Rate Level","Tracking Numbers",
-    "Packages","Packages Matched","Not On Invoice","Billed to Customer",
-    "Charged by UPS","Profit","Recomputed","Recomputed vs UPS"].map(HD)]
-   .concat(r.orders.map(o=>[o.order, o.date, o.cus, o.level?cusLevelLabel(o.level):"",
-     "", o.pkgs, o.found, o.missTrk.join(", "),
-     {v:o.amt,t:"n",s:M},{v:o.cost,t:"n",s:M},{v:o.profit,t:"n",s:M},
-     {v:o.rep,t:"n",s:M},{v:o.gap,t:"n",s:M}]));
-  /* 追蹤號整串塞回去 —— 匯出的這份要能拿去對原檔,少了它就得回頭翻模板。 */
-  r.orders.forEach((o,i)=>{ det[i+1][4]=RECON.list[i]?RECON.list[i].trks.join(", "):""; });
-  await xlWrite([
-    {name:"Summary", rows:sum, freeze:{r:1,c:0}, filter:"A1:L1",
-     cols:[{w:16},{w:26},{w:16},{w:9},{w:12},{w:11},{w:16},{w:15},{w:12},{w:11},{w:14},{w:17}]},
-    {name:"Orders", rows:det, freeze:{r:1,c:0}, filter:"A1:M1",
-     cols:[{w:20},{w:12},{w:16},{w:16},{w:34},{w:10},{w:12},{w:22},{w:16},{w:15},{w:12},{w:14},{w:17}]}
-  ], "WMS_Reconciliation.xlsx");
-  reconMsg(L("已匯出。","Exported."), true);
-}
-
-async function reconImport(file){
-  if(!file) return;
-  if(!CFG){ reconMsg(L("請先載入費率設定。","Load a rate configuration first."),false); return; }
-  if(!SHIPS||!SHIPS.length){
-    reconMsg(L("請先匯入這一期的 UPS 帳單,對帳要拿它來比。",
-               "Import this period's UPS invoice first — there is nothing to reconcile against."),false);
-    return; }
-  reconMsg(L("讀取中…","Reading…"),true);
-  let wb=null;
-  try{ wb=await readWorkbookRows(file); }
-  catch(e){ reconMsg(L("這個檔案讀不開:","Could not read the file: ")+(e&&e.message||e),false); return; }
-  const rows=wb.sheets[RECON_SHEET] || wb.sheets[(wb.order||[])[0]] || wb.sheets[""];
-  if(!rows){ reconMsg(L("找不到 "+RECON_SHEET+" 分頁。","No "+RECON_SHEET+" sheet found."),false); return; }
-  const p=reconParse(rows);
-  if(p.err){ RECON=null; renderRecon(); reconMsg(p.err,false); return; }
-  if(p.issues.length){
-    RECON={issues:p.issues, res:null, list:null};
-    renderRecon();
-    reconMsg(L("有 "+p.issues.length+" 列不能收,整份沒有匯入。",
-               p.issues.length+" row(s) rejected, nothing imported."),false);
-    return; }
-  const res=reconRun(p.rows);
-  RECON={issues:[], res, list:p.rows};
-  renderRecon();
-  reconMsg(L("已對帳 "+p.rows.length+" 張單。","Reconciled "+p.rows.length+" order(s)."),true);
-}
-
-function bindRecon(){
-  $("#bReconTpl") && ($("#bReconTpl").onclick=()=>{ reconTemplate().catch(e=>
-    reconMsg(String(e&&e.message||e),false)); });
-  $("#bReconImp") && ($("#bReconImp").onclick=()=>$("#fRecon").click());
-  $("#fRecon") && ($("#fRecon").onchange=e=>{
-    const f=e.target.files&&e.target.files[0];
-    e.target.value="";
-    reconImport(f).catch(err=>reconMsg(String(err&&err.message||err),false));
-  });
-  $("#bReconXls") && ($("#bReconXls").onclick=()=>{ reconExport().catch(e=>
-    reconMsg(String(e&&e.message||e),false)); });
-}
-
 /* =====================================================================
    重計價報表
    ---------------------------------------------------------------------
@@ -14656,42 +14060,7 @@ const I18N={
   "tab.rules":["💲 附加費設定","💲 Surcharge Setup"],
   "tab.size":["📏 尺寸規則","📏 Size Rules"],
   "tab.chan":["🚚 渠道","🚚 Channels"],
-  "tab.cus":["🔗 對照設定","🔗 Mapping"],
-  "ct.cusreg":["客戶","Customers"],
-  "ct.chgcode":["費用代碼","Charge codes"],
-  "ct.recon":["對帳","Reconciliation"],
   "btn.chgview":["檢視代碼","View codes"],
-  "th.cusrecon":["最近對帳","Last reconciliation"],
-  "hd.cusreg":["客戶","Customers"],
-  "hint.cusreg":["你自己維護的清單。指定費率層級後,這個客戶的出貨就照那一層的費率重算。客戶名單為整個帳號共用,不隨層級切換而改變。",
-    "Your own list. Assign a rate level and this customer's shipments are repriced at that level. The list is shared across the whole account and does not change when you switch levels."],
-  "hd.cusedit":["編輯客戶","Edit customer"],
-  "btn.cussave":["儲存客戶","Save customer"],
-  "hint.cecode":["只能用英數字和 . _ -,至少兩個字。改了代碼,指向這個客戶的規則與人工指定會一併更新。",
-    "Letters, digits, . _ - only, at least two characters. Change it and every rule and assignment pointing at this customer follows."],
-  "hint.celevel":["這個客戶的出貨會照這一層的費率重算。未指定者沿用目前使用中的層級。",
-    "This customer's shipments are repriced at this level. Unassigned customers fall back to the level currently in use."],
-  "hd.cusrule":["規則","Rules"],
-  "hint.cusrule":["由上往下比,第一個命中的算數 —— 所以順序會改變結果。一條規則可以抵掉幾十筆逐筆指定,而且以後的新訂單自己會命中。",
-    "Matched top to bottom; the first hit wins, so the order matters. One rule stands in for dozens of one-by-one assignments, and new orders match it on their own."],
-  "hd.cusship":["這期的出貨","Shipments in this invoice"],
-  "th.cuscode":["客戶代碼","Customer"],
-  "th.cusname":["名稱","Name"],
-  "th.cuslevel":["費率層級","Rate level"],
-  "th.cusship":["這期筆數","Shipments"],
-  "th.rulefield":["比對欄位","Field"],
-  "th.ruleop":["方式","Match"],
-  "th.ruleval":["值","Value"],
-  "th.rulehits":["命中","Hits"],
-  "th.reference":["參考號","Reference"],
-  "ph.cuscode":["代碼(英數字)","Code (letters, digits)"],
-  "ph.cusname":["名稱","Name"],
-  "ph.ruleval":["要比對的值","Value to match"],
-  "btn.cusadd":["新增客戶","Add customer"],
-  "btn.ruleadd":["新增規則","Add rule"],
-  "btn.tickunassigned":["全選未指定","Tick unassigned"],
-  "btn.assign":["指定","Assign"],
-  "btn.cusexport":["匯出待指定清單","Export unassigned list"],
   "hd.chgcode":["費用代碼","Charge codes"],
   "hint.chgcode":["本頁為檢視用,不能直接編輯 —— 代碼一律由「匯入代碼表」寫入。「系統代碼」是本工具辨識該項費用所依據的 UPS 代碼。留白代表它不是靠單一代碼認出來的(例如 Demand 那幾項是算出來的)—— 完整代碼表在「代碼查詢」分頁。右邊兩欄是你自己的代碼與名稱,未設定者沿用內部名稱。本頁不影響任何金額。",
     "This page is a view, not a form: codes are set by importing the table. System code is what this tool matches to recognise the charge. Blank means no single code identifies it — the demand charges, for one, are computed. The full code table is on the Code Lookup tab. The two columns on the right are yours; unset keeps the internal name. No amount changes here."],
@@ -14704,36 +14073,10 @@ const I18N={
   "btn.chgimport":["匯入代碼表","Import codes"],
   "chg.src.base":["內建","Built in"],
   "chg.src.dyn":["自訂附加費","Custom surcharge"],
-  "lb.assignto":["一次指定所選給","Assign selected to"],
-  "cus.field.ACCOUNT":["UPS 帳號","UPS account"],
-  "cus.field.REF1":["參考號 1","Reference 1"],
-  "cus.field.REF2":["參考號 2","Reference 2"],
-  "cus.op.pre":["開頭是","starts with"],
-  "cus.op.eq":["等於","equals"],
-  "cus.op.has":["包含","contains"],
   "tab.demand":["⚡ Demand 附加費","⚡ Demand Surcharge"],
   "tab.hist":["📚 帳單歷史","📚 Invoice History"],
   "tab.code":["🔎 代碼查詢","🔎 Code Lookup"],
-  "hd.recon":["WMS / TMS 對帳","WMS / TMS reconciliation"],
-  "hint.recon":["帳單本身已經有費用明細,這份檔案只補帳單不可能知道的兩件事:這張單是哪個客戶的,以及向那個客戶收了多少。一張系統單一列;一票多件時,把該單的追蹤號全部寫在同一格,用逗號分隔。",
-    "The invoice already holds the charge detail. This file adds the two facts it cannot know: which customer an order belongs to, and what that customer was billed. One order per row; for a multi-package order put every tracking number in one cell, separated by commas."],
-  "btn.recontpl":["下載模板","Download template"],
-  "btn.reconimp":["匯入填好的模板","Import filled template"],
-  "btn.reconxls":["匯出對帳結果","Export reconciliation"],
-  "hd.reconiss":["不能收的資料列","Rows that could not be accepted"],
-  "th.reconline":["列","Line"],
-  "th.reconwhy":["原因","Reason"],
-  "hd.reconres":["依客戶","By customer"],
-  "th.reconorders":["單數","Orders"],
-  "th.reconpkgs":["件數","Packages"],
-  "th.reconbilled":["客戶實收","Billed to customer"],
-  "th.reconups":["UPS 實收","Charged by UPS"],
-  "th.reconprofit":["毛利","Profit"],
-  "th.reconmargin":["毛利率","Margin"],
-  "th.reconrep":["系統重算","Recomputed"],
-  "th.recongap":["對 UPS 差異","vs UPS"],
-  "hint.reconcols":["毛利是客戶實付減去 UPS 實收。系統重算是照該客戶的費率層級算出這幾件本來該是多少;拿它跟 UPS 實收比,看得出帳單與合約有沒有出入。「UPS 實收」不含帳戶層費用 —— 那些費用沒有追蹤號,對不到任何一張單;該不該計入由帳務決定,和儀表板的處理一致。",
-    "Profit is what the customer paid less what UPS charged. Recomputed is what the customer's own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement. Charged by UPS excludes account-level charges: they carry no tracking number and belong to no order, so whether they count is your accounting call — the dashboard treats them the same way."],
+  "tab.chg":["🏷 費用代碼","🏷 Charge Codes"],
   "tab.dash":["📊 儀表板","📊 Dashboard"],
   "tab.setting":["⚙️ 設定","⚙️ Settings"],
   "hd.setting":["設定","Settings"],
@@ -14883,12 +14226,7 @@ function applyLang(){
      兩張卡片會停在另一種語言。 */
   if($("#prInvWhat") && typeof prPaint==="function"){ try{ prPaint(); }catch(e){} }
   if(typeof paintManualAlt==="function") paintManualAlt();
-  if(typeof renderCustomers==="function" && typeof CFG!=="undefined" && CFG) renderCustomers();
-  /* 對帳那一頁的警語、合計列和「不能收的原因」都是算出來的字。不重畫的話,
-     介面切成中文了、表格上方那句還停在英文。 */
-  if(typeof renderRecon==="function" && typeof RECON!=="undefined" && RECON){
-    try{ renderRecon(); }catch(e){}
-  }
+  if(typeof renderChgCodes==="function" && typeof CFG!=="undefined" && CFG) renderChgCodes();
   /* 三個帳號視窗的抬頭是算出來的(改的是誰、打了幾個字),開著切語言
      會停在原本那一種。只有開著的那個要重寫。 */
   if($("#uPwBg") && $("#uPwBg").classList.contains("on") && UPW){
@@ -16077,9 +15415,8 @@ step("auth",()=>{
   };
   $("#bLoginRefresh").onclick=()=>loadLoginHistory();
   bindUserAdmin();
-  bindCustomers();
+  bindCharges();
   bindLevels();
-  bindRecon();
   bindGap();
   $("#bLoginExport").onclick=()=>exportLoginHistory();
 });
