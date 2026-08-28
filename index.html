@@ -4142,6 +4142,129 @@ function idbTx(mode){
   return idb().then(db=>db.transaction(IDB_STORE,mode).objectStore(IDB_STORE));
 }
 /* 一期一筆寫進去。同期再寫就覆蓋,跟 localStorage 那份索引同一條規則。 */
+/* =====================================================================
+   歷史明細的存放格式
+   ---------------------------------------------------------------------
+   一列帳單有 25 個欄位,而同一期有好幾萬列 —— 直接把物件存進去,等於把
+   那 25 個欄位名稱重複存了好幾萬遍,將近一半的空間拿去存欄名。欄位值本身
+   也高度重複:一期三萬多列裡,「服務名稱」只有 47 種不同的值。
+
+   所以存的時候把它拆成「一份欄位表 + 每欄一本字典 + 一列一排索引」。
+   讀出來的東西和存進去的完全一樣,只是排列方式不同。實測真實帳單約 4~5 倍。
+
+   三件事是這個格式的骨架,不能省:
+     · 欄位表是「當場從資料掃出來」的,不是程式裡寫死一份。以後 ingest()
+       多一個欄位,它自己會被帶走 —— 寫死清單就是「哪天有人加了欄位卻忘了
+       改清單」的無聲資料遺失。
+     · 字典用值本身當鍵,所以 "8" 和 8、"" 和 0 是不同的東西。UPS 的
+       code "003" 一旦被當成數字 3,isFreightLine 就認不出運費行。
+     · 鍵的組合不同的列分開放(src 只有部分期別有),「這一列沒有這個欄位」
+       是靠分組表達的,不必在資料裡塞一個代表「沒有」的特殊值 —— 特殊值
+       正是最容易和真實資料撞上的東西。
+   ===================================================================== */
+const HROW_V=2;
+/* 簽章要能區分「鍵的組合」。用分隔字元接起來是不行的:欄位名稱裡只要
+   出現那個字元,兩種不同的組合就會算出同一個簽章,被併成一組,而一組只
+   照第一列的欄位表編碼 —— 另一列多出來的欄位就這樣無聲消失。
+   交給 JSON.stringify,由它負責跳脫。 */
+function hrowSig(r){
+  const ks=Object.keys(r).sort();
+  return JSON.stringify(ks.map(k=>{
+    const v=r[k];
+    return (v&&typeof v==="object"&&!Array.isArray(v))
+      ? [k, Object.keys(v).sort()] : [k];
+  }));
+}
+/* 用一般指派寫 __proto__ 會動到物件的原型,那個欄位本身反而沒被寫進去。
+   雲端拉回來的列是 JSON.parse 出來的,理論上帶得出這個鍵。 */
+/* 用普通物件當「欄位名 → …」的對照表,遇到名為 __proto__ 的欄位會出事:
+   寫進去是改到原型,讀出來拿到的是 Object.prototype(而它是個真物件,
+   會被誤判成巢狀欄位)。所有這種查表都要問「這是不是自己的屬性」。 */
+function hown(o,k){ return Object.prototype.hasOwnProperty.call(o,k); }
+function hrowSet(o,k,v){
+  if(k==="__proto__") Object.defineProperty(o,k,{value:v,writable:true,
+    enumerable:true,configurable:true});
+  else o[k]=v;
+}
+function hrowFlat(cols,nested){
+  const flat=[];
+  for(const k of cols){
+    if(hown(nested,k)) nested[k].forEach(kk=>flat.push([k,kk]));
+    else flat.push([k,null]);
+  }
+  return flat;
+}
+function hrowEncGroup(rows){
+  const first=rows[0], cols=Object.keys(first), nested={};
+  for(const k of cols){
+    const v=first[k];
+    if(v&&typeof v==="object"&&!Array.isArray(v)) hrowSet(nested,k,Object.keys(v));
+  }
+  const flat=hrowFlat(cols,nested);
+  const get=(r,p)=>p[1]===null?r[p[0]]:r[p[0]][p[1]];
+  /* 一欄要不要進字典用估的:字典本身的字數 + 每列一個索引,對上直接存值的
+     字數,省了才用。tracking 有三萬多列卻只有六千個相異值,固定門檻會把
+     這種欄位漏掉,估算不會。 */
+  const dicts=flat.map(p=>{
+    const set=new Set(); let rawChars=0, prim=true;
+    for(const r of rows){
+      const v=get(r,p);
+      if(typeof v!=="string"&&typeof v!=="number"){ prim=false; break; }
+      set.add(v); rawChars+=JSON.stringify(v).length+1;
+    }
+    if(!prim) return null;
+    let dc=0; for(const v of set) dc+=JSON.stringify(v).length+1;
+    return (dc+rows.length*(String(set.size).length+1) < rawChars) ? [...set] : null;
+  });
+  const idx=dicts.map(d=>{ if(!d) return null;
+    const m=new Map(); d.forEach((v,i)=>m.set(v,i)); return m; });
+  return {cols, nested, dicts,
+          data:rows.map(r=>flat.map((p,ci)=>idx[ci]?idx[ci].get(get(r,p)):get(r,p)))};
+}
+function hrowEncode(rows){
+  const bySig=new Map();
+  rows.forEach((r,i)=>{
+    const k=hrowSig(r);
+    let g=bySig.get(k); if(!g) bySig.set(k,g={rows:[],at:[]});
+    g.rows.push(r); g.at.push(i);
+  });
+  const gs=[...bySig.values()];
+  /* 分組會把列打散,原本的順序要存回去 —— 順序不是可有可無的:idx 欄、
+     跨期原件挑「最近一筆」都靠它。只有一組時順序沒動過,那個索引就不必存。 */
+  const one=gs.length===1;
+  return {v:HROW_V,
+          groups:gs.map(g=>Object.assign(hrowEncGroup(g.rows), one?{}:{at:g.at}))};
+}
+/* 舊格式(rec.rows 是一排物件)原樣回去。硬碟上已經存著的那些永遠是舊的,
+   而且沒有帳號的那個舊資料庫今天也還在被讀 —— 這個分支不能拿掉。 */
+function hrowDecode(rec){
+  try{ return hrowDecodeRec(rec); }
+  catch(e){
+    /* 解不開就退回舊格式那條路,再不行就這一期當空的 —— 但整批其他期別
+       照樣讀得出來。getAll 是一次讀全部的,一筆丟例外就是整個歷史庫都沒了。 */
+    console.warn("history record could not be decoded:", rec&&rec.invoice, e&&e.message);
+    return (rec&&Array.isArray(rec.rows))?rec.rows:[];
+  }
+}
+function hrowDecodeRec(rec){
+  if(!rec) return [];
+  if(rec.v!==HROW_V) return rec.rows||[];
+  const out=[];
+  for(const g of rec.groups||[]){
+    const flat=hrowFlat(g.cols,g.nested); let seq=0;
+    for(const row of g.data){
+      const o={};
+      for(const k of g.cols) if(hown(g.nested,k)) hrowSet(o,k,{});
+      flat.forEach((p,ci)=>{
+        const c=row[ci];
+        const v=g.dicts[ci]===null?c:g.dicts[ci][c];
+        if(p[1]===null) hrowSet(o,p[0],v); else hrowSet(o[p[0]],p[1],v);
+      });
+      if(g.at) out[g.at[seq++]]=o; else out.push(o);
+    }
+  }
+  return out;
+}
 function idbPutInvoices(rows){
   const by={};
   for(const r of rows||[]){
@@ -4154,7 +4277,7 @@ function idbPutInvoices(rows){
   return idbTx("readwrite").then(st=>new Promise((res,rej)=>{
     let done=0;
     for(const k of keys){
-      const rq=st.put({invoice:k, rows:by[k], at:Date.now()});
+      const rq=st.put(Object.assign({invoice:k, at:Date.now()}, hrowEncode(by[k])));
       rq.onsuccess=()=>{ if(++done===keys.length) res(keys.length); };
       rq.onerror=()=>rej(rq.error);
     }
@@ -4165,7 +4288,7 @@ function idbAllRows(){
     const rq=st.getAll();
     rq.onsuccess=()=>{
       const out=[];
-      for(const rec of (rq.result||[])) out.push(...(rec.rows||[]));
+      for(const rec of (rq.result||[])) out.push(...hrowDecode(rec));
       res(out);
     };
     rq.onerror=()=>rej(rq.error);
@@ -4175,7 +4298,7 @@ function idbAllRows(){
 function idbRowsFor(key){
   return idbTx("readonly").then(st=>new Promise((res,rej)=>{
     const rq=st.get(String(key));
-    rq.onsuccess=()=>res((rq.result&&rq.result.rows)||[]);
+    rq.onsuccess=()=>res(hrowDecode(rq.result));
     rq.onerror=()=>rej(rq.error);
   })).catch(()=>[]);
 }
@@ -5145,7 +5268,7 @@ function legacyRows(){
   return legacyOpen().then(db=>new Promise((res,rej)=>{
     const rq=db.transaction(IDB_STORE,"readonly").objectStore(IDB_STORE).getAll();
     rq.onsuccess=()=>{ const out=[];
-      for(const rec of (rq.result||[])) out.push(...(rec.rows||[]));
+      for(const rec of (rq.result||[])) out.push(...hrowDecode(rec));
       res(out); };
     rq.onerror=()=>rej(rq.error);
   })).catch(()=>[]);
