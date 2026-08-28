@@ -1862,6 +1862,32 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <!-- 改密碼。以前是瀏覽器的 prompt():樣式管不到、每台電腦長得不一樣,
      而且你正在幫別人設密碼卻只看得到圓點,打錯了要等對方登不進來才知道。
      視窗裡寫出改的是誰 —— 清單有五個人時,按錯一行就是改到別人的。 -->
+<!-- 補上缺的設定。異常清單本來只會告訴你「有個代碼我不認得」,接下來要
+     自己去另一個分頁一個一個加。這個視窗把「發現」和「補上」接起來。
+     預設收費方式是「照帳單收」而不是「重新計價」—— 新代碼還沒有費率,
+     選重新計價的話它會以 0 計價,那筆錢就真的少收了。照帳單收至少是成本。 -->
+<div id="gapBg" class="modalbg">
+  <div class="modal sketch" id="gapModal" style="width:min(940px,100%);height:min(78vh,860px)">
+    <div class="modalhd">
+      <span data-i18n="hd.gapfix">Fill in what is missing</span>
+      <button class="mx" id="gapX">✕</button>
+    </div>
+    <div class="modalbody" style="display:flex;flex-direction:column;min-height:0">
+      <p class="hint" style="margin:0 0 10px" data-i18n="hint.gapfix">These appear in this invoice but not in your settings. Adding one makes the tool recognise it — it does not price it. A charge set to Repriced with no rate entered is priced as zero, so new codes default to billing what UPS billed.</p>
+      <div id="gapAcc"></div>
+      <div id="gapChan"></div>
+      <div id="gapNone" class="empty" hidden data-i18n="hint.gapnone">Nothing is missing — every code and channel in this invoice is already in your settings.</div>
+    </div>
+    <div class="modalft">
+      <span id="gapMsg" class="savenote"></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="gapClose" data-i18n="btn.close">Close</button>
+        <button class="act" id="gapAdd" data-i18n="btn.gapadd">Add ticked</button>
+      </span>
+    </div>
+  </div>
+</div>
+
 <div id="uPwBg" class="modalbg">
   <div class="modal sketch" id="uPwModal" style="width:min(500px,100%)">
     <div class="modalhd">
@@ -11705,6 +11731,9 @@ function renderDashboard(){
   wireDashBar();
   const ux=$("#bIssXls");
   if(ux) ux.onclick=exportIssues;
+  /* 這顆是每次重畫儀表板才長出來的,所以綁在這裡而不是啟動時綁一次。 */
+  const gx=$("#bGapOpen");
+  if(gx) gx.onclick=openGap;
   const px=$("#bPerXls");
   if(px) px.onclick=()=>openProfitReport("inv");
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
@@ -13129,6 +13158,8 @@ function issueGroups(rows){
     ISSUE_KIND[b.kind].sev-ISSUE_KIND[a.kind].sev || Math.abs(b.amt)-Math.abs(a.amt));
 }
 function renderIssueCard(){
+  /* 缺什麼算一次就好 —— 這段字串樣板裡會用到兩次。 */
+  const dashGap=gapFind();
   const g=invoiceIssues();
   ISSUES=g.rows; ISSUE_SEGS=g.segs;
   if(!ISSUES.length) return "";
@@ -13162,7 +13193,10 @@ function renderIssueCard(){
         <span class="cnote">${L("依嚴重度排序,各組標示對應之帳單列號",
                                 "sorted by severity; each group lists its invoice rows")}</span>
         <button class="act ghost" id="bIssXls" style="padding:3px 11px;font-size:12px">${
-          L("下載明細 (.xlsx)","Download details (.xlsx)")}</button></div>
+          L("下載明細 (.xlsx)","Download details (.xlsx)")}</button>${
+        (dashGap.acc.length||dashGap.chan.length)
+          ? `<button class="act" id="bGapOpen" style="padding:3px 11px;font-size:12px">${
+              L("補上缺的設定","Fill in what is missing")}</button>` : ""}</div>
       <p class="isssub">${L(
         "本期異常 <b>"+ISSUES.length+"</b> 項。其中 <b>"+nBad+"</b> 項影響計價金額,"
           +"該部分 UPS 實收 <b>"+money(bad)+"</b>",
@@ -13177,6 +13211,126 @@ function renderIssueCard(){
         .map(v=>`<span><b class="s${v}">${L(SEV_TAG[v][0],SEV_TAG[v][1])}</b> ${
           esc(L(SEV_NOTE[v][0],SEV_NOTE[v][1]))}</span>`).join("")}</div>
     </div>`;
+}
+/* =====================================================================
+   補上缺的設定
+   ---------------------------------------------------------------------
+   異常清單看得到「這個代碼我不認得」「這個服務不在你的渠道裡」,但接下來
+   要自己跑去另一個分頁一個一個加回去 —— 中間那一步靠記性,而漏掉的代價是
+   下一期同一筆錢又不見一次。這個視窗把發現和補上接起來。
+
+   預設是「照帳單收」。新代碼還沒有費率,設成「重新計價」的話它會以 0 計價
+   —— 認得了,錢反而還是少收。照帳單收至少等於成本,要賺多少再自己調。 */
+function gapFind(){
+  const acc=new Map(), chan=new Map();
+  const dyn=(CFG&&CFG.raw&&CFG.raw.dynamic_surcharge_mapping)||{};
+  const zn=(CFG&&CFG.raw&&CFG.raw.builtin_service_zones)||{};
+  const known=new Set(Object.keys(zn).map(k=>k.toUpperCase()));
+  for(const it of (ISSUES||[])){
+    if(it.kind==="unknown"){
+      const c=String(it.code||"").toUpperCase();
+      /* 用 codeKnown() 判斷,不要自己另寫一套 —— 這裡和異常清單對「認不認得」
+         的定義必須是同一個,不然畫面會說「這個不認得」而視窗說「已經有了」。 */
+      if(!c || codeKnown(c,"ACC",dyn)) continue;
+      let o=acc.get(c);
+      if(!o){ o={code:c, desc:String(it.billdesc||it.item||"").trim(), n:0, amt:0}; acc.set(c,o); }
+      o.n++; o.amt+=toNum(it.amt);
+      if(!o.desc) o.desc=String(it.billdesc||it.item||"").trim();
+    }
+    if(it.kind==="svc"||it.kind==="channel"){
+      /* svc 記的是帳單上那串服務描述,channel 記的是推出來的渠道名。
+         能加進渠道清單的是前者 —— 後者本來就在清單裡,缺的是費率。 */
+      const raw=String(it.svcRaw||"").trim();
+      if(!raw || known.has(raw.toUpperCase())) continue;
+      let o=chan.get(raw);
+      if(!o){ o={svc:raw, as:String(it.chan||"").trim(), n:0, amt:0}; chan.set(raw,o); }
+      o.n++; o.amt+=toNum(it.amt);
+    }
+  }
+  const by=(a,b)=>b.amt-a.amt;
+  return {acc:[...acc.values()].sort(by), chan:[...chan.values()].sort(by)};
+}
+function gapMsg(m,ok){
+  const e=$("#gapMsg");
+  if(e){ e.textContent=m||""; e.className="savenote"+(m&&!ok?" bad":""); }
+}
+function renderGap(){
+  const g=gapFind();
+  const A=$("#gapAcc"), C=$("#gapChan"), N=$("#gapNone");
+  if(N) N.hidden=!!(g.acc.length||g.chan.length);
+  if(A) A.innerHTML=g.acc.length?`
+    <div class="subhd" style="margin-top:0" data-i18n="hd.gapacc">${L("未知的附加費代碼","Unrecognised surcharge codes")}</div>
+    <div class="tablewrap" style="max-height:30vh"><table><thead><tr>
+      <th style="width:30px"></th><th>${L("代碼","Code")}</th>
+      <th>${L("帳單上寫什麼","Billed as")}</th>
+      <th class="num">${L("筆數","Lines")}</th><th class="num">${L("UPS 收","UPS billed")}</th>
+      <th>${L("你要叫它什麼","Your name for it")}</th>
+      <th>${L("收費方式","Billing")}</th><th>${L("收燃油","Fuel")}</th>
+    </tr></thead><tbody>${g.acc.map(o=>
+      `<tr><td><input type="checkbox" class="gapa" data-c="${esc(o.code)}" checked></td>
+        <td class="mono">${esc(o.code)}</td>
+        <td>${esc(o.desc||"—")}</td>
+        <td class="num">${o.n}</td><td class="num">${money(o.amt)}</td>
+        <td><input class="cell gapn" data-c="${esc(o.code)}" value="${esc(o.desc||o.code)}"
+             style="width:190px;text-align:left"></td>
+        <td><span class="foldwrap"><select class="fold gapt" data-c="${esc(o.code)}">
+          <option value="COPY INVOICE">${L("照帳單收","Copy invoice")}</option>
+          <option value="REPRICE">${L("重新計價","Repriced")}</option>
+          <option value="REPORT ONLY">${L("只列出不收","Report only")}</option>
+        </select></span></td>
+        <td><input type="checkbox" class="gapf" data-c="${esc(o.code)}" checked></td></tr>`).join("")}
+    </tbody></table></div>`:"";
+  if(C) C.innerHTML=g.chan.length?`
+    <div class="subhd" data-i18n="hd.gapchan">${L("沒見過的服務","Services not in your channels")}</div>
+    <div class="tablewrap" style="max-height:26vh"><table><thead><tr>
+      <th style="width:30px"></th><th>${L("帳單上的服務","Service on the invoice")}</th>
+      <th>${L("目前被當成","Currently priced as")}</th>
+      <th class="num">${L("筆數","Shipments")}</th><th class="num">${L("涉及金額","At risk")}</th>
+    </tr></thead><tbody>${g.chan.map(o=>
+      `<tr><td><input type="checkbox" class="gapc" data-s="${esc(o.svc)}" checked></td>
+        <td>${esc(o.svc)}</td><td class="empty">${esc(o.as||"—")}</td>
+        <td class="num">${o.n}</td><td class="num">${money(o.amt)}</td></tr>`).join("")}
+    </tbody></table></div>`:"";
+  gapMsg("");
+}
+function openGap(){ renderGap(); $("#gapBg") && $("#gapBg").classList.add("on"); }
+function closeGap(){ $("#gapBg") && $("#gapBg").classList.remove("on"); }
+function gapApply(){
+  if(!CFG) return;
+  const dyn=CFG.raw.dynamic_surcharge_mapping||(CFG.raw.dynamic_surcharge_mapping={});
+  const zn=CFG.raw.builtin_service_zones||(CFG.raw.builtin_service_zones={});
+  const val=(sel,c)=>{ const e=document.querySelector(sel+'[data-c="'+CSS.escape(c)+'"]'); return e; };
+  let nA=0, nC=0;
+  for(const cb of document.querySelectorAll(".gapa:checked")){
+    const c=cb.dataset.c;
+    const nm=(val("input.gapn",c)||{}).value||c;
+    const tp=(val("select.gapt",c)||{}).value||"COPY INVOICE";
+    const fu=!!((val("input.gapf",c)||{}).checked);
+    dyn[c]={ar:"ACC", name:String(nm).trim()||c, type:tp, fuel_eligible:fu, enabled:true};
+    nA++;
+  }
+  for(const cb of document.querySelectorAll(".gapc:checked")){
+    const svc=cb.dataset.s;
+    if(zn[svc]===undefined) zn[svc]="";
+    nC++;
+  }
+  if(!nA&&!nC){ gapMsg(L("沒有勾選任何一項。","Nothing is ticked."),false); return; }
+  CFG=readConfig(CFG.raw); DIRTY=true;
+  renderConfigTabs();
+  const ok=saveSettings();
+  /* 加完就重算。不重算的話畫面上的異常清單還停在舊的,人會以為沒生效。 */
+  if(RATED&&SHIPS){ RATED=SHIPS.map(x=>priceShipment(CFG,x)); renderRate(); renderDashboard(); }
+  renderGap();
+  toast(L("已新增 "+nA+" 個代碼、"+nC+" 條渠道"+(ok?",已儲存":"")
+          +"。新渠道還沒有費率表,要到「渠道」分頁匯入。",
+          "Added "+nA+" code(s) and "+nC+" channel(s)"+(ok?", saved":"")
+          +". New channels have no rate table yet — import one on the Channels tab."), true);
+}
+function bindGap(){
+  $("#gapX") && ($("#gapX").onclick=closeGap);
+  $("#gapClose") && ($("#gapClose").onclick=closeGap);
+  $("#gapBg") && ($("#gapBg").onclick=e=>{ if(e.target===$("#gapBg")) closeGap(); });
+  $("#gapAdd") && ($("#gapAdd").onclick=gapApply);
 }
 function exportIssues(){
   if(!ISSUES.length){ setStatus(L("無可匯出之資料","No data to export")); return; }
@@ -14329,6 +14483,15 @@ const I18N={
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
   "hd.cfgfile":["📄 費率設定檔","📄 Rate Configuration File"],
   "hd.ratelvl":["🧭 費率層級","🧭 Rate levels"],
+  "hd.gapfix":["補上缺的設定","Fill in what is missing"],
+  "hint.gapfix":["這些東西出現在這期帳單上,但你的設定裡沒有。新增只是讓系統「認得」它,不等於算得出價錢 —— 一項附加費設成「重新計價」卻沒填費率,會以 0 計價,那筆錢就少收了。所以新代碼預設是「照帳單收」,至少等於成本。",
+    "These appear in this invoice but not in your settings. Adding one makes the tool recognise it — it does not price it. A charge set to Repriced with no rate entered is priced as zero, so new codes default to billing what UPS billed."],
+  "hint.gapnone":["沒有缺的東西 —— 這期出現的代碼和渠道,設定裡都有。",
+    "Nothing is missing — every code and channel in this invoice is already in your settings."],
+  "btn.gapadd":["新增勾選的","Add ticked"],
+  "btn.gapopen":["補上缺的設定","Fill in what is missing"],
+  "hd.gapacc":["未知的附加費代碼","Unrecognised surcharge codes"],
+  "hd.gapchan":["沒見過的服務","Services not in your channels"],
   "hint.ratelvl":["一個帳號可以存好幾份完整的費率,一個客戶一份。計價那幾個分頁上的東西都屬於「目前使用」的那一層,切換就整份換掉。",
     "One account can hold several complete rate sets — one per customer. Everything on the pricing tabs belongs to the level in use; switching swaps the lot."],
   "th.lvlname":["層級名稱","Level"],
@@ -15592,6 +15755,7 @@ step("auth",()=>{
   bindUserAdmin();
   bindCustomers();
   bindLevels();
+  bindGap();
   $("#bLoginExport").onclick=()=>exportLoginHistory();
 });
 step("language",()=>applyLang());
