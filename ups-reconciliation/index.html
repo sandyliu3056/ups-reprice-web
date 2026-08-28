@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UPS Reprice Platform</title>
+<title>UPS Reconciliation</title>
 <!-- 我的最愛圖示:貓、狗、金幣。內嵌成 data URI,
      所以不需要另一個檔案,也不會產生網路請求。 -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CjxyZWN0IHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgcng9IjEzIiBmaWxsPSIjNWEzNTI0Ii8+CjxnIHN0cm9rZT0iIzM1MWMxNSIgc3Ryb2tlLXdpZHRoPSIyLjEiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+CiAgPGVsbGlwc2UgY3g9IjguNSIgY3k9IjIyLjUiIHJ4PSI0LjgiIHJ5PSI3LjgiIGZpbGw9IiNiNTc5M2YiLz4KICA8ZWxsaXBzZSBjeD0iMjcuNSIgY3k9IjIyLjUiIHJ4PSI0LjgiIHJ5PSI3LjgiIGZpbGw9IiNiNTc5M2YiLz4KICA8Y2lyY2xlIGN4PSIxOCIgY3k9IjIxIiByPSIxMC42IiBmaWxsPSIjZjVlZmU2Ii8+CiAgPHBhdGggZD0iTTEyIDE1LjRhNS42IDQuNCAwIDEgMCA2IDQuMiA1LjYgNC40IDAgMCAwLTYtNC4yeiIgZmlsbD0iI2I1NzkzZiIgc3Ryb2tlPSJub25lIi8+CiAgPGVsbGlwc2UgY3g9IjIwIiBjeT0iMjQuNCIgcng9IjYuMiIgcnk9IjQuNiIgZmlsbD0iI2ZmZjlmMCIvPgogIDxwYXRoIGQ9Ik0zNiA3LjVsMiAxMSA4LjUtNXoiIGZpbGw9IiNmMmVjZTEiLz4KICA8cGF0aCBkPSJNNTcgNy41bC0yIDExLTguNS01eiIgZmlsbD0iI2YyZWNlMSIvPgogIDxjaXJjbGUgY3g9IjQ2LjUiIGN5PSIyMSIgcj0iMTAuNiIgZmlsbD0iI2YyZWNlMSIvPgo8L2c+CjxnIGZpbGw9IiMzNTFjMTUiPgogIDxjaXJjbGUgY3g9IjE0LjciIGN5PSIxOS42IiByPSIyLjQiLz48Y2lyY2xlIGN4PSIyMi41IiBjeT0iMTkuNiIgcj0iMi40Ii8+CiAgPGNpcmNsZSBjeD0iNDIuNSIgY3k9IjE5LjYiIHI9IjIuNCIvPjxjaXJjbGUgY3g9IjUwLjUiIGN5PSIxOS42IiByPSIyLjQiLz4KPC9nPgo8ZyBmaWxsPSIjZmZmZmZmIj4KICA8Y2lyY2xlIGN4PSIxMy45IiBjeT0iMTguNyIgcj0iMC45Ii8+PGNpcmNsZSBjeD0iMjEuNyIgY3k9IjE4LjciIHI9IjAuOSIvPgogIDxjaXJjbGUgY3g9IjQxLjciIGN5PSIxOC43IiByPSIwLjkiLz48Y2lyY2xlIGN4PSI0OS43IiBjeT0iMTguNyIgcj0iMC45Ii8+CjwvZz4KPGcgZmlsbD0iI2U4OGE4NiIgb3BhY2l0eT0iMC42Ij4KICA8ZWxsaXBzZSBjeD0iMzguNiIgY3k9IjI0IiByeD0iMi45IiByeT0iMS45Ii8+PGVsbGlwc2UgY3g9IjU0LjQiIGN5PSIyNCIgcng9IjIuOSIgcnk9IjEuOSIvPgo8L2c+CjxnIGZpbGw9IiMzNTFjMTUiPgogIDxlbGxpcHNlIGN4PSIyMCIgY3k9IjIyLjYiIHJ4PSIyLjIiIHJ5PSIxLjciLz4KICA8cGF0aCBkPSJNNDYuNSAyMy42bC0yLjEtMmg0LjJ6Ii8+CjwvZz4KPGcgc3Ryb2tlPSIjZjJlY2UxIiBzdHJva2Utd2lkdGg9IjEiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSI+CiAgPHBhdGggZD0iTTM2IDIwLjhsLTQuNC0uOU0zNS44IDIzLjRsLTQuNC41TTM2LjIgMjZsLTQuMiAxLjYiLz4KICA8cGF0aCBkPSJNNTcgMjAuOGw0LjQtLjlNNTcuMiAyMy40bDQuNC41TTU2LjggMjZsNC4yIDEuNiIvPgo8L2c+CjxwYXRoIGQ9Ik00My43IDI2LjZhMyAzIDAgMCAwIDUuNiAwIiBmaWxsPSJub25lIiBzdHJva2U9IiMzNTFjMTUiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxjaXJjbGUgY3g9IjMyIiBjeT0iNDcuNSIgcj0iMTMuNSIgZmlsbD0iI2ZmYjUwMCIgc3Ryb2tlPSIjMzUxYzE1IiBzdHJva2Utd2lkdGg9IjIuNSIvPgo8Y2lyY2xlIGN4PSIzMiIgY3k9IjQ3LjUiIHI9IjkuNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMzUxYzE1IiBzdHJva2Utd2lkdGg9IjEuMiIvPgo8cGF0aCBkPSJNMzIgNDAuNnYxMy44TTI4LjYgNDMuOGMwLTIgNi44LTIgNi44IDBzLTYuOCAxLjYtNi44IDMuNyA2LjggMi4xIDYuOCAwIgogICAgICBmaWxsPSJub25lIiBzdHJva2U9IiMzNTFjMTUiIHN0cm9rZS13aWR0aD0iMi40IgogICAgICBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+">
@@ -903,7 +903,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 </svg>
 
 <div class="titlebar">
-  <b class="display" id="appTitle">UPS REPRICE PLATFORM</b>
+  <b class="display" id="appTitle">UPS RECONCILIATION</b>
   <span class="devby" id="appBy">DEVELOPED BY SANDY LIU</span>
   <div class="ctrls">
     <select id="langSel"  title="Language"></select>
@@ -1244,6 +1244,25 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <th class="num" data-i18n="th.recongap">vs UPS</th>
     </tr></thead><tbody></tbody><tfoot></tfoot></table></div>
     <p class="hint" style="margin:11px 0 0;max-width:76ch" data-i18n="hint.reconcols">Profit is what the customer paid less what UPS charged. Recomputed is what the customer’s own rate level says the shipments should have cost; set against what UPS charged, it shows where the invoice differs from the agreement. Charged by UPS excludes account-level charges: they carry no tracking number and belong to no order, so whether they count is your accounting call — the dashboard treats them the same way.</p>
+  </div>
+
+  <div class="lf sketch" id="reconChgCard" hidden>
+    <h3 class="display"><span class="em">🔍</span><span data-i18n="hd.reconchg">By charge</span></h3>
+    <p class="hint" style="margin:0 0 11px;max-width:78ch" data-i18n="hint.reconchg">Every charge on the matched shipments, priced two ways: what this customer’s rate level says it should be, and what UPS actually billed. The difference is where the invoice departs from the agreement — sorted with the largest gap first.</p>
+    <div class="row" style="margin-bottom:9px">
+      <label class="inlab" style="margin-left:0" data-i18n="lb.reconscope">Showing</label>
+      <span class="foldwrap"><select id="reconScope" class="fold"></select></span>
+      <span style="flex:1 1 auto"></span>
+      <span id="reconChgSum" class="affsum"></span>
+    </div>
+    <div class="tablewrap" style="max-height:54vh"><table id="tReconChg"><thead><tr>
+      <th data-i18n="th.chgname">Charge</th>
+      <th data-i18n="th.chgmine">Your code</th>
+      <th data-i18n="th.chgups">System code</th>
+      <th class="num" data-i18n="th.reconrep">Recomputed</th>
+      <th class="num" data-i18n="th.reconups">Charged by UPS</th>
+      <th class="num" data-i18n="th.recongap">vs UPS</th>
+    </tr></thead><tbody></tbody><tfoot></tfoot></table></div>
   </div>
   </div>
 
@@ -4485,19 +4504,19 @@ function shipmentsOf(rows){
    只認 Ground —— 和桌面版同一個範圍,其他服務回 null,呼叫端行為
    完全不變。
    ===================================================================== */
-const HIST_KEY="ups_reprice_hist_v1";
+const HIST_KEY="ups_recon_hist_v1";
 /* 住商對照表是「學」出來的,存在 localStorage。學習規則改過之後,
    舊的對照表還是舊規則的產物 —— 程式改了它不會自己跟上,
    跨期單就會照舊判錯。這個戳記記住存檔時用的是哪一版規則,
    對不上就從 IndexedDB 的明細重學一次,不用叫人重匯檔案。 */
-const HIST_RULE_KEY="ups_reprice_hist_rule";
+const HIST_RULE_KEY="ups_recon_hist_rule";
 const HIST_RULE="v2-marker-not-a-signal";
 /* 已歸檔的帳單:期號 -> {日期, 列數, 追蹤號數, 歸檔時間}。
    跟 HIST 分開存,因為 HIST 是追蹤號的住宅/商業對照,沒有期別。 */
-const HISTINV_KEY="ups_reprice_histinv_v1";
+const HISTINV_KEY="ups_recon_histinv_v1";
 /* 明細列放 IndexedDB,不是 localStorage —— 五十萬列是幾十 MB,
    localStorage 只有 5 MB。一期一筆,重開瀏覽器再讀回來。 */
-const IDB_NAME="ups_reprice_hist", IDB_STORE="invoices";
+const IDB_NAME="ups_recon_hist", IDB_STORE="invoices";
 /* 帳單歷史也是一個帳號一份。localStorage 的 key 和 IndexedDB 的資料庫名稱
    都綁 user id —— 同一台機器換人登入,不該看到前一個人的帳單明細。
    舊版共用的那一份留在原地不動,由本人在歷史頁自己認領或刪掉。 */
@@ -5032,10 +5051,10 @@ function authMissing(){
    切換之後舊資料仍在舊 key 底下,由 claimLocalIdentity() 認領。 */
 const LOCAL_MODE = (AUTH_CONFIG.authMode === "local");
 const LOCAL_ACCOUNTS=[];
-const LOCAL_SESSION_KEY="ups_reprice_local_session";
+const LOCAL_SESSION_KEY="ups_recon_local_session";
 /* 「保持登入」勾了才寫這把 —— localStorage 關瀏覽器也留著,下次開站免登入。
    沒勾就維持原本的規則:session 只活在這個分頁。 */
-const LOCAL_REMEMBER_KEY="ups_reprice_local_remember";
+const LOCAL_REMEMBER_KEY="ups_recon_local_remember";
 async function sha256Hex(text){
   if(!(window.crypto&&crypto.subtle))
     /* WebCrypto 只在 https 或 localhost 提供。真的碰到,幾乎都是
@@ -5105,7 +5124,7 @@ function authIdentity(user){
 
 /* 活動紀錄。只涵蓋這台瀏覽器 —— 同事在自己電腦上的紀錄在他們那邊,
    要合併看就用匯出/匯入。 */
-const LOG_KEY="ups_reprice_log";
+const LOG_KEY="ups_recon_log";
 function logRead(){
   try{ return JSON.parse(localStorage.getItem(LOG_KEY))||[]; }catch(e){ return []; }
 }
@@ -5520,7 +5539,7 @@ function exportLoginHistory(){
   }
   const aoa=[["Logged In At","Email","Browser / Device","User Agent"],
     ...LOGIN_ROWS.map(r=>[r.logged_in_at,r.email,loginDevice(r.user_agent),r.user_agent])];
-  saveSheet(aoa,"Login History","ups-reprice-login-history.xlsx",-1)
+  saveSheet(aoa,"Login History","ups-reconciliation-login-history.xlsx",-1)
     .then(ok=>setStatus(ok?L("登入紀錄已匯出","Login history exported")
                           :L("已取消存檔","Save cancelled")));
 }
@@ -6381,7 +6400,7 @@ let HIST_RESTORED=false;
        搬進你名下。
      · 只複製,不刪除。舊的原封不動留著,搬錯了隨時退得回去。
    ===================================================================== */
-const CLAIMED_KEY="ups_reprice_claimed_v1";
+const CLAIMED_KEY="ups_recon_claimed_v1";
 function localIdentitiesOnThisMachine(){
   const found=new Set();
   try{
@@ -6625,7 +6644,7 @@ function currentTab(){
 }
 /* 你在看哪一頁。設定、費率、帳單歷史都是存著的,只有這件事以前每次
    重新整理都被丟掉 —— 明明什麼都還在,人卻被丟回匯入檔案那一頁。 */
-const TAB_KEY="ups_reprice_tab";
+const TAB_KEY="ups_recon_tab";
 function showTab(p){
   /* 管理分頁只有管理者能進。分頁按鈕本來就藏起來了,這裡是第二道 ——
      showTab() 是唯一的入口,擋在這裡,任何呼叫端都繞不過去。 */
@@ -6680,7 +6699,7 @@ function paintBuild(){
                      +"\n日期停在舊的表示瀏覽器用的是快取裡的舊檔,按 Ctrl+Shift+R 強制重新整理。",
                     "Build (last-modified time of this index.html): "+b
                      +"\nA stale date means a cached copy — force-reload with Ctrl+Shift+R.");
-  try{ console.info("UPS Reprice — build "+b); }catch(e){}
+  try{ console.info("UPS Reconciliation — build "+b); }catch(e){}
 }
 
 
@@ -6712,7 +6731,7 @@ const CODE_REF={"AHG":"Additional Handling Surcharge - Dimension","AHL":"Additio
 /* 費率是每個帳號自己的,存在 Supabase 的 user_settings。
    localStorage 只當離線快取,而且 key 綁 user id —— 同一台機器換人登入
    不該看到上一個人的合約費率。沒登入時用 anon,那份只會是預設值。 */
-const CFG_KEY_BASE="ups_reprice_cfg_v1", CFG_NAME_BASE="ups_reprice_cfg_name_v1";
+const CFG_KEY_BASE="ups_recon_cfg_v1", CFG_NAME_BASE="ups_recon_cfg_name_v1";
 function cfgKeys(){
   const who=(ME&&ME.id)||"anon";
   return [CFG_KEY_BASE+"::"+who, CFG_NAME_BASE+"::"+who];
@@ -10235,7 +10254,19 @@ function reconParse(sheetRows){
 /* --------------------------------------------------------------------
    對帳
    -------------------------------------------------------------------- */
+/* 帳單上認不出來的代碼也要有位置站。丟掉的話兩側加起來的數字對不上,而
+   對不上的原因看不出來 —— 寧可列一行「未辨識」,讓人知道有這筆錢。 */
+const RECON_UNKNOWN="\u0000unknown";
 function reconRun(list){
+  /* 逐項:全部一份,每個客戶各一份。點客戶就是換一份來看。 */
+  const chgAll=new Map(), chgBy=new Map();
+  const chgBump=(cus,name,side,v)=>{
+    for(const m of [chgAll, (chgBy.get(cus)||chgBy.set(cus,new Map()).get(cus))]){
+      let o=m.get(name);
+      if(!o){ o={name, rep:0, ups:0}; m.set(name,o); }
+      o[side]+=v;
+    }
+  };
   const byTrk=new Map();
   for(const s of (SHIPS||[])){
     const k=reconTrk(s.tracking);
@@ -10257,7 +10288,23 @@ function reconRun(list){
       const s=byTrk.get(t);
       if(!s){ missTrk.push(t); continue; }
       cost+=toNum(s.upsTotal);
-      try{ rep+=cents(toNum(priceShipment(cfg,s).total)); }catch(err){}
+      try{
+        const priced=priceShipment(cfg,s);
+        rep+=cents(toNum(priced.total));
+        /* 逐項比對的兩邊都在這裡收:重算那一側攤成報表的一列,帳單那一側把
+           每一行歸到同一組費用名稱底下。同一組名字兩邊才對得起來。 */
+        const row=reportRowOf(priced);
+        for(const c of REPORT_MONEY){
+          const v=toNum(row[c]);
+          if(Math.abs(v)>0.004) chgBump(e.cus, c, "rep", v);
+        }
+        for(const l of (s.allLines||[])){
+          const k=upsBucketOf(l,false);
+          if(!k) continue;
+          const v=toNum(l.net);
+          if(Math.abs(v)>0.004) chgBump(e.cus, k===DASH_UNKNOWN?RECON_UNKNOWN:k, "ups", v);
+        }
+      }catch(err){}
     }
     const o={ln:e.ln, order:e.order, cus:e.cus, date:e.date,
              name:(c.name||e.cus), level:c.level||"",
@@ -10284,8 +10331,15 @@ function reconRun(list){
   tot.profit=cents(tot.amt-tot.cost);
   tot.gap=cents(tot.rep-tot.cost);
   tot.margin=tot.amt?tot.profit/Math.abs(tot.amt)*100:null;
+  const chgRows=m=>[...m.values()].map(o=>({
+      name:o.name, rep:cents(o.rep), ups:cents(o.ups), gap:cents(o.rep-o.ups)}))
+    /* 差得最多的排前面 —— 三十七項裡真正要看的通常是前五項。 */
+    .sort((a,b)=>Math.abs(b.gap)-Math.abs(a.gap)||Math.abs(b.ups)-Math.abs(a.ups));
+  const byCus={};
+  for(const [k,m] of chgBy) byCus[k]=chgRows(m);
   return {orders, cus, tot, lostLevel:[...lostLevel],
-          unmatched:orders.filter(o=>o.found<o.pkgs)};
+          unmatched:orders.filter(o=>o.found<o.pkgs),
+          chg:chgRows(chgAll), chgBy:byCus};
 }
 
 /* --------------------------------------------------------------------
@@ -10360,6 +10414,54 @@ function renderRecon(){
   const w=$("#reconWarn");
   if(w){ w.innerHTML=warn.map(t=>`<div class="note warn">${esc(t)}</div>`).join("");
          w.hidden=!warn.length; }
+  renderReconChg();
+}
+/* 逐項比對。看的範圍可以是全部,也可以單看一個客戶 —— 一個客戶用的是他自己
+   那一層費率,混在一起看差異會被別的客戶稀釋掉。 */
+let RECON_SCOPE="";
+function renderReconChg(){
+  const card=$("#reconChgCard");
+  const r=RECON&&RECON.res;
+  if(card) card.hidden=!(r&&r.chg&&r.chg.length);
+  if(!r||!r.chg) return;
+  const sel=$("#reconScope");
+  if(sel){
+    const keep=RECON_SCOPE;
+    sel.innerHTML=`<option value="">${esc(L("全部客戶","All customers"))}</option>`
+      +r.cus.map(a=>`<option value="${esc(a.code)}">${esc(a.code+" · "+a.name)}</option>`).join("");
+    sel.value=(keep&&r.chgBy[keep])?keep:"";
+    RECON_SCOPE=sel.value;
+  }
+  const rows=(RECON_SCOPE&&r.chgBy[RECON_SCOPE])||r.chg;
+  const sign=v=>`<span class="mny ${v<0?"neg":(v>0?"pos":"")}">${money(v)}</span>`;
+  const tb=$("#tReconChg")&&$("#tReconChg").tBodies[0];
+  if(tb) tb.innerHTML=rows.map(o=>{
+    const unknown=o.name===RECON_UNKNOWN;
+    const nm=unknown?L("未辨識代碼","Unrecognised codes"):o.name;
+    const mine=unknown?"":chgCodeOf(o.name);
+    const ups=unknown?"":chgUpsCodes(o.name);
+    return `<tr${unknown?' style="opacity:.72"':""}><td>${esc(nm)}</td>
+      <td class="mono">${mine?"<b>"+esc(mine)+"</b>"
+        :`<span class="empty">${L("未設定","not set")}</span>`}</td>
+      <td class="mono">${ups&&ups.length?esc(ups.join(" · "))
+        :`<span class="empty">—</span>`}</td>
+      <td class="num">${money(o.rep)}</td>
+      <td class="num">${money(o.ups)}</td>
+      <td class="num">${sign(o.gap)}</td></tr>`;
+  }).join("")||`<tr><td colspan="6" class="empty">—</td></tr>`;
+  const t=rows.reduce((a,o)=>({rep:cents(a.rep+o.rep), ups:cents(a.ups+o.ups)}),{rep:0,ups:0});
+  const tf=$("#tReconChg")&&$("#tReconChg").tFoot;
+  if(tf) tf.innerHTML=`<tr><td colspan="3"><b>${esc(L("合計","Total"))}</b></td>
+      <td class="num"><b>${money(t.rep)}</b></td>
+      <td class="num"><b>${money(t.ups)}</b></td>
+      <td class="num"><b>${sign(cents(t.rep-t.ups))}</b></td></tr>`;
+  const sum=$("#reconChgSum");
+  if(sum){
+    const over=rows.filter(o=>o.gap<-0.004).length;
+    sum.textContent=L(
+      "共 "+rows.length+" 項,其中 "+over+" 項 UPS 收得比重算多。",
+      rows.length+" charge(s), "+over+" of them billed above the recomputed figure.");
+  }
 }
 
 /* --------------------------------------------------------------------
@@ -10386,11 +10488,26 @@ async function reconExport(){
      {v:o.rep,t:"n",s:M},{v:o.gap,t:"n",s:M}]));
   /* 追蹤號整串塞回去 —— 匯出的這份要能拿去對原檔,少了它就得回頭翻模板。 */
   r.orders.forEach((o,i)=>{ det[i+1][4]=RECON.list[i]?RECON.list[i].trks.join(", "):""; });
+  /* 逐項那一張:全部一段,接著每個客戶各一段。分成幾十張分頁不好翻,
+     多一欄 Scope 就能在同一張表上篩。 */
+  const chgRows=[["Scope","Charge","Your Code","System Code","Recomputed",
+                  "Charged by UPS","Recomputed vs UPS"].map(HD)];
+  const chgName=n=>n===RECON_UNKNOWN?"Unrecognised codes":n;
+  const push=(scope,list)=>{ for(const o of list) chgRows.push([
+      scope, chgName(o.name),
+      o.name===RECON_UNKNOWN?"":chgCodeOf(o.name),
+      o.name===RECON_UNKNOWN?"":chgUpsCodes(o.name).join(" "),
+      {v:o.rep,t:"n",s:M},{v:o.ups,t:"n",s:M},{v:o.gap,t:"n",s:M}]); };
+  push("ALL", r.chg||[]);
+  for(const a of r.cus) push(a.code, (r.chgBy||{})[a.code]||[]);
+
   await xlWrite([
     {name:"Summary", rows:sum, freeze:{r:1,c:0}, filter:"A1:L1",
      cols:[{w:16},{w:26},{w:16},{w:9},{w:12},{w:11},{w:16},{w:15},{w:12},{w:11},{w:14},{w:17}]},
     {name:"Orders", rows:det, freeze:{r:1,c:0}, filter:"A1:M1",
-     cols:[{w:20},{w:12},{w:16},{w:16},{w:34},{w:10},{w:12},{w:22},{w:16},{w:15},{w:12},{w:14},{w:17}]}
+     cols:[{w:20},{w:12},{w:16},{w:16},{w:34},{w:10},{w:12},{w:22},{w:16},{w:15},{w:12},{w:14},{w:17}]},
+    {name:"Charges", rows:chgRows, freeze:{r:1,c:0}, filter:"A1:G1",
+     cols:[{w:14},{w:40},{w:14},{w:20},{w:14},{w:16},{w:18}]}
   ], "WMS_Reconciliation.xlsx");
   reconMsg(L("已匯出。","Exported."), true);
 }
@@ -10430,6 +10547,18 @@ function bindRecon(){
     const f=e.target.files&&e.target.files[0];
     e.target.value="";
     reconImport(f).catch(err=>reconMsg(String(err&&err.message||err),false));
+  });
+  $("#reconScope") && ($("#reconScope").onchange=e=>{
+    RECON_SCOPE=e.target.value; renderReconChg(); });
+  /* 表上點一個客戶,下面那張表就只看他 —— 比拉選單快,而且點的是眼睛已經
+     停在的那一列。 */
+  $("#tRecon") && ($("#tRecon").onclick=e=>{
+    const tr=e.target.closest("tbody tr"); if(!tr||!tr.cells.length) return;
+    const code=tr.cells[0].textContent.trim();
+    if(!code) return;
+    RECON_SCOPE=(RECON_SCOPE===code)?"":code;
+    renderReconChg();
+    const c=$("#reconChgCard"); if(c&&!c.hidden) c.scrollIntoView({block:"nearest"});
   });
   $("#bReconXls") && ($("#bReconXls").onclick=()=>{ reconExport().catch(e=>
     reconMsg(String(e&&e.message||e),false)); });
@@ -10486,10 +10615,12 @@ const REPORT_COL_OF={
    同一份資料算了四五遍。拿 RATED 的參考當鍵:換過就一定是新物件,
    沒換過就一定是同一個,不會抓到過期的東西。 */
 let RR_CACHE=null;
-function reportRows(){
-  if(RR_CACHE && RR_CACHE.rated===RATED) return RR_CACHE.rows;
-  const known=new Set(REPORT_COLS);
-  const out=(RATED||[]).map(r=>{
+/* 一筆重算結果攤成報表的一列。原本這段是 reportRows() 裡的匿名函式,拆出來
+   是因為對帳要用:對帳是一個客戶一份費率去算的,拿不到全域的 RATED,但要的
+   東西一模一樣 —— 每一項費用各多少錢。兩邊共用同一段,欄位才不會分岔。 */
+const REPORT_KNOWN=new Set(REPORT_COLS);
+function reportRowOf(r){
+    const known=REPORT_KNOWN;
     const s=r.s, o={};
     /* 數字欄沒有值就是 0,不是留白 —— 桌面版整份活頁簿沒有一格是空的。
        日期、追蹤號、Zone、Shipment Type 這些是文字,留白照舊。 */
@@ -10570,7 +10701,10 @@ function reportRows(){
     }
     o["Total"]=want;
     return o;
-  });
+}
+function reportRows(){
+  if(RR_CACHE && RR_CACHE.rated===RATED) return RR_CACHE.rows;
+  const out=(RATED||[]).map(r=>reportRowOf(r));
   RR_CACHE={rated:RATED, rows:out};
   return out;
 }
@@ -12494,12 +12628,12 @@ async function xlWrite(sheets, fname, onProgress){
       +"<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" "
       +"xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\" "
       +"xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
-      +"<dc:creator>UPS Reprice</dc:creator><cp:lastModifiedBy>UPS Reprice</cp:lastModifiedBy>"
+      +"<dc:creator>UPS Reconciliation</dc:creator><cp:lastModifiedBy>UPS Reconciliation</cp:lastModifiedBy>"
       +"</cp:coreProperties>")},
     {name:"docProps/app.xml", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
       +"<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\" "
       +"xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\">"
-      +"<Application>UPS Reprice</Application></Properties>")},
+      +"<Application>UPS Reconciliation</Application></Properties>")},
     {name:"xl/workbook.xml", bytes:B("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
       +"<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
       +"xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
@@ -14662,6 +14796,10 @@ const I18N={
   "ct.recon":["對帳","Reconciliation"],
   "btn.chgview":["檢視代碼","View codes"],
   "th.cusrecon":["最近對帳","Last reconciliation"],
+  "hd.reconchg":["逐項比對","By charge"],
+  "hint.reconchg":["對到的那幾件出貨,每一項費用兩邊各算一次:照這個客戶的費率層級該收多少,以及 UPS 實際收了多少。差額就是帳單與合約的出入,差最多的排在最上面。",
+    "Every charge on the matched shipments, priced two ways: what this customer's rate level says it should be, and what UPS actually billed. The difference is where the invoice departs from the agreement — sorted with the largest gap first."],
+  "lb.reconscope":["檢視範圍","Showing"],
   "hd.cusreg":["客戶","Customers"],
   "hint.cusreg":["你自己維護的清單。指定費率層級後,這個客戶的出貨就照那一層的費率重算。客戶名單為整個帳號共用,不隨層級切換而改變。",
     "Your own list. Assign a rate level and this customer's shipments are repriced at that level. The list is shared across the whole account and does not change when you switch levels."],

@@ -1,0 +1,26 @@
+# 客戶資料一律不進 git
+ups_billing_tool_config.json
+ups_history.sqlite3
+*.csv
+*.xlsx
+Invoice_*
+*_Repriced.*
+
+# 測試用的 jsdom,不進 git
+node_modules/
+package-lock.json
+
+# 瀏覽器下載回來的重複檔。整個工具就是根目錄那一份 index.html —— 旁邊放著
+# 十幾份「index - 2026-08-25T150626.949.html」和幾包 deploy zip,每一份裡面
+# 都是一個舊版的工具。要判斷手上跑的是哪一版本來就不容易,再擺二十個候選
+# 就是把「我的功能不見了」變成常態。刪掉的檔在 git 歷史裡還找得回來。
+index - *.html
+index.html.html
+download
+download (*)
+*.zip
+
+# Python 位元碼快取。跑過 engine.py 或桌面版就會長出來,內容是機器產生的,
+# 而且綁著直譯器版本 —— 進了 git 只會製造衝突。
+__pycache__/
+*.pyc

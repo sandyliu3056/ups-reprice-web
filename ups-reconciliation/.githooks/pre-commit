@@ -1,0 +1,21 @@
+#!/bin/sh
+# 擋客戶資料與金鑰進 git。git add -f 也擋得住 —— 這裡看的是暫存區內容,不是工作區。
+# 認的是形狀,不是把帳號號碼寫進這支腳本裡。
+fail=0
+for f in $(git diff --cached --name-only --diff-filter=ACM); do
+  case "$f" in
+    .githooks/*) continue;;                      # 規則本身帶著這些樣式,不掃自己
+    supabase-js-*.js|xlsx-*.js) continue;;       # 鎖版本的第三方檔,壓過的亂數字串會誤觸
+    ups_billing_tool_config.json|ups_history.sqlite3|*.csv|*.xlsx|Invoice_*|*_Repriced.*)
+      echo "擋下:$f(客戶資料)"; fail=1; continue;;
+  esac
+  body=$(git show ":$f" 2>/dev/null) || continue
+  echo "$body" | grep -qE '1Z[A-Z0-9]{16}'      && { echo "擋下:$f(疑似追蹤號)"; fail=1; }
+  echo "$body" | grep -qE '\b0000[0-9A-F]{9,}\b' && { echo "擋下:$f(疑似帳單號含帳號)"; fail=1; }
+  echo "$body" | grep -qE 'C:\\Users\\'          && { echo "擋下:$f(本機路徑)"; fail=1; }
+  echo "$body" | grep -qE 'eyJhbGciOi|sb_secret_' && { echo "擋下:$f(疑似 secret key)"; fail=1; }
+  # 程式裡不該有任何密碼字面值。舊版內建帳號就是這樣把真的帳密留在檔案裡的。
+  echo "$body" | grep -qiE '(password|passwd|pwd|密碼)[^A-Za-z0-9]{0,4}[:=][^A-Za-z0-9]{0,4}["'"'"'][^"'"'"']{6,}' \
+    && { echo "擋下:$f(程式裡寫死密碼)"; fail=1; }
+done
+[ $fail -eq 0 ] || { echo "commit 已中止。"; exit 1; }
