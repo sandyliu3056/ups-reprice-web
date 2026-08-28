@@ -1163,7 +1163,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <div id="cusPane">
   <div class="lf sketch">
     <h3 class="display"><span class="em">👤</span><span data-i18n="hd.cusreg">Customers</span></h3>
-    <p class="hint" style="margin:0 0 11px;max-width:62ch" data-i18n="hint.cusreg">Your own list. The rate level column is for later — it does nothing yet.</p>
+    <p class="hint" style="margin:0 0 11px;max-width:62ch" data-i18n="hint.cusreg">Your own list. Assign a rate level and this customer’s shipments are repriced at that level. The list is shared across the whole account and does not change when you switch levels.</p>
     <div class="tablewrap" style="max-height:30vh"><table id="tCus"><thead><tr>
       <th data-i18n="th.cuscode">Code</th>
       <th data-i18n="th.cusname">Name</th>
@@ -1862,6 +1862,35 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
      自己去另一個分頁一個一個加。這個視窗把「發現」和「補上」接起來。
      預設收費方式是「照帳單收」而不是「重新計價」—— 新代碼還沒有費率,
      選重新計價的話它會以 0 計價,那筆錢就真的少收了。照帳單收至少是成本。 -->
+<div id="cusEditBg" class="modalbg">
+  <div class="modal sketch" id="cusEditModal" style="width:min(520px,100%)">
+    <div class="modalhd">
+      <span data-i18n="hd.cusedit">Edit customer</span>
+      <button class="mx" id="cusEditX">✕</button>
+    </div>
+    <div class="modalbody">
+      <label class="inlab" style="margin-left:0" data-i18n="th.cuscode">Code</label>
+      <input id="ceCode" class="cell" style="width:100%;text-align:left;margin:4px 0 2px">
+      <p class="hint" style="margin:0 0 12px" data-i18n="hint.cecode">Letters, digits, . _ - only. Change it and every rule and assignment pointing at this customer follows.</p>
+
+      <label class="inlab" style="margin-left:0" data-i18n="th.cusname">Name</label>
+      <input id="ceName" class="cell" style="width:100%;text-align:left;margin:4px 0 12px">
+
+      <label class="inlab" style="margin-left:0" data-i18n="th.cuslevel">Rate level</label>
+      <span class="foldwrap" style="display:block;margin:4px 0 2px"><select id="ceLevel" class="fold" style="width:100%"></select></span>
+      <p class="hint" style="margin:0 0 4px" data-i18n="hint.celevel">This customer’s shipments are repriced at this level.</p>
+      <div id="cusEditNote" class="note warn" style="display:none;margin-top:10px"></div>
+    </div>
+    <div class="modalft">
+      <span></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="cusEditCancel" data-i18n="btn.close">Close</button>
+        <button class="act" id="cusEditSave" data-i18n="btn.cussave">Save customer</button>
+      </span>
+    </div>
+  </div>
+</div>
+
 <div id="gapBg" class="modalbg">
   <div class="modal sketch" id="gapModal" style="width:min(940px,100%);height:min(78vh,860px)">
     <div class="modalhd">
@@ -5636,7 +5665,13 @@ function chgCodeOf(name){
    代價要講清楚:一份設定大約 260 KB,層級是整份複製,所以三層就 780 KB,
    全部塞在同一個帳號的那一列裡。畫面上每一層都列出自己的大小,就是為了讓
    人看得到這件事,而不是某天存檔失敗才發現。 */
-const RL_KEYS=["rate_levels"];
+/* 層級之外的東西。客戶名單、對應規則、費用代號 —— 這幾項是整個帳號共用的,
+   跟費率無關,不該跟著層級換。原本它們也在設定裡,層級一切,整份設定被換掉,
+   客戶名單就跟著換,等於 A 級和 B 級各有一份互不相干的客戶 —— 那樣「一個客戶
+   指定一個層級」根本無從說起。
+   做法:收起來的那幾份把這些鍵拔掉,切層時從現用的那份帶過去。 */
+const ACCOUNT_KEYS=["customers","customer_rules","customer_map","charge_codes"];
+const RL_KEYS=["rate_levels"].concat(ACCOUNT_KEYS);
 function rlStore(){
   if(!CFG||!CFG.raw) return null;
   const o=CFG.raw.rate_levels;
@@ -5651,6 +5686,13 @@ function rlEnsure(){
   }
   if(!o.cfg||typeof o.cfg!=="object") o.cfg={};
   if(!o.list.some(x=>x.id===o.active)) o.active=(o.list[0]||{}).id||"L1";
+  /* 搬家:分家之前存下來的層級可能還帶著自己的一份客戶名單。清掉,以現用
+     那一層的為準 —— 留著只會是兩份對不起來的資料,而且白佔空間。 */
+  for(const id of Object.keys(o.cfg)){
+    const c=o.cfg[id];
+    if(!c||typeof c!=="object") continue;
+    for(const k of ACCOUNT_KEYS) if(k in c) delete c[k];
+  }
   return o;
 }
 /* 一份可以收起來的設定:把 rate_levels 拔掉,不然層級裡面還有層級。
@@ -5696,6 +5738,11 @@ function rlSwitch(id){
   if(!target) return false;
   const keep=rlStrip(CFG.raw);
   const next=JSON.parse(JSON.stringify(target));
+  /* 客戶那幾項不隨層級走:從現在這一份帶過去,換掉的只有費率。 */
+  for(const k of ACCOUNT_KEYS){
+    if(CFG.raw[k]===undefined) delete next[k];
+    else next[k]=JSON.parse(JSON.stringify(CFG.raw[k]));
+  }
   const store={active:id, list:o.list.slice(), cfg:Object.assign({}, o.cfg)};
   store.cfg[o.active]=keep;
   delete store.cfg[id];
@@ -5822,6 +5869,66 @@ function cusSaveAnd(fn){
   renderCustomers();
   saveSettings();
 }
+/* 客戶指到的層級要顯示名字,不是內部 id。層級被刪掉的話照樣把 id 顯出來 ——
+   悄悄顯示成「未指定」會讓人以為本來就沒設過。 */
+function cusLevelLabel(id){
+  if(!id) return "";
+  const o=rlStore();
+  const e=o&&o.list.find(x=>x.id===id);
+  return e?e.name:id+L(" (層級已刪除)"," (level deleted)");
+}
+let CUS_EDIT="";
+function cusEditNote(m){
+  const e=$("#cusEditNote"); if(!e) return;
+  e.textContent=m||""; e.style.display=m?"":"none";
+}
+function openCusEdit(code){
+  const c=cusReg().find(x=>x.code===code); if(!c) return;
+  CUS_EDIT=code;
+  $("#ceCode") && ($("#ceCode").value=c.code);
+  $("#ceName") && ($("#ceName").value=c.name||"");
+  const sel=$("#ceLevel");
+  if(sel){
+    const list=((rlStore()||{}).list)||[];
+    /* 指到一個已經被刪掉的層級時也要選得回原值,不然開一次視窗就被清空。 */
+    const gone=c.level&&!list.some(e=>e.id===c.level);
+    sel.innerHTML=`<option value="">${esc(L("未指定","Not set"))}</option>`
+      +list.map(e=>`<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")
+      +(gone?`<option value="${esc(c.level)}">${esc(cusLevelLabel(c.level))}</option>`:"");
+    sel.value=c.level||"";
+  }
+  cusEditNote("");
+  $("#cusEditBg") && $("#cusEditBg").classList.add("on");
+  $("#ceCode") && $("#ceCode").focus();
+}
+function closeCusEdit(){
+  CUS_EDIT="";
+  $("#cusEditBg") && $("#cusEditBg").classList.remove("on");
+}
+function saveCusEdit(){
+  const was=CUS_EDIT; if(!was) return;
+  const code=cusNorm($("#ceCode").value);
+  const name=($("#ceName").value||"").trim();
+  const level=(($("#ceLevel")||{}).value)||"";
+  if(!/^[A-Z0-9._-]{2,}$/.test(code)){
+    cusEditNote(L("代碼至少兩個字,只能用英數字和 . _ - —— 以後要送給別的系統,中文會出事。",
+                  "A code needs at least 2 characters: letters, digits, . _ - only.")); return; }
+  if(code!==was && cusReg().some(c=>c.code===code)){
+    cusEditNote(L("這個代碼已經有了。","That code already exists.")); return; }
+  cusSaveAnd(()=>{
+    const c=cusReg().find(x=>x.code===was); if(!c) return;
+    c.code=code; c.name=name||code; c.level=level;
+    /* 改代碼時,指著舊代碼的規則和人工指定要一起跟過來。少了這一步,那些
+       出貨當場變成未指定,而畫面上看不出剛剛發生了什麼。 */
+    if(code!==was){
+      for(const r of cusRules()) if(r.cus===was) r.cus=code;
+      const m=CFG.raw.customer_map;
+      for(const k of Object.keys(m)) if(m[k]===was) m[k]=code;
+    }
+  });
+  closeCusEdit();
+  cusNote(L("已更新 "+code,"Updated "+code),true);
+}
 function renderCustomers(){
   if(!CFG) return;
   cusEnsure(); chgEnsure();
@@ -5836,10 +5943,14 @@ function renderCustomers(){
   const tb=$("#tCus")&&$("#tCus").tBodies[0];
   if(tb) tb.innerHTML=reg.length?reg.map(c=>{
     const p=per[c.code];
+    const lv=cusLevelLabel(c.level);
     return `<tr><td class="mono">${esc(c.code)}</td><td>${esc(c.name||"")}</td>
-      <td><span class="empty">${c.level?esc(c.level):"—"}</span></td>
+      <td>${lv?esc(lv):`<span class="empty">—</span>`}</td>
       <td class="num">${p?p.n+" · "+money(p.amt):`<span class="empty">—</span>`}</td>
-      <td><button class="act ghost sm" data-cusdel="${esc(c.code)}">${L("刪除","Delete")}</button></td></tr>`;
+      <td class="row" style="gap:6px;flex-wrap:nowrap">
+        <button class="act ghost sm" data-cusedit="${esc(c.code)}">${L("編輯","Edit")}</button>
+        <button class="act sm danger" data-cusdel="${esc(c.code)}">${L("刪除","Delete")}</button>
+      </td></tr>`;
   }).join("")
     :`<tr><td colspan="5" class="empty">${L("還沒有客戶。先在下面新增一個。",
        "No customers yet. Add one below.")}</td></tr>`;
@@ -5976,7 +6087,14 @@ function bindCustomers(){
     $("#ruVal").value="";
     ruleNote(L("規則已新增。","Rule added."),true);
   });
+  $("#cusEditX")      && ($("#cusEditX").onclick=closeCusEdit);
+  $("#cusEditCancel") && ($("#cusEditCancel").onclick=closeCusEdit);
+  $("#cusEditSave")   && ($("#cusEditSave").onclick=saveCusEdit);
+  $("#cusEditBg")     && ($("#cusEditBg").onclick=e=>{
+    if(e.target.id==="cusEditBg") closeCusEdit(); });
   $("#tCus") && ($("#tCus").onclick=e=>{
+    const ed=e.target.closest("button[data-cusedit]");
+    if(ed){ openCusEdit(ed.dataset.cusedit); return; }
     const b=e.target.closest("button[data-cusdel]"); if(!b) return;
     const code=b.dataset.cusdel;
     const used=cusRules().some(r=>r.cus===code)
@@ -14357,8 +14475,14 @@ const I18N={
   "ct.cusreg":["客戶","Customers"],
   "ct.chgcode":["費用代碼","Charge codes"],
   "hd.cusreg":["客戶","Customers"],
-  "hint.cusreg":["你自己維護的清單。「費率層級」那一欄是給以後用的,現在填了也不影響任何金額。",
-    "Your own list. The rate level column is for later — filling it in changes no amount today."],
+  "hint.cusreg":["你自己維護的清單。指定費率層級後,這個客戶的出貨就照那一層的費率重算。客戶名單為整個帳號共用,不隨層級切換而改變。",
+    "Your own list. Assign a rate level and this customer's shipments are repriced at that level. The list is shared across the whole account and does not change when you switch levels."],
+  "hd.cusedit":["編輯客戶","Edit customer"],
+  "btn.cussave":["儲存客戶","Save customer"],
+  "hint.cecode":["只能用英數字和 . _ -,至少兩個字。改了代碼,指向這個客戶的規則與人工指定會一併更新。",
+    "Letters, digits, . _ - only, at least two characters. Change it and every rule and assignment pointing at this customer follows."],
+  "hint.celevel":["這個客戶的出貨會照這一層的費率重算。未指定者沿用目前使用中的層級。",
+    "This customer's shipments are repriced at this level. Unassigned customers fall back to the level currently in use."],
   "hd.cusrule":["規則","Rules"],
   "hint.cusrule":["由上往下比,第一個命中的算數 —— 所以順序會改變結果。一條規則可以抵掉幾十筆逐筆指定,而且以後的新訂單自己會命中。",
     "Matched top to bottom; the first hit wins, so the order matters. One rule stands in for dozens of one-by-one assignments, and new orders match it on their own."],
