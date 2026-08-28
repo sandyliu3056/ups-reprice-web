@@ -5099,8 +5099,35 @@ async function gunzipText(z,data){
 }
 /* 歸檔一批帳單列之後,把牽涉到的每一期整期上傳。背景進行、失敗只記在
    console —— 歸檔本身已經寫進本機,同步失敗不該打斷計價流程。 */
+/* 兩種登入模式的雲端同步差在「鑰匙從哪來」。
+     本機帳號:鑰匙是帳號+密碼推出來的,由瀏覽器算好當參數送上去。
+     Supabase:沒有密碼可以推,改由資料庫自己從登入身分取(auth.uid()),
+               呼叫端連鑰匙都不必知道 —— 也就沒有「鑰匙被拿走」這回事。
+   除了這一點,推、拉、刪的流程完全一樣,所以只在這裡分岔一次,
+   底下三個函式共用。 */
+function histSync(){
+  if(!SYNC||!ME) return null;
+  if(LOCAL_MODE){
+    if(!ME.sync) return null;
+    return {
+      list:()=>SYNC.rpc("local_history_list",{k:ME.sync}),
+      get:(inv)=>SYNC.rpc("local_history_get",{k:ME.sync,inv}),
+      put:(inv,m,d)=>SYNC.rpc("local_history_put",{k:ME.sync,inv,m,d}),
+      del:(inv)=>SYNC.rpc("local_history_del",{k:ME.sync,inv}),
+      migrate:true
+    };
+  }
+  if(!ME.id) return null;
+  return {
+    list:()=>SYNC.rpc("hist_list"),
+    get:(inv)=>SYNC.rpc("hist_get",{inv}),
+    put:(inv,m,d)=>SYNC.rpc("hist_put",{inv,m,d}),
+    del:(inv)=>SYNC.rpc("hist_del",{inv}),
+    migrate:false
+  };
+}
 function histCloudPush(rows){
-  if(!LOCAL_MODE||!SYNC||!ME||!ME.sync) return;
+  const H=histSync(); if(!H) return;
   const by={};
   for(const r of rows||[]){
     const k=(r.invoice||"").trim();
@@ -5112,8 +5139,7 @@ function histCloudPush(rows){
       try{
         const packed=await gzipText(JSON.stringify(by[k]));
         const meta=Object.assign({z:packed.z}, inv[k]||{});
-        const {error}=await SYNC.rpc("local_history_put",
-          {k:ME.sync, inv:k, m:meta, d:packed.data});
+        const {error}=await H.put(k, meta, packed.data);
         if(error) console.warn("invoice history sync failed:", k, error.message);
       }catch(e){ console.warn("invoice history sync failed:", k, e&&e.message); }
     })();
@@ -5122,9 +5148,9 @@ function histCloudPush(rows){
 /* 刪除同步:本機刪了哪幾期,帳號雲端那份也跟著刪。失敗只記 console ——
    下次在別台電腦看到那期還在,重刪一次就好。 */
 function histCloudDelete(keys){
-  if(!LOCAL_MODE||!SYNC||!ME||!ME.sync) return;
+  const H=histSync(); if(!H) return;
   for(const k of keys||[]){
-    SYNC.rpc("local_history_del",{k:ME.sync,inv:k})
+    H.del(k)
       .then(({error})=>{ if(error) console.warn("cloud delete failed:", k, error.message); })
       .catch(()=>{});
   }
@@ -5132,11 +5158,11 @@ function histCloudDelete(keys){
 /* 登入時把雲端有、本機沒有(或雲端比較新)的那幾期抓回來。
    回傳抓到的期數,0 = 沒有新東西。 */
 async function histCloudPull(){
-  if(!LOCAL_MODE||!SYNC||!ME||!ME.sync) return 0;
-  await syncMigrate();
+  const H=histSync(); if(!H) return 0;
+  if(H.migrate) await syncMigrate();
   let list=[];
   try{
-    const {data,error}=await SYNC.rpc("local_history_list",{k:ME.sync});
+    const {data,error}=await H.list();
     if(error||!Array.isArray(data)) return 0;
     list=data;
   }catch(e){ return 0; }
@@ -5149,7 +5175,7 @@ async function histCloudPull(){
   let got=0;
   for(const r of want){
     try{
-      const {data,error}=await SYNC.rpc("local_history_get",{k:ME.sync,inv:r.invoice});
+      const {data,error}=await H.get(r.invoice);
       const row=Array.isArray(data)?data[0]:data;
       if(error||!row||!row.data) continue;
       const rows=JSON.parse(await gunzipText(row.meta&&row.meta.z, row.data));
