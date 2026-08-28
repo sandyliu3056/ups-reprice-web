@@ -1244,6 +1244,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       </div>
       <div class="tablewrap" style="max-height:62vh"><table id="tChg"><thead><tr>
         <th data-i18n="th.chgname">Charge</th>
+        <th data-i18n="th.chgups">System code</th>
         <th data-i18n="th.chgmine">Your code</th>
         <th data-i18n="th.chgmyname">Your name</th>
         <th data-i18n="th.chgsrc">Source</th>
@@ -1598,6 +1599,24 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <section class="page" id="p-setting">
   <div class="lf sketch">
     <h3 class="display"><span class="em">⚙️</span><span data-i18n="hd.setting">Settings</span></h3>
+
+    <!-- 費率層級。一個帳號可以存好幾份完整的費率,一個客戶一份。
+         擺在費率設定檔上面,因為「現在編的是哪一層」決定了那顆按鈕載進去的
+         檔案會蓋到誰 —— 先看到層級,才不會載錯地方。 -->
+    <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
+      <div class="subhd" style="margin-top:0" data-i18n="hd.ratelvl">🧭 Rate levels</div>
+      <p class="hint" style="margin:8px 0 10px;max-width:880px" data-i18n="hint.ratelvl">One account can hold several complete rate sets — one per customer. Everything on the pricing tabs belongs to the level in use; switching swaps the lot.</p>
+      <div class="tablewrap" style="max-height:34vh"><table id="tLvl"><thead><tr>
+        <th data-i18n="th.lvlname">Level</th>
+        <th data-i18n="th.lvlstate">In use</th>
+        <th class="num" data-i18n="th.lvlsize">Size</th>
+        <th></th>
+      </tr></thead><tbody></tbody></table></div>
+      <div class="row" style="margin-top:9px">
+        <button class="act ghost" id="bLvlCopy" data-i18n="btn.lvlcopy">Duplicate this level</button>
+        <span id="lvlMsg" class="savenote"></span>
+      </div>
+    </div>
 
     <!-- 費率設定檔。整份取代,而且是一個帳號設定一次的動作,所以擺在設定的
          最上面,不跟每期要調的欄位混在一起。載入與儲存放在同一處:載入只寫
@@ -5540,6 +5559,35 @@ function chgCatalog(){
   }
   return out;
 }
+/* 系統靠哪些 UPS 代碼認出這一項費用。CODE_REF 的說明字串大多就是報表的欄名,
+   對得上的直接反查;對不上但意思明確的列在下面。
+   刻意不猜的:偏遠地區那四欄(CAC/CAR/HIC/HIR/AKR 各家帳單的用法不一致),
+   以及 Demand 那幾欄 —— 它們是算出來的,本來就沒有對應的代碼。寧可留白,
+   也不要寫一個看起來很篤定的錯代碼。完整代碼表在「代碼查詢」分頁。 */
+const CHG_CODE_ALIAS={
+  "Base Rate":["003","FRT"],
+  "DAS Commercial":["RDC"],
+  "DAS Residential":["RDR"],
+  "DAS Extended Commercial":["LDC"],
+  "DAS Extended Residential":["LDR"],
+  "Over Maximum Size Surcharge":["OML","OVR"],
+  "Adult Signature":["ADS","ASR"],
+  "Signature":["DCS","CSG"],
+  "Reroute":["IRW"],
+  "Reschedule Delivery":["IFW"],
+  "Return To Sender":["ISW"],
+  "Missing PLD Fee":["NPF"]
+};
+function chgUpsCodes(name){
+  const out=[];
+  const add=c=>{ if(c && !out.includes(c)) out.push(c); };
+  for(const [c,d] of Object.entries(CODE_REF)) if(d===name) add(c);
+  for(const c of (CHG_CODE_ALIAS[name]||[])) add(c);
+  /* 自訂附加費是你自己登記的代碼,那一份最權威。 */
+  const dyn=(CFG&&CFG.raw&&CFG.raw.dynamic_surcharge_mapping)||{};
+  for(const [c,v] of Object.entries(dyn)) if(String((v||{}).name||"").trim()===name) add(c);
+  return out.sort();
+}
 /* 對外要用的名字。沒設過就是內部名稱 —— 呼叫端不必自己判斷有沒有設。 */
 function chgLabel(name){
   const o=chgCodes()[name];
@@ -5549,6 +5597,187 @@ function chgLabel(name){
 function chgCodeOf(name){
   const o=chgCodes()[name];
   return o?String(o.code||"").trim():"";
+}
+/* =====================================================================
+   費率層級
+   ---------------------------------------------------------------------
+   一個帳號存好幾份完整的費率,一個客戶一份。層級之間完全獨立 —— 一層就是
+   一份完整設定,不繼承也不共用,改一層不會動到另一層。
+
+   放哪裡:目前使用的那一層「就是」CFG.raw 本身,其餘的收在
+   CFG.raw.rate_levels.cfg 底下。這樣做有兩個好處:
+     · 所有既有的程式碼照舊讀 CFG.raw,一行都不用改
+     · 跟著費率一起存、一起同步,不必動資料表也不必重新部署函式
+   收起來的那幾份會先把自己的 rate_levels 拔掉,不然就是一層套一層的無限
+   巢狀,存一次就爆。
+
+   代價要講清楚:一份設定大約 260 KB,層級是整份複製,所以三層就 780 KB,
+   全部塞在同一個帳號的那一列裡。畫面上每一層都列出自己的大小,就是為了讓
+   人看得到這件事,而不是某天存檔失敗才發現。 */
+const RL_KEYS=["rate_levels"];
+function rlStore(){
+  if(!CFG||!CFG.raw) return null;
+  const o=CFG.raw.rate_levels;
+  if(o&&typeof o==="object"&&o.list) return o;
+  return null;
+}
+function rlEnsure(){
+  if(!CFG||!CFG.raw) return null;
+  let o=CFG.raw.rate_levels;
+  if(!o||typeof o!=="object"||!Array.isArray(o.list)){
+    o=CFG.raw.rate_levels={active:"L1", list:[{id:"L1", name:L("預設","Default")}], cfg:{}};
+  }
+  if(!o.cfg||typeof o.cfg!=="object") o.cfg={};
+  if(!o.list.some(x=>x.id===o.active)) o.active=(o.list[0]||{}).id||"L1";
+  return o;
+}
+/* 一份可以收起來的設定:把 rate_levels 拔掉,不然層級裡面還有層級。
+   必須是深拷貝 —— 淺拷貝的話 global_rules 那些子物件還是同一個,改現用
+   這一層會連帶改到收起來的那一層,兩層的費率就悄悄變成同一份。設定本來
+   就是純 JSON,所以 stringify/parse 是對的做法。 */
+function rlStrip(raw){
+  const o=JSON.parse(JSON.stringify(raw||{}));
+  for(const k of RL_KEYS) delete o[k];
+  return o;
+}
+function rlNextId(o){
+  let n=2;
+  while(o.list.some(x=>x.id==="L"+n)) n++;
+  return "L"+n;
+}
+function rlName(id){
+  const o=rlStore(); if(!o) return "";
+  const e=o.list.find(x=>x.id===id);
+  return e?e.name:id;
+}
+function rlActive(){ const o=rlStore(); return o?o.active:""; }
+/* 一層佔多少。整份 JSON 的長度,估個大概給人看 —— 不必精準到位元組。 */
+function rlSize(id){
+  const o=rlStore(); if(!o) return 0;
+  try{
+    const raw=(id===o.active)?rlStrip(CFG.raw):o.cfg[id];
+    return raw?JSON.stringify(raw).length:0;
+  }catch(e){ return 0; }
+}
+function rlHuman(n){
+  return n>=1048576 ? (n/1048576).toFixed(1)+" MB"
+       : n>=1024    ? Math.round(n/1024)+" KB"
+       : n+" B";
+}
+/* 切層。把現在編的收起來,把目標拿出來當 CFG.raw —— 中間任何一步失敗就
+   什麼都不動,不要留下一個「收起來了但沒換過去」的半套狀態。 */
+function rlSwitch(id){
+  const o=rlEnsure(); if(!o) return false;
+  if(id===o.active) return true;
+  if(!o.list.some(x=>x.id===id)) return false;
+  const target=o.cfg[id];
+  if(!target) return false;
+  const keep=rlStrip(CFG.raw);
+  const next=JSON.parse(JSON.stringify(target));
+  const store={active:id, list:o.list.slice(), cfg:Object.assign({}, o.cfg)};
+  store.cfg[o.active]=keep;
+  delete store.cfg[id];
+  next.rate_levels=store;
+  /* applyConfig 走的是既有那條路:讀設定、重畫、記進本機快取。 */
+  applyConfig(JSON.stringify(next), CFG_LABEL||L("已儲存的設定","saved settings"));
+  saveSettings();
+  return true;
+}
+function rlDuplicate(name){
+  const o=rlEnsure(); if(!o) return null;
+  const id=rlNextId(o);
+  o.cfg[id]=rlStrip(CFG.raw);
+  o.list.push({id, name:name||(rlName(o.active)+L(" 複本"," copy"))});
+  return id;
+}
+function rlRename(id,name){
+  const o=rlEnsure(); if(!o) return false;
+  const e=o.list.find(x=>x.id===id);
+  if(!e) return false;
+  e.name=name;
+  return true;
+}
+function rlDelete(id){
+  const o=rlEnsure(); if(!o) return false;
+  if(id===o.active) return false;        /* 現用的那一層不能刪 */
+  if(o.list.length<=1) return false;
+  o.list=o.list.filter(x=>x.id!==id);
+  delete o.cfg[id];
+  return true;
+}
+function lvlMsg(m,ok){
+  const e=$("#lvlMsg");
+  if(e){ e.textContent=m||""; e.className="savenote"+(m&&!ok?" bad":""); }
+}
+function renderLevels(){
+  if(!CFG) return;
+  const o=rlEnsure(); if(!o) return;
+  const tb=$("#tLvl")&&$("#tLvl").tBodies[0];
+  if(!tb) return;
+  const total=o.list.reduce((a,e)=>a+rlSize(e.id),0);
+  tb.innerHTML=o.list.map(e=>{
+    const on=e.id===o.active;
+    return `<tr><td>${on?"<b>":""}${esc(e.name)}${on?"</b>":""}</td>
+      <td>${on?`<span class="pill ok">${L("使用中","in use")}</span>`
+              :`<span class="empty">—</span>`}</td>
+      <td class="num">${rlHuman(rlSize(e.id))}</td>
+      <td class="row" style="gap:6px">
+        ${on?"":`<button class="act ghost sm" data-lvluse="${esc(e.id)}">${
+            L("切換到這一層","Switch to this")}</button>`}
+        <button class="act ghost sm" data-lvlren="${esc(e.id)}">${L("改名","Rename")}</button>
+        ${on||o.list.length<2?"":`<button class="act sm danger" data-lvldel="${esc(e.id)}">${
+            L("刪除","Delete")}</button>`}
+      </td></tr>`;
+  }).join("");
+  lvlMsg(L("共 "+o.list.length+" 層,合計 "+rlHuman(total)+"。",
+           o.list.length+" level(s), "+rlHuman(total)+" in total."), true);
+}
+function bindLevels(){
+  $("#bLvlCopy") && ($("#bLvlCopy").onclick=()=>{
+    const o=rlEnsure(); if(!o) return;
+    const name=prompt(L("新層級的名稱:","Name for the new level:"),
+                      rlName(o.active)+L(" 複本"," copy"));
+    if(name==null) return;
+    const nm=String(name).trim();
+    if(!nm){ lvlMsg(L("請給它一個名稱。","Give it a name."),false); return; }
+    const id=rlDuplicate(nm);
+    CFG=readConfig(CFG.raw); DIRTY=true; renderLevels(); saveSettings();
+    lvlMsg(L("已複製成「"+nm+"」。現在編的還是原本那一層 —— 要改新的那份,先切換過去。",
+             "Copied to \""+nm+"\". You are still editing the original — switch to edit the new one."),true);
+  });
+  $("#tLvl") && ($("#tLvl").onclick=e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    if(b.dataset.lvluse){
+      const nm=rlName(b.dataset.lvluse);
+      if(DIRTY && !confirm(L("有還沒儲存的變更。切換層級會把現在這一層先存起來,然後換成「"+nm+"」。要繼續嗎?",
+          "There are unsaved changes. Switching stores this level first, then loads \""+nm+"\". Continue?"))) return;
+      if(rlSwitch(b.dataset.lvluse)){
+        renderLevels(); renderConfigTabs();
+        if(typeof renderCustomers==="function") renderCustomers();
+        toast(L("已切換到「"+nm+"」。","Switched to \""+nm+"\"."),true);
+      }else lvlMsg(L("切換失敗。","Could not switch."),false);
+      return;
+    }
+    if(b.dataset.lvlren){
+      const cur=rlName(b.dataset.lvlren);
+      const name=prompt(L("改成:","Rename to:"), cur);
+      if(name==null) return;
+      const nm=String(name).trim();
+      if(!nm) return;
+      rlRename(b.dataset.lvlren, nm);
+      CFG=readConfig(CFG.raw); DIRTY=true; renderLevels(); saveSettings();
+      return;
+    }
+    if(b.dataset.lvldel){
+      const nm=rlName(b.dataset.lvldel);
+      if(!confirm(L("刪除「"+nm+"」?那一層的整份費率會一起消失,沒有復原。",
+          "Delete \""+nm+"\"? That level's entire rate set goes with it, and there is no undo."))) return;
+      if(rlDelete(b.dataset.lvldel)){
+        CFG=readConfig(CFG.raw); DIRTY=true; renderLevels(); saveSettings();
+        lvlMsg(L("已刪除「"+nm+"」。","Deleted \""+nm+"\"."),true);
+      }
+    }
+  });
 }
 /* ---- 對照設定的畫面 ---- */
 let CUS_TAB="cus";
@@ -5669,13 +5898,16 @@ function renderChgCodes(){
   const tb=$("#tChg")&&$("#tChg").tBodies[0];
   if(tb) tb.innerHTML=list.map(c=>{
     const o=m[c.name]||{};
+    const ups=chgUpsCodes(c.name);
     return `<tr><td>${esc(c.name)}</td>
+      <td class="mono">${ups.length?esc(ups.join(" · "))
+        :`<span class="empty">${L("無單一代碼","no single code")}</span>`}</td>
       <td><input class="cell chgc" data-n="${esc(c.name)}" data-f="code" value="${
         esc(o.code||"")}" style="width:130px;text-align:left"></td>
       <td><input class="cell chgc" data-n="${esc(c.name)}" data-f="name" value="${
         esc(o.name||"")}" style="width:190px;text-align:left"></td>
       <td class="empty">${esc(T("chg.src."+c.src)||c.src)}</td></tr>`;
-  }).join("")||`<tr><td colspan="4" class="empty">—</td></tr>`;
+  }).join("")||`<tr><td colspan="5" class="empty">—</td></tr>`;
   const done=all.filter(c=>chgCodeOf(c.name)).length;
   const cc=$("#chgCount");
   if(cc) cc.textContent=L(
@@ -5839,9 +6071,9 @@ function importChgCodes(f){
   });
 }
 function exportChgCodes(){
-  const aoa=[["Charge","Your Code","Your Name","Source"],
+  const aoa=[["Charge","System Code","Your Code","Your Name","Source"],
     ...chgCatalog().map(c=>{ const o=chgCodes()[c.name]||{};
-      return [c.name, o.code||"", o.name||"", c.src]; })];
+      return [c.name, chgUpsCodes(c.name).join(" "), o.code||"", o.name||"", c.src]; })];
   saveSheet(aoa,"Charge Codes","UPS_Charge_Codes.xlsx",-1)
     .then(ok=>setStatus(ok?L("代碼表已匯出","Charge codes exported")
                           :L("已取消存檔","Save cancelled")));
@@ -14008,9 +14240,10 @@ const I18N={
   "btn.assign":["指定","Assign"],
   "btn.cusexport":["匯出待指定清單","Export unassigned list"],
   "hd.chgcode":["費用代碼","Charge codes"],
-  "hint.chgcode":["給每一項費用你自己的代碼和名稱。留白就沿用這裡顯示的名稱。這一頁不影響任何金額 —— 它決定的是資料送出去的時候用什麼名字。",
-    "Give each charge your own code and name. Blank means the charge keeps the name shown here. No amount changes — this decides what the data is called when it leaves this tool."],
+  "hint.chgcode":["「系統代碼」是這個工具靠哪些 UPS 代碼認出這一項費用,唯讀。留白代表它不是靠單一代碼認出來的(例如 Demand 那幾項是算出來的)—— 完整代碼表在「代碼查詢」分頁。右邊兩欄填你自己的代碼和名稱,留白就沿用內部名稱。這一頁不影響任何金額。",
+    "System code is what this tool matches to recognise the charge, and is read-only. Blank means no single code identifies it — the demand charges, for one, are computed. The full code table is on the Code Lookup tab. The two columns on the right are yours; blank keeps the internal name. No amount changes here."],
   "th.chgname":["費用(系統內部名稱)","Charge (internal name)"],
+  "th.chgups":["系統代碼","System code"],
   "th.chgmine":["你的代碼","Your code"],
   "th.chgmyname":["你的名稱","Your name"],
   "th.chgsrc":["來源","Source"],
@@ -14095,6 +14328,15 @@ const I18N={
   "th.name":["名稱","Name"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
   "hd.cfgfile":["📄 費率設定檔","📄 Rate Configuration File"],
+  "hd.ratelvl":["🧭 費率層級","🧭 Rate levels"],
+  "hint.ratelvl":["一個帳號可以存好幾份完整的費率,一個客戶一份。計價那幾個分頁上的東西都屬於「目前使用」的那一層,切換就整份換掉。",
+    "One account can hold several complete rate sets — one per customer. Everything on the pricing tabs belongs to the level in use; switching swaps the lot."],
+  "th.lvlname":["層級名稱","Level"],
+  "th.lvlstate":["目前使用","In use"],
+  "th.lvlsize":["大小","Size"],
+  "btn.lvlcopy":["複製這一層","Duplicate this level"],
+  "btn.lvluse":["切換到這一層","Switch to this"],
+  "btn.rename":["改名","Rename"],
   "hint.cfgshort":["這個帳號完整的計價設定。",
     "The account's complete pricing configuration."],
   "btn.cfgset":["設定費率設定檔","Configure"],
@@ -15349,6 +15591,7 @@ step("auth",()=>{
   $("#bLoginRefresh").onclick=()=>loadLoginHistory();
   bindUserAdmin();
   bindCustomers();
+  bindLevels();
   $("#bLoginExport").onclick=()=>exportLoginHistory();
 });
 step("language",()=>applyLang());
