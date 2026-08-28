@@ -4235,10 +4235,9 @@ function fileInvoices(rows, how){
   try{ histCloudPush(rows); }catch(e){}
   return {added, replaced, stored, count:Object.keys(seen).length};
 }
-/* 舊的期別存進索引時還沒有記帳號,畫面上只能從期號推,標成「(推得)」。
+/* 舊的期別存進索引時還沒有記帳號,畫面上只能從期號推。
    明細其實就在本機的 IndexedDB 裡,每一列都帶著帳號號碼 —— 還原明細的時候
-   順手把它補回索引,補到的那幾期下次就是真的帳號,不必重新匯入。
-   補不到的(只有索引、沒有明細)照舊標「(推得)」—— 那是實話。 */
+   順手把它補回索引,補到的那幾期下次就是真的帳號,不必重新匯入。 */
 function backfillAccounts(rows){
   const inv=histInv();
   const need=new Set(Object.keys(inv).filter(k=>!String(inv[k].acct||"").trim()));
@@ -7334,7 +7333,7 @@ function stPaintFilters(all){
     ? `<label class="fsel"><span>${L("帳號","Account")}</span>`
       +`<span class="selw"><select id="stfAcct">`
       +opt("",ST_F.acct,L("全部帳號","All accounts"))
-      +seen.map(a=>opt(a.id,ST_F.acct,a.id+(a.guessed?L(" (推得)"," (derived)"):""))).join("")
+      +seen.map(a=>opt(a.id,ST_F.acct,a.id)).join("")
       +`</select></span></label>`
     : "";
   const rngSel=`<label class="fsel"><span>${L("期間","Period")}</span>`
@@ -9293,7 +9292,6 @@ function dashAllHTML(all){
      未篩選的 all),不然選了就回不去。 */
   const accts=[...new Set(data.map(d=>dashAcctOf(d).id).filter(Boolean))];
   const multi=accts.length>1;
-  const guessed=data.some(d=>dashAcctOf(d).guessed);
   const rows=data.map(d=>{
     const acell=multi?`<td class="aa">${esc(dashAcctOf(d).id||"—")}</td>`:"";
     if(d.missing) return `<tr class="amiss"><td class="ak">${esc(d.key)}</td>`
@@ -9339,11 +9337,9 @@ function dashAllHTML(all){
       </tr></tfoot></table></div>`}
     <div class="dfoot">${L(
       "毛利 = 向客戶收 − UPS 收;毛利率 = 毛利 ÷ 向客戶收。兩者均不含帳戶層費用 —— 該欄是否計入,由帳務決定。"
-        +(multi?"本表含 "+accts.length+" 個 UPS 帳號,同一天可能各有一張帳單。":"")
-        +(guessed?"標示「推得」的帳號由期號推算,重新匯入該期即可取得實際帳號。":""),
+        +(multi?"本表含 "+accts.length+" 個 UPS 帳號,同一天可能各有一張帳單。":""),
       "Profit is charge-customer minus UPS; margin is profit over charge-customer. Neither includes account charges — whether those belong in the figure is your accounting call."
-        +(multi?" This table spans "+accts.length+" UPS accounts, which can each issue an invoice on the same date.":"")
-        +(guessed?" Accounts marked derived were inferred from the invoice number; re-import that period for the real one.":""))}</div>
+        +(multi?" This table spans "+accts.length+" UPS accounts, which can each issue an invoice on the same date.":""))}</div>
   </div>`;
 }
 /* 期別走勢。
@@ -9646,9 +9642,8 @@ function prSheetPeriods(){
   const body=[]; let tn=0,tr=0,tb=0,ta=0,nOk=0;
   for(const d of data){
     const a=dashAcctOf(d);
-    /* 匯出的檔案裡不寫「(推得)」。那是畫面上要講的事 —— 提醒看的人這個帳號
-       是從期號推出來的、重匯該期就會換成真的;但檔案是拿去對帳、篩選、做
-       樞紐分析的,欄位裡混一個註記,同一個帳號就變成兩種字串。 */
+    /* 帳號欄只寫帳號。檔案是拿去對帳、篩選、做樞紐分析的,欄位裡混一個
+       註記,同一個帳號就變成兩種字串。畫面上的下拉選單同一個道理。 */
     const acct=a.id||"";
     if(d.missing){
       body.push([d.key, serial(d.date), acct, 0,0,0,0,0,0,
@@ -9726,7 +9721,7 @@ function dashPickFilters(all){
     ? `<label class="fsel"><span>${L("帳號","Account")}</span>`
       +`<span class="selw"><select id="dfAcct">`
       +opt("",DASH_F.acct,L("全部帳號","All accounts"))
-      +accts.map(a=>opt(a.id,DASH_F.acct,a.id+(a.guessed?L(" (推得)"," (derived)"):""))).join("")
+      +accts.map(a=>opt(a.id,DASH_F.acct,a.id)).join("")
       +`</select></span></label>`
     : "";
   const rngSel=`<label class="fsel"><span>${L("期間","Period")}</span>`
