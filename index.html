@@ -8777,9 +8777,16 @@ const REPORT_COL_OF={
   "Demand OVR":"Demand - Over Maximum",
   "Demand Service":"Demand - Service"
 };
+/* 八萬筆重算結果攤成報表列要一秒多,而這份東西一次載入之後就不會變:
+   RATED 是整包換掉的(RATED=SHIPS.map(...)),沒有人改裡面的列。
+   儀表板、異常報表、匯出、對帳都各叫一次,換一次篩選又全部再叫一次 ——
+   同一份資料算了四五遍。拿 RATED 的參考當鍵:換過就一定是新物件,
+   沒換過就一定是同一個,不會抓到過期的東西。 */
+let RR_CACHE=null;
 function reportRows(){
+  if(RR_CACHE && RR_CACHE.rated===RATED) return RR_CACHE.rows;
   const known=new Set(REPORT_COLS);
-  return (RATED||[]).map(r=>{
+  const out=(RATED||[]).map(r=>{
     const s=r.s, o={};
     /* 數字欄沒有值就是 0,不是留白 —— 桌面版整份活頁簿沒有一格是空的。
        日期、追蹤號、Zone、Shipment Type 這些是文字,留白照舊。 */
@@ -8861,6 +8868,8 @@ function reportRows(){
     o["Total"]=want;
     return o;
   });
+  RR_CACHE={rated:RATED, rows:out};
+  return out;
 }
 /* 檔名照桌面版:原始檔名整個留著,後面接 _Repriced。
    Invoice_0000XXXXXXX_081526.csv -> Invoice_0000XXXXXXX_081526_Repriced.xlsx
@@ -9003,9 +9012,19 @@ function upsBucketOf(l, recl){
 const REPORT_META=new Set(["Date","Tracking","Shipment Reference Number 1",
   "Shipment Reference Number 2","Zone","Shipment Type","Entered Weight",
   "Billable Weight","Length","Width","Height","Total"]);
+/* 同一個道理。儀表板每換一次帳號或期間就整頁重畫一次,重畫就重算一次
+   —— 八萬筆的話一次兩秒多,而中間什麼都沒變。
+   它讀的東西就這四樣:RATED、ACCT_LINES、CFG、LANG。前三個都是整包換掉
+   的(CFG=readConfig(...) 每次回新物件),所以參考比對就是準確的失效條件;
+   ACCT_LINES 是先清空再一路 push 出來的,順手把長度也記著。 */
+let DAGG_CACHE=null;
 function dashAgg(){
   const rated=RATED||[];
   if(!rated.length) return null;
+  if(DAGG_CACHE && DAGG_CACHE.rated===rated && DAGG_CACHE.cfg===CFG
+     && DAGG_CACHE.acct===ACCT_LINES && DAGG_CACHE.acctN===(ACCT_LINES||[]).length
+     && DAGG_CACHE.lang===LANG)
+    return DAGG_CACHE.value;
   const rows=reportRows();
   const bucketCols=REPORT_COLS.filter(c=>!REPORT_META.has(c));
   let repriced=0, billed=0, resiN=0, comN=0, resiAmt=0, comAmt=0;
@@ -9066,12 +9085,15 @@ function dashAgg(){
         }
       } }
   });
-  return {n:rated.length, repriced, billed, savings:billed-repriced,
+  const out={n:rated.length, repriced, billed, savings:billed-repriced,
     resiN, comN, resiAmt, comAmt, fuel:buckets["Fuel Surcharge"]||0, buckets, zoneAgg,
     unsureN, unsureAmt, unsureBy, svcUnsureN, svcUnsureAmt,
     unknownNet, unknownCodes:[...unknownCodes], unknownBy, upsUnknownBy,
     missN, missAmt, chanAgg, upsBuckets, reclN,
     account:(ACCT_LINES||[]).reduce((a,l)=>a+toNum(l.net),0)};
+  DAGG_CACHE={rated, cfg:CFG, acct:ACCT_LINES, acctN:(ACCT_LINES||[]).length,
+              lang:LANG, value:out};
+  return out;
 }
 /* =====================================================================
    儀表板的期別選單
