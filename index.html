@@ -1152,10 +1152,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
 <!-- ==================== Channels ==================== -->
 <section class="page" id="p-chan">
-  <div class="subtabs" id="chanSide">
-    <button data-r="C" aria-selected="true"  data-i18n="ct.com">Commercial</button>
-    <button data-r="R" aria-selected="false" data-i18n="ct.res">Residential</button>
-  </div>
   <div class="lf sketch">
     <h3 class="display"><span class="em">➕</span><span data-i18n="hd.chandata">Add a new channel</span></h3>
     <div class="grid3" style="grid-template-columns:auto minmax(0,1fr)">
@@ -1169,6 +1165,15 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <span data-i18n="lb.chanon">Enable this channel</span></label>
       <button class="act" id="bAddChan" data-i18n="btn.addchan">Add channel</button>
     </div>
+    <p class="hint" style="margin:9px 0 0;max-width:760px" data-i18n="hint.addchan">A new channel appears on both the commercial and residential side, each with its own base rate table. Only a name that says Commercial or Residential itself stays on that one side.</p>
+  </div>
+
+  <!-- 商業／住宅移到這裡。它管的是「在看哪一側的費率表和清單」,而新增渠道
+       跟它無關 —— 加進去的名稱兩側都會出現(bAddChan 根本不看 CHAN_SIDE)。
+       擺在新增的上面,看起來像是在決定新渠道歸哪一側,那是假的。 -->
+  <div class="subtabs" id="chanSide">
+    <button data-r="C" aria-selected="true"  data-i18n="ct.com">Commercial</button>
+    <button data-r="R" aria-selected="false" data-i18n="ct.res">Residential</button>
   </div>
 
   <div class="lf sketch">
@@ -13256,6 +13261,8 @@ const I18N={
   "lb.chanon":["啟用此渠道","Enable this channel"],
   "btn.addchan":["新增渠道","Add channel"],
   "lb.pickrate":["選擇費率表渠道","Rate table channel"],
+  "hint.addchan":["新增的渠道商業與住宅兩側都會出現,各自一張基本運費表。只有名稱裡自己寫了 Commercial 或 Residential 的,才會只留在那一側。",
+    "A new channel appears on both the commercial and residential side, each with its own base rate table. Only a name that says Commercial or Residential itself stays on that one side."],
   "btn.exprate":["匯出基本運費表模板","Export base rate template"],
   "btn.imprate":["匯入已完成的基本運費表","Import completed base rates"],
   "btn.scanzone":["從帳單掃描 Zone","Scan zones from invoice"],
