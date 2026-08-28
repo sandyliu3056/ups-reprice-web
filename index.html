@@ -489,6 +489,17 @@ td.cells{white-space:normal}
 .affsum{color:var(--muted);font-size:12.5px}
 #dvRow{gap:14px;flex-wrap:wrap}
 #dvRow label{font-size:12.5px;color:var(--accent);font-weight:600}
+.dvprev{margin:12px 0 4px;border:1.5px solid var(--line);border-radius:var(--rad);
+  background:var(--stripe);padding:11px 14px;font-size:12.5px;max-width:640px}
+.dvprev .dvb{display:flex;justify-content:space-between;gap:16px;padding:3px 0;
+  border-bottom:1px dashed var(--line)}
+.dvprev .dvb:last-of-type{border-bottom:0}
+.dvprev .dvb span{color:var(--muted)}
+.dvprev .dvb b{font-weight:700;white-space:nowrap}
+.dvprev .dvtry{margin-top:9px;padding-top:8px;border-top:1.5px solid var(--line);
+  color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 18px}
+.dvprev .dvtry b{color:var(--text)}
+.dvprev .dvno{color:var(--neg)}
 
 /* 批量設定 */
 .bulkwrap{display:grid;grid-template-columns:minmax(0,0.85fr) minmax(0,1.15fr);gap:14px}
@@ -1059,6 +1070,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     <div id="accFlat" class="flatgrid"></div>
     <div class="subhd" data-i18n="hd.dv">Declared value tiers</div>
     <div class="row" id="dvRow"></div>
+    <div id="dvPrev" class="dvprev"></div>
 
     <div class="tablewrap hidden" style="display:none"><table id="tAcc"><thead><tr>
       <th><input type="checkbox" id="accAll"></th>
@@ -2908,6 +2920,64 @@ async function repriceStored(key){
    照超出的金額收保價費就是收了買不到的東西,所以照上限計費,呼叫端
    會把這一筆標出來。上限留白 = 不設限,和以前一樣。 */
 function dvCap(cfg){ return toNum((cfg.raw.accessorial_charges||{}).dv_max); }
+/* 五個數字合起來到底是什麼收法,用畫的。
+   最容易踩到的是:平段收到哪裡結束,不是你設的,是算出來的 ——
+     平段止於 = floor(最低收費 ÷ 每級距) × 級距單位
+   想收 $10 平段、$300 之後才跳,填最低收費 10 / 每級距 1.70 會一路平到
+   $500,因為 $10 要到第 6 級距才被超過。這種事用想的想不到,印出來就看到了。 */
+function dvBands(free,min,unit,rate,cap){
+  if(unit<=0||rate<=0) return null;
+  const flatEnd=Math.floor(Number((min/rate).toFixed(6)))*unit;
+  return {free, min, unit, rate, cap, flatEnd:Math.max(flatEnd,0)};
+}
+function dvQuote(b,v){
+  if(v<=0) return 0;
+  if(b.cap>0&&v>b.cap) v=b.cap;
+  if(v<=b.free) return 0;
+  const u=Math.ceil(Number((v/b.unit).toFixed(6)));
+  return Math.round(Math.max(b.min,u*b.rate)*100)/100;
+}
+/* 金額整數就不拖 .00 —— 級距邊界寫成 $300 比 $300.00 好讀。 */
+function dvM(v){ const t=money(v); return t.endsWith(".00")?t.slice(0,-3):t; }
+function paintDvPreview(){
+  const box=$("#dvPrev"); if(!box) return;
+  const g=k=>{ const el=document.querySelector('#dvRow input[data-k="chg\u241F'+k+'"]');
+               return toNum(el?el.value:((CFG.raw.accessorial_charges||{})[k])); };
+  const b=dvBands(g("dv_free_limit"),g("dv_min_charge"),g("dv_unit"),
+                  g("dv_unit_rate"),g("dv_max"));
+  if(!b){
+    box.innerHTML=`<div class="dvno">${L(
+      "級距單位和每級距收費都要有值,否則申報價值不會重算,那一欄會留白。",
+      "Step and per-step must both have a value, or declared value is not repriced and the column stays empty.")}</div>`;
+    return;
+  }
+  const row=(l,r)=>`<div class="dvb"><span>${l}</span><b>${r}</b></div>`;
+  let h="";
+  if(b.free>0) h+=row(`${dvM(0)} – ${dvM(b.free)}`, L("免費","Free"));
+  const start=b.free>0?dvM(b.free+0.01):dvM(0.01);
+  if(b.flatEnd>b.free)
+    h+=row(`${start} – ${dvM(b.flatEnd)}`,
+           `${dvM(b.min)} ${L("固定","flat")}`);
+  const on=b.flatEnd>b.free?dvM(b.flatEnd):dvM(b.free);
+  h+=row(L(`${on} 以上`,`Above ${on}`),
+         L(`每 ${dvM(b.unit)} 收 ${dvM(b.rate)}`,
+           `${dvM(b.rate)} per ${dvM(b.unit)}`));
+  if(b.cap>0)
+    h+=row(L(`保價上限 ${dvM(b.cap)}`,`Insurable ceiling ${dvM(b.cap)}`),
+           L("超過照上限計費並標記","Above this: priced at the ceiling, and flagged"));
+  /* 試算挑會落在不同段的值,不是隨便三個數字。 */
+  const picks=[];
+  if(b.free>0) picks.push(b.free);
+  if(b.flatEnd>b.free) picks.push(b.flatEnd);
+  picks.push((b.flatEnd>b.free?b.flatEnd:b.free)+b.unit);
+  picks.push(b.cap>0 ? b.cap+b.unit
+                     : (b.flatEnd>b.free?b.flatEnd:b.unit)*5);
+  const uniq=[...new Set(picks.filter(v=>v>0))].sort((x,y)=>x-y);
+  h+=`<div class="dvtry"><span>${L("試算","Try")}</span>`
+    + uniq.map(v=>`<span>${dvM(v)} → <b>${money(dvQuote(b,v))}</b></span>`).join("")
+    + `</div>`;
+  box.innerHTML=h;
+}
 function quoteDeclaredValue(cfg, value){
   value=toNum(value);
   if(value<=0) return null;
@@ -7943,6 +8013,10 @@ function renderConfigTabs(){
     ["dv_free_limit","lb.dvfree"],["dv_min_charge","lb.dvmin"],
     ["dv_unit","lb.dvunit"],["dv_unit_rate","lb.dvrate"],["dv_max","lb.dvmax"],
   ].map(([k,lab])=>`<label>${T(lab)}</label>${numIn("chg\u241F"+k,a[k])}`).join("");
+  paintDvPreview();
+  /* 邊打字邊畫,不等離開焦點 —— 這五個數字合起來會變成什麼,用看的比用想的快。
+     只畫預覽,不寫進設定;存檔仍然是 onchange 那條路。 */
+  $("#dvRow").oninput=()=>paintDvPreview();
 
   /* ---- 尺寸規則:預設一列,每個渠道一列,12 個門檻欄 ---- */
   const g=CFG.raw.global_rules||{};
@@ -12452,9 +12526,9 @@ const I18N={
   "btn.afnone":["取消全選","Unselect All"],
   "hd.flat":["固定金額","Flat amounts"],
   "hd.dv":["申報價值級距","Declared value tiers"],
-  "lb.dvfree":["免收上限","Free up to"], "lb.dvmin":["最低收費","Minimum charge"],
-  "lb.dvunit":["級距單位","Step"], "lb.dvrate":["每級距","Per step"],
-  "lb.dvmax":["上限(留白=不設限)","Max value (blank = none)"],
+  "lb.dvfree":["免費額度","Free allowance"], "lb.dvmin":["最低收費","Minimum charge"],
+  "lb.dvunit":["級距單位","Step"], "lb.dvrate":["每級距收費","Per step"],
+  "lb.dvmax":["保價上限(留白=不設限)","Max insurable value (blank = none)"],
   "btn.reset":["重設","Reset"],
   "hd.acc":["附加費設定","Surcharge Setup"],
   "hd.fuel":["燃油","Fuel"],
