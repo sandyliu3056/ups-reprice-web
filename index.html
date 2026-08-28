@@ -1249,10 +1249,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
         <th data-i18n="th.chgmyname">Your name</th>
         <th data-i18n="th.chgsrc">Source</th>
       </tr></thead><tbody></tbody></table></div>
-      <div class="row" style="margin-top:9px">
-        <button class="act" id="bChgSave" data-i18n="btn.save">Save Settings</button>
-        <span class="savenote"></span>
-      </div>
     </div>
   </div>
 </section>
@@ -5925,13 +5921,16 @@ function renderChgCodes(){
   if(tb) tb.innerHTML=list.map(c=>{
     const o=m[c.name]||{};
     const ups=chgUpsCodes(c.name);
-    return `<tr><td>${esc(c.name)}</td>
+    const mine=String(o.code||"").trim(), myname=String(o.name||"").trim();
+    /* 沒設過的整列調淡 —— 一眼看得出還有多少沒建檔,而不是掃過三十七列
+       空格子。設過的把代碼放粗,那才是要對外送出去的東西。 */
+    return `<tr${mine||myname?"":' style="opacity:.62"'}><td>${esc(c.name)}</td>
       <td class="mono">${ups.length?esc(ups.join(" · "))
         :`<span class="empty">${L("無單一代碼","no single code")}</span>`}</td>
-      <td><input class="cell chgc" data-n="${esc(c.name)}" data-f="code" value="${
-        esc(o.code||"")}" style="width:130px;text-align:left"></td>
-      <td><input class="cell chgc" data-n="${esc(c.name)}" data-f="name" value="${
-        esc(o.name||"")}" style="width:190px;text-align:left"></td>
+      <td class="mono">${mine?"<b>"+esc(mine)+"</b>"
+        :`<span class="empty">${L("未設定","not set")}</span>`}</td>
+      <td>${myname?esc(myname)
+        :`<span class="empty">${L("沿用內部名稱","keeps the internal name")}</span>`}</td>
       <td class="empty">${esc(T("chg.src."+c.src)||c.src)}</td></tr>`;
   }).join("")||`<tr><td colspan="5" class="empty">—</td></tr>`;
   const done=all.filter(c=>chgCodeOf(c.name)).length;
@@ -6024,18 +6023,6 @@ function bindCustomers(){
   });
   $("#bCusTpl") && ($("#bCusTpl").onclick=exportUnassigned);
   $("#chgSearch") && ($("#chgSearch").oninput=()=>renderChgCodes());
-  /* 打字就記在設定裡,但不每一鍵存檔 —— 存檔要按下面那顆。 */
-  $("#tChg") && ($("#tChg").oninput=e=>{
-    const i=e.target.closest("input.chgc"); if(!i||!chgEnsure()) return;
-    const n=i.dataset.n, f=i.dataset.f, v=(i.value||"").trim();
-    const m=CFG.raw.charge_codes;
-    const o=m[n]||(m[n]={});
-    if(v) o[f]=v; else delete o[f];
-    if(!o.code&&!o.name) delete m[n];
-    DIRTY=true;
-  });
-  $("#bChgSave") && ($("#bChgSave").onclick=()=>{
-    CFG=readConfig(CFG.raw); saveSettings(); renderChgCodes(); });
   $("#bChgExport") && ($("#bChgExport").onclick=exportChgCodes);
   $("#bChgImport") && ($("#bChgImport").onclick=()=>$("#fChgImport").click());
   $("#fChgImport") && ($("#fChgImport").onchange=e=>{
@@ -14394,8 +14381,8 @@ const I18N={
   "btn.assign":["指定","Assign"],
   "btn.cusexport":["匯出待指定清單","Export unassigned list"],
   "hd.chgcode":["費用代碼","Charge codes"],
-  "hint.chgcode":["「系統代碼」是這個工具靠哪些 UPS 代碼認出這一項費用,唯讀。留白代表它不是靠單一代碼認出來的(例如 Demand 那幾項是算出來的)—— 完整代碼表在「代碼查詢」分頁。右邊兩欄填你自己的代碼和名稱,留白就沿用內部名稱。這一頁不影響任何金額。",
-    "System code is what this tool matches to recognise the charge, and is read-only. Blank means no single code identifies it — the demand charges, for one, are computed. The full code table is on the Code Lookup tab. The two columns on the right are yours; blank keeps the internal name. No amount changes here."],
+  "hint.chgcode":["本頁為檢視用,不能直接編輯 —— 代碼一律由「匯入代碼表」寫入。「系統代碼」是本工具辨識該項費用所依據的 UPS 代碼。留白代表它不是靠單一代碼認出來的(例如 Demand 那幾項是算出來的)—— 完整代碼表在「代碼查詢」分頁。右邊兩欄是你自己的代碼與名稱,未設定者沿用內部名稱。本頁不影響任何金額。",
+    "This page is a view, not a form: codes are set by importing the table. System code is what this tool matches to recognise the charge. Blank means no single code identifies it — the demand charges, for one, are computed. The full code table is on the Code Lookup tab. The two columns on the right are yours; unset keeps the internal name. No amount changes here."],
   "th.chgname":["費用(系統內部名稱)","Charge (internal name)"],
   "th.chgups":["系統代碼","System code"],
   "th.chgmine":["你的代碼","Your code"],
