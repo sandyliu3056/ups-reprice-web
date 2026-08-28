@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UPS Address Validation API — Setup Guide</title>
+<style>
+  /* Muted on purpose — warm brown and dusty gold read easily over a long
+     document. Colour marks structure (section numbers, table heads, callouts),
+     never decoration. */
+  :root{
+    --ink:#221f1b; --ink-2:#544d43; --ink-3:#8a8176;
+    --brand:#5a3a24; --brand-2:#a67c2e; --rule:#e2dacb;
+    --tint:#faf6ee; --tint-2:#f3f5f8; --tint-warn:#fbf3f1;
+    --warn:#9c3a2c; --code-bg:#f6f3ec;
+  }
+  @page { size: A4; margin: 15mm 15mm 13mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Source Sans 3", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink); font-size: 10pt; line-height: 1.6; margin: 0;
+    orphans: 3; widows: 3;
+  }
+  code, pre, .mono { font-family: "DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace; }
+
+  /* ---- Cover ---- */
+  .cover { height: 250mm; display: flex; flex-direction: column;
+           justify-content: center; page-break-after: always; }
+  .cover .bar { height: 6px; background: linear-gradient(90deg,var(--brand) 0 34%,var(--brand-2) 34% 62%,#d9c48e 62% 100%);
+                width: 100%; margin-bottom: 26px; }
+  /* 產品標記。圓角是 SVG 自己畫的,不要再套 border-radius。 */
+  .cover .logo { width: 23mm; height: 23mm; display: block; margin-bottom: 20px; }
+  .kicker { font-size: 8.8pt; letter-spacing: .24em; color: var(--brand-2); font-weight: 700; }
+  .cover h1 { font-size: 25pt; margin: 12px 0 8px; color: var(--brand); line-height: 1.32; }
+  .cover .sub { font-size: 11pt; color: var(--ink-2); }
+  .cover dl { display: grid; grid-template-columns: 82px 1fr; gap: 5px 16px;
+              font-size: 9.6pt; margin: 26px 0 0; }
+  .cover dt { color: var(--ink-3); font-weight: 700; }
+  .cover dd { margin: 0; }
+
+  /* ---- Headings ---- */
+  h2 { font-size: 12.5pt; color: var(--brand); margin: 17px 0 7px; padding-bottom: 4px;
+       border-bottom: 2px solid var(--brand-2); page-break-after: avoid; }
+  h2 .n { color: var(--brand-2); margin-right: 9px; }
+  h3 { font-size: 10.6pt; color: var(--brand); margin: 12px 0 2px; page-break-after: avoid; }
+  h4 { font-size: 10pt; color: var(--ink-2); margin: 9px 0 1px; page-break-after: avoid; }
+  p { margin: 4px 0; }
+  ul, ol { margin: 4px 0; padding-left: 19px; }
+  li { margin: 2px 0; }
+
+  pre { background: var(--code-bg); border: 1px solid var(--rule);
+        border-left: 3px solid var(--brand-2);
+        padding: 7px 10px; font-size: 8.6pt; line-height: 1.5; white-space: pre-wrap;
+        overflow-wrap: anywhere; margin: 6px 0; page-break-inside: avoid; }
+  pre .c { color: var(--ink-3); }
+  code.in { background: var(--code-bg); padding: 0 4px; border-radius: 2px;
+            font-size: 8.7pt; color: var(--brand); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 9.2pt; margin: 6px 0;
+          page-break-inside: avoid; }
+  th { background: var(--brand); color: #fdf9f2; text-align: left; padding: 4px 8px;
+       font-weight: 700; }
+  td { padding: 4px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tr:nth-child(even) td { background: var(--tint); }
+  td.mono, th.mono { font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 8.8pt; }
+
+  .box { border: 1px solid var(--rule); border-left: 3px solid var(--brand-2);
+         background: var(--tint); padding: 7px 11px; margin: 8px 0; font-size: 9.4pt;
+         page-break-inside: avoid; }
+  .box.info { border-left-color: #6a8caf; background: var(--tint-2); }
+  .box.crit { border-left-color: var(--warn); background: var(--tint-warn); }
+  .box .h { display: block; margin-bottom: 2px; color: var(--brand); font-weight: 700; }
+  .box.info .h { color: #3d6285; }
+  .box.crit .h { color: var(--warn); }
+
+  figure { margin: 9px 0 11px; page-break-inside: avoid; }
+  figure img { width: 100%; border: 1px solid var(--rule); display: block; }
+  figure.narrow img { width: 74%; }
+  figure.mid img { width: 88%; }
+  figcaption { font-size: 8.7pt; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+  figcaption b { color: var(--ink-2); }
+
+  /* ---- Architecture diagram ---- */
+  .flow { display: flex; margin: 9px 0 4px; page-break-inside: avoid; }
+  .fbox { flex: 1; border: 1px solid var(--rule); border-top: 3px solid var(--brand-2);
+          padding: 9px 10px; text-align: center; background: #fff; }
+  .fbox.key { background: var(--tint); border-top-color: var(--brand); }
+  .fbox .t { font-size: 9.6pt; color: var(--brand); font-weight: 700; }
+  .fbox .d { font-size: 8.6pt; color: var(--ink-2); margin-top: 2px; line-height: 1.45; }
+  .farr { display: flex; align-items: center; padding: 0 7px; color: var(--brand-2); font-size: 12pt; }
+
+  /* ---- Numbered steps ---- */
+  .step { display: grid; grid-template-columns: 22px 1fr; gap: 9px; margin: 6px 0;
+          page-break-inside: avoid; }
+  .step .n { color: #fdf9f2; background: var(--brand-2); border-radius: 50%;
+             width: 20px; height: 20px; text-align: center; font-size: 8.4pt;
+             line-height: 20px; font-weight: 700; }
+  .foot { margin-top: 18px; padding-top: 7px; border-top: 1px solid var(--rule);
+          font-size: 8.6pt; color: var(--ink-3); }
+  .pb { page-break-before: always; }
+
+  /* ---- Table of contents ---- */
+  .toc { page-break-after: always; }
+  .toc h2 { margin-top: 0; }
+  .toc ol { list-style: none; margin: 10px 0 0; padding: 0; counter-reset: sec; }
+  .toc > ol > li { counter-increment: sec; margin: 0 0 3px; }
+  .toc > ol > li > .r { display: flex; align-items: baseline; gap: 8px;
+                        font-size: 10.4pt; font-weight: 700; color: var(--brand);
+                        padding: 4px 0 3px; border-bottom: 1px solid var(--rule); }
+  .toc > ol > li > .r::before { content: counter(sec); color: var(--brand-2);
+                                min-width: 15px; }
+  .toc .d { font-size: 8.8pt; color: var(--ink-3); font-weight: 400; margin-left: auto;
+            text-align: right; max-width: 62%; line-height: 1.4; }
+  .toc ol ol { margin: 3px 0 8px; padding: 0 0 0 23px; }
+  .toc ol ol li { font-size: 9.2pt; color: var(--ink-2); margin: 1px 0; }
+  .toc ol ol li b { color: var(--ink-3); font-weight: 400; margin-right: 7px;
+                    font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 8.6pt; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="bar"></div>
+  <img class="logo" src="logo.svg" alt="UPS Reprice Platform">
+  <div class="kicker">UPS REPRICE PLATFORM &middot; TECHNICAL DOCUMENTATION</div>
+  <h1>UPS Address Validation API<br>Setup Guide</h1>
+  <div class="sub">Replacing the built-in residential / commercial decision with the UPS address classification service</div>
+  <dl>
+    <dt>Purpose</dt><dd>Deploying the proxy, configuring credentials, verifying it, the interface contract, client setup, and known limits</dd>
+    <dt>Audience</dt><dd>Administrators (sections 1&ndash;4, 6&ndash;7); everyday users (section 5)</dd>
+    <dt>Prerequisites</dt><dd>A UPS developer account, access to a Supabase project, the Supabase CLI (section 2)</dd>
+    <dt>Project ref</dt><dd>Your own Supabase project Reference ID (how to find it: 2.2). Written throughout as <span class="mono">&lt;your-project-ref&gt;</span></dd>
+    <dt>Proxy source</dt><dd class="mono">supabase/functions/ups-address/index.ts</dd>
+  </dl>
+</section>
+
+
+<section class="toc pb">
+<h2><span class="n">&middot;</span>Contents</h2>
+<ol>
+  <li><div class="r">Overview<span class="d">What it does, how the pieces fit, where the credentials live</span></div>
+    <ol><li><b>1.1</b>What it does</li><li><b>1.2</b>Architecture</li><li><b>1.3</b>Where credentials live</li></ol></li>
+  <li><div class="r">Prerequisites<span class="d">Three things you need, where each comes from, how to confirm it</span></div>
+    <ol><li><b>2.1</b>UPS developer account</li><li><b>2.2</b>Supabase project access</li>
+        <li><b>2.3</b>Supabase CLI</li><li><b>2.4</b>Readiness checklist</li></ol></li>
+  <li><div class="r">Deployment<span class="d">Get credentials, link the project, set the variables, deploy</span></div>
+    <ol><li><b>3.1</b>Obtain UPS API credentials</li><li><b>3.2</b>Link your Supabase project</li>
+        <li><b>3.3</b>Set the environment variables</li><li><b>3.4</b>Deploy the function</li></ol></li>
+  <li><div class="r">Verification<span class="d">Confirm deployment, authentication and the endpoint, layer by layer</span></div>
+    <ol><li><b>4.1</b>Confirm the deployment</li><li><b>4.2</b>Get an access token</li>
+        <li><b>4.3</b>Confirm the endpoint</li><li><b>4.4</b>Switch to production</li></ol></li>
+  <li><div class="r">Client setup<span class="d">Choosing the classification source and entering the endpoint</span></div></li>
+  <li><div class="r">Interface reference<span class="d">Request and response, client behaviour, the proxy&rsquo;s call to UPS</span></div>
+    <ol><li><b>6.1</b>Request</li><li><b>6.2</b>Response</li>
+        <li><b>6.3</b>Client behaviour</li><li><b>6.4</b>The proxy&rsquo;s call to UPS</li></ol></li>
+  <li><div class="r">Known limits and what to weigh<span class="d">What sign-in must provide, per-account credentials, how to trial it</span></div>
+    <ol><li><b>7.1</b>Sign-in must use Supabase accounts</li><li><b>7.2</b>Per-account credentials</li>
+        <li><b>7.3</b>Before you turn it on</li></ol></li>
+  <li><div class="r">Appendix &mdash; troubleshooting<span class="d">On-screen messages, status codes at a glance</span></div>
+    <ol><li><b>8.1</b>Status codes at a glance</li></ol></li>
+</ol>
+</section>
+
+<h2><span class="n">1</span>Overview</h2>
+
+<h3>1.1 What it does</h3>
+
+<p>By default the system decides whether each shipment is residential or commercial from the billing codes, the service name and the invoice history. With this feature on, the delivery address is sent to the official UPS address validation service instead, which answers residential or commercial.</p>
+
+<p>Residential and commercial rates differ, so that answer changes the money. Read section 7 before turning it on.</p>
+
+<h3>1.2 Architecture</h3>
+
+<p>The browser cannot call UPS directly: UPS requires OAuth and does not allow cross-origin access (CORS). A proxy is therefore deployed as a Supabase Edge Function, holds the credentials, and makes the call on the browser&rsquo;s behalf.</p>
+
+<div class="flow">
+  <div class="fbox"><div class="t">Client</div>
+    <div class="d">Sends the delivery address<br>Holds no credentials</div></div>
+  <div class="farr">&rarr;</div>
+  <div class="fbox key"><div class="t">Proxy (Edge Function)</div>
+    <div class="d">Holds the UPS credentials<br>Checks who is calling</div></div>
+  <div class="farr">&rarr;</div>
+  <div class="fbox"><div class="t">UPS API</div>
+    <div class="d">Validates and classifies<br>Answers R / C / U</div></div>
+</div>
+
+<p>The answers are <code class="in">R</code> residential, <code class="in">C</code> commercial, <code class="in">U</code> undetermined. On <code class="in">U</code>, or on any failure, pricing falls back to the built-in logic and carries on &mdash; nothing stalls.</p>
+
+<h3>1.3 Where credentials live</h3>
+
+<p>The UPS Client ID and Client Secret exist only as environment variables on the proxy. The client settings screen has no field for them, deliberately.</p>
+
+<div class="box">
+  <span class="h">Why there is no field</span>
+  Every field on the settings screen is written into <code class="in">CFG.raw</code>, and that object goes into browser localStorage, into the account&rsquo;s synced settings row, and into any exported settings file. A credential placed there would spread through all three. On top of that, CORS stops the browser from reaching UPS at all, so a credential entered there could not be used even if it were safe to store.
+</div>
+
+<h2 class="pb"><span class="n">2</span>Prerequisites</h2>
+
+<p>Three things are needed before section 3. They come from different places and serve different purposes; without any one of them, deployment cannot finish.</p>
+
+<h3>2.1 UPS developer account</h3>
+
+<p><strong>What it is for:</strong> obtaining the Client ID and Client Secret that authorise calls to UPS, and subscribing to the Address Validation product. UPS issues credentials per application, and one set of credentials draws on one UPS account&rsquo;s quota.</p>
+
+<table>
+  <tr><th style="width:22%">Item</th><th>Detail</th></tr>
+  <tr><td>Where</td><td><span class="mono">developer.ups.com</span> &rarr; Apps &rarr; Add App</td></tr>
+  <tr><td>Requires</td><td>A working UPS account number &mdash; one that actually ships and is invoiced</td></tr>
+  <tr><td>Product to add</td><td><strong>Address Validation</strong>. Without it the credentials are still valid, but calls come back <code class="in">502 UPS 403</code></td></tr>
+  <tr><td>What you get</td><td>A Client ID and a Client Secret. The Secret is shown once, at creation &mdash; save it then</td></tr>
+  <tr><td>Environments</td><td>Test <span class="mono">wwwcie.ups.com</span>, production <span class="mono">onlinetools.ups.com</span>. Both use the same credentials</td></tr>
+</table>
+
+<div class="box crit">
+  <span class="h">One UPS account, one set of credentials</span>
+  Usage is billed to the UPS account the credentials belong to. Several UPS accounts each need their own application and their own credentials; sharing one set makes quota and billing impossible to attribute.
+</div>
+
+<h3>2.2 Supabase project access</h3>
+
+<p><strong>What it is for:</strong> the proxy runs as an Edge Function on a Supabase project, and that project holds the UPS credentials.</p>
+
+<table>
+  <tr><th style="width:22%">Item</th><th>Detail</th></tr>
+  <tr><td>Role needed</td><td>Owner or Developer on the project. Read access cannot deploy functions or write environment variables</td></tr>
+  <tr><td>Project ref</td><td>The <span class="mono">Reference ID</span> under <span class="mono">Settings &rarr; General</span> &mdash; the subdomain in your endpoint URL. Commands in this guide write it as <span class="mono">&lt;your-project-ref&gt;</span>; substitute your own</td></tr>
+  <tr><td>Key you need</td><td>The anon (publishable) key, for the test in 4.2. This key is public by design and ships in your <span class="mono">auth-config.js</span>; what protects the data is row-level security and function grants, not the key&rsquo;s secrecy. Never substitute the <span class="mono">service_role</span> key</td></tr>
+  <tr><td>How to check</td><td>If <span class="mono">Edge Functions</span> appears in the console sidebar, your role is sufficient</td></tr>
+</table>
+
+<h3>2.3 Supabase CLI</h3>
+
+<p><strong>What it is for:</strong> deploying the function and writing environment variables. Neither can be done from the web console; the CLI is required.</p>
+
+<table>
+  <tr><th style="width:22%">Platform</th><th>Install</th></tr>
+  <tr><td>macOS</td><td class="mono">brew install supabase/tap/supabase</td></tr>
+  <tr><td>Windows</td><td class="mono">scoop install supabase</td></tr>
+  <tr><td>Any (Node)</td><td class="mono">npm install -g supabase</td></tr>
+</table>
+
+<p>Check the version and sign in:</p>
+
+<pre>supabase --version
+supabase login</pre>
+
+<p><span class="mono">supabase login</span> opens a browser to authorise; afterwards the CLI acts with that account&rsquo;s permissions. Once per computer.</p>
+
+<h3>2.4 Readiness checklist</h3>
+
+<p>All four must hold before section 3.</p>
+
+<table>
+  <tr><th style="width:8%">#</th><th style="width:38%">Item</th><th>How to confirm</th></tr>
+  <tr><td class="mono">1</td><td>The UPS application exists and subscribes to Address Validation</td>
+      <td>The product is listed on the app&rsquo;s detail page and shows as approved</td></tr>
+  <tr><td class="mono">2</td><td>The Client ID and Client Secret are saved</td>
+      <td>You can read both back. A lost Secret must be regenerated</td></tr>
+  <tr><td class="mono">3</td><td>You can deploy to the Supabase project</td>
+      <td>Edge Functions is visible in the console</td></tr>
+  <tr><td class="mono">4</td><td>The CLI is installed and signed in</td>
+      <td><span class="mono">supabase --version</span> prints something and <span class="mono">supabase login</span> has completed</td></tr>
+</table>
+
+<h2><span class="n">3</span>Deployment</h2>
+
+<h3>3.1 Obtain UPS API credentials</h3>
+
+<div class="step"><div class="n">1</div><div>Create an application at <code class="in">developer.ups.com</code>.</div></div>
+<div class="step"><div class="n">2</div><div>Add <strong>Address Validation</strong> to that application&rsquo;s products.</div></div>
+<div class="step"><div class="n">3</div><div>Take the Client ID and Client Secret.</div></div>
+
+<div class="box crit">
+  <span class="h">The product subscription is not optional</span>
+  The proxy calls <code class="in">POST /api/addressvalidation/v2/3</code>. The trailing <code class="in">3</code> is request option 3 &mdash; validation <em>and</em> classification. An application subscribed only to Rating or Tracking does not cover it, and verification will return <code class="in">502 UPS 403</code>.
+</div>
+
+<h3>3.2 Link your Supabase project</h3>
+
+<pre><span class="c"># authorise the CLI (opens a browser)</span>
+supabase login
+
+<span class="c"># from the repository root; writes supabase/config.toml</span>
+supabase link --project-ref &lt;your-project-ref&gt;</pre>
+
+<p>The repository ships without <code class="in">config.toml</code>, so linking comes before the first deploy.</p>
+
+<h3>3.3 Set the environment variables</h3>
+
+<pre>supabase secrets set \
+  UPS_CLIENT_ID=&lt;client-id&gt; \
+  UPS_CLIENT_SECRET=&lt;client-secret&gt; \
+  UPS_BASE=https://wwwcie.ups.com</pre>
+
+<table>
+  <tr><th style="width:30%">Variable</th><th>Detail</th></tr>
+  <tr><td class="mono">UPS_CLIENT_ID</td><td>Required</td></tr>
+  <tr><td class="mono">UPS_CLIENT_SECRET</td><td>Required</td></tr>
+  <tr><td class="mono">UPS_BASE</td><td>Optional. Defaults to <span class="mono">https://onlinetools.ups.com</span> (production). Point the first deployment at <span class="mono">https://wwwcie.ups.com</span> (the CIE test environment) so it spends no production quota</td></tr>
+  <tr><td class="mono">SUPABASE_URL<br>SUPABASE_ANON_KEY</td><td>Do not set these &mdash; the platform injects them</td></tr>
+</table>
+
+<h3>3.4 Deploy the function</h3>
+
+<pre>supabase functions deploy ups-address</pre>
+
+<p>Changing an environment variable takes effect immediately; no redeploy needed.</p>
+
+<h2><span class="n">4</span>Verification</h2>
+
+<p>The proxy answers different failures with different status codes, so working through them in order tells you which layer is wrong. Run 4.1 to 4.3 in sequence; do not skip ahead.</p>
+
+<h3>4.1 Confirm the deployment</h3>
+
+<p>Call it with no credentials at all:</p>
+
+<pre>curl -i -X POST \
+  "https://&lt;your-project-ref&gt;.supabase.co/functions/v1/ups-address" \
+  -H "Content-Type: application/json" -d "{}"</pre>
+
+<table>
+  <tr><th style="width:32%" class="mono">Response</th><th>Reading</th></tr>
+  <tr><td class="mono">401 not signed in</td><td>Deployed. The proxy is correctly refusing an unauthenticated request</td></tr>
+  <tr><td class="mono">404</td><td>Not deployed &mdash; back to 3.4</td></tr>
+</table>
+
+<h3>4.2 Get an access token</h3>
+
+<p>In the Supabase console, <span class="mono">Authentication &rarr; Users &rarr; Add user</span>, create a test account (email and password, marked confirmed). Then:</p>
+
+<pre>curl -X POST \
+  "https://&lt;your-project-ref&gt;.supabase.co/auth/v1/token?grant_type=password" \
+  -H "apikey: &lt;anon key, see auth-config.js&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"&lt;email&gt;","password":"&lt;password&gt;"}'</pre>
+
+<p>Take <code class="in">access_token</code> from the response.</p>
+
+<h3>4.3 Confirm the endpoint</h3>
+
+<pre>curl -X POST \
+  "https://&lt;your-project-ref&gt;.supabase.co/functions/v1/ups-address" \
+  -H "Authorization: Bearer &lt;access_token&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"address":"1600 Pennsylvania Ave NW","city":"Washington",
+       "state":"DC","postal":"20500","country":"US"}'</pre>
+
+<table>
+  <tr><th style="width:38%" class="mono">Response</th><th>Reading and what to do</th></tr>
+  <tr><td class="mono">200 {"class":"R"|"C"|"U"}</td><td>Working. Continue to 4.4</td></tr>
+  <tr><td class="mono">500 UPS credentials not configured</td><td>Environment variables not set &mdash; back to 3.3</td></tr>
+  <tr><td class="mono">502 UPS 401</td><td>Wrong UPS credentials &mdash; check the Client ID and Secret</td></tr>
+  <tr><td class="mono">502 UPS 403</td><td>The application does not subscribe to Address Validation &mdash; back to 3.1</td></tr>
+</table>
+
+<p>To read the logs:</p>
+<pre>supabase functions logs ups-address</pre>
+
+<h3>4.4 Switch to production</h3>
+
+<pre>supabase secrets set UPS_BASE=https://onlinetools.ups.com</pre>
+
+<h2 class="pb"><span class="n">5</span>Client setup</h2>
+
+<p>Where: the <span class="mono">Settings</span> tab &rarr; <span class="mono">Residential / Commercial Classification</span>.</p>
+
+<figure>
+  <img src="shots/en/07-settings.png" alt="Settings tab">
+  <figcaption><b>Figure 5-1</b> The Settings tab. Residential / Commercial Classification is the block this guide concerns; it is configured and saved inside its own panel &mdash; there is no shared save button for the page.</figcaption>
+</figure>
+
+<div class="box">
+  <span class="h">Where this document comes from</span>
+  The <strong>&ldquo;API Setup Guide (PDF)&rdquo;</strong> button on the same row gives you the edition matching the interface language; the narrow button beside it (<strong>EN</strong> or <strong>中文</strong>) gives the other one, so you never have to switch the whole interface to send a colleague the other edition. English is <span class="mono">UPS-API-Setup-Guide-EN.pdf</span>, Chinese is <span class="mono">UPS-API-Setup-Guide.pdf</span>; both must sit in the same folder as <span class="mono">index.html</span>. If only one was deployed, the button hands over that one and says so; if neither was, it says where the file belongs rather than doing nothing.
+</div>
+
+<figure class="mid">
+  <img src="shots/en/08-resi-panel.png" alt="Classification source panel (System Configuration)">
+  <figcaption><b>Figure 5-2</b> The default is System Configuration &mdash; billing codes, service name and invoice history.</figcaption>
+</figure>
+
+<figure class="mid">
+  <img src="shots/en/09-resi-api.png" alt="Classification source panel (Linked API)">
+  <figcaption><b>Figure 5-3</b> Choose Linked API, paste the endpoint you deployed in 3.4, then Save Settings. This field takes the proxy URL only; the UPS credentials live on the proxy (see 1.3).</figcaption>
+</figure>
+
+<div class="box info">
+  <span class="h">How the panel behaves</span>
+  A change inside the panel applies to the in-memory settings the moment you click, and pricing reflects it at once &mdash; but nothing is written yet. <strong>Close discards and reverts; Save Settings writes and closes.</strong>
+</div>
+
+<div class="box">
+  <span class="h">The summary line shows what is actually in force</span>
+  If Linked API is selected but the endpoint is blank, both the block summary and the radio show System Configuration &mdash; because with no endpoint there is nothing to call, and the built-in logic is what actually runs. Showing the setting rather than the behaviour would let someone believe the API was live when it was not.
+</div>
+
+<h2 class="pb"><span class="n">6</span>Interface reference</h2>
+
+<p>This section defines the proxy endpoint, for anyone integrating against it directly or debugging at the request level. Ordinary setup does not require it.</p>
+
+<h3>6.1 Request</h3>
+
+<table>
+  <tr><th style="width:26%">Item</th><th>Value</th></tr>
+  <tr><td>Method</td><td><span class="mono">POST</span>. Anything else returns <code class="in">405</code>; <span class="mono">OPTIONS</span> serves the CORS preflight</td></tr>
+  <tr><td>Path</td><td class="mono">/functions/v1/ups-address</td></tr>
+  <tr><td>Required headers</td><td class="mono">Authorization: Bearer &lt;access_token&gt;</td></tr>
+  <tr><td></td><td class="mono">Content-Type: application/json</td></tr>
+  <tr><td>CORS</td><td>Origin <span class="mono">*</span>, headers <span class="mono">authorization, content-type</span></td></tr>
+</table>
+
+<p>Body fields follow. At least one of <code class="in">address</code> or <code class="in">postal</code> is required, otherwise the call returns <code class="in">400</code>.</p>
+
+<table>
+  <tr><th style="width:22%" class="mono">Field</th><th style="width:14%">Type</th><th>Detail</th></tr>
+  <tr><td class="mono">address</td><td>string</td><td>Street address, first line</td></tr>
+  <tr><td class="mono">city</td><td>string</td><td>City</td></tr>
+  <tr><td class="mono">state</td><td>string</td><td>State code</td></tr>
+  <tr><td class="mono">postal</td><td>string</td><td>Postal code; the proxy takes the first five characters</td></tr>
+  <tr><td class="mono">country</td><td>string</td><td>Country code, defaults to <span class="mono">US</span></td></tr>
+  <tr><td class="mono">name</td><td>string</td><td>Recipient name, optional; becomes UPS&rsquo;s <span class="mono">ConsigneeName</span></td></tr>
+</table>
+
+<h3>6.2 Response</h3>
+
+<pre>{ "class": "R" | "C" | "U", "description": "&lt;UPS classification text&gt;" }</pre>
+
+<table>
+  <tr><th style="width:16%" class="mono">class</th><th style="width:30%">UPS code</th><th>Meaning</th></tr>
+  <tr><td class="mono">R</td><td class="mono">AddressClassification.Code = 2</td><td>Residential</td></tr>
+  <tr><td class="mono">C</td><td class="mono">AddressClassification.Code = 1</td><td>Commercial</td></tr>
+  <tr><td class="mono">U</td><td class="mono">AddressClassification.Code = 0 or absent</td><td>UPS could not tell</td></tr>
+</table>
+
+<p>Failures return <code class="in">{"error": "&lt;message&gt;"}</code>; status codes are in 8.1. A <code class="in">502</code> also carries <code class="in">detail</code>, the first 300 characters of the UPS response body.</p>
+
+<div class="box info">
+  <span class="h">The classification arrives in one of two places</span>
+  UPS&rsquo;s <span class="mono">XAVResponse</span> may put <span class="mono">AddressClassification</span> at the top level, or under the first <span class="mono">Candidate</span>. The proxy reads both, in that order, so a difference in placement never turns into a <code class="in">U</code>.
+</div>
+
+<h3>6.3 Client behaviour</h3>
+
+<p>The client calls this endpoint before each repricing run. It behaves as follows.</p>
+
+<table>
+  <tr><th style="width:26%">Item</th><th>Behaviour</th></tr>
+  <tr><td>Deduplication</td><td>Addresses in a batch are normalised and grouped; identical addresses are called once</td></tr>
+  <tr><td>Concurrency</td><td>Six at a time, to stay under the proxy&rsquo;s and UPS&rsquo;s rate limits</td></tr>
+  <tr><td>Cache</td><td>Successful answers are kept, keyed by address; later runs do not call again</td></tr>
+  <tr><td>Failures</td><td><strong>Failures are never cached.</strong> That run falls back to the built-in logic; once the configuration is fixed, the next run retries automatically</td></tr>
+  <tr><td>No endpoint set</td><td>No request is sent at all. Everything falls back to the built-in logic, and the screen says the endpoint is blank</td></tr>
+</table>
+
+<div class="box crit">
+  <span class="h">Why failures must not be cached</span>
+  If a failed call were recorded as <code class="in">U</code>, then a mistyped endpoint, an undeployed function or a missing permission would be written down permanently as &ldquo;cannot tell&rdquo; &mdash; and fixing the configuration would not undo it, because nothing would retry. Clearing it would mean wiping browser storage by hand. That behaviour is ruled out deliberately.
+</div>
+
+<h3>6.4 The proxy&rsquo;s call to UPS</h3>
+
+<table>
+  <tr><th style="width:26%">Item</th><th>Value</th></tr>
+  <tr><td>Endpoint</td><td class="mono">{UPS_BASE}/api/addressvalidation/v2/3</td></tr>
+  <tr><td>requestoption</td><td><span class="mono">3</span> (Address Validation + Address Classification)</td></tr>
+  <tr><td>Authorisation</td><td><span class="mono">client_credentials</span>, via <span class="mono">/security/v1/oauth/token</span></td></tr>
+  <tr><td>Token reuse</td><td>Held at the function&rsquo;s module level and reused until 60 seconds before expiry</td></tr>
+  <tr><td>Trace headers</td><td><span class="mono">transId</span> (a UUID per request) and <span class="mono">transactionSrc: ups-reprice</span></td></tr>
+</table>
+
+<h2 class="pb"><span class="n">7</span>Known limits and what to weigh</h2>
+
+<h3>7.1 Sign-in must use Supabase accounts</h3>
+
+<div class="box crit">
+  <span class="h">In local-account mode the endpoint will not work</span>
+  The proxy uses <code class="in">auth.getUser()</code> to confirm the caller is a real Supabase user. <strong>If your system runs in local-account mode</strong> &mdash; accounts written into <code class="in">index.html</code>, no Supabase session created &mdash; every request returns <code class="in">401</code> and pricing falls back to the built-in logic, so the setting in section 5 has no effect however it is filled in.
+</div>
+
+<p>This is a condition on the authentication layer, not on sections 3 and 4: what those verify is the proxy and the UPS credentials, which are independent of how the client signs in. So do them first even if the authentication model has yet to change &mdash; what they produce is reusable infrastructure that a later switch does not invalidate. The section 5 setting takes effect once sign-in uses Supabase accounts.</p>
+
+<h3>7.2 Per-account credentials</h3>
+
+<p>If each user must draw on their own UPS quota, the proxy has to look the credentials up by caller: keep them in a table only the server can read, and have the proxy fetch the row belonging to the authenticated user. The endpoint URL stays shared. This too depends on there being a real user identity.</p>
+
+<h3>7.3 Before you turn it on</h3>
+
+<div class="box crit">
+  <span class="h">The API outranks every other source</span>
+  Inside <code class="in">priceShipment()</code>, an answer from the API takes precedence over billing codes and invoice history. Any shipment the API can classify is classified by the API &mdash; including shipments whose invoice already carries a residential code.
+</div>
+
+<p>So what changes is not a handful of previously ambiguous shipments; it is every shipment the API can classify, and the priced total moves with them.</p>
+
+<p><strong>Suggested approach:</strong> turn it on for one account first. Reprice the same invoice period with it on and with it off, compare the totals and the residential / commercial counts, and see how often UPS&rsquo;s classification disagrees with the billing codes. Then decide whether to roll it out.</p>
+
+<h2><span class="n">8</span>Appendix &mdash; troubleshooting</h2>
+
+<table>
+  <tr><th style="width:44%">On-screen message</th><th>Cause and what to do</th></tr>
+  <tr><td>&ldquo;Linked API&rdquo; is selected with no proxy endpoint</td><td>The endpoint field is blank &mdash; see section 5</td></tr>
+  <tr><td>API proxy call failed (HTTP 401)</td><td>No valid authenticated session &mdash; see 7.1</td></tr>
+  <tr><td>API proxy call failed (HTTP 404)</td><td>Wrong endpoint URL, or the function is not deployed &mdash; see 3.4</td></tr>
+  <tr><td>API proxy call failed (HTTP 500)</td><td>UPS credentials not set on the proxy &mdash; see 3.3</td></tr>
+  <tr><td>N addresses failed</td><td>Some requests failed; those fall back to the built-in logic. <strong>Failures are not cached, so the next run retries them</strong></td></tr>
+  <tr><td>The API returned no classification</td><td>UPS answered U (cannot tell) for every address in the batch</td></tr>
+  <tr><td>&ldquo;Linked API&rdquo; is selected but the panel still shows System Configuration</td><td>The endpoint is blank; the panel shows what is actually in force &mdash; see section 5</td></tr>
+</table>
+
+<h3>8.1 Status codes at a glance</h3>
+
+<table>
+  <tr><th style="width:20%" class="mono">Status</th><th>Layer</th><th>Go to</th></tr>
+  <tr><td class="mono">404</td><td>Function not deployed</td><td>2.4</td></tr>
+  <tr><td class="mono">401</td><td>Caller not authenticated</td><td>7.1</td></tr>
+  <tr><td class="mono">500</td><td>UPS credentials not set on the proxy</td><td>2.3</td></tr>
+  <tr><td class="mono">502 UPS 401</td><td>Wrong UPS credentials</td><td>2.1</td></tr>
+  <tr><td class="mono">502 UPS 403</td><td>UPS product not subscribed</td><td>2.1</td></tr>
+  <tr><td class="mono">200</td><td>Normal</td><td>&mdash;</td></tr>
+</table>
+
+<div class="foot">
+UPS Reprice Platform &middot; UPS Address Validation API Setup Guide &middot;
+proxy source <span class="mono">supabase/functions/ups-address/index.ts</span> &middot;
+document source <span class="mono">docs/ups-api-manual/</span>
+</div>
+
+</body>
+</html>

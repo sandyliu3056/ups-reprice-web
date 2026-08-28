@@ -145,6 +145,12 @@ class Engine:
         """Produce the client report. Returns the path written."""
         self.app.billing_path.set(str(invoice_path))
 
+        # The desktop sets this in the tkinter __init__ this module skips, and
+        # confirm_before_repricing() reads it -- without it the engine raises
+        # AttributeError on every run.
+        if not hasattr(self.app, "_ui_language_code"):
+            self.app._ui_language_code = "en"
+
         # The engine ends by asking where to save. Answer without a dialog.
         fd = self.mod.filedialog
         original = fd.asksaveasfilename
@@ -160,7 +166,11 @@ class Engine:
             f"{title}: {msg}")
         mb.showinfo = lambda *a, **k: None
         try:
-            self.app.run_repricing()
+            # quiet=True skips the confirmation dialog. Without it the call
+            # asks a window that is not there, reads the answer as "no", and
+            # returns having done nothing -- no report, no error, no clue.
+            # load_rates already passes quiet=True; this call was missed.
+            self.app.run_repricing(quiet=True)
         finally:
             fd.asksaveasfilename = original
             mb.showerror, mb.showwarning, mb.showinfo = keep

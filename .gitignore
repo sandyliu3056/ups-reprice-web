@@ -19,3 +19,8 @@ index.html.html
 download
 download (*)
 *.zip
+
+# Python 位元碼快取。跑過 engine.py 或桌面版就會長出來,內容是機器產生的,
+# 而且綁著直譯器版本 —— 進了 git 只會製造衝突。
+__pycache__/
+*.pyc
