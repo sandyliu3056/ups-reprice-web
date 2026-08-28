@@ -1495,24 +1495,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   <div class="lf sketch">
     <h3 class="display"><span class="em">⚙️</span><span data-i18n="hd.setting">Settings</span></h3>
 
-    <!-- 費率層級。一個帳號可以存好幾份完整的費率,一個客戶一份。
-         擺在費率設定檔上面,因為「現在編的是哪一層」決定了那顆按鈕載進去的
-         檔案會蓋到誰 —— 先看到層級,才不會載錯地方。 -->
-    <div class="sketch-soft" style="padding:14px 16px;margin:14px 0 14px">
-      <div class="subhd" style="margin-top:0" data-i18n="hd.ratelvl">🧭 Rate levels</div>
-      <p class="hint" style="margin:8px 0 10px;max-width:880px" data-i18n="hint.ratelvl">One account can hold several complete rate sets — one per customer. Everything on the pricing tabs belongs to the level in use; switching swaps the lot.</p>
-      <div class="tablewrap" style="max-height:34vh"><table id="tLvl"><thead><tr>
-        <th data-i18n="th.lvlname">Level</th>
-        <th data-i18n="th.lvlstate">In use</th>
-        <th class="num" data-i18n="th.lvlsize">Size</th>
-        <th></th>
-      </tr></thead><tbody></tbody></table></div>
-      <div class="row" style="margin-top:9px">
-        <button class="act ghost" id="bLvlCopy" data-i18n="btn.lvlcopy">Duplicate this level</button>
-        <span id="lvlMsg" class="savenote"></span>
-      </div>
-    </div>
-
     <!-- 費率設定檔。整份取代,而且是一個帳號設定一次的動作,所以擺在設定的
          最上面,不跟每期要調的欄位混在一起。載入與儲存放在同一處:載入只寫
          進這台電腦,要按儲存設定才會寫進帳號 —— 兩顆按鈕分在不同分頁時,
@@ -5374,204 +5356,320 @@ function exportLoginHistory(){
     .then(ok=>setStatus(ok?L("登入紀錄已匯出","Login history exported")
                           :L("已取消存檔","Save cancelled")));
 }
-/* =====================================================================
-   費率層級
-   ---------------------------------------------------------------------
-   一個帳號存好幾份完整的費率,一個客戶一份。層級之間完全獨立 —— 一層就是
-   一份完整設定,不繼承也不共用,改一層不會動到另一層。
-
-   放哪裡:目前使用的那一層「就是」CFG.raw 本身,其餘的收在
-   CFG.raw.rate_levels.cfg 底下。這樣做有兩個好處:
-     · 所有既有的程式碼照舊讀 CFG.raw,一行都不用改
-     · 跟著費率一起存、一起同步,不必動資料表也不必重新部署函式
-   收起來的那幾份會先把自己的 rate_levels 拔掉,不然就是一層套一層的無限
-   巢狀,存一次就爆。
-
-   代價要講清楚:一份設定大約 260 KB,層級是整份複製,所以三層就 780 KB,
-   全部塞在同一個帳號的那一列裡。畫面上每一層都列出自己的大小,就是為了讓
-   人看得到這件事,而不是某天存檔失敗才發現。 */
-/* 層級之外的東西。客戶名單、對應規則、費用代號 —— 這幾項是整個帳號共用的,
-   跟費率無關,不該跟著層級換。原本它們也在設定裡,層級一切,整份設定被換掉,
-   客戶名單就跟著換,等於 A 級和 B 級各有一份互不相干的客戶 —— 那樣「一個客戶
-   指定一個層級」根本無從說起。
-   做法:收起來的那幾份把這些鍵拔掉,切層時從現用的那份帶過去。 */
-const ACCOUNT_KEYS=["customers","customer_rules","customer_map","charge_codes"];
-const RL_KEYS=["rate_levels"].concat(ACCOUNT_KEYS);
-function rlStore(){
-  if(!CFG||!CFG.raw) return null;
-  const o=CFG.raw.rate_levels;
-  if(o&&typeof o==="object"&&o.list) return o;
-  return null;
-}
-function rlEnsure(){
-  if(!CFG||!CFG.raw) return null;
-  let o=CFG.raw.rate_levels;
-  if(!o||typeof o!=="object"||!Array.isArray(o.list)){
-    o=CFG.raw.rate_levels={active:"L1", list:[{id:"L1", name:L("預設","Default")}], cfg:{}};
+/* ---- 費率:每個帳號自己的一列 ---- */
+let CFG_SYNC=0;                 /* 最後一次寫回成功的時間,0 = 還沒寫過 */
+function cfgPush(text,name){
+  if(LOCAL_MODE){
+    /* 本機帳號模式:用同步鑰匙寫進 local_settings(RPC)。
+       Supabase 那邊還沒建表、或網路不通,設定仍在本機快取裡,不擋流程。 */
+    if(!SYNC||!ME||!ME.sync) return Promise.resolve(false);
+    return SYNC.rpc("local_settings_put",
+        {k:ME.sync, cfg:JSON.parse(text), cfg_name:name})
+      .then(({error})=>{
+        if(error){ toast((LANG?"Saved on this computer only — cloud sync failed: "
+                              :"只存在這台電腦,雲端同步失敗:")+error.message,false);
+                   return false; }
+        CFG_SYNC=Date.now(); return true;
+      })
+      .catch(()=>false);
   }
-  if(!o.cfg||typeof o.cfg!=="object") o.cfg={};
-  if(!o.list.some(x=>x.id===o.active)) o.active=(o.list[0]||{}).id||"L1";
-  /* 搬家:分家之前存下來的層級可能還帶著自己的一份客戶名單。清掉,以現用
-     那一層的為準 —— 留著只會是兩份對不起來的資料,而且白佔空間。 */
-  for(const id of Object.keys(o.cfg)){
-    const c=o.cfg[id];
-    if(!c||typeof c!=="object") continue;
-    for(const k of ACCOUNT_KEYS) if(k in c) delete c[k];
+  if(!AUTH||!ME) return Promise.resolve(false);
+  return AUTH.from("user_settings").upsert({
+      user_id:ME.id, config:JSON.parse(text), config_name:name,
+      updated_at:new Date().toISOString()
+    },{onConflict:"user_id"})
+    .then(({error})=>{
+      if(error){ toast((LANG?"Rates saved on this device only: "
+                            :"費率只存在這台裝置:")+error.message,false); return false; }
+      CFG_SYNC=Date.now(); return true;
+    })
+    .catch(()=>false);
+}
+/* 登入後把這個帳號的費率抓回來。抓不到就退回本機快取,
+   再沒有就用預設值 —— 新帳號本來就是空白的,自己匯入。 */
+function cfgPull(){
+  if(LOCAL_MODE){
+    /* 本機快取先上,畫面不用等網路;雲端那份到了再蓋上去 ——
+       換電腦登入時本機是空的,蓋上來的就是上次在別台電腦存的設定。
+       抓不到(還沒建表、離線)就維持本機快取,跟原本一樣。 */
+    restoreConfig();
+    if(!SYNC||!ME||!ME.sync) return Promise.resolve(false);
+    /* 先把舊鑰匙底下的東西搬過來,再讀 —— 順序反過來會讀到空的,
+       而且接下來一存就把空的蓋上去。 */
+    return syncMigrate()
+      .then(()=>SYNC.rpc("local_settings_get",{k:ME.sync}))
+      .then(({data,error})=>{
+        const row=Array.isArray(data)?data[0]:data;
+        if(error||!row||!row.config) return false;
+        applyConfig(JSON.stringify(row.config),
+          row.config_name||(LANG?"saved settings":"已儲存的設定"));
+        CFG_SYNC=Date.now();
+        setStatus((LANG?"Settings loaded for ":"已載入帳號設定:")+ME.name);
+        return true;
+      })
+      .catch(()=>false);
   }
-  return o;
+  if(!AUTH||!ME) return Promise.resolve(false);
+  return AUTH.from("user_settings").select("config,config_name")
+    .eq("user_id",ME.id).maybeSingle()
+    .then(({data,error})=>{
+      if(error||!data||!data.config){ restoreConfig(); return false; }
+      applyConfig(JSON.stringify(data.config),
+        data.config_name||(LANG?"saved settings":"已儲存的設定"));
+      CFG_SYNC=Date.now();
+      setStatus((LANG?"Rates loaded for ":"已載入費率:")+ME.name);
+      return true;
+    })
+    .catch(()=>{ restoreConfig(); return false; });
 }
-/* 一份可以收起來的設定:把 rate_levels 拔掉,不然層級裡面還有層級。
-   必須是深拷貝 —— 淺拷貝的話 global_rules 那些子物件還是同一個,改現用
-   這一層會連帶改到收起來的那一層,兩層的費率就悄悄變成同一份。設定本來
-   就是純 JSON,所以 stringify/parse 是對的做法。 */
-function rlStrip(raw){
-  const o=JSON.parse(JSON.stringify(raw||{}));
-  for(const k of RL_KEYS) delete o[k];
-  return o;
+/* ---- 帳單歷史:也跟著帳號走 ----
+   明細動輒幾十 MB,直接上傳太肥,先 gzip 再轉 base64(通常剩十分之一)。
+   一期一列,期號當鍵,同期重傳就覆蓋 —— 跟本機 IndexedDB 同一條規則。 */
+async function gzipText(text){
+  if(!window.CompressionStream) return {z:0, data:text};
+  const st=new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  const buf=new Uint8Array(await new Response(st).arrayBuffer());
+  let s="";
+  for(let i=0;i<buf.length;i+=0x8000)
+    s+=String.fromCharCode.apply(null, buf.subarray(i,i+0x8000));
+  return {z:1, data:btoa(s)};
 }
-function rlNextId(o){
-  let n=2;
-  while(o.list.some(x=>x.id==="L"+n)) n++;
-  return "L"+n;
+async function gunzipText(z,data){
+  if(!z) return data;
+  const bin=atob(data), u=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
+  const st=new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Response(st).text();
 }
-function rlName(id){
-  const o=rlStore(); if(!o) return "";
-  const e=o.list.find(x=>x.id===id);
-  return e?e.name:id;
+/* 歸檔一批帳單列之後,把牽涉到的每一期整期上傳。背景進行、失敗只記在
+   console —— 歸檔本身已經寫進本機,同步失敗不該打斷計價流程。 */
+/* 兩種登入模式的雲端同步差在「鑰匙從哪來」。
+     本機帳號:鑰匙是帳號+密碼推出來的,由瀏覽器算好當參數送上去。
+     Supabase:沒有密碼可以推,改由資料庫自己從登入身分取(auth.uid()),
+               呼叫端連鑰匙都不必知道 —— 也就沒有「鑰匙被拿走」這回事。
+   除了這一點,推、拉、刪的流程完全一樣,所以只在這裡分岔一次,
+   底下三個函式共用。 */
+function histSync(){
+  if(!SYNC||!ME) return null;
+  if(LOCAL_MODE){
+    if(!ME.sync) return null;
+    return {
+      list:()=>SYNC.rpc("local_history_list",{k:ME.sync}),
+      get:(inv)=>SYNC.rpc("local_history_get",{k:ME.sync,inv}),
+      put:(inv,m,d)=>SYNC.rpc("local_history_put",{k:ME.sync,inv,m,d}),
+      del:(inv)=>SYNC.rpc("local_history_del",{k:ME.sync,inv}),
+      migrate:true
+    };
+  }
+  if(!ME.id) return null;
+  return {
+    list:()=>SYNC.rpc("hist_list"),
+    get:(inv)=>SYNC.rpc("hist_get",{inv}),
+    put:(inv,m,d)=>SYNC.rpc("hist_put",{inv,m,d}),
+    del:(inv)=>SYNC.rpc("hist_del",{inv}),
+    migrate:false
+  };
 }
-function rlActive(){ const o=rlStore(); return o?o.active:""; }
-/* 一層佔多少。整份 JSON 的長度,估個大概給人看 —— 不必精準到位元組。 */
-function rlSize(id){
-  const o=rlStore(); if(!o) return 0;
+function histCloudPush(rows){
+  const H=histSync(); if(!H) return;
+  const by={};
+  for(const r of rows||[]){
+    const k=(r.invoice||"").trim();
+    if(k) (by[k]=by[k]||[]).push(r);
+  }
+  const inv=histInv();
+  for(const k of Object.keys(by)){
+    (async()=>{
+      try{
+        const packed=await gzipText(JSON.stringify(by[k]));
+        const meta=Object.assign({z:packed.z}, inv[k]||{});
+        const {error}=await H.put(k, meta, packed.data);
+        if(error) console.warn("invoice history sync failed:", k, error.message);
+      }catch(e){ console.warn("invoice history sync failed:", k, e&&e.message); }
+    })();
+  }
+}
+/* 刪除同步:本機刪了哪幾期,帳號雲端那份也跟著刪。失敗只記 console ——
+   下次在別台電腦看到那期還在,重刪一次就好。 */
+function histCloudDelete(keys){
+  const H=histSync(); if(!H) return;
+  for(const k of keys||[]){
+    H.del(k)
+      .then(({error})=>{ if(error) console.warn("cloud delete failed:", k, error.message); })
+      .catch(()=>{});
+  }
+}
+/* 登入時把雲端有、本機沒有(或雲端比較新)的那幾期抓回來。
+   回傳抓到的期數,0 = 沒有新東西。 */
+async function histCloudPull(){
+  const H=histSync(); if(!H) return 0;
+  if(H.migrate) await syncMigrate();
+  let list=[];
   try{
-    const raw=(id===o.active)?rlStrip(CFG.raw):o.cfg[id];
-    return raw?JSON.stringify(raw).length:0;
+    const {data,error}=await H.list();
+    if(error||!Array.isArray(data)) return 0;
+    list=data;
   }catch(e){ return 0; }
-}
-function rlHuman(n){
-  return n>=1048576 ? (n/1048576).toFixed(1)+" MB"
-       : n>=1024    ? Math.round(n/1024)+" KB"
-       : n+" B";
-}
-/* 切層。把現在編的收起來,把目標拿出來當 CFG.raw —— 中間任何一步失敗就
-   什麼都不動,不要留下一個「收起來了但沒換過去」的半套狀態。 */
-function rlSwitch(id){
-  const o=rlEnsure(); if(!o) return false;
-  if(id===o.active) return true;
-  if(!o.list.some(x=>x.id===id)) return false;
-  const target=o.cfg[id];
-  if(!target) return false;
-  const keep=rlStrip(CFG.raw);
-  const next=JSON.parse(JSON.stringify(target));
-  /* 客戶那幾項不隨層級走:從現在這一份帶過去,換掉的只有費率。 */
-  for(const k of ACCOUNT_KEYS){
-    if(CFG.raw[k]===undefined) delete next[k];
-    else next[k]=JSON.parse(JSON.stringify(CFG.raw[k]));
+  const inv=histInv();
+  const want=list.filter(r=>{
+    const mine=inv[r.invoice];
+    const at=String((r.meta&&r.meta.at)||"");
+    return !mine || (at && at>String(mine.at||""));
+  });
+  let got=0;
+  for(const r of want){
+    try{
+      const {data,error}=await H.get(r.invoice);
+      const row=Array.isArray(data)?data[0]:data;
+      if(error||!row||!row.data) continue;
+      const rows=JSON.parse(await gunzipText(row.meta&&row.meta.z, row.data));
+      if(!Array.isArray(rows)||!rows.length) continue;
+      await idbPutInvoices(rows);
+      const m=row.meta||{};
+      inv[r.invoice]={date:m.date||"", rows:m.rows||rows.length,
+                      trk:m.trk||0, at:m.at||"", how:m.how||"cloud"};
+      got++;
+    }catch(e){ console.warn("invoice history fetch failed:", r.invoice); }
   }
-  const store={active:id, list:o.list.slice(), cfg:Object.assign({}, o.cfg)};
-  store.cfg[o.active]=keep;
-  delete store.cfg[id];
-  next.rate_levels=store;
-  /* applyConfig 走的是既有那條路:讀設定、重畫、記進本機快取。 */
-  applyConfig(JSON.stringify(next), CFG_LABEL||L("已儲存的設定","saved settings"));
-  saveSettings();
-  return true;
+  if(got){
+    HISTINV=inv;
+    try{ localStorage.setItem(histInvKey(), JSON.stringify(inv)); }catch(e){}
+  }
+  return got;
 }
-function rlDuplicate(name){
-  const o=rlEnsure(); if(!o) return null;
-  const id=rlNextId(o);
-  o.cfg[id]=rlStrip(CFG.raw);
-  o.list.push({id, name:name||(rlName(o.active)+L(" 複本"," copy"))});
-  return id;
+
+/* ---- 換鑰匙的搬家 ----
+   推導方法從 sha256 換成 PBKDF2 之後,同一組帳號密碼算出來的鑰匙變了。
+   雲端那些設定和帳單歷史還鎖在舊鑰匙底下,不搬過來的話,使用者下次登入
+   會看到空的 —— 而且接著一存就把空的蓋上去。
+   所以登入時先跑這一段:新鑰匙沒有的,就從舊鑰匙那邊搬,搬完把舊的清掉。
+   跑一次就好,失敗只記 console —— 本機那份一直都在,搬不動不該擋住登入。 */
+/* 兩個地方都要等它跑完才能讀雲端(設定和帳單歷史),所以把那次的 promise
+   存起來共用 —— 各跑各的會變成兩份搬家同時動同一批資料。 */
+let SYNC_MIG_P=null;
+function syncMigrate(){
+  if(!LOCAL_MODE||!SYNC||!ME||!ME.sync||!ME.syncOld||ME.sync===ME.syncOld)
+    return Promise.resolve();
+  if(SYNC_MIG_P) return SYNC_MIG_P;
+  SYNC_MIG_P=syncMigrateRun();
+  return SYNC_MIG_P;
 }
-function rlRename(id,name){
-  const o=rlEnsure(); if(!o) return false;
-  const e=o.list.find(x=>x.id===id);
-  if(!e) return false;
-  e.name=name;
-  return true;
-}
-function rlDelete(id){
-  const o=rlEnsure(); if(!o) return false;
-  if(id===o.active) return false;        /* 現用的那一層不能刪 */
-  if(o.list.length<=1) return false;
-  o.list=o.list.filter(x=>x.id!==id);
-  delete o.cfg[id];
-  return true;
-}
-function lvlMsg(m,ok){
-  const e=$("#lvlMsg");
-  if(e){ e.textContent=m||""; e.className="savenote"+(m&&!ok?" bad":""); }
-}
-function renderLevels(){
-  if(!CFG) return;
-  const o=rlEnsure(); if(!o) return;
-  const tb=$("#tLvl")&&$("#tLvl").tBodies[0];
-  if(!tb) return;
-  const total=o.list.reduce((a,e)=>a+rlSize(e.id),0);
-  tb.innerHTML=o.list.map(e=>{
-    const on=e.id===o.active;
-    return `<tr><td>${on?"<b>":""}${esc(e.name)}${on?"</b>":""}</td>
-      <td>${on?`<span class="pill ok">${L("使用中","in use")}</span>`
-              :`<span class="empty">—</span>`}</td>
-      <td class="num">${rlHuman(rlSize(e.id))}</td>
-      <td class="row" style="gap:6px">
-        ${on?"":`<button class="act ghost sm" data-lvluse="${esc(e.id)}">${
-            L("切換到這一層","Switch to this")}</button>`}
-        <button class="act ghost sm" data-lvlren="${esc(e.id)}">${L("改名","Rename")}</button>
-        ${on||o.list.length<2?"":`<button class="act sm danger" data-lvldel="${esc(e.id)}">${
-            L("刪除","Delete")}</button>`}
-      </td></tr>`;
-  }).join("");
-  lvlMsg(L("共 "+o.list.length+" 層,合計 "+rlHuman(total)+"。",
-           o.list.length+" level(s), "+rlHuman(total)+" in total."), true);
-}
-function bindLevels(){
-  $("#bLvlCopy") && ($("#bLvlCopy").onclick=()=>{
-    const o=rlEnsure(); if(!o) return;
-    const name=prompt(L("新層級的名稱:","Name for the new level:"),
-                      rlName(o.active)+L(" 複本"," copy"));
-    if(name==null) return;
-    const nm=String(name).trim();
-    if(!nm){ lvlMsg(L("請給它一個名稱。","Give it a name."),false); return; }
-    const id=rlDuplicate(nm);
-    CFG=readConfig(CFG.raw); DIRTY=true; renderLevels(); saveSettings();
-    lvlMsg(L("已複製成「"+nm+"」。現在編的還是原本那一層 —— 要改新的那份,先切換過去。",
-             "Copied to \""+nm+"\". You are still editing the original — switch to edit the new one."),true);
-  });
-  $("#tLvl") && ($("#tLvl").onclick=e=>{
-    const b=e.target.closest("button"); if(!b) return;
-    if(b.dataset.lvluse){
-      const nm=rlName(b.dataset.lvluse);
-      if(DIRTY && !confirm(L("有還沒儲存的變更。切換層級會把現在這一層先存起來,然後換成「"+nm+"」。要繼續嗎?",
-          "There are unsaved changes. Switching stores this level first, then loads \""+nm+"\". Continue?"))) return;
-      if(rlSwitch(b.dataset.lvluse)){
-        renderLevels(); renderConfigTabs();
-        toast(L("已切換到「"+nm+"」。","Switched to \""+nm+"\"."),true);
-      }else lvlMsg(L("切換失敗。","Could not switch."),false);
-      return;
-    }
-    if(b.dataset.lvlren){
-      const cur=rlName(b.dataset.lvlren);
-      const name=prompt(L("改成:","Rename to:"), cur);
-      if(name==null) return;
-      const nm=String(name).trim();
-      if(!nm) return;
-      rlRename(b.dataset.lvlren, nm);
-      CFG=readConfig(CFG.raw); DIRTY=true; renderLevels(); saveSettings();
-      return;
-    }
-    if(b.dataset.lvldel){
-      const nm=rlName(b.dataset.lvldel);
-      if(!confirm(L("刪除「"+nm+"」?那一層的整份費率會一起消失,沒有復原。",
-          "Delete \""+nm+"\"? That level's entire rate set goes with it, and there is no undo."))) return;
-      if(rlDelete(b.dataset.lvldel)){
-        CFG=readConfig(CFG.raw); DIRTY=true; renderLevels(); saveSettings();
-        lvlMsg(L("已刪除「"+nm+"」。","Deleted \""+nm+"\"."),true);
+async function syncMigrateRun(){
+  const NEW=ME.sync, OLD=ME.syncOld;
+  /* rpc 成功時 data 可能本來就是 null(put/del 是 void),所以要把「失敗」
+     和「沒有東西」分開 —— 混在一起的話,每次成功搬完都會被當成失敗,
+     舊的那一份就永遠刪不掉。 */
+  const call=(fn,args)=>SYNC.rpc(fn,args)
+    .then(r=>({ok:!r.error, data:r.data}))
+    .catch(()=>({ok:false, data:null}));
+  const rpc=(fn,args)=>call(fn,args).then(r=>r.ok?r.data:null);
+  const one=d=>Array.isArray(d)?d[0]:d;
+  const work=(async()=>{
+    /* ---- 設定 ---- */
+    /* 第一個請求就打不出去,表示現在連不上(離線、或還沒建表)。那就什麼
+       都不要做,也不要卡在這裡等 —— 沒有連線就沒有東西可搬。把旗子放回去,
+       下次登入再試。 */
+    const probe=await call("local_settings_get",{k:NEW});
+    if(!probe.ok){ SYNC_MIG_P=null; return; }
+    const cur=one(probe.data);
+    const was=one(await rpc("local_settings_get",{k:OLD}));
+    if(was&&was.config){
+      let safe=true;
+      if(!(cur&&cur.config)){
+        const put=await call("local_settings_put",
+                             {k:NEW, cfg:was.config, cfg_name:was.config_name});
+        safe=put.ok;   /* 搬不過去就別倒掉舊的 —— 那是唯一一份 */
       }
+      /* 這張表沒有刪除函式,把內容寫成 null 就等於把櫃子倒空 ——
+         cfgPull 讀到 config 是空的就當作沒有。 */
+      if(safe) await call("local_settings_put",{k:OLD, cfg:null, cfg_name:null});
     }
+    /* ---- 帳單歷史 ---- */
+    const oldList=await rpc("local_history_list",{k:OLD});
+    if(!Array.isArray(oldList)||!oldList.length) return;
+    const newList=await rpc("local_history_list",{k:NEW});
+    const have=new Set((Array.isArray(newList)?newList:[]).map(r=>r.invoice));
+    let moved=0;
+    for(const r of oldList){
+      if(!have.has(r.invoice)){
+        const g=one(await rpc("local_history_get",{k:OLD, inv:r.invoice}));
+        /* 讀不到、或寫不進去,就把舊的留著 —— 寧可留一份孤兒,
+           也不要把唯一一份弄丟。下次登入會再試一次。 */
+        if(!g||g.data==null) continue;
+        const put=await call("local_history_put",
+                             {k:NEW, inv:r.invoice, m:g.meta, d:g.data});
+        if(!put.ok) continue;
+        moved++;
+      }
+      await call("local_history_del",{k:OLD, inv:r.invoice});
+    }
+    if(moved) console.info("sync key migration: moved "+moved+" invoice period(s)");
+  })().catch(e=>{ console.warn("sync key migration failed:", (e&&e.message)||e); });
+  /* 搬家再久也不能把登入卡住。到時間就先讓畫面繼續跑,沒搬完的下次登入
+     會再接著搬 —— 搬過的那幾期已經在新鑰匙底下,不會重來。 */
+  await Promise.race([work, new Promise(r=>setTimeout(r,8000))]);
+}
+/* 換人登入(或登出)時把上一個帳號的費率清掉。留著的話,
+   下一個人看到的是別人的合約價,而且看不出來。 */
+function cfgReset(){
+  CFG=null; CFG_LABEL=""; CFG_SYNC=0;
+  RATED=null; SHIPS=null; ROWS=null; INV=null;
+  INV_NAME=""; INV_SIZE=0; INV_KIND=""; INV_SHEET="";
+  applyConfig(JSON.stringify(DEFAULT_CONFIG),
+              LANG?"defaults":"預設值", false);
+}
+
+/* ---- 舊版共用的帳單歷史 ----
+   分帳號之前,所有人的明細都堆在同一個 IndexedDB 裡。自動搬進第一個
+   登入的帳號是不行的 —— 共用機器上那就是把別人的帳單交出去。
+   所以只認出來、擺在歷史頁,由本人自己按下認領或刪除。 */
+function legacyOpen(){
+  return new Promise((res,rej)=>{
+    if(!window.indexedDB) return rej(new Error("no indexedDB"));
+    const rq=indexedDB.open(IDB_NAME,1);
+    rq.onupgradeneeded=()=>{ const db=rq.result;
+      if(!db.objectStoreNames.contains(IDB_STORE))
+        db.createObjectStore(IDB_STORE,{keyPath:"invoice"}); };
+    rq.onsuccess=()=>res(rq.result);
+    rq.onerror=()=>rej(rq.error||new Error("open failed"));
   });
 }
+function legacyRows(){
+  return legacyOpen().then(db=>new Promise((res,rej)=>{
+    const rq=db.transaction(IDB_STORE,"readonly").objectStore(IDB_STORE).getAll();
+    rq.onsuccess=()=>{ const out=[];
+      for(const rec of (rq.result||[])) out.push(...hrowDecode(rec));
+      res(out); };
+    rq.onerror=()=>rej(rq.error);
+  })).catch(()=>[]);
+}
+/* 帳號刪掉之後,他存在這台機器上的帳單明細就沒有主人了。清掉它。
+   只開啟和清空,不讀任何一列 —— 隔離照舊,沒有人因此看到別人的帳單。 */
+function dropLocalHistory(id){
+  if(!id||!window.indexedDB) return Promise.resolve(false);
+  try{ localStorage.removeItem(HIST_KEY+"::"+id);
+       localStorage.removeItem(HIST_RULE_KEY+"::"+id);
+       localStorage.removeItem(HISTINV_KEY+"::"+id); }catch(e){}
+  return new Promise(res=>{
+    let done=false;
+    const fin=v=>{ if(!done){ done=true; res(v); } };
+    const rq=indexedDB.deleteDatabase(IDB_NAME+"::"+id);
+    rq.onsuccess=()=>fin(true);
+    rq.onerror=()=>fin(false);
+    rq.onblocked=()=>fin(false);
+    setTimeout(()=>fin(false),3000);
+  });
+}
+
+let HIST_RESTORED=false;
+/* 重新整理之後把歷史明細讀回來。索引在 localStorage、明細在 IndexedDB,
+   兩邊都補上畫面才會跟關掉之前一樣。只做一次。 */
+/* 舊版共用的那一份:分帳號之前所有人的明細堆在同一個 IndexedDB 裡。
+   這個帳號自己還沒有任何歷史、而舊的那份有東西時,就收進來,收完把舊的
+   清空 —— 一次性的搬家,不用問也不用在畫面上擺一條橫幅。
+   清空是重點:搬完就沒有第二個帳號還看得到它。
+   代價講清楚:同一台機器上,先登入的人會拿到那一份。實務上一人一台,
+   要改成只有主帳號能收,說一聲。 */
 /* =====================================================================
    從本機帳號搬到 Supabase 帳號
    ---------------------------------------------------------------------
@@ -13606,7 +13704,6 @@ const I18N={
   "th.name":["名稱","Name"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
   "hd.cfgfile":["📄 費率設定檔","📄 Rate Configuration File"],
-  "hd.ratelvl":["🧭 費率層級","🧭 Rate levels"],
   "hd.gapfix":["補上缺的設定","Fill in what is missing"],
   "hint.gapfix":["這些東西出現在這期帳單上,但你的設定裡沒有。新增只是讓系統「認得」它,不等於算得出價錢 —— 一項附加費設成「重新計價」卻沒填費率,會以 0 計價,那筆錢就少收了。所以新代碼預設是「照帳單收」,至少等於成本。",
     "These appear in this invoice but not in your settings. Adding one makes the tool recognise it — it does not price it. A charge set to Repriced with no rate entered is priced as zero, so new codes default to billing what UPS billed."],
@@ -13616,12 +13713,6 @@ const I18N={
   "btn.gapopen":["補上缺的設定","Fill in what is missing"],
   "hd.gapacc":["未知的附加費代碼","Unrecognised surcharge codes"],
   "hd.gapchan":["沒見過的服務","Services not in your channels"],
-  "hint.ratelvl":["一個帳號可以存好幾份完整的費率,一個客戶一份。計價那幾個分頁上的東西都屬於「目前使用」的那一層,切換就整份換掉。",
-    "One account can hold several complete rate sets — one per customer. Everything on the pricing tabs belongs to the level in use; switching swaps the lot."],
-  "th.lvlname":["層級名稱","Level"],
-  "th.lvlstate":["目前使用","In use"],
-  "th.lvlsize":["大小","Size"],
-  "btn.lvlcopy":["複製這一層","Duplicate this level"],
   "btn.lvluse":["切換到這一層","Switch to this"],
   "btn.rename":["改名","Rename"],
   "hint.cfgshort":["這個帳號完整的計價設定。",
@@ -14876,7 +14967,6 @@ step("auth",()=>{
   };
   $("#bLoginRefresh").onclick=()=>loadLoginHistory();
   bindUserAdmin();
-  bindLevels();
   bindGap();
   $("#bLoginExport").onclick=()=>exportLoginHistory();
 });
