@@ -8135,8 +8135,27 @@ $("#stDelete") && ($("#stDelete").onclick=async()=>{
   try{ localStorage.setItem(histInvKey(), JSON.stringify(inv)); }catch(e){}
   try{ await idbDeleteInvoices(keys); }catch(e){}
   const kset=new Set(keys);
-  HISTROWS=(HISTROWS||[]).filter(r=>!kset.has((r.invoice||"").trim()));
-  saveHistoryMap(learnHistory(HISTROWS));
+  /* 刪完要重學住商對照表 —— 但只有在明細真的在記憶體裡的時候才學得成。
+     HISTROWS 還是 null(還原要幾秒,大的歷史庫更久)時,(HISTROWS||[])
+     會變成空陣列,learnHistory 就學出一張空表覆蓋掉正確的那份:實測
+     707 個追蹤號的住商判定一次歸零。而 saveHistoryMap 會蓋上「已是最新
+     規則」的戳記,restoreHistoryDetail 之後也不會再重學。
+     那張表是跨期更正單唯一的判斷依據,沒了就退回用服務名稱猜住商 ——
+     金額會錯,而且畫面上看不出來。
+     所以手上沒有明細時,回頭跟 IndexedDB 要(這時候該刪的已經刪掉了),
+     學到再寫;要不到就把它標成待重學,絕不拿空的去覆蓋。 */
+  if(Array.isArray(HISTROWS)){
+    HISTROWS=HISTROWS.filter(r=>!kset.has((r.invoice||"").trim()));
+    saveHistoryMap(learnHistory(HISTROWS));
+  }else{
+    HIST_STALE=true;
+    idbAllRows().then(rs=>{
+      HISTROWS=rs;
+      saveHistoryMap(learnHistory(rs));
+      HIST_STALE=false;
+      renderHist(); renderDashboard();
+    }).catch(()=>{});
+  }
   if(RATED&&SHIPS&&CFG){ RATED=SHIPS.map(s=>priceShipment(CFG,s)); renderRate(); }
   renderHist();
   renderDashboard();      /* 刪掉的期別要從儀表板的選單裡一起消失 */
