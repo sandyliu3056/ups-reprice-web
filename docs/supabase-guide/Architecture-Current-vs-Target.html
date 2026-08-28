@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UPS Reprice Platform — Architecture: Current vs Target</title>
+<style>
+  @page { size: A4 landscape; margin: 7mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font-family: "DejaVu Sans", sans-serif; color: #2b2019; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  svg { width: 100%; height: auto; display: block; }
+
+  h1 { font-size: 15pt; margin: 0 0 1.5mm; color: #351C15; }
+  .sub { font-size: 8.6pt; color: #6d5a48; margin: 0 0 3mm; }
+  table { width: 100%; border-collapse: collapse; font-size: 7.1pt; }
+  thead { display: table-header-group; }
+  th { background: #351C15; color: #fff; text-align: left; padding: 1.6mm 2mm;
+       border: 0.4pt solid #351C15; font-size: 7.8pt; }
+  td { padding: 1.2mm 1.8mm; border: 0.4pt solid #ddd2c2; vertical-align: top;
+       line-height: 1.45; }
+  tbody tr:nth-child(even) td { background: #faf7f2; }
+  td.a { font-weight: bold; color: #351C15; width: 15%; }
+  .gap { color: #b3611f; font-weight: bold; }
+  .good { color: #2f6b3a; }
+  .bad { color: #b03a2b; }
+  code { font-family: "DejaVu Sans Mono", monospace; font-size: 7.1pt;
+         background: #f4efe8; padding: 0 0.6mm; color: #6b3f1c; }
+  .cols { display: flex; gap: 5mm; margin-top: 4mm; page-break-inside: avoid; break-inside: avoid; }
+  .col { flex: 1; border: 0.5pt solid #d9cbb8; background: #faf7f2;
+         border-radius: 1.2mm; padding: 2.5mm 3mm; font-size: 8pt; line-height: 1.6; }
+  .col h3 { margin: 0 0 1.5mm; font-size: 9pt; color: #351C15; }
+  .col ol, .col ul { margin: 0; padding-left: 4.5mm; }
+  .col li { margin-bottom: 1mm; }
+</style>
+</head>
+<body>
+
+<!-- =================== PAGE 1 — CURRENT STATE =================== -->
+<div class="page">
+<svg viewBox="0 0 1060 718" xmlns="http://www.w3.org/2000/svg"
+     font-family="DejaVu Sans, sans-serif">
+<defs>
+  <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="#a9743f"/></marker>
+  <marker id="a1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="#2f6b3a"/></marker>
+  <marker id="a1r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="#b03a2b"/></marker>
+</defs>
+
+<!-- title -->
+<text x="8" y="24" font-size="20" font-weight="bold" fill="#351C15">CURRENT STATE — what actually runs today</text>
+<text x="8" y="41" font-size="10.5" fill="#6d5a48">UPS Reprice Platform · sandyliu3056/ups-reprice-web · read off index.html, auth-config.js and supabase/*.sql as committed</text>
+<rect x="852" y="6" width="200" height="24" rx="3" fill="#6d5a48"/>
+<text x="952" y="22" font-size="11.5" font-weight="bold" fill="#ffffff" text-anchor="middle">LOCAL_MODE = true</text>
+<text x="1052" y="44" font-size="9.5" fill="#6d5a48" text-anchor="end">● in use    ○ present but idle    ✗ blocked    ⚠ attention</text>
+
+<!-- ============ BAND A ============ -->
+<rect x="0" y="58" width="1060" height="68" rx="4" fill="#fcfaf7" stroke="#ddd2c2"/>
+<rect x="8" y="48" width="150" height="19" rx="3" fill="#351C15"/>
+<text x="16" y="61.5" font-size="10.5" font-weight="bold" fill="#ffffff">1 · DELIVERY</text>
+
+<rect x="12" y="70" width="156" height="48" rx="3" fill="#f3ece3" stroke="#d9cbb8"/>
+<text x="20" y="85" font-size="10.5" font-weight="bold" fill="#351C15">GitHub repository</text>
+<text x="20" y="99" font-size="9.4" fill="#2b2019">branch: main</text>
+<text x="20" y="112" font-size="9.4" fill="#6d5a48">pre-commit hook blocks keys</text>
+
+<line x1="170" y1="94" x2="194" y2="94" stroke="#a9743f" stroke-width="1.6" marker-end="url(#a1)"/>
+
+<rect x="196" y="70" width="218" height="48" rx="3" fill="#f3ece3" stroke="#d9cbb8"/>
+<text x="204" y="85" font-size="10.5" font-weight="bold" fill="#351C15">Static host</text>
+<text x="204" y="99" font-size="9.4" fill="#2b2019">Vercel · Cloudflare Pages · Netlify · Pages</text>
+<text x="204" y="112" font-size="9.4" fill="#6d5a48">no build step — files are served as-is</text>
+
+<line x1="416" y1="94" x2="440" y2="94" stroke="#a9743f" stroke-width="1.6" marker-end="url(#a1)"/>
+
+<rect x="442" y="70" width="326" height="48" rx="3" fill="#fbf0e2" stroke="#a9743f" stroke-width="1.3"/>
+<text x="450" y="85" font-size="10.5" font-weight="bold" fill="#351C15">4 files delivered to the browser</text>
+<text x="450" y="99" font-size="9.4" fill="#2b2019" font-family="DejaVu Sans Mono">index.html · auth-config.js</text>
+<text x="450" y="112" font-size="9.4" fill="#2b2019" font-family="DejaVu Sans Mono">supabase-js-2.112.3.js · xlsx-0.18.5.full.min.js</text>
+
+<rect x="792" y="70" width="256" height="48" rx="3" fill="#f6f6f4" stroke="#cfc9c0" stroke-dasharray="4 3"/>
+<text x="800" y="85" font-size="10.5" font-weight="bold" fill="#5a5248">In the repo, NOT served</text>
+<text x="800" y="99" font-size="9.4" fill="#b03a2b">authconfig.js — dead, nothing loads it</text>
+<text x="800" y="112" font-size="9.4" fill="#6d6558">supabase/*.sql · functions/ · *.py (desktop)</text>
+
+<!-- arrow A -> B -->
+<line x1="605" y1="120" x2="605" y2="146" stroke="#a9743f" stroke-width="1.8" marker-end="url(#a1)"/>
+<text x="614" y="139" font-size="9.8" fill="#6d5a48">① page load</text>
+
+<!-- ============ BAND B ============ -->
+<rect x="0" y="146" width="1060" height="284" rx="4" fill="#ffffff" stroke="#351C15" stroke-width="1.6"/>
+<rect x="8" y="136" width="330" height="19" rx="3" fill="#351C15"/>
+<text x="16" y="149.5" font-size="10.5" font-weight="bold" fill="#ffffff">2 · THE USER'S BROWSER — no server involved</text>
+
+<!-- col 1 -->
+<rect x="12" y="176" width="236" height="246" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<rect x="12" y="176" width="236" height="20" rx="3" fill="#e8ddcd"/>
+<text x="20" y="190" font-size="10" font-weight="bold" fill="#351C15">Loaded assets</text>
+<text x="20" y="210" font-size="9.4" font-weight="bold" font-family="DejaVu Sans Mono" fill="#6b3f1c">index.html</text>
+<text x="20" y="223" font-size="9" fill="#2b2019">UI + the entire pricing engine</text>
+<text x="20" y="236" font-size="9" fill="#2b2019">~602 KB, a single file</text>
+<text x="20" y="249" font-size="9" fill="#6d5a48">tabs: Import · Surcharge · Size ·</text>
+<text x="20" y="262" font-size="9" fill="#6d5a48">Channels · Demand · History ·</text>
+<text x="20" y="275" font-size="9" fill="#6d5a48">Codes · Dashboard · Settings · Admin</text>
+<text x="20" y="296" font-size="9.4" font-weight="bold" font-family="DejaVu Sans Mono" fill="#6b3f1c">supabase-js-2.112.3.js</text>
+<text x="20" y="309" font-size="9" fill="#2b2019">loaded, but only used for RPC</text>
+<text x="20" y="330" font-size="9.4" font-weight="bold" font-family="DejaVu Sans Mono" fill="#6b3f1c">xlsx-0.18.5.full.min.js</text>
+<text x="20" y="343" font-size="9" fill="#2b2019">reads and writes Excel</text>
+<text x="20" y="364" font-size="9.4" font-weight="bold" font-family="DejaVu Sans Mono" fill="#6b3f1c">auth-config.js</text>
+<text x="20" y="377" font-size="9" font-family="DejaVu Sans Mono" fill="#2b2019">{ url, anonKey }</text>
+<text x="20" y="394" font-size="9" font-weight="bold" fill="#b03a2b">⚠ no authMode key, therefore</text>
+<text x="20" y="407" font-size="9" font-weight="bold" fill="#b03a2b">   LOCAL_MODE = true</text>
+
+<!-- col 2 -->
+<rect x="258" y="176" width="302" height="246" rx="3" fill="#fbf0e2" stroke="#a9743f" stroke-width="1.3"/>
+<rect x="258" y="176" width="302" height="20" rx="3" fill="#a9743f"/>
+<text x="266" y="190" font-size="10" font-weight="bold" fill="#ffffff">Sign-in — local account mode</text>
+<text x="266" y="211" font-size="9.2" fill="#2b2019">① user types a username + password</text>
+<text x="266" y="224" font-size="9.2" font-family="DejaVu Sans Mono" fill="#2b2019">② h = sha256(username + ":" + password)</text>
+<text x="266" y="237" font-size="9.2" fill="#2b2019">③ compare with LOCAL_ACCOUNTS[] — an</text>
+<text x="266" y="250" font-size="9.2" fill="#2b2019">     array literal inside index.html</text>
+<text x="266" y="263" font-size="9.2" fill="#2b2019">④ on a match, build the identity:</text>
+<text x="266" y="276" font-size="9.2" font-family="DejaVu Sans Mono" fill="#6b3f1c">     ME.id   = "local::" + username</text>
+<text x="266" y="289" font-size="9.2" font-family="DejaVu Sans Mono" fill="#6b3f1c">     ME.role = "admin" | "user"</text>
+<text x="266" y="302" font-size="9.2" font-family="DejaVu Sans Mono" fill="#6b3f1c">     ME.sync = sha256("cfg-sync::" +</text>
+<text x="266" y="315" font-size="9.2" font-family="DejaVu Sans Mono" fill="#6b3f1c">               username + "::" + password)</text>
+<text x="266" y="328" font-size="9.2" fill="#2b2019">⑤ session → sessionStorage; localStorage</text>
+<text x="266" y="341" font-size="9.2" fill="#2b2019">     only if "keep me signed in" is ticked</text>
+<text x="266" y="358" font-size="9.2" font-family="DejaVu Sans Mono" fill="#2b2019">AUTH = null</text>
+<text x="266" y="371" font-size="9" fill="#6d5a48">     no Supabase auth client is ever built</text>
+<text x="266" y="384" font-size="9.2" font-family="DejaVu Sans Mono" fill="#2b2019">SYNC = anon client, RPC calls only</text>
+<text x="266" y="401" font-size="9" font-weight="bold" fill="#b03a2b">⚠ the password hashes ship with the page</text>
+<text x="266" y="414" font-size="9" font-weight="bold" fill="#b03a2b">⚠ adding or removing a user = edit + redeploy</text>
+
+<!-- col 3 -->
+<rect x="570" y="176" width="230" height="246" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<rect x="570" y="176" width="230" height="20" rx="3" fill="#e8ddcd"/>
+<text x="578" y="190" font-size="10" font-weight="bold" fill="#351C15">Pricing pipeline — in memory</text>
+<text x="578" y="211" font-size="9.2" font-weight="bold" fill="#351C15">INPUT (never uploaded)</text>
+<text x="578" y="224" font-size="9" fill="#2b2019">UPS invoice — xlsx / xls / csv</text>
+<text x="578" y="237" font-size="9" fill="#6d5a48">   a headerless CSV is detected</text>
+<text x="578" y="250" font-size="9" fill="#2b2019">Contract rate tables — one file</text>
+<text x="578" y="263" font-size="9" fill="#6d5a48">   per service, or several at once</text>
+<text x="578" y="284" font-size="9.2" font-weight="bold" fill="#351C15">PROCESS — browser memory</text>
+<text x="578" y="297" font-size="9" fill="#2b2019">parse → DIM weight → base rate →</text>
+<text x="578" y="310" font-size="9" fill="#2b2019">surcharges (AHS / LPS / demand) →</text>
+<text x="578" y="323" font-size="9" fill="#2b2019">fuel → channel margin</text>
+<text x="578" y="344" font-size="9.2" font-weight="bold" fill="#351C15">OUTPUT — written by xlsx.js</text>
+<text x="578" y="357" font-size="9" fill="#2b2019">Client report.xlsx</text>
+<text x="578" y="370" font-size="9" fill="#2b2019">Internal statement.xlsx</text>
+<text x="578" y="383" font-size="9" fill="#6d5a48">   cost, profit and margin</text>
+<text x="578" y="404" font-size="9" font-weight="bold" fill="#2f6b3a">✓ invoice files never leave</text>
+<text x="578" y="416" font-size="9" font-weight="bold" fill="#2f6b3a">   this machine</text>
+
+<!-- col 4 -->
+<rect x="810" y="176" width="238" height="246" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<rect x="810" y="176" width="238" height="20" rx="3" fill="#e8ddcd"/>
+<text x="818" y="190" font-size="10" font-weight="bold" fill="#351C15">Per-account storage, this machine</text>
+<text x="818" y="211" font-size="9.2" font-weight="bold" fill="#351C15">localStorage</text>
+<text x="818" y="224" font-size="8.6" font-family="DejaVu Sans Mono" fill="#6b3f1c">ups_reprice_cfg::&lt;ME.id&gt;</text>
+<text x="818" y="236" font-size="8.6" font-family="DejaVu Sans Mono" fill="#6b3f1c">…hist::&lt;ME.id&gt;   period index</text>
+<text x="818" y="248" font-size="8.6" font-family="DejaVu Sans Mono" fill="#6b3f1c">…histinv::&lt;ME.id&gt;  invoice list</text>
+<text x="818" y="260" font-size="8.6" font-family="DejaVu Sans Mono" fill="#6b3f1c">ups_reprice_log   activity log</text>
+<text x="818" y="281" font-size="9.2" font-weight="bold" fill="#351C15">IndexedDB</text>
+<text x="818" y="294" font-size="8.6" font-family="DejaVu Sans Mono" fill="#6b3f1c">&lt;db&gt;::&lt;ME.id&gt;  shipment detail</text>
+<text x="818" y="315" font-size="9.2" font-weight="bold" fill="#351C15">sessionStorage</text>
+<text x="818" y="328" font-size="8.6" font-family="DejaVu Sans Mono" fill="#6b3f1c">ups_reprice_local_session</text>
+<text x="818" y="349" font-size="9" font-weight="bold" fill="#b03a2b">⚠ every key is prefixed with ME.id,</text>
+<text x="818" y="362" font-size="9" fill="#b03a2b">   which today is "local::&lt;username&gt;".</text>
+<text x="818" y="375" font-size="9" fill="#b03a2b">   Change the identity and the app</text>
+<text x="818" y="388" font-size="9" fill="#b03a2b">   reads as empty — the data is still</text>
+<text x="818" y="401" font-size="9" fill="#b03a2b">   there, under the old prefix.</text>
+<text x="818" y="411" font-size="9" fill="#6d5a48">   Same-machine user switching relies on it.</text>
+
+<!-- arrows B -> C -->
+<line x1="430" y1="424" x2="430" y2="462" stroke="#2f6b3a" stroke-width="1.8" marker-end="url(#a1g)"/>
+<text x="438" y="446" font-size="9.6" fill="#2f6b3a">② settings + history sync · RPC keyed by ME.sync</text>
+<line x1="768" y1="424" x2="768" y2="462" stroke="#2f6b3a" stroke-width="1.8" marker-end="url(#a1g)"/>
+<text x="776" y="446" font-size="9.6" fill="#2f6b3a">③ address lookup</text>
+<line x1="1044" y1="424" x2="1044" y2="462" stroke="#b03a2b" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#a1r)"/>
+<text x="1030" y="446" font-size="9.6" fill="#b03a2b" text-anchor="end">✗ admin-users unreachable</text>
+
+<!-- ============ BAND C ============ -->
+<rect x="0" y="462" width="1060" height="250" rx="4" fill="#ffffff" stroke="#351C15" stroke-width="1.6"/>
+<rect x="8" y="452" width="392" height="19" rx="3" fill="#351C15"/>
+<text x="16" y="465.5" font-size="10.5" font-weight="bold" fill="#ffffff">3 · SUPABASE PROJECT — reached only through RPC today</text>
+
+<rect x="12" y="490" width="288" height="212" rx="3" fill="#f6f6f4" stroke="#cfc9c0" stroke-dasharray="4 3"/>
+<rect x="12" y="490" width="288" height="20" rx="3" fill="#ddd9d2"/>
+<text x="20" y="504" font-size="10" font-weight="bold" fill="#5a5248">Auth  ○  NOT USED</text>
+<text x="20" y="525" font-size="9" fill="#6d6558">auth.users may already hold accounts, but</text>
+<text x="20" y="538" font-size="9" fill="#6d6558">nothing in the app ever signs in through it.</text>
+<text x="20" y="559" font-size="9" fill="#5a5248">· the AUTH client is never constructed</text>
+<text x="20" y="572" font-size="9" fill="#5a5248">· signInWithPassword() is never called</text>
+<text x="20" y="585" font-size="9" fill="#5a5248">· record_login() is never called</text>
+<text x="20" y="598" font-size="9" fill="#5a5248">· app_metadata.role is never read</text>
+<text x="20" y="611" font-size="9" fill="#5a5248">· no session is issued or refreshed</text>
+<text x="20" y="634" font-size="9" font-weight="bold" fill="#b03a2b">⚠ public sign-ups may still be enabled</text>
+<text x="20" y="647" font-size="9" fill="#b03a2b">   in the dashboard. Harmless while Auth</text>
+<text x="20" y="660" font-size="9" fill="#b03a2b">   is unused — not harmless the moment</text>
+<text x="20" y="673" font-size="9" fill="#b03a2b">   you switch. Turn it off first.</text>
+
+<rect x="310" y="490" width="390" height="212" rx="3" fill="#f3ece3" stroke="#a9743f"/>
+<rect x="310" y="490" width="390" height="20" rx="3" fill="#e8ddcd"/>
+<text x="318" y="504" font-size="10" font-weight="bold" fill="#351C15">Postgres + Row Level Security</text>
+<text x="318" y="525" font-size="9.2" font-weight="bold" fill="#2f6b3a">local_settings                            ● IN USE</text>
+<text x="318" y="538" font-size="9" fill="#2b2019">RLS ON with ZERO policies — the anon key</text>
+<text x="318" y="551" font-size="9" fill="#2b2019">cannot read, write or even list this table</text>
+<text x="318" y="564" font-size="9" font-family="DejaVu Sans Mono" fill="#6b3f1c">↳ local_settings_get(k) / _put(k, cfg, name)</text>
+<text x="318" y="577" font-size="9" fill="#6d5a48">    SECURITY DEFINER · k must match</text>
+<text x="318" y="590" font-size="9" font-family="DejaVu Sans Mono" fill="#6d5a48">    ^[0-9a-f]{64}$   — k is ME.sync</text>
+<text x="318" y="611" font-size="9.2" font-weight="bold" fill="#2f6b3a">local_history                             ● IN USE</text>
+<text x="318" y="624" font-size="9" font-family="DejaVu Sans Mono" fill="#6b3f1c">↳ local_history_list / _get / _put / _del</text>
+<text x="318" y="637" font-size="9" fill="#2b2019">gzip'd in the browser · add-or-replace only:</text>
+<text x="318" y="650" font-size="9" fill="#2b2019">clearing one machine never deletes the copy</text>
+<text x="318" y="671" font-size="9.2" font-weight="bold" fill="#6d5a48">login_history ○   profiles ○   user_settings ○</text>
+<text x="318" y="684" font-size="9" fill="#6d5a48">created by the SQL files — no code path in</text>
+<text x="318" y="696" font-size="9" fill="#6d5a48">this mode ever touches them</text>
+
+<rect x="710" y="490" width="338" height="212" rx="3" fill="#f3ece3" stroke="#a9743f"/>
+<rect x="710" y="490" width="338" height="20" rx="3" fill="#e8ddcd"/>
+<text x="718" y="504" font-size="10" font-weight="bold" fill="#351C15">Edge Functions</text>
+<text x="718" y="525" font-size="9.2" font-weight="bold" fill="#2f6b3a">ups-address                ● IN USE (if deployed)</text>
+<text x="718" y="538" font-size="9" font-family="DejaVu Sans Mono" fill="#2b2019">POST { name, address, city, state, postal,</text>
+<text x="718" y="551" font-size="9" font-family="DejaVu Sans Mono" fill="#2b2019">       country }  →  { class: R | C | U }</text>
+<text x="718" y="564" font-size="9" fill="#2b2019">Holds UPS_CLIENT_ID / UPS_CLIENT_SECRET as</text>
+<text x="718" y="577" font-size="9" fill="#2b2019">function secrets — the browser never sees them</text>
+<text x="718" y="590" font-size="9" fill="#6d5a48">Endpoint is pasted into the Invoice History tab</text>
+<text x="718" y="611" font-size="9.2" font-weight="bold" fill="#b03a2b">admin-users                       ✗ UNREACHABLE</text>
+<text x="718" y="624" font-size="9" fill="#2b2019">Needs a Supabase access token to prove the</text>
+<text x="718" y="637" font-size="9" fill="#2b2019">caller is an admin. In local mode there is no</text>
+<text x="718" y="650" font-size="9" fill="#2b2019">token, so the Admin tab can only list the</text>
+<text x="718" y="663" font-size="9" fill="#2b2019">hard-coded accounts — it cannot create one.</text>
+<text x="718" y="684" font-size="9" font-weight="bold" fill="#2f6b3a">✓ the service_role key lives only here —</text>
+<text x="718" y="696" font-size="9" font-weight="bold" fill="#2f6b3a">   it is never delivered to a browser</text>
+</svg>
+</div>
+
+<!-- =================== PAGE 2 — TARGET STATE =================== -->
+<div class="page">
+<svg viewBox="0 0 1060 718" xmlns="http://www.w3.org/2000/svg"
+     font-family="DejaVu Sans, sans-serif">
+<defs>
+  <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="#a9743f"/></marker>
+  <marker id="a2g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,1 L9,5 L0,9 z" fill="#2f6b3a"/></marker>
+</defs>
+
+<text x="8" y="24" font-size="20" font-weight="bold" fill="#351C15">TARGET STATE — Supabase Auth switched on</text>
+<text x="8" y="41" font-size="10.5" fill="#6d5a48">Green = already written, needs configuration only.  Orange = still has to be built.  Everything else is unchanged from the current state.</text>
+<rect x="822" y="6" width="230" height="24" rx="3" fill="#2f6b3a"/>
+<text x="937" y="22" font-size="11.5" font-weight="bold" fill="#ffffff" text-anchor="middle" font-family="DejaVu Sans Mono">authMode: "supabase"</text>
+<text x="1052" y="44" font-size="9.5" fill="#6d5a48" text-anchor="end">● works once switched    ▲ must be built    ⚠ attention</text>
+
+<!-- ============ BAND A ============ -->
+<rect x="0" y="58" width="1060" height="68" rx="4" fill="#fcfaf7" stroke="#ddd2c2"/>
+<rect x="8" y="48" width="150" height="19" rx="3" fill="#351C15"/>
+<text x="16" y="61.5" font-size="10.5" font-weight="bold" fill="#ffffff">1 · DELIVERY</text>
+
+<rect x="12" y="70" width="156" height="48" rx="3" fill="#f3ece3" stroke="#d9cbb8"/>
+<text x="20" y="85" font-size="10.5" font-weight="bold" fill="#351C15">GitHub repository</text>
+<text x="20" y="99" font-size="9.4" fill="#2b2019">branch: main</text>
+<text x="20" y="112" font-size="9.4" fill="#6d5a48">unchanged</text>
+
+<line x1="170" y1="94" x2="194" y2="94" stroke="#a9743f" stroke-width="1.6" marker-end="url(#a2)"/>
+
+<rect x="196" y="70" width="218" height="48" rx="3" fill="#f3ece3" stroke="#d9cbb8"/>
+<text x="204" y="85" font-size="10.5" font-weight="bold" fill="#351C15">Static host</text>
+<text x="204" y="99" font-size="9.4" fill="#2b2019">unchanged — still serves 4 files</text>
+<text x="204" y="112" font-size="9.4" fill="#6d5a48">Site URL registered with Supabase</text>
+
+<line x1="416" y1="94" x2="440" y2="94" stroke="#a9743f" stroke-width="1.6" marker-end="url(#a2)"/>
+
+<rect x="442" y="70" width="326" height="48" rx="3" fill="#eef6ee" stroke="#2f6b3a" stroke-width="1.3"/>
+<text x="450" y="85" font-size="10.5" font-weight="bold" fill="#351C15">The only file that changes</text>
+<text x="450" y="99" font-size="9.4" font-family="DejaVu Sans Mono" fill="#2f6b3a">auth-config.js  →  { authMode: "supabase", url, anonKey }</text>
+<text x="450" y="112" font-size="9.4" fill="#6d5a48">index.html is not edited at all — the code is already there</text>
+
+<rect x="792" y="70" width="256" height="48" rx="3" fill="#f3ece3" stroke="#a9743f"/>
+<text x="800" y="85" font-size="10.5" font-weight="bold" fill="#351C15">Deployed to Supabase, not the site</text>
+<text x="800" y="99" font-size="9.4" fill="#2b2019">schema.sql · login_history.sql · 2 functions</text>
+<text x="800" y="112" font-size="9.4" fill="#b3611f">▲ delete authconfig.js (dead file)</text>
+
+<line x1="605" y1="120" x2="605" y2="146" stroke="#a9743f" stroke-width="1.8" marker-end="url(#a2)"/>
+<text x="614" y="139" font-size="9.8" fill="#6d5a48">① page load</text>
+
+<!-- ============ BAND B ============ -->
+<rect x="0" y="146" width="1060" height="284" rx="4" fill="#ffffff" stroke="#351C15" stroke-width="1.6"/>
+<rect x="8" y="136" width="430" height="19" rx="3" fill="#351C15"/>
+<text x="16" y="149.5" font-size="10.5" font-weight="bold" fill="#ffffff">2 · THE USER'S BROWSER — identity now comes from outside</text>
+
+<!-- col 1 -->
+<rect x="12" y="176" width="236" height="246" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<rect x="12" y="176" width="236" height="20" rx="3" fill="#e8ddcd"/>
+<text x="20" y="190" font-size="10" font-weight="bold" fill="#351C15">Loaded assets</text>
+<text x="20" y="210" font-size="9.4" font-weight="bold" font-family="DejaVu Sans Mono" fill="#6b3f1c">index.html</text>
+<text x="20" y="223" font-size="9" fill="#2b2019">byte-for-byte the same file</text>
+<text x="20" y="236" font-size="9" fill="#6d5a48">both sign-in paths already live in it;</text>
+<text x="20" y="249" font-size="9" fill="#6d5a48">one line of config picks between them</text>
+<text x="20" y="270" font-size="9.4" font-weight="bold" font-family="DejaVu Sans Mono" fill="#6b3f1c">supabase-js-2.112.3.js</text>
+<text x="20" y="283" font-size="9" fill="#2b2019">now doing real work: auth + RLS calls</text>
+<text x="20" y="304" font-size="9.4" font-weight="bold" font-family="DejaVu Sans Mono" fill="#6b3f1c">xlsx-0.18.5.full.min.js</text>
+<text x="20" y="317" font-size="9" fill="#2b2019">unchanged</text>
+<text x="20" y="338" font-size="9.4" font-weight="bold" font-family="DejaVu Sans Mono" fill="#2f6b3a">auth-config.js</text>
+<text x="20" y="351" font-size="9" font-family="DejaVu Sans Mono" fill="#2f6b3a">{ authMode: "supabase",</text>
+<text x="20" y="364" font-size="9" font-family="DejaVu Sans Mono" fill="#2f6b3a">  url, anonKey }</text>
+<text x="20" y="385" font-size="9" font-weight="bold" fill="#2f6b3a">✓ still only public values here</text>
+<text x="20" y="398" font-size="9" fill="#6d5a48">   the service_role key never appears</text>
+<text x="20" y="411" font-size="9" fill="#6d5a48">   the pre-commit hook keeps it that way</text>
+
+<!-- col 2 -->
+<rect x="258" y="176" width="302" height="246" rx="3" fill="#eef6ee" stroke="#2f6b3a" stroke-width="1.3"/>
+<rect x="258" y="176" width="302" height="20" rx="3" fill="#2f6b3a"/>
+<text x="266" y="190" font-size="10" font-weight="bold" fill="#ffffff">Sign-in — Supabase Auth</text>
+<text x="266" y="211" font-size="9.2" fill="#2b2019">① user types a username + password</text>
+<text x="266" y="224" font-size="9.2" fill="#2b2019">② loginEmail(): no "@" in the input, so</text>
+<text x="266" y="237" font-size="9.2" font-family="DejaVu Sans Mono" fill="#6b3f1c">     append @ups-reprice.invalid</text>
+<text x="266" y="250" font-size="9.2" font-family="DejaVu Sans Mono" fill="#2b2019">③ signInWithPassword({ email, password })</text>
+<text x="266" y="263" font-size="9.2" fill="#2b2019">④ Supabase returns a session:</text>
+<text x="266" y="276" font-size="9.2" font-family="DejaVu Sans Mono" fill="#6b3f1c">     access_token — JWT, auto-refreshed</text>
+<text x="266" y="289" font-size="9.2" font-family="DejaVu Sans Mono" fill="#6b3f1c">     app_metadata.role → "admin" | "user"</text>
+<text x="266" y="302" font-size="9.2" font-family="DejaVu Sans Mono" fill="#6b3f1c">     user_metadata.display_name</text>
+<text x="266" y="315" font-size="9.2" font-family="DejaVu Sans Mono" fill="#2b2019">⑤ ME.id = the account's UUID</text>
+<text x="266" y="328" font-size="9.2" font-family="DejaVu Sans Mono" fill="#2b2019">⑥ AUTH.rpc("record_login", { p_user_agent })</text>
+<text x="266" y="347" font-size="9.2" font-family="DejaVu Sans Mono" fill="#2b2019">AUTH = Supabase client, session persisted</text>
+<text x="266" y="360" font-size="9.2" font-family="DejaVu Sans Mono" fill="#2b2019">SYNC = AUTH</text>
+<text x="266" y="373" font-size="9" fill="#6d5a48">     one connection, one identity — the</text>
+<text x="266" y="386" font-size="9" fill="#6d5a48">     sync-key locker is no longer used</text>
+<text x="266" y="402" font-size="9" font-weight="bold" fill="#2f6b3a">✓ no password or hash ships with the page</text>
+<text x="266" y="415" font-size="9" font-weight="bold" fill="#2f6b3a">✓ add or disable a user without redeploying</text>
+
+<!-- col 3 -->
+<rect x="570" y="176" width="230" height="246" rx="3" fill="#faf7f2" stroke="#d9cbb8"/>
+<rect x="570" y="176" width="230" height="20" rx="3" fill="#e8ddcd"/>
+<text x="578" y="190" font-size="10" font-weight="bold" fill="#351C15">Pricing pipeline — unchanged</text>
+<text x="578" y="211" font-size="9.2" font-weight="bold" fill="#351C15">INPUT (never uploaded)</text>
+<text x="578" y="224" font-size="9" fill="#2b2019">UPS invoice — xlsx / xls / csv</text>
+<text x="578" y="237" font-size="9" fill="#2b2019">Contract rate tables</text>
+<text x="578" y="258" font-size="9.2" font-weight="bold" fill="#351C15">PROCESS — browser memory</text>
+<text x="578" y="271" font-size="9" fill="#2b2019">parse → DIM weight → base rate →</text>
+<text x="578" y="284" font-size="9" fill="#2b2019">surcharges → fuel → channel margin</text>
+<text x="578" y="305" font-size="9.2" font-weight="bold" fill="#351C15">OUTPUT — written by xlsx.js</text>
+<text x="578" y="318" font-size="9" fill="#2b2019">Client report.xlsx</text>
+<text x="578" y="331" font-size="9" fill="#2b2019">Internal statement.xlsx</text>
+<text x="578" y="354" font-size="9" font-weight="bold" fill="#2f6b3a">✓ nothing about rating moves to the</text>
+<text x="578" y="367" font-size="9" font-weight="bold" fill="#2f6b3a">   cloud. Supabase never sees an</text>
+<text x="578" y="380" font-size="9" font-weight="bold" fill="#2f6b3a">   invoice line or a contract rate.</text>
+<text x="578" y="401" font-size="9" fill="#6d5a48">This is the part worth protecting,</text>
+<text x="578" y="414" font-size="9" fill="#6d5a48">and the switch does not touch it.</text>
+
+<!-- col 4 -->
+<rect x="810" y="176" width="238" height="246" rx="3" fill="#fdf4ea" stroke="#b3611f" stroke-width="1.3"/>
+<rect x="810" y="176" width="238" height="20" rx="3" fill="#b3611f"/>
+<text x="818" y="190" font-size="10" font-weight="bold" fill="#ffffff">Per-account storage — the one hazard</text>
+<text x="818" y="211" font-size="9" fill="#2b2019">The same keys as today, but the prefix</text>
+<text x="818" y="224" font-size="9" fill="#2b2019">is a different value:</text>
+<text x="818" y="241" font-size="8.8" font-family="DejaVu Sans Mono" fill="#6d5a48">before   local::sandy…@gmail.com</text>
+<text x="818" y="254" font-size="8.8" font-family="DejaVu Sans Mono" fill="#b3611f">after    3f7a91c4-… (UUID)</text>
+<text x="818" y="275" font-size="9" font-weight="bold" fill="#b3611f">▲ GAP 1 — claim the legacy data</text>
+<text x="818" y="288" font-size="9" fill="#2b2019">On first Supabase sign-in: if the new</text>
+<text x="818" y="301" font-size="9" fill="#2b2019">prefix is empty and this machine holds</text>
+<text x="818" y="314" font-size="9" font-family="DejaVu Sans Mono" fill="#2b2019">local::&lt;username&gt; data, adopt it —</text>
+<text x="818" y="327" font-size="9" fill="#2b2019">settings, period index, invoice list</text>
+<text x="818" y="340" font-size="9" fill="#2b2019">and the IndexedDB database.</text>
+<text x="818" y="353" font-size="9" fill="#6d5a48">index.html already names this as unwritten.</text>
+<text x="818" y="370" font-size="9" font-weight="bold" fill="#2f6b3a">Interim workaround, no code needed:</text>
+<text x="818" y="383" font-size="9" fill="#2b2019">export the settings before switching,</text>
+<text x="818" y="396" font-size="9" fill="#2b2019">import them after the first sign-in.</text>
+<text x="818" y="416" font-size="9" fill="#6d5a48">Test on a preview URL before production.</text>
+
+<!-- arrows -->
+<line x1="380" y1="424" x2="380" y2="462" stroke="#2f6b3a" stroke-width="1.8" marker-end="url(#a2g)"/>
+<text x="388" y="446" font-size="9.6" fill="#2f6b3a">② sign-in → JWT</text>
+<line x1="560" y1="424" x2="560" y2="462" stroke="#2f6b3a" stroke-width="1.8" marker-end="url(#a2g)"/>
+<text x="568" y="446" font-size="9.6" fill="#2f6b3a">③ user_settings + record_login · RLS by auth.uid()</text>
+<line x1="880" y1="424" x2="880" y2="462" stroke="#2f6b3a" stroke-width="1.8" marker-end="url(#a2g)"/>
+<text x="888" y="446" font-size="9.6" fill="#2f6b3a">④ Edge Functions, Bearer JWT</text>
+
+<!-- ============ BAND C ============ -->
+<rect x="0" y="462" width="1060" height="250" rx="4" fill="#ffffff" stroke="#351C15" stroke-width="1.6"/>
+<rect x="8" y="452" width="392" height="19" rx="3" fill="#351C15"/>
+<text x="16" y="465.5" font-size="10.5" font-weight="bold" fill="#ffffff">3 · SUPABASE PROJECT — now the source of identity</text>
+
+<rect x="12" y="490" width="288" height="212" rx="3" fill="#eef6ee" stroke="#2f6b3a"/>
+<rect x="12" y="490" width="288" height="20" rx="3" fill="#d7e8d7"/>
+<text x="20" y="504" font-size="10" font-weight="bold" fill="#351C15">Auth  ●  ACTIVE</text>
+<text x="20" y="525" font-size="9" fill="#2b2019">Email provider ON</text>
+<text x="20" y="538" font-size="9" font-weight="bold" fill="#b03a2b">Public sign-ups OFF  ← do this first</text>
+<text x="20" y="551" font-size="9" fill="#2b2019">Accounts created in the dashboard with</text>
+<text x="20" y="564" font-size="9" fill="#2b2019">"Auto Confirm User" ticked</text>
+<text x="20" y="585" font-size="9.2" font-weight="bold" font-family="DejaVu Sans Mono" fill="#6b3f1c">auth.users</text>
+<text x="20" y="598" font-size="9" font-family="DejaVu Sans Mono" fill="#2b2019">raw_app_meta_data.role = admin | user</text>
+<text x="20" y="611" font-size="9" fill="#6d5a48">   writable by service_role / SQL only —</text>
+<text x="20" y="624" font-size="9" fill="#6d5a48">   this is why the role is trusted</text>
+<text x="20" y="637" font-size="9" font-family="DejaVu Sans Mono" fill="#2b2019">raw_user_meta_data.display_name</text>
+<text x="20" y="650" font-size="9" fill="#6d5a48">   user-editable, therefore never a role</text>
+<text x="20" y="671" font-size="9" font-weight="bold" fill="#b03a2b">⚠ @ups-reprice.invalid accounts cannot</text>
+<text x="20" y="684" font-size="9" fill="#b03a2b">   receive a password-reset mail. Use a</text>
+<text x="20" y="696" font-size="9" fill="#b03a2b">   real address where that matters.</text>
+
+<rect x="310" y="490" width="390" height="212" rx="3" fill="#f3ece3" stroke="#a9743f"/>
+<rect x="310" y="490" width="390" height="20" rx="3" fill="#e8ddcd"/>
+<text x="318" y="504" font-size="10" font-weight="bold" fill="#351C15">Postgres + Row Level Security</text>
+<text x="318" y="525" font-size="9.2" font-weight="bold" fill="#2f6b3a">user_settings                       ● one row per account</text>
+<text x="318" y="538" font-size="9" font-family="DejaVu Sans Mono" fill="#2b2019">upsert / select where user_id = auth.uid()</text>
+<text x="318" y="551" font-size="9" fill="#2b2019">holds that account's contract rate configuration</text>
+<text x="318" y="572" font-size="9.2" font-weight="bold" fill="#2f6b3a">profiles                            ● display copy only</text>
+<text x="318" y="585" font-size="9" fill="#2b2019">kept in step by a trigger on auth.users; the role</text>
+<text x="318" y="598" font-size="9" fill="#2b2019">column here is a copy, never the authority</text>
+<text x="318" y="619" font-size="9.2" font-weight="bold" fill="#2f6b3a">login_history                       ● admin-readable</text>
+<text x="318" y="632" font-size="9" font-family="DejaVu Sans Mono" fill="#6b3f1c">↳ record_login(p_user_agent)</text>
+<text x="318" y="645" font-size="9" fill="#2b2019">SECURITY DEFINER — user id, email and time are</text>
+<text x="318" y="658" font-size="9" fill="#2b2019">taken from the verified JWT, not from the request.</text>
+<text x="318" y="671" font-size="9" fill="#2b2019">Browsers cannot write to the table at all.</text>
+<text x="318" y="692" font-size="9" font-weight="bold" fill="#b3611f">▲ GAP 2 — invoice history has no cloud sync here</text>
+
+<rect x="710" y="490" width="338" height="212" rx="3" fill="#f3ece3" stroke="#a9743f"/>
+<rect x="710" y="490" width="338" height="20" rx="3" fill="#e8ddcd"/>
+<text x="718" y="504" font-size="10" font-weight="bold" fill="#351C15">Edge Functions</text>
+<text x="718" y="525" font-size="9.2" font-weight="bold" fill="#2f6b3a">admin-users                              ● ACTIVE</text>
+<text x="718" y="538" font-size="9" fill="#2b2019">list · create · change role · delete</text>
+<text x="718" y="551" font-size="9" fill="#2b2019">Verifies the caller's JWT and requires</text>
+<text x="718" y="564" font-size="9" font-family="DejaVu Sans Mono" fill="#2b2019">app_metadata.role = "admin"</text>
+<text x="718" y="577" font-size="9" fill="#2b2019">→ anything else gets 403 before the body is read</text>
+<text x="718" y="590" font-size="9" font-weight="bold" fill="#b03a2b">⚠ turn OFF "Enforce JWT verification" —</text>
+<text x="718" y="603" font-size="9" fill="#b03a2b">   the function runs its own, stricter check</text>
+<text x="718" y="624" font-size="9.2" font-weight="bold" fill="#2f6b3a">ups-address                              ● ACTIVE</text>
+<text x="718" y="637" font-size="9" fill="#2b2019">unchanged from today</text>
+<text x="718" y="658" font-size="9.2" font-weight="bold" fill="#b3611f">▲ WORK REMAINING</text>
+<text x="718" y="671" font-size="9" fill="#b3611f">1 · claim legacy per-machine data on first sign-in</text>
+<text x="718" y="684" font-size="9" fill="#b3611f">2 · invoice-history sync for Supabase mode</text>
+<text x="718" y="696" font-size="9" fill="#b3611f">3 · delete the dead authconfig.js</text>
+</svg>
+</div>
+
+<!-- =================== PAGE 3 — DELTA =================== -->
+<div class="page">
+<h1>Current → Target: what actually changes</h1>
+<p class="sub">One config line moves the app from the left column to the middle. The right column is what that line does <b>not</b> do for you.</p>
+
+<table>
+<thead><tr>
+  <th style="width:13%">Area</th>
+  <th style="width:29%">Current state</th>
+  <th style="width:29%">Target state</th>
+  <th style="width:29%">Work required</th>
+</tr></thead>
+<tbody>
+<tr><td class="a">Mode switch</td>
+    <td><code>auth-config.js</code> has no <code>authMode</code>, so <code>LOCAL_MODE = true</code></td>
+    <td><code>authMode: "supabase"</code> present; both code paths already exist in <code>index.html</code></td>
+    <td class="good">Edit one file, redeploy. Reversible by deleting the line.</td></tr>
+
+<tr><td class="a">Where passwords live</td>
+    <td>SHA-256 hashes in <code>LOCAL_ACCOUNTS[]</code>, shipped inside the page. Old plaintext values remain in git history.</td>
+    <td>Supabase Auth holds them. Nothing password-shaped is delivered to the browser.</td>
+    <td class="good">Create each account in the dashboard with a <b>new</b> password. Never reuse one that was ever in the repo.</td></tr>
+
+<tr><td class="a">Who can sign in</td>
+    <td>Only the two hard-coded accounts. Public sign-up setting is irrelevant because Auth is unused.</td>
+    <td>Only accounts the owner creates — <b>provided public sign-ups are disabled</b>.</td>
+    <td class="bad">Authentication → Providers → Email → turn sign-ups OFF. Do this before switching, not after.</td></tr>
+
+<tr><td class="a">Account identity<br>(<code>ME.id</code>)</td>
+    <td><code>"local::&lt;username&gt;"</code></td>
+    <td>The account UUID from Supabase</td>
+    <td class="gap">GAP 1 — every localStorage key and the IndexedDB name are prefixed with this. Nothing migrates them yet.</td></tr>
+
+<tr><td class="a">Adding / removing a user</td>
+    <td>Edit <code>index.html</code>, commit, redeploy. The person keeps access until the deploy lands.</td>
+    <td>Dashboard, or the Admin tab in the app. Effective as soon as their token expires.</td>
+    <td class="good">Deploy <code>admin-users</code> for the in-app route; the dashboard route needs nothing.</td></tr>
+
+<tr><td class="a">Roles</td>
+    <td><code>role</code> field in the hard-coded array — visible to anyone reading the page</td>
+    <td><code>app_metadata.role</code>, carried in the JWT. Users cannot edit that field.</td>
+    <td class="good">One <code>update auth.users</code> statement per admin. Sign out and in again — the role rides in the token.</td></tr>
+
+<tr><td class="a">Session</td>
+    <td>A JSON blob in sessionStorage (or localStorage if "keep me signed in")</td>
+    <td>Supabase session with an auto-refreshed access token</td>
+    <td class="good">Nothing. Handled by the client library.</td></tr>
+
+<tr><td class="a">Rate settings sync</td>
+    <td><code>local_settings</code> via two SECURITY DEFINER RPCs, keyed by <code>sha256("cfg-sync::"+user+"::"+pw)</code></td>
+    <td><code>user_settings</code>, one row per account, RLS on <code>auth.uid()</code></td>
+    <td class="good">Run <code>supabase/schema.sql</code>. <b>Note:</b> settings already parked under a sync key do not carry over — save once after switching.</td></tr>
+
+<tr><td class="a">Invoice history sync</td>
+    <td class="good"><code>local_history</code> RPCs — works, gzip'd, add-or-replace</td>
+    <td class="bad">Nothing. <code>histPush</code>/<code>histPull</code> return early unless <code>LOCAL_MODE</code>.</td>
+    <td class="gap">GAP 2 — a table keyed by <code>auth.uid()</code> plus RLS, mirroring what <code>local_history</code> already does. This is a regression if not built.</td></tr>
+
+<tr><td class="a">Login history</td>
+    <td>Local activity log — this browser only</td>
+    <td><code>login_history</code>, written by <code>record_login()</code>; identity and timestamp derived server-side from the JWT; admin-only read policy</td>
+    <td class="good">Run <code>supabase/login_history.sql</code>. Failed attempts and IP addresses stay in Supabase's own auth logs.</td></tr>
+
+<tr><td class="a">Admin tab</td>
+    <td>Read-only list of the hard-coded accounts</td>
+    <td>Full account management through <code>admin-users</code></td>
+    <td class="bad">Deploy the function, then turn OFF "Enforce JWT verification" on it — the function authenticates callers itself, more strictly than the platform toggle.</td></tr>
+
+<tr><td class="a">Address lookup</td>
+    <td class="good"><code>ups-address</code> Edge Function — UPS keys held as function secrets</td>
+    <td class="good">Unchanged</td>
+    <td>Nothing.</td></tr>
+
+<tr><td class="a">Pricing engine</td>
+    <td colspan="2" class="good">Runs entirely in the browser. Invoices and contract rates never reach Supabase — before or after the switch.</td>
+    <td>Nothing. This is the part the switch deliberately does not touch.</td></tr>
+
+<tr><td class="a">Dead config file</td>
+    <td><code>authconfig.js</code> exists and is loaded by nothing. Editing it has no effect.</td>
+    <td>Gone.</td>
+    <td class="gap">GAP 3 — delete it, so there is one config file and one place to look.</td></tr>
+</tbody>
+</table>
+
+<div class="cols">
+  <div class="col">
+    <h3>Order of operations</h3>
+    <ol>
+      <li>Export current settings to a file.</li>
+      <li>Turn public sign-ups OFF.</li>
+      <li>Create accounts — tick <b>Auto Confirm User</b>.</li>
+      <li>Set <code>app_metadata.role</code> for the admin.</li>
+      <li>Run <code>schema.sql</code> and <code>login_history.sql</code>.</li>
+      <li>Deploy both Edge Functions; disable enforced JWT on <code>admin-users</code>.</li>
+      <li>Set Site URL and Redirect URLs.</li>
+      <li>Switch <code>authMode</code> on a preview URL first.</li>
+      <li>Sign in, re-import settings, verify the Admin tab.</li>
+      <li>Promote to production.</li>
+    </ol>
+  </div>
+  <div class="col">
+    <h3>How to tell it worked</h3>
+    <ul>
+      <li>The BUILD timestamp in the header moved forward — otherwise you are looking at a cached page, not a broken switch.</li>
+      <li>Signing in with a deliberately wrong password fails <i>at Supabase</i>, not instantly in the page.</li>
+      <li>The Admin tab appears for the admin account and <b>not</b> for a normal one.</li>
+      <li>The Admin tab lists real accounts — that proves <code>admin-users</code> is reachable.</li>
+      <li>A second sign-in shows up in <code>login_history</code>.</li>
+    </ul>
+  </div>
+  <div class="col">
+    <h3>Rollback</h3>
+    <p>Delete the <code>authMode</code> line from <code>auth-config.js</code> and redeploy. The app returns to local-account mode and the old per-machine data — still under its <code>local::</code> prefix — becomes visible again.</p>
+    <p>Nothing written to Supabase during the trial is destroyed by rolling back; the two modes read different tables.</p>
+    <p><b>The one-way part</b> is the accounts and passwords you created — those stay in Supabase, unused, until you switch again.</p>
+  </div>
+</div>
+</div>
+
+</body>
+</html>
