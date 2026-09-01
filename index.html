@@ -803,6 +803,11 @@ td.cells{white-space:normal}
 /* 卡片自己已有深色標題條,裡面的表頭改淺 —— 兩條深色帶疊在一起太重。 */
 .bkdov table thead th{background:var(--stripe);color:var(--accent);
   border-bottom:2px solid var(--accent);font-size:11.5px;letter-spacing:.4px}
+/* 宣告價值級距的設定狀態:一顆看得見的徽章,不再是一行灰字。 */
+.dvsum{display:inline-block;border-radius:999px;padding:2.5px 13px;
+  font-size:12.5px;font-weight:700;letter-spacing:.2px;white-space:nowrap}
+.dvsum.ok{background:var(--select);border:1.5px solid var(--accent);color:var(--accent)}
+.dvsum.part{background:transparent;border:1.5px solid var(--neg);color:var(--neg)}
 .bkdchap{border-left:3px solid color-mix(in srgb, var(--accent) 22%, transparent);
   margin-left:1px;padding-left:11px}
 tr.bkdjump{cursor:pointer}
@@ -3433,11 +3438,12 @@ function paintDvSummary(){
     return;
   }
   const kinds=new Set(done.map(f=>DV_KEYS.map(k=>String((ov[f]||{})[k]||"").trim()).join("|")));
-  el.textContent=L(
+  const full=done.length>=fams.length;
+  el.innerHTML=`<span class="dvsum ${full?"ok":"part"}">${full?"✓ ":"◐ "}`+L(
     `${fams.length} 條渠道已設定 ${done.length} 條,共 ${kinds.size} 種費率`,
     `${done.length} of ${fams.length} channels set, ${kinds.size} distinct rate${kinds.size>1?"s":""}`)
-    +(done.length<fams.length
-      ? L(`;${fams.length-done.length} 條未設定`,`; ${fams.length-done.length} not set`) : "");
+    +(full?"":L(`;${fams.length-done.length} 條未設定`,`; ${fams.length-done.length} not set`))
+    +`</span>`;
 }
 function openDvSet(){
   renderDvTable();
@@ -3506,11 +3512,21 @@ function priceShipment(cfg, s, force){
     }
   }
   else if(s.layer==="ADJ"){
-    /* 跨期單:先查歷史,查不到才退回服務名稱。
-       這是桌面版 history_service_for() 存在的唯一理由 —— SCC 那一行
-       沒有任何 RES/COM 字樣,不查歷史就一定被當成商業。 */
+    /* 跨期單:先用更正單自己的交易日配對它更正的那一段(SHP / RTN)——
+       同一個追蹤號可能兩段各被更正一次;退件回程一律商業。配不到原件
+       才退回歷史,再退回服務名稱(桌面版 history_service_for 的理由:
+       SCC 行上沒有任何 RES/COM 字樣)。 */
+    const o=(typeof origFrtFor==="function")?origFrtFor(s.tracking, s.shipDate):null;
     const h=typeof historyServiceFor==="function"?historyServiceFor(s.tracking):null;
-    if(h){ residential = h==="Ground Residential"; histSvc=h;
+    if(o){
+      residential = o.layer==="RTN" ? false
+        : (/residential/i.test(o.desc||"") || h==="Ground Residential");
+      histSvc = residential?"Ground Residential":"Ground Commercial";
+      resBasis = o.layer==="RTN"
+        ? L("原件(退件回程,商業)","Original leg (return, commercial)")
+        : L("原件(原始出貨)","Original leg (original shipment)");
+    }
+    else if(h){ residential = h==="Ground Residential"; histSvc=h;
       resBasis=L("歷史(原始出貨)","History (original shipment)"); }
     else if(!byCode()){
       residential=svcSaysRes; resiSure=false;
@@ -3923,13 +3939,18 @@ function priceShipment(cfg, s, force){
          收的費率,補收也照那一段查。更正單多半出現在退件之後 —— 原件對照
          到回程(RTN)時一律商業(退回寄件人),不吃這一段自己的住宅判定;
          沒有回程原件才用原始出貨的住/商。 */
-      const oRow=(typeof origFrtFor==="function")?origFrtFor(s.tracking):null;
+      const adjDate=(((s.groups||[]).find(g=>g.layer==="ADJ"&&g.shipDate)||{}).shipDate)||s.shipDate;
+      const oRow=(typeof origFrtFor==="function")?origFrtFor(s.tracking, adjDate):null;
       const legRTN=!!(oRow&&oRow.layer==="RTN");
+      const resA2=legRTN?false
+                 :oRow?/residential/i.test(oRow.desc||"")
+                 :(bwA&&bwA.resA);
       const chA=legRTN?"Ground Commercial"
+                :oRow?(resA2?"Ground Residential":"Ground Commercial")
                 :((typeof historyServiceFor==="function"
                    && historyServiceFor(s.tracking))||channel);
       const zA=(bwA&&bwA.zoneA)||zone;
-      const amtA=fee=>accLookup(cfg,fee,chA,zA,issues,legRTN?false:(bwA&&bwA.resA));
+      const amtA=fee=>accLookup(cfg,fee,chA,zA,issues,resA2);
       const amtC=fee=>accLookup(cfg,fee,legRTN?"Ground Commercial":channel,zone,issues,
                                legRTN?false:undefined);
       const r2=v=>Math.round(v*100)/100;
@@ -4755,20 +4776,30 @@ function historyServiceFor(tracking){
   return v==="R" ? "Ground Residential" : v==="C" ? "Ground Commercial" : null;
 }
 
-/* 跨期更正的原件對照:追蹤號 -> 原始出貨(SHP / RTN)的 FRT 行。
+/* 跨期更正的原件對照:追蹤號 -> 原始出貨/退件回程(SHP / RTN)的 FRT 行。
    計價是同步的,所以先把本期純 ADJ 需要的原件從 IndexedDB 撈成
-   同步對照表,再開始算。同一追蹤號有多期時取最近的一期。 */
+   同步對照表,再開始算。同一個追蹤號可能兩段各被更正一次(原始出貨
+   一張 SCC、退件回程另一張),更正單身上帶著它更正那一段的交易日 ——
+   用日期配對;配不到才取最近的一段。 */
 let ORIG={};
-function origFrtFor(tracking){ return ORIG[tracking]||null; }
+function origFrtFor(tracking, when){
+  const list=ORIG[tracking]; if(!list||!list.length) return null;
+  if(when){
+    const w=normYmd(when);
+    if(w){ const hit=list.find(r=>normYmd(r.shipDate)===w); if(hit) return hit; }
+  }
+  return list[list.length-1];
+}
 function buildOriginals(allRows, need){
   const out={};
   for(const r of allRows||[]){
     if(!r||!r.tracking) continue;
     if(need && !need.has(r.tracking)) continue;
     if(!(r.layer==="SHP"||r.layer==="RTN")||!isFreightLine(r)) continue;
-    const cur=out[r.tracking];
-    if(!cur || String(r.invoice)>String(cur.invoice)) out[r.tracking]=r;
+    (out[r.tracking]=out[r.tracking]||[]).push(r);
   }
+  for(const t of Object.keys(out))
+    out[t].sort((a,b)=>String(a.invoice)<String(b.invoice)?-1:String(a.invoice)>String(b.invoice)?1:0);
   return out;
 }
 /* 住/商對照表是登入後在背景非同步學的,而產生報表不會等它。開頁之後
@@ -13278,7 +13309,7 @@ $("#bCsv").onclick=async ()=>{
          對得起來,拿未進位的金額去除會得出一個對不上的百分比。 */
       const sv=r2(sell[t]||0), cv=r2(cost[t]||0);
       return [tx(inv),dc(date),tx(t),nm(sv),nm(cv),nm(r2(sv-cv)),
-              nm(sv?r6((sv-cv)/sv):0,PCT)];
+              nm(sv?r6((sv-cv)/Math.abs(sv)):0,PCT)];
     });
     /* 逐列先進位到分再加總 —— Overview 要等於明細那一張加起來,
        先加後進位會差幾分,對帳單上那是說不清楚的錢。 */
@@ -13286,12 +13317,45 @@ $("#bCsv").onclick=async ()=>{
     sheets.push({name:sheetNameFor(date,inv),
       rows:[DET.map((h,i)=>hc(h,i<3?"left":"center")), ...rows],
       cols:DCOL, freeze:{r:1,c:0}});
-    ovRows.push([inv,date,r2(cv),r2(sv),r2(sv-cv),sv?r6((sv-cv)/sv):0]);
+    ovRows.push([inv,date,r2(cv),r2(sv),r2(sv-cv),sv?r6((sv-cv)/Math.abs(sv)):0]);
   }
   sheets.push({name:"Overview",
     rows:[OV.map((h,i)=>hc(h,i<2?"left":"center")),
           ...ovRows.map(r=>[tx(r[0]),dc(r[1]),nm(r[2]),nm(r[3]),nm(r[4]),nm(r[5],PCT)])],
     cols:[{w:20},{w:12},{w:14},{w:16},{w:14},{w:10}], freeze:{r:1,c:0}});
+
+  /* ---- 本期摘要:和利潤報表同一版面,一期一個區塊,放第一頁 ---- */
+  {
+    const INT="#,##0";
+    const lab=v=>({v:v,t:"s",s:{bold:true,align:"left",border:true}});
+    const acct0=(typeof acctNorm==="function"?acctNorm((ROWS&&ROWS[0]&&ROWS[0].account)||""):"")
+              ||(typeof acctFromInvoice==="function"?acctFromInvoice(Object.keys(byInv).sort()[0]||""):"");
+    const sumRows=[[hc(L("項目","Item"),"left"),hc(L("數值","Value"),"right")]];
+    ovRows.forEach((r,i)=>{
+      if(i) sumRows.push([{v:"",t:"s"},{v:"",t:"s"}]);
+      const n=(byInv[r[0]]||[]).length, sv=r[3], cv=r[2];
+      sumRows.push([lab(L("期別","Invoice")),tx(r[0])]);
+      sumRows.push([lab(L("帳單日","Invoice date")),dc(r[1])]);
+      sumRows.push([lab(L("UPS 帳號","UPS account")),tx(acct0)]);
+      sumRows.push([lab(L("貨件數","Shipments")),nm(n,INT)]);
+      sumRows.push([lab(L("向客戶收","Charge customer")),nm(sv)]);
+      sumRows.push([lab("UPS"),nm(cv)]);
+      sumRows.push([lab(L("毛利","Profit")),nm(r2(sv-cv))]);
+      sumRows.push([lab(L("毛利率","Margin")),nm(sv?r6((sv-cv)/Math.abs(sv)):0,PCT)]);
+    });
+    sumRows.push([{v:"",t:"s"},{v:"",t:"s"}]);
+    sumRows.push([lab(L("帳戶層費用","Account charges")),nm(r2(accountTotal))]);
+    if(ovRows.length>1){
+      const SV=r2(ovRows.reduce((a,r)=>a+r[3],0)), CV=r2(ovRows.reduce((a,r)=>a+r[2],0));
+      sumRows.push([{v:"",t:"s"},{v:"",t:"s"}]);
+      sumRows.push([ft(L("合計 向客戶收","Total · Charge customer")),ft(SV)]);
+      sumRows.push([ft(L("合計 UPS","Total · UPS")),ft(CV)]);
+      sumRows.push([ft(L("合計毛利","Total profit")),ft(r2(SV-CV))]);
+      sumRows.push([ft(L("合計毛利率","Total margin")),ft(SV?r6((SV-CV)/Math.abs(SV)):0,PCT)]);
+    }
+    sheets.unshift({name:L("本期摘要","Summary"), rows:sumRows,
+      cols:[{w:22},{w:24}], freeze:{r:1,c:0}});
+  }
 
   /* ---- 對不起來的錢 ------------------------------------------------------
      三種完全不同的東西,以前疊在同一張平表上,靠一欄重複二十幾次的英文句子
