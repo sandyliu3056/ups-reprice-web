@@ -3875,6 +3875,14 @@ function priceShipment(cfg, s, force){
     if(applyD) acc["AHS Dimension"]=signedAmt("AHS Dimension",nD);
     if(applyP) acc["AHS Packaging"]=signedAmt("AHS Packaging",nP);
     if(applyLps) acc["Large Package"]=accLookup(cfg,"Large Package",channel,zone,issues,residential,missFees);
+    /* AHS 轉大包裹(UPS 沖掉原先的 AHS、另收 LPS)—— LPR 轉 AHS 的鏡像:
+       LPS 照上面收,被沖掉的那一型 AHS 要退我們的費率。少了這段,
+       applyLps 一開 AHS 階梯整段不跑,UPS 的 AHW 退款就無聲消失。 */
+    if(applyLps && !rerated("ahs")){
+      if(nW<-0.01) acc["AHS Weight"]=signedAmt("AHS Weight",nW);
+      if(nD<-0.01) acc["AHS Dimension"]=signedAmt("AHS Dimension",nD);
+      if(nP<-0.01) acc["AHS Packaging"]=signedAmt("AHS Packaging",nP);
+    }
     s.__gate={applyLps:applyLps,applyW:applyW,applyD:applyD,applyP:applyP};
     if((scan.seen["Large Package"]&&!applyLps)||(scan.seen["AHS Dimension"]&&!applyD&&!applyW&&!applyP))
       issues.push(L("UPS 帳單上有 AHS/大包裹代碼,但更正後的門檻判定不收(或改收別型)",
