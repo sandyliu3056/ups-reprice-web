@@ -7658,14 +7658,14 @@ function openBreakdown(){
   H.push(`<thead><tr><th>Invoice</th><th>${L("帳單日期","Invoice date")}</th>`
     +`<th class="num">Reprice</th>`
     +`<th class="num">${L("UPS 實收","UPS billed")}</th>`
-    +`<th class="num">${L("利潤","Profit")}</th>`
+    +`<th class="num">${L("毛利","Profit")}</th>`
     +`<th class="num">${L("毛利率","Margin")}</th></tr></thead><tbody>`);
   let tRe=0,tUp=0,allPriced=true;
   for(const o of out){
     const rp=(o.r&&o.r.total!=null)?o.r.total:null;
     const up=o.r?o.r.s.upsTotal:o.ups;
     const d=rp==null?null:rp-up;
-    const p=(rp!=null&&Math.abs(rp)>1e-9)?(d/rp*100):null;
+    const p=(rp!=null&&Math.abs(rp)>1e-9)?(d/Math.abs(rp)*100):null;
     if(rp!=null) tRe+=cents(rp); else allPriced=false;
     tUp+=up;
     H.push(`<tr><td class="mono">${esc2(o.inv)}</td><td>${esc2(o.invDate)}</td>`
@@ -7678,7 +7678,7 @@ function openBreakdown(){
   H.push(`</tbody>`);
   if(out.length>1){
     const td=allPriced?tRe-tUp:null;
-    const tp=(allPriced&&Math.abs(tRe)>1e-9)?(td/tRe*100):null;
+    const tp=(allPriced&&Math.abs(tRe)>1e-9)?(td/Math.abs(tRe)*100):null;
     const TF="border-top:2px solid var(--accent);background:var(--select);font-weight:700";
     H.push(`<tfoot><tr><td style="${TF}">${L("合計","Total")}</td>`
       +`<td style="${TF}"></td>`
@@ -7762,7 +7762,7 @@ async function bkdXlsx(){
   const sum=[[hc(L("追蹤號 ","Tracking ")+trk,HEAD,"left"),hc("",HEAD),hc("",HEAD),hc("",HEAD),hc("",HEAD),hc("",HEAD)],
              [hc(L("期別","Invoice"),HEAD,"left"),hc(L("帳單日","Invoice date"),HEAD),
               hc(L("UPS 實收","UPS billed"),UPSC),hc(L("重算","Repriced"),REPC),
-              hc(L("利潤","Profit"),HEAD),hc(L("毛利率","Margin"),HEAD)]];
+              hc(L("毛利","Profit"),HEAD),hc(L("毛利率","Margin"),HEAD)]];
   const sumMerges=[{s:{r:0,c:0},e:{r:0,c:5}}];
   let tUp=0,tRe=0,allPriced=true;
   for(const o of out){
@@ -7776,7 +7776,7 @@ async function bkdXlsx(){
       sd==null?c(o.invDate||"","","right"):c(sd,DATE,"right"),
       c(up,MONEY,"right",UPSB), re==null?c("—","","right",REPB):c(re,MONEY,"right",REPB),
       df==null?c("—","","right"):c(df,MONEY,"right"),
-      (df==null||Math.abs(re)<1e-9)?c("—","","right"):c(df/re,PCT,"right")]);
+      (df==null||Math.abs(re)<1e-9)?c("—","","right"):c(df/Math.abs(re),PCT,"right")]);
   }
   if(out.length>1){
     const td=allPriced?cents(tRe-tUp):null;
@@ -7785,7 +7785,7 @@ async function bkdXlsx(){
       allPriced?c(cents(tRe),MONEY,"right",FOOT,true):c("—","","right",FOOT,true),
       td==null?c("—","","right",FOOT,true):c(td,MONEY,"right",FOOT,true),
       (td==null||Math.abs(tRe)<1e-9)?c("—","","right",FOOT,true)
-        :c(td/tRe,PCT,"right",FOOT,true)]);
+        :c(td/Math.abs(tRe),PCT,"right",FOOT,true)]);
   }
 
   /* ---- 明細 ---- */
@@ -7892,14 +7892,14 @@ function bkdSection(r){
   if(r.rtn) H.push(segCard(r.rtn, (s.rtnSeg&&s.rtnSeg.groups)||[], L("退件回程","Return leg")));
   if(r.npb) H.push(segCard(r.npb, (s.npb&&s.npb.groups)||[], L("第二段運送","Second movement")));
   const bkDiff=(r.total||0)-s.upsTotal;
-  const bkPct=(r.total&&Math.abs(r.total)>1e-9)?(bkDiff/r.total*100):null;
+  const bkPct=(r.total&&Math.abs(r.total)>1e-9)?(bkDiff/Math.abs(r.total)*100):null;
   H.push(`<div class="bkdtot"><table>`
     +`<tr><td>${L("UPS 實收","UPS billed")}</td><td class="num">${money2(s.upsTotal)}</td></tr>`
     +`<tr><td>${L("重新計價","Reprice")}</td><td class="num">${money2(r.total||0)}</td></tr>`
     +`</table><table>`
-    +`<tr><td class="${bkDiff<0?"d":"p"}">${L("利潤","Profit")}</td>`
+    +`<tr><td class="${bkDiff<0?"d":"p"}">${L("毛利","Profit")}</td>`
     +`<td class="num ${bkDiff<0?"d":"p"}">${money2(bkDiff)}</td></tr>`
-    +`<tr><td class="${bkDiff<0?"d":"p"}">${L("差異率","Margin")}</td>`
+    +`<tr><td class="${bkDiff<0?"d":"p"}">${L("毛利率","Margin")}</td>`
     +`<td class="num ${bkDiff<0?"d":"p"}">${bkPct==null?"—":bkPct.toFixed(2)+"%"}</td></tr>`
     +`</table></div>`);
   return H.join("");
@@ -11093,7 +11093,7 @@ function prSheetInvoice(){
   const cbHead1=[hc(L("費用類別","Charge"),HEAD,"left"),
                  hc(L("金額","Amount"),HEAD),hc("",HEAD),
                  hc(L("佔比","Share"),HEAD),hc("",HEAD),
-                 hc(L("差額","Difference"),HEAD)];
+                 hc(L("毛利","Profit"),HEAD)];
   const cbHead2=[hc("",HEAD,"left"),
                  hc(UPSCOL,UPS),hc(REPCOL,REP),
                  hc(UPSCOL,UPS),hc(REPCOL,REP),
@@ -12770,7 +12770,7 @@ function exportIssues(){
     merges.push({s:{r:0,c:c},e:{r:0,c:c+1}});
   });
   const diffAt=head1.length;
-  head1.push(L("差額","Difference")); head2.push("");
+  head1.push(L("毛利","Profit")); head2.push("");
   merges.push({s:{r:0,c:diffAt},e:{r:1,c:diffAt}});
   const wide=[head1, head2];
   const order=[...perTrk.values()].sort((a,b)=>b.sev-a.sev || Math.abs(b.ups)-Math.abs(a.ups));
@@ -12918,7 +12918,7 @@ function renderRate(){
     ${accN.map(n=>`<th class="num">${esc(n)}${infoN.has(n)
         ? ` <span style="font-weight:400">(`+L("僅顯示","report only")+`)</span>` : ""}</th>`).join("")}
     <th class="num">${T("hd.fuel")}</th><th class="num">${T("t.calc")}</th>
-    <th class="num">${T("t.ups")}</th><th class="num">${L("差額","Difference")}</th>
+    <th class="num">${T("t.ups")}</th><th class="num">${L("毛利","Profit")}</th>
     <th>${T("th.note")}</th></tr>`;
   $("#tRate").tBodies[0].innerHTML=RATED.slice(0,300).map(o=>`<tr>
     <td class="mono">${esc(o.s.tracking)}</td>
