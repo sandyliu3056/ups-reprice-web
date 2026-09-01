@@ -11274,18 +11274,13 @@ function prSheetInvoice(){
               hc(L("追蹤號","Tracking"),null,"left"),
               hc(L("向客戶收","Charge customer")),hc("UPS"),
               hc(L("毛利","Profit")),hc(L("毛利率","Margin"))]];
-  let dSV=0,dCV=0;
+  /* 不放合計列:總數在 Summary 頁,而腳註列會被 Excel 的篩選排序捲進資料裡。 */
   for(const o of reportRows()){
     const t=o["Tracking"]; if(!t) continue;
     const sv=r2v(toNum(o["Total"])), cv=r2v(trkCost[t]||0);
-    dSV=r2v(dSV+sv); dCV=r2v(dCV+cv);
     det.push([tcell(trkInv[t]||keys.join(", ")),dcell(trkDate[t]||invDate),tcell(t),
       ncell(sv),ncell(cv),ncell(r2v(sv-cv)),ncell(sv?(sv-cv)/Math.abs(sv):0,PCT)]);
   }
-  const FT={bold:true,fill:FOOT};
-  det.push([tcell(L("合計","Total"),"left",FT),tcell("","left",FT),tcell("","left",FT),
-    ncell(dSV,MONEY,FT),ncell(dCV,MONEY,FT),ncell(r2v(dSV-dCV),MONEY,FT),
-    ncell(dSV?(dSV-dCV)/Math.abs(dSV):0,PCT,FT)]);
 
   return {sheets:[
     {name:L("本期摘要","Summary"), rows:sum, cols:[{w:22},{w:24}], freeze:{r:1,c:0}},
@@ -11294,7 +11289,7 @@ function prSheetInvoice(){
      merges:cbMerges, freeze:{r:2,c:1}},
     {name:L("逐件明細","Tracking detail"), rows:det,
      cols:[{w:20},{w:12},{w:22},{w:15},{w:14},{w:13},{w:10}],
-     freeze:{r:1,c:0}, filter:"A1:G"+(det.length-1)},
+     freeze:{r:1,c:0}, filter:"A1:G"+det.length},
   ], accts:acct?[acct]:[], key:keys[0]||"", last:invDate||""};
 }
 /* 卡片上列出的東西倒成 Excel。兩張工作表:摘要就是畫面上那幾組,明細
