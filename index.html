@@ -11253,11 +11253,48 @@ function prSheetInvoice(){
     {v:"",t:"s",s:Object.assign({},F)},
     {v:cents(profit),t:"n",s:Object.assign({fmt:MONEY,color:profit<0?RED:undefined},F)}]);
 
+  /* ---- 逐件明細:一列一個追蹤號,和週對帳單同一套欄位。
+     收入取報表列的 Total(客戶拿到的數字),成本取帳單上該追蹤號
+     所有層的淨額 —— 和 Statement 同一個口徑。 ---- */
+  const trkCost={}, trkInv={}, trkDate={};
+  for(const r of (ROWS||[])){
+    const t=(r.tracking||"").trim(); if(!t) continue;
+    trkCost[t]=(trkCost[t]||0)+r.net;
+    if(trkInv[t]===undefined){ trkInv[t]=r.invoice||""; trkDate[t]=r.invDate||""; }
+  }
+  const r2v=v=>Math.round(v*100)/100;
+  const ncell=(v,fmt,extra)=>({v:toNum(v),t:"n",
+    s:Object.assign({fmt:fmt||MONEY,align:"right",border:true,
+      color:toNum(v)<0?RED:undefined},extra||{})});
+  const tcell=(v,al,extra)=>({v:String(v==null?"":v),t:"s",
+    s:Object.assign({align:al||"left",border:true},extra||{})});
+  const dcell=v=>{ const n=serial(normYmd(v)||"");
+    return n===""?tcell(v,"center"):{v:n,t:"n",s:{fmt:DATE,align:"center",border:true}}; };
+  const det=[[hc(L("期號","Invoice Number"),null,"left"),hc(L("帳單日","Invoice Date")),
+              hc(L("追蹤號","Tracking"),null,"left"),
+              hc(L("向客戶收","Charge customer")),hc("UPS"),
+              hc(L("毛利","Profit")),hc(L("毛利率","Margin"))]];
+  let dSV=0,dCV=0;
+  for(const o of reportRows()){
+    const t=o["Tracking"]; if(!t) continue;
+    const sv=r2v(toNum(o["Total"])), cv=r2v(trkCost[t]||0);
+    dSV=r2v(dSV+sv); dCV=r2v(dCV+cv);
+    det.push([tcell(trkInv[t]||keys.join(", ")),dcell(trkDate[t]||invDate),tcell(t),
+      ncell(sv),ncell(cv),ncell(r2v(sv-cv)),ncell(sv?(sv-cv)/Math.abs(sv):0,PCT)]);
+  }
+  const FT={bold:true,fill:FOOT};
+  det.push([tcell(L("合計","Total"),"left",FT),tcell("","left",FT),tcell("","left",FT),
+    ncell(dSV,MONEY,FT),ncell(dCV,MONEY,FT),ncell(r2v(dSV-dCV),MONEY,FT),
+    ncell(dSV?(dSV-dCV)/Math.abs(dSV):0,PCT,FT)]);
+
   return {sheets:[
     {name:L("本期摘要","Summary"), rows:sum, cols:[{w:22},{w:24}], freeze:{r:1,c:0}},
     {name:L("費用組成","Cost breakdown"), rows:cb,
      cols:[{w:30},{w:16},{w:16},{w:12},{w:12},{w:15}],
      merges:cbMerges, freeze:{r:2,c:1}},
+    {name:L("逐件明細","Tracking detail"), rows:det,
+     cols:[{w:20},{w:12},{w:22},{w:15},{w:14},{w:13},{w:10}],
+     freeze:{r:1,c:0}, filter:"A1:G"+(det.length-1)},
   ], accts:acct?[acct]:[], key:keys[0]||"", last:invDate||""};
 }
 /* 卡片上列出的東西倒成 Excel。兩張工作表:摘要就是畫面上那幾組,明細
