@@ -3596,6 +3596,12 @@ function priceShipment(cfg, s, force){
   /* 桌面版沒有「拿歷史 CSV 重建一個 A 件來抵差」這條路徑 ——
      history_service_for 只回渠道、history_zone_for 只回 Zone。
      留著會算出 py 從來不會算的差額,所以拿掉。 */
+  /* 住宅/商業改判單(RADJ):FRT 行寫 Residential / Commercial Adjustment,
+     金額是 0,身上卻帶著 Zone 與計費重。它不是新出貨 —— 基本運費在原始
+     出貨那一期已經收過整筆,這裡照差額收(見下面 reclass 那一段)。 */
+  const reclassAdj = !!(s.pureAdj && (scan.residentialAdj||scan.commercialAdj)
+      && !corrAdj && !sameCA);
+  let reclassNet=false;
   /* py 的分支順位:「沒有重量(AA、AC 都是 0)就跳過運費重算」。 */
   const adjNoOwnWeight = !!(s.pureAdj && s.entered<=0 && s.billedUPS<=0);
   const netCA = sameCA;   /* 附加費的 C−A 不受「沒重量」影響,py 只跳運費 */
@@ -3620,6 +3626,19 @@ function priceShipment(cfg, s, force){
                               : lookupBaseRate(cfg, svc, residential, zone, bw.billable);
     if(!adjNoOwnWeight) ratedFreight=true;
     base=lk.rate; baseWhy=lk.why; baseMissing=!!lk.missing;
+    /* 改判單只收「改判後 − 改判前」的基本運費差額:UPS 這一段的 FRT 行
+       收 0,整筆 base 已經在原始出貨那一期收過;再查全額等於重複收一次。
+       兩張表一樣(或住宅退到同一張商業表)差額就是 0,住宅表較貴就收那
+       個差,反向改判則是負的 —— 與 UPS 沖銷住宅附加費的方向一致。 */
+    if(reclassAdj && !adjNoOwnWeight && !lk.missing){
+      const lkA=lookupBaseRate(cfg, svc, !residential, zone, bw.billable);
+      if(lkA.missing)
+        issues.push(L("改判前那一側查不到費率,抵掉的那一段當 0 算:",
+          "No rate for the pre-reclass side, so 0 was netted off: ")+(lkA.why||""));
+      baseA=lkA.rate;
+      base=Math.round((base-lkA.rate)*100)/100;
+      reclassNet=true; baseWhy=null;
+    }
     if(wPair){
       const Rw=bw.rules||{};
       const dwC=(s.dims&&dvHere>0)?Math.round(s.dims.l*s.dims.w*s.dims.h/dvHere*100)/100:0;
@@ -4005,7 +4024,7 @@ function priceShipment(cfg, s, force){
     const m=RESI_UNSURE_MSG(), i=issues.indexOf(m);
     if(i>=0) issues.splice(i,1);
   }
-  return {s, bw, bwA, residential, resBasis, resiSure, resiMoot, resiConflict, svcSure, channel, base, baseA, netCA, baseWhy,
+  return {s, bw, bwA, residential, resBasis, resiSure, resiMoot, resiConflict, svcSure, channel, base, baseA, netCA, reclassCA:reclassNet, baseWhy,
           baseMissing, missFees:[...missFees], demand,
           acc, accInfo, accTotal, fuel, fuelPct:fp.pct, ratedFreight, total, issues, npb, rtn,
           unknownNet:scan.unknownNet, unknownCodes:[...(scan.unknownCodes||[])],
@@ -7706,7 +7725,7 @@ function bkdLines(res, groups){
   }
   if(res.base!=null&&(Math.abs(res.base)>=0.005||res.base===0)){
     P.push([res.s.layer==="RTN"?L("退件回程運費","Undeliverable Return")
-             :L("基本運費","Base Rate")+(res.netCA?L("(C−A 差額)"," (C−A delta)"):""),
+             :L("基本運費","Base Rate")+(res.netCA?L("(C−A 差額)"," (C−A delta)"):res.reclassCA?L("(住/商改判差額)"," (reclass delta)"):""),
             cents(res.base)]);
     psub+=res.base||0;
   }
@@ -7842,7 +7861,7 @@ function bkdSection(r){
     const cellMiss=(v,why)=>`<span class="bkdmiss" title="${esc2(why)}">${money2(v)}</span>`;
     if(res.base!=null&&Math.abs(res.base)>=0.005||res.base===0){
       const bl = res.s.layer==="RTN" ? L("退件回程運費","Undeliverable Return")
-               : L("基本運費","Base Rate")+(res.netCA?L("(C−A 差額)"," (C−A delta)"):"");
+               : L("基本運費","Base Rate")+(res.netCA?L("(C−A 差額)"," (C−A delta)"):res.reclassCA?L("(住/商改判差額)"," (reclass delta)"):"");
       P.push(`<tr class="${res.baseMissing?"bkdmissrow":""}"><td>${bl}</td><td class="num">${
         res.baseMissing?cellMiss(res.base,res.baseWhy||""):money(res.base)}</td></tr>`);
       psub+=res.base||0;
