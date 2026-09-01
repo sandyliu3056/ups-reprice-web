@@ -80,7 +80,7 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   ck("列出 INVB002", h.includes("INVB002"));
   ck("列出兩個帳單日期", h.includes("2026-08-01") && h.includes("2026/8/22"));
   ck("UPS 實收欄有金額", /\$23\.60/.test(h) && /\$18\.00/.test(h));
-  ck("每列有 % 欄", /%<\/b>/.test(h));
+  ck("每列有 Margin 欄", /Margin|毛利率/.test(h));
   ck("有逐期明細(UPS 帳單/退件回程)", /(UPS 帳單|UPS billed)/.test(h) && /(退件回程|Return leg)/.test(h));
   ck("UPS 段有米紋底樣式", /bkdblk bkd-ups/.test(h));
   ck("Reprice 段有金邊樣式", /bkdblk bkd-rp/.test(h));
