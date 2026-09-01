@@ -17,7 +17,13 @@
   --rad:9px; --bw:2px; --bstyle:solid; --bcol:var(--accent);
   --ink:var(--text);
   --resi:#8e3b5e; --resi-bg:#f7e7ee; --com:#1f5d86; --com-bg:#e4eef6;
-  --ups:#6b5847; --ups-bg:#efe7d8; --rp:#8a6104; --rp-bg:#fff2cc;
+  /* 兩塊帳本面板從主題調出來:UPS 側是拉向灰褐的主題深色,Reprice 側
+     直接用主題的深條色;底色各是面板色染一點字色/主色。對比由構造保證:
+     底色只染 7–15%,字照主題字色走,深淺主題都成立。 */
+  --ups:color-mix(in srgb, var(--barbg,var(--accent)) 35%, #6b5847);
+  --ups-bg:color-mix(in srgb, var(--text) 7%, var(--panel));
+  --rp:color-mix(in srgb, var(--run2) 85%, #201200);
+  --rp-bg:color-mix(in srgb, var(--run2) 15%, var(--panel));
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;max-width:100%;overflow-x:hidden}
@@ -82,11 +88,11 @@ table,table *,input,select,.tablewrap{filter:none !important}
   display:flex;flex-wrap:wrap;gap:4px 2px;padding:6px 10px 0;
   flex:none;min-height:42px;align-items:flex-end}
 .tabstrip button{font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
-  background:rgba(255,255,255,.42);color:var(--accent);
+  background:var(--tabwash,rgba(255,255,255,.42));color:var(--tabink,var(--accent));
   border:1.5px solid var(--accent);border-bottom:none;
   border-radius:8px 8px 0 0;padding:7px 15px 6px;white-space:nowrap;
   filter:var(--wob2,url(#wobble-soft))}
-.tabstrip button:hover{background:rgba(255,255,255,.72)}
+.tabstrip button:hover{background:var(--tabwash-h,rgba(255,255,255,.72))}
 .tabstrip button[aria-selected=true]{background:var(--panel);padding-bottom:8px;margin-bottom:-2px}
 .tabstrip button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
@@ -819,16 +825,25 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
   text-transform:uppercase;color:#fff}
 .bkdside.ups .bkdside-lbl{background:var(--ups)}
 .bkdside.rp .bkdside-lbl{background:var(--rp)}
-.bkdside-body{padding:6px 9px;flex:1;color:#3a2a1c}
+.bkdside-body{padding:6px 9px 7px;flex:1;color:var(--text);
+  display:flex;flex-direction:column}
+/* 小計釘在面板底:兩側列數不同時,小計仍然對齊同一條線,空間留在中間。 */
+.bkdside-ft{margin-top:auto;display:flex;justify-content:space-between;gap:10px;
+  padding-top:5px;font-weight:700;
+  border-top:1.5px solid color-mix(in srgb, var(--text) 35%, transparent)}
+.bkdside-ft .num{font-family:Consolas,monospace;white-space:nowrap}
 .bkdside.ups .bkdside-body{background:var(--ups-bg)}
 .bkdside.rp .bkdside-body{background:var(--rp-bg)}
 .bkdside table{width:100%;font-size:12.5px;table-layout:fixed;background:transparent}
 .bkdside tbody tr,.bkdside tbody tr:nth-child(even),.bkdside tbody tr:hover{background:transparent}
-.bkdside td{padding:2px 0;word-break:break-word;border-bottom:none;white-space:normal}
+.bkdside td{padding:3.5px 0;word-break:break-word;border-bottom:none;white-space:normal;
+  vertical-align:top}
 .bkdside td.num{text-align:right;font-family:Consolas,monospace;
   width:82px;white-space:nowrap}
-.bkdside tr.bkdsub td{border-top:1.5px solid rgba(0,0,0,.25);padding-top:4px;font-weight:700}
-.bkdglbl{font-size:11px;color:#8a755a;font-weight:600;padding-top:4px}
+.bkdside tr.bkdsub td{border-top:1.5px solid color-mix(in srgb, var(--text) 35%, transparent);
+  padding-top:4px;font-weight:700}
+.bkdglbl{font-size:10.5px;color:var(--muted);font-weight:700;padding-top:7px;
+  letter-spacing:.7px;text-transform:uppercase}
 .bkdmiss{color:var(--neg);border-bottom:1.5px dotted var(--neg);cursor:help}
 .bkdmissrow td:first-child{color:var(--neg)}
 .bkdneg{color:var(--neg)}
@@ -7885,7 +7900,7 @@ function bkdSection(r){
     const gd=(groups.find(g=>g.shipDate)||{}).shipDate||res.s.shipDate;
     /* 這是 UPS 帳單上的 Transaction Date —— 這一段實際發生(出貨/調整)的
        日期,燃油期間照它取。光一個日期認不出是什麼,標出來。 */
-    if(gd) meta.push(L("交易日 ","Txn date ")+esc2(normYmd(gd)||gd));
+    if(gd) meta.push(L("交易日 ","Transaction date ")+esc2(normYmd(gd)||gd));
     const gA=groups.find(g=>g.dimsA&&g.dimsC);
     if(gA&&(gA.dimsA.l!==gA.dimsC.l||gA.dimsA.w!==gA.dimsC.w||gA.dimsA.h!==gA.dimsC.h))
       meta.push(`${gA.dimsA.l}×${gA.dimsA.w}×${gA.dimsA.h} → ${gA.dimsC.l}×${gA.dimsC.w}×${gA.dimsC.h}`);
@@ -7899,7 +7914,7 @@ function bkdSection(r){
         U.push(`<tr><td>${esc2(l.desc||l.code)}</td><td class="num">${money(l.net)}</td></tr>`);
       }
     }
-    U.push(`<tr class="bkdsub"><td>${L("小計","Subtotal")}</td><td class="num">${money(usub)}</td></tr>`);
+
     const P=[]; let psub=0;
     const missSet=new Set(res.missFees||[]);
     const cellMiss=(v,why)=>`<span class="bkdmiss" title="${esc2(why)}">${money2(v)}</span>`;
@@ -7919,16 +7934,18 @@ function bkdSection(r){
     }
     P.push(`<tr><td>${L("燃油 ","Fuel ")+esc2(res.fuelPct)+"%"}</td><td class="num">${money(res.fuel||0)}</td></tr>`);
     psub+=res.fuel||0;
-    P.push(`<tr class="bkdsub"><td>${L("小計","Subtotal")}</td><td class="num">${money(psub)}</td></tr>`);
+
     return `<div class="bkdseg ${resi?"resi":"com"}">`
       +`<div class="bkdseg-hd"><span class="bkdseg-name">${esc2(name)}</span>`
       +`<span class="bkdchip ${resi?"resi":"com"}">${chip}</span>`
       +`<span class="bkdmeta">${meta.map(m=>`<span class="mp">${m}</span>`).join("")}</span></div>`
       +`<div class="bkdcols">`
       +`<div class="bkdside ups"><div class="bkdside-lbl">${L("UPS 實收","UPS billed")}</div>`
-      +`<div class="bkdside-body"><table>${U.join("")}</table></div></div>`
+      +`<div class="bkdside-body"><table>${U.join("")}</table>`
+      +`<div class="bkdside-ft"><span>${L("小計","Subtotal")}</span><span class="num">${money(usub)}</span></div></div></div>`
       +`<div class="bkdside rp"><div class="bkdside-lbl">${L("重新計價","Reprice")}</div>`
-      +`<div class="bkdside-body"><table>${P.join("")}</table></div></div>`
+      +`<div class="bkdside-body"><table>${P.join("")}</table>`
+      +`<div class="bkdside-ft"><span>${L("小計","Subtotal")}</span><span class="num">${money(psub)}</span></div></div></div>`
       +`</div></div>`;
   };
   H.push(segCard(r, s.groups||[], segName(s.layer)));
@@ -13492,6 +13509,15 @@ function applyTheme(name){
   /* 明細視窗的深色橫條:一般主題用 accent;Graphite 的 accent 是中間調的
      橘,當大色塊會糊,改用它自己的深色窗框色。 */
   r.setProperty("--barbg", name==="Graphite" ? "#2f3237" : t.ACCENT);
+  /* 分頁列:淺主題是白紗底配 accent 深字;Graphite 的 accent 是中間調橘,
+     淺灰紗上讀不清 —— 改深紗底配近白字。 */
+  r.setProperty("--tabink",   name==="Graphite" ? "#eef1f5" : t.ACCENT);
+  r.setProperty("--tabwash",  name==="Graphite" ? "rgba(0,0,0,.30)" : "rgba(255,255,255,.42)");
+  r.setProperty("--tabwash-h",name==="Graphite" ? "rgba(0,0,0,.48)" : "rgba(255,255,255,.72)");
+  /* Graphite 的 RUN2 是灰藍,Reprice 面板會失去識別 —— 用它的深橘。 */
+  if(name==="Graphite"){ r.setProperty("--rp","#8a5c1f");
+    r.setProperty("--rp-bg","color-mix(in srgb, #c08a3e 15%, var(--panel))"); }
+  else{ r.removeProperty("--rp"); r.removeProperty("--rp-bg"); }
   INK=t.ACCENT; BOX=t.RUN2; PAPER=t.PANEL;
   try{ localStorage.setItem(THEME_KEY,THEME); }catch(e){}
 }
