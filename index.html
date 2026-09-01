@@ -3763,6 +3763,22 @@ function priceShipment(cfg, s, force){
                          : L("認不出服務別","Service not recognised");
   if(baseWhy) issues.push(baseWhy);
 
+  /* RADJ 轉商業:純住宅費(RES)不再收;Remote / DAS 是「地點費」,
+     改判只換口味不換地點 —— 轉到商業對應桶照一般規則收。UPS 自己的
+     帳也是這樣開:沖掉 RES,Remote Area 原封不動留著。 */
+  if(scan.commercialAdj){
+    const R2C={"DAS Residential":"DAS Commercial",
+               "DAS Extended Residential":"DAS Extended Commercial",
+               "Remote Area Residential":"Remote Area Commercial"};
+    for(const [rb,cb] of Object.entries(R2C)){
+      if(scan.seen[rb] && Math.round((scan.net[rb]||0)*100)!==0){
+        scan.seen[cb]=true;
+        scan.net[cb]=(scan.net[cb]||0)+(scan.net[rb]||0);
+        delete scan.seen[rb]; delete scan.net[rb];
+        if(scan.nonFuel && scan.nonFuel.has(rb)) scan.nonFuel.add(cb);
+      }
+    }
+  }
   /* 附加費:UPS 收了才收 */
   const acc={}, accInfo={}, missFees=new Set();
   const modes=scan.dynMode||{};
@@ -3867,6 +3883,13 @@ function priceShipment(cfg, s, force){
           accLookup(cfg,"DAS Commercial","Ground Commercial",zone,issues,false)
          -accLookup(cfg,"DAS Residential","Ground Residential",zone,issues,true))*100)/100;
       delete acc["DAS Residential"];
+    }
+    /* Remote Area 同 DAS:獨立更正單上出現時收商業與住宅的差額。 */
+    if(scan.seen["Remote Area Commercial"]||scan.seen["Remote Area Residential"]){
+      acc["Remote Area Commercial"]=Math.round((
+          accLookup(cfg,"Remote Area Commercial","Ground Commercial",zone,issues,false)
+         -accLookup(cfg,"Remote Area Residential","Ground Residential",zone,issues,true))*100)/100;
+      delete acc["Remote Area Residential"];
     }
   }
 
