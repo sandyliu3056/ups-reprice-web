@@ -813,16 +813,19 @@ td.cells{white-space:normal}
 .bkdmiss{color:var(--neg);border-bottom:1.5px dotted var(--neg);cursor:help}
 .bkdmissrow td:first-child{color:var(--neg)}
 .bkdneg{color:var(--neg)}
-.bkdtot{background:var(--accent);border-radius:8px;padding:9px 13px;margin:10px 0;
-  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:13px}
-.bkdtot table{width:100%;background:transparent;table-layout:fixed}
-.bkdtot tbody tr,.bkdtot tbody tr:nth-child(even),.bkdtot tbody tr:hover{background:transparent}
-.bkdtot td{padding:2px 0;font-size:12.5px;color:#f0e2c9;border-bottom:none;
-  white-space:normal;word-break:break-word}
-.bkdtot td.num{text-align:right;font-family:Consolas,monospace;color:#fff;
-  width:96px;white-space:nowrap}
-.bkdtot .p{color:#9fdf9f}
-.bkdtot .d{color:#ffb3ad}
+.bkdtot{background:var(--accent);border-radius:8px;padding:11px 16px 12px;margin:10px 0;
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:3px 30px}
+.bkdtot .bt{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.bkdtot .bt .l{font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;
+  color:#f0e2c9;opacity:.78;white-space:nowrap}
+.bkdtot .bt .v{font-family:Consolas,monospace;font-size:14.5px;color:#fff;white-space:nowrap}
+.bkdtot .rule{grid-column:1/-1;height:1px;background:rgba(255,255,255,.18);margin:6px 0 5px}
+.bkdtot .bt.p .l{color:#9fdf9f;opacity:.9}
+.bkdtot .bt.p .v{color:#9fdf9f;font-weight:700}
+.bkdtot .bt.d .l{color:#ffb3ad;opacity:.9}
+.bkdtot .bt.d .v{color:#ffb3ad;font-weight:700}
+.bkdtot .chip{display:inline-block;padding:0 9px;border-radius:999px;line-height:1.5;
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25)}
 @media(max-width:640px){.bkdcols,.bkdtot{grid-template-columns:1fr}}
 
 /* 場景與時鐘 */
@@ -3859,11 +3862,19 @@ function priceShipment(cfg, s, force){
     if(carried){
       /* 是不是大包裹,看我們自己的門檻判 C 和 A,不是看 UPS 開了什麼代碼
          —— UPS 開 LPS 可能只是在沖掉 A 的那一筆。 */
-      const chA=(typeof historyServiceFor==="function"
-                 && historyServiceFor(s.tracking))||channel;
+      /* 這一組 C−A 修的是「原件那一段」的尺寸費:退款要退我們當初在那一段
+         收的費率,補收也照那一段查。更正單多半出現在退件之後 —— 原件對照
+         到回程(RTN)時一律商業(退回寄件人),不吃這一段自己的住宅判定;
+         沒有回程原件才用原始出貨的住/商。 */
+      const oRow=(typeof origFrtFor==="function")?origFrtFor(s.tracking):null;
+      const legRTN=!!(oRow&&oRow.layer==="RTN");
+      const chA=legRTN?"Ground Commercial"
+                :((typeof historyServiceFor==="function"
+                   && historyServiceFor(s.tracking))||channel);
       const zA=(bwA&&bwA.zoneA)||zone;
-      const amtA=fee=>accLookup(cfg,fee,chA,zA,issues,(bwA&&bwA.resA));
-      const amtC=fee=>accLookup(cfg,fee,channel,zone,issues,undefined);
+      const amtA=fee=>accLookup(cfg,fee,chA,zA,issues,legRTN?false:(bwA&&bwA.resA));
+      const amtC=fee=>accLookup(cfg,fee,legRTN?"Ground Commercial":channel,zone,issues,
+                               legRTN?false:undefined);
       const r2=v=>Math.round(v*100)/100;
       /* AHS 與 LPS 互斥:A 觸發 LPS 時它的 AHS 貢獻是 0。 */
       const aAhs = bwA.oversize ? 0 : Math.max(
@@ -7639,6 +7650,10 @@ function openBreakdown(){
     return da<db?-1:da>db?1:(a.invoice<b.invoice?-1:1); });
   /* shipmentsOf 會清 ACCT_LINES,先存後還,不動報表那邊的狀態。 */
   const keep=ACCT_LINES, out=[];
+  /* 純 ADJ 的 C−A 要對到原件那一段(origFrtFor)。這個視窗手上就有全部
+     歷史列,同步建對照,算完還原 —— 不動主流程那一份。 */
+  const keepOrig=ORIG;
+  ORIG=buildOriginals([...(HISTROWS||[]),...(ROWS||[])], new Set([t]));
   for(const g of list){
     let r=null, err="";
     try{
@@ -7648,7 +7663,7 @@ function openBreakdown(){
     out.push({inv:g.invoice,invDate:g.invDate,r,err,
       ups:g.rows.reduce((a,l)=>a+(l.net||0),0)});
   }
-  ACCT_LINES=keep;
+  ACCT_LINES=keep; ORIG=keepOrig;
   const H=[];
   H.push(`<div class="bkdtrk"><div><div class="lbl">${L("追蹤號","Tracking")}</div>`
     +`<div class="no">${esc2(t)}</div></div>`
@@ -7893,15 +7908,18 @@ function bkdSection(r){
   if(r.npb) H.push(segCard(r.npb, (s.npb&&s.npb.groups)||[], L("第二段運送","Second movement")));
   const bkDiff=(r.total||0)-s.upsTotal;
   const bkPct=(r.total&&Math.abs(r.total)>1e-9)?(bkDiff/Math.abs(r.total)*100):null;
-  H.push(`<div class="bkdtot"><table>`
-    +`<tr><td>${L("UPS 實收","UPS billed")}</td><td class="num">${money2(s.upsTotal)}</td></tr>`
-    +`<tr><td>${L("重新計價","Reprice")}</td><td class="num">${money2(r.total||0)}</td></tr>`
-    +`</table><table>`
-    +`<tr><td class="${bkDiff<0?"d":"p"}">${L("毛利","Profit")}</td>`
-    +`<td class="num ${bkDiff<0?"d":"p"}">${money2(bkDiff)}</td></tr>`
-    +`<tr><td class="${bkDiff<0?"d":"p"}">${L("毛利率","Margin")}</td>`
-    +`<td class="num ${bkDiff<0?"d":"p"}">${bkPct==null?"—":bkPct.toFixed(2)+"%"}</td></tr>`
-    +`</table></div>`);
+  const bkTone=bkDiff<0?"d":"p";
+  H.push(`<div class="bkdtot">`
+    +`<div class="bt"><span class="l">${L("UPS 實收","UPS billed")}</span>`
+    +`<span class="v">${money2(s.upsTotal)}</span></div>`
+    +`<div class="bt"><span class="l">${L("重新計價","Reprice")}</span>`
+    +`<span class="v">${money2(r.total||0)}</span></div>`
+    +`<div class="rule"></div>`
+    +`<div class="bt ${bkTone}"><span class="l">${L("毛利","Profit")}</span>`
+    +`<span class="v">${money2(bkDiff)}</span></div>`
+    +`<div class="bt ${bkTone}"><span class="l">${L("毛利率","Margin")}</span>`
+    +`<span class="v"><span class="chip">${bkPct==null?"—":bkPct.toFixed(2)+"%"}</span></span></div>`
+    +`</div>`);
   return H.join("");
 }
 $("#bTrkBreak") && ($("#bTrkBreak").onclick=openBreakdown);
