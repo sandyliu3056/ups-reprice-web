@@ -779,12 +779,24 @@ td.cells{white-space:normal}
 .bkdtrk .lbl{font-size:11px;letter-spacing:1.2px;color:var(--select);opacity:.75}
 .bkdtrk .no{font-family:Consolas,monospace;font-size:21px;font-weight:700;
   letter-spacing:1px;color:#fff;word-break:break-all}
-.bkdinv{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
-  margin:18px 0 8px;padding:6px 12px;background:var(--select);
-  border-left:6px solid var(--accent);border-radius:0 8px 8px 0}
+.bkdinv{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin:20px 0 10px;padding:7px 12px;background:var(--select);
+  border-left:6px solid var(--accent);border-radius:0 8px 8px 0;
+  /* 釘住捲動頂端;-14px 抵掉 .modalbody 的內距,貼齊視窗上緣。 */
+  position:sticky;top:-14px;z-index:6;
+  box-shadow:0 2px 6px rgba(53,28,21,.14)}
 .bkdinv .no{font-family:Consolas,monospace;font-size:16px;font-weight:800;
   letter-spacing:.6px;color:var(--accent)}
 .bkdinv .dt{font-size:12.5px;color:#6b5030}
+.bkdinv .gain{margin-left:auto;font-family:Consolas,monospace;font-size:14px;font-weight:700}
+.bkdinv .gain.pos{color:#2f7d32}.bkdinv .gain.neg{color:var(--neg)}
+.bkdinv .chip{font-family:Consolas,monospace;font-size:12px;font-weight:700;
+  padding:1px 9px;border-radius:999px;border:1.5px solid currentColor}
+.bkdinv .chip.pos{color:#2f7d32}.bkdinv .chip.neg{color:var(--neg)}
+.bkdchap{border-left:3px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  margin-left:1px;padding-left:11px}
+tr.bkdjump{cursor:pointer}
+tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel))}
 .bkdseg.resi{border-left-color:var(--resi)}
 .bkdseg.com{border-left-color:var(--com)}
 .bkdseg-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
@@ -792,12 +804,15 @@ td.cells{white-space:normal}
 .bkdchip{font-size:11.5px;padding:2px 9px;border-radius:20px;font-weight:600}
 .bkdchip.resi{background:var(--resi-bg);color:var(--resi)}
 .bkdchip.com{background:var(--com-bg);color:var(--com)}
-.bkdmeta{font-size:12px;color:var(--muted);margin-left:auto}
+.bkdmeta{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.bkdmeta .mp{font-size:11px;color:#6b5030;background:var(--panel);
+  border:1px solid var(--line);border-radius:999px;padding:1px 8px;white-space:nowrap}
 .bkdcols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
 .bkdside{border-radius:7px;overflow:hidden;display:flex;flex-direction:column}
 .bkdside.ups{border:2px solid var(--ups)}
 .bkdside.rp{border:2px solid var(--rp)}
-.bkdside-lbl{font-size:12.5px;font-weight:700;padding:4px 9px;letter-spacing:.5px;color:#fff}
+.bkdside-lbl{font-size:11px;font-weight:700;padding:5px 10px;letter-spacing:.8px;
+  text-transform:uppercase;color:#fff}
 .bkdside.ups .bkdside-lbl{background:var(--ups)}
 .bkdside.rp .bkdside-lbl{background:var(--rp)}
 .bkdside-body{padding:6px 9px;flex:1}
@@ -7675,7 +7690,7 @@ function openBreakdown(){
     +`<th class="num">${L("UPS 實收","UPS billed")}</th>`
     +`<th class="num">${L("毛利","Profit")}</th>`
     +`<th class="num">${L("毛利率","Margin")}</th></tr></thead><tbody>`);
-  let tRe=0,tUp=0,allPriced=true;
+  let tRe=0,tUp=0,allPriced=true,bi=0;
   for(const o of out){
     const rp=(o.r&&o.r.total!=null)?o.r.total:null;
     const up=o.r?o.r.s.upsTotal:o.ups;
@@ -7683,7 +7698,10 @@ function openBreakdown(){
     const p=(rp!=null&&Math.abs(rp)>1e-9)?(d/Math.abs(rp)*100):null;
     if(rp!=null) tRe+=cents(rp); else allPriced=false;
     tUp+=up;
-    H.push(`<tr><td class="mono">${esc2(o.inv)}</td><td>${esc2(o.invDate)}</td>`
+    o._d=d; o._p=p;
+    H.push(`<tr class="bkdjump" data-bi="${bi++}" title="${
+        L("點一下跳到該期明細","Click to jump to this invoice's detail")}">`
+      +`<td class="mono">${esc2(o.inv)}</td><td>${esc2(nd(o.invDate)||o.invDate)}</td>`
       +`<td class="num">${rp==null?"—":money2(rp)}</td>`
       +`<td class="num">${money2(up)}</td>`
       +`<td class="num" style="font-weight:600${d==null?"":d<0
@@ -7703,13 +7721,22 @@ function openBreakdown(){
       +`<td class="num" style="${TF}${tp!=null&&tp<0?";color:var(--neg)":""}">${tp==null?"—":tp.toFixed(2)+"%"}</td></tr></tfoot>`);
   }
   H.push(`</table></div>`);
-  for(const o of out){
-    H.push(`<div class="bkdinv"><span class="no">${esc2(o.inv)}</span>`
-      +`<span class="dt">${esc2(o.invDate)}</span></div>`);
-    if(o.r) H.push(bkdSection(o.r));
+  out.forEach((o,ci)=>{
+    const tone=o._d==null?"":o._d<0?" neg":" pos";
+    H.push(`<div class="bkdinv" id="bkdInv${ci}"><span class="no">${esc2(o.inv)}</span>`
+      +`<span class="dt">${esc2(nd(o.invDate)||o.invDate)}</span>`
+      +(o._d==null?"":`<span class="gain${tone}">${money2(o._d)}</span>`
+        +(o._p==null?"":`<span class="chip${tone}">${o._p.toFixed(2)}%</span>`))
+      +`</div>`);
+    if(o.r) H.push(`<div class="bkdchap">`+bkdSection(o.r)+`</div>`);
     else H.push(`<div class="note warn">${esc2(o.err)||L("這一期無法計價。","Could not price this period.")}</div>`);
-  }
+  });
   body.innerHTML=H.join("");
+  /* 上表每一列都是捷徑 —— 點了就捲到那一期的金色章節帶。 */
+  body.querySelectorAll("tr.bkdjump").forEach(tr=>{
+    tr.onclick=()=>{ const el=body.querySelector("#bkdInv"+tr.dataset.bi);
+      if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); };
+  });
   /* 畫面畫完的同時把資料留著 —— 匯出要的是同一份東西,重算一次遲早會對不起來。 */
   BKD_LAST={trk:t, out:out};
   /* 這顆按鈕是隨內容重畫出來的,每次都是新的節點,所以事件要在這裡綁。 */
@@ -7895,7 +7922,7 @@ function bkdSection(r){
     return `<div class="bkdseg ${resi?"resi":"com"}">`
       +`<div class="bkdseg-hd"><span class="bkdseg-name">${esc2(name)}</span>`
       +`<span class="bkdchip ${resi?"resi":"com"}">${chip}</span>`
-      +`<span class="bkdmeta">${meta.join(" · ")}</span></div>`
+      +`<span class="bkdmeta">${meta.map(m=>`<span class="mp">${m}</span>`).join("")}</span></div>`
       +`<div class="bkdcols">`
       +`<div class="bkdside ups"><div class="bkdside-lbl">${L("UPS 實收","UPS billed")}</div>`
       +`<div class="bkdside-body"><table>${U.join("")}</table></div></div>`
