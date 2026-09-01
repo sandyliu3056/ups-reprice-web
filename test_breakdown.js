@@ -75,7 +75,7 @@ JSDOM.fromFile(path.join(__dirname, "index.html"), {
   ]);
   T.poke("TESTTRK0001");
   const h = body();
-  ck("有各期比對表", /各期比對|Per-invoice comparison/.test(h));
+  ck("有各期總覽表", /各期總覽|Invoice overview/.test(h));
   ck("列出 INVA001", h.includes("INVA001"));
   ck("列出 INVB002", h.includes("INVB002"));
   ck("列出兩個帳單日期", h.includes("2026-08-01") && h.includes("2026-08-22"));

@@ -768,7 +768,7 @@ td.cells{white-space:normal}
 /* 匯出鈕擺在這一條上,不擺標題列 —— 標題列的底色是 var(--accent),而
    .act.ghost 的字色也是 var(--accent),放上去等於隱形,按鈕在那裡卻看不見。
    這一條同樣是深色底,所以自己畫一個金框金字的版本,和標題列那兩顆同一路。 */
-.bkdtrk{background:var(--accent);border-radius:8px;padding:10px 14px;margin:2px 0 12px;
+.bkdtrk{background:var(--barbg,var(--accent));border-radius:8px;padding:10px 14px;margin:2px 0 12px;
   display:flex;align-items:center;gap:14px}
 .bkdtrk .bkdxls{margin-left:auto;flex:none;font:inherit;font-size:12.5px;font-weight:700;
   cursor:pointer;background:transparent;color:var(--tab);letter-spacing:.3px;
@@ -776,7 +776,7 @@ td.cells{white-space:normal}
 .bkdtrk .bkdxls:hover:not(:disabled){background:rgba(255,255,255,.15)}
 .bkdtrk .bkdxls:disabled{opacity:.45;cursor:default}
 .bkdtrk .bkdxls:focus-visible{outline:2px solid var(--tab);outline-offset:2px}
-.bkdtrk .lbl{font-size:11px;letter-spacing:1.2px;color:var(--select);opacity:.75}
+.bkdtrk .lbl{font-size:11px;letter-spacing:1.2px;color:#f0e2c9;opacity:.8}
 .bkdtrk .no{font-family:Consolas,monospace;font-size:21px;font-weight:700;
   letter-spacing:1px;color:#fff;word-break:break-all}
 .bkdinv{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -787,12 +787,16 @@ td.cells{white-space:normal}
   box-shadow:0 2px 6px rgba(53,28,21,.14)}
 .bkdinv .no{font-family:Consolas,monospace;font-size:16px;font-weight:800;
   letter-spacing:.6px;color:var(--accent)}
-.bkdinv .dt{font-size:12.5px;color:#6b5030}
-.bkdinv .gain{margin-left:auto;font-family:Consolas,monospace;font-size:14px;font-weight:700}
-.bkdinv .gain.pos{color:#2f7d32}.bkdinv .gain.neg{color:var(--neg)}
-.bkdinv .chip{font-family:Consolas,monospace;font-size:12px;font-weight:700;
-  padding:1px 9px;border-radius:999px;border:1.5px solid currentColor}
-.bkdinv .chip.pos{color:#2f7d32}.bkdinv .chip.neg{color:var(--neg)}
+.bkdinv .dt{font-size:12.5px;color:var(--text);opacity:.72}
+.bkdov{border:1.5px solid var(--accent);border-radius:10px;overflow:hidden;
+  margin:2px 0 18px;background:var(--stripe);
+  box-shadow:0 2px 8px rgba(53,28,21,.12)}
+.bkdov-hd{background:var(--barbg,var(--accent));color:#fff;font-size:11px;font-weight:700;
+  letter-spacing:.9px;text-transform:uppercase;padding:6px 12px}
+.bkdov .tablewrap{border-radius:0}
+/* 卡片自己已有深色標題條,裡面的表頭改淺 —— 兩條深色帶疊在一起太重。 */
+.bkdov table thead th{background:var(--stripe);color:var(--accent);
+  border-bottom:2px solid var(--accent);font-size:11.5px;letter-spacing:.4px}
 .bkdchap{border-left:3px solid color-mix(in srgb, var(--accent) 22%, transparent);
   margin-left:1px;padding-left:11px}
 tr.bkdjump{cursor:pointer}
@@ -805,7 +809,7 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
 .bkdchip.resi{background:var(--resi-bg);color:var(--resi)}
 .bkdchip.com{background:var(--com-bg);color:var(--com)}
 .bkdmeta{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap;align-items:center}
-.bkdmeta .mp{font-size:11px;color:#6b5030;background:var(--panel);
+.bkdmeta .mp{font-size:11px;color:var(--text);background:var(--panel);
   border:1px solid var(--line);border-radius:999px;padding:1px 8px;white-space:nowrap}
 .bkdcols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
 .bkdside{border-radius:7px;overflow:hidden;display:flex;flex-direction:column}
@@ -815,7 +819,7 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
   text-transform:uppercase;color:#fff}
 .bkdside.ups .bkdside-lbl{background:var(--ups)}
 .bkdside.rp .bkdside-lbl{background:var(--rp)}
-.bkdside-body{padding:6px 9px;flex:1}
+.bkdside-body{padding:6px 9px;flex:1;color:#3a2a1c}
 .bkdside.ups .bkdside-body{background:var(--ups-bg)}
 .bkdside.rp .bkdside-body{background:var(--rp-bg)}
 .bkdside table{width:100%;font-size:12.5px;table-layout:fixed;background:transparent}
@@ -824,16 +828,16 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
 .bkdside td.num{text-align:right;font-family:Consolas,monospace;
   width:82px;white-space:nowrap}
 .bkdside tr.bkdsub td{border-top:1.5px solid rgba(0,0,0,.25);padding-top:4px;font-weight:700}
-.bkdglbl{font-size:11px;color:var(--muted);font-weight:600;padding-top:4px}
+.bkdglbl{font-size:11px;color:#8a755a;font-weight:600;padding-top:4px}
 .bkdmiss{color:var(--neg);border-bottom:1.5px dotted var(--neg);cursor:help}
 .bkdmissrow td:first-child{color:var(--neg)}
 .bkdneg{color:var(--neg)}
-.bkdtot{background:var(--accent);border-radius:8px;padding:11px 16px 12px;margin:10px 0;
+.bkdtot{background:var(--barbg,var(--accent));border-radius:8px;padding:11px 16px 12px;margin:10px 0;
   display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:3px 30px}
 .bkdtot .bt{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-.bkdtot .bt .l{font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;
-  color:#f0e2c9;opacity:.78;white-space:nowrap}
-.bkdtot .bt .v{font-family:Consolas,monospace;font-size:14.5px;color:#fff;white-space:nowrap}
+.bkdtot .bt .l{font-size:12px;letter-spacing:.8px;text-transform:uppercase;
+  color:#f0e2c9;opacity:.82;white-space:nowrap}
+.bkdtot .bt .v{font-family:Consolas,monospace;font-size:17px;color:#fff;white-space:nowrap}
 .bkdtot .rule{grid-column:1/-1;height:1px;background:rgba(255,255,255,.18);margin:6px 0 5px}
 .bkdtot .bt.p .l{color:#9fdf9f;opacity:.9}
 .bkdtot .bt.p .v{color:#9fdf9f;font-weight:700}
@@ -7683,8 +7687,8 @@ function openBreakdown(){
   H.push(`<div class="bkdtrk"><div><div class="lbl">${L("追蹤號","Tracking")}</div>`
     +`<div class="no">${esc2(t)}</div></div>`
     +`<button class="bkdxls" id="bkdXls">${L("⬇ 匯出 Excel","⬇ Export to Excel")}</button></div>`);
-  H.push(`<div class="subhd">${L("各期比對","Per-invoice comparison")}</div>`);
-  H.push(`<div class="tablewrap" style="margin-bottom:14px"><table style="width:100%">`);
+  H.push(`<div class="bkdov"><div class="bkdov-hd">${L("各期總覽","Invoice overview")}</div>`);
+  H.push(`<div class="tablewrap" style="margin:0"><table style="width:100%">`);
   H.push(`<thead><tr><th>Invoice</th><th>${L("帳單日期","Invoice date")}</th>`
     +`<th class="num">Reprice</th>`
     +`<th class="num">${L("UPS 實收","UPS billed")}</th>`
@@ -7698,14 +7702,13 @@ function openBreakdown(){
     const p=(rp!=null&&Math.abs(rp)>1e-9)?(d/Math.abs(rp)*100):null;
     if(rp!=null) tRe+=cents(rp); else allPriced=false;
     tUp+=up;
-    o._d=d; o._p=p;
     H.push(`<tr class="bkdjump" data-bi="${bi++}" title="${
         L("點一下跳到該期明細","Click to jump to this invoice's detail")}">`
       +`<td class="mono">${esc2(o.inv)}</td><td>${esc2(nd(o.invDate)||o.invDate)}</td>`
       +`<td class="num">${rp==null?"—":money2(rp)}</td>`
       +`<td class="num">${money2(up)}</td>`
       +`<td class="num" style="font-weight:600${d==null?"":d<0
-          ?";color:var(--neg)":";color:#2f7d32"}">${d==null?"—":money2(d)}</td>`
+          ?";color:var(--neg)":";color:var(--pos)"}">${d==null?"—":money2(d)}</td>`
       +`<td class="num"${p!=null&&p<0?' style="color:var(--neg)"':""}>${p==null?"—":p.toFixed(2)+"%"}</td></tr>`);
   }
   H.push(`</tbody>`);
@@ -7717,17 +7720,13 @@ function openBreakdown(){
       +`<td style="${TF}"></td>`
       +`<td class="num" style="${TF}">${allPriced?money2(tRe):"—"}</td>`
       +`<td class="num" style="${TF}">${money2(tUp)}</td>`
-      +`<td class="num" style="${TF}${td==null?"":td<0?";color:var(--neg)":";color:#2f7d32"}">${td==null?"—":money2(td)}</td>`
+      +`<td class="num" style="${TF}${td==null?"":td<0?";color:var(--neg)":";color:var(--pos)"}">${td==null?"—":money2(td)}</td>`
       +`<td class="num" style="${TF}${tp!=null&&tp<0?";color:var(--neg)":""}">${tp==null?"—":tp.toFixed(2)+"%"}</td></tr></tfoot>`);
   }
-  H.push(`</table></div>`);
+  H.push(`</table></div></div>`);
   out.forEach((o,ci)=>{
-    const tone=o._d==null?"":o._d<0?" neg":" pos";
     H.push(`<div class="bkdinv" id="bkdInv${ci}"><span class="no">${esc2(o.inv)}</span>`
-      +`<span class="dt">${esc2(nd(o.invDate)||o.invDate)}</span>`
-      +(o._d==null?"":`<span class="gain${tone}">${money2(o._d)}</span>`
-        +(o._p==null?"":`<span class="chip${tone}">${o._p.toFixed(2)}%</span>`))
-      +`</div>`);
+      +`<span class="dt">${esc2(nd(o.invDate)||o.invDate)}</span></div>`);
     if(o.r) H.push(`<div class="bkdchap">`+bkdSection(o.r)+`</div>`);
     else H.push(`<div class="note warn">${esc2(o.err)||L("這一期無法計價。","Could not price this period.")}</div>`);
   });
@@ -7884,7 +7883,9 @@ function bkdSection(r){
     if(res.zoneUsed||res.s.zone) meta.push("Zone "+esc2(res.zoneUsed||res.s.zone));
     if(bwv) meta.push(esc2(bwv)+" lb");
     const gd=(groups.find(g=>g.shipDate)||{}).shipDate||res.s.shipDate;
-    if(gd) meta.push(esc2(gd));
+    /* 這是 UPS 帳單上的 Transaction Date —— 這一段實際發生(出貨/調整)的
+       日期,燃油期間照它取。光一個日期認不出是什麼,標出來。 */
+    if(gd) meta.push(L("交易日 ","Txn date ")+esc2(normYmd(gd)||gd));
     const gA=groups.find(g=>g.dimsA&&g.dimsC);
     if(gA&&(gA.dimsA.l!==gA.dimsC.l||gA.dimsA.w!==gA.dimsC.w||gA.dimsA.h!==gA.dimsC.h))
       meta.push(`${gA.dimsA.l}×${gA.dimsA.w}×${gA.dimsA.h} → ${gA.dimsC.l}×${gA.dimsC.w}×${gA.dimsC.h}`);
@@ -13487,6 +13488,10 @@ function applyTheme(name){
   r.setProperty("--run2-hover",t.RUN2H);
   /* Graphite 的底是深的,手繪墨線要跟著翻,不然畫面上是一團黑 */
   r.setProperty("--muted", name==="Graphite" ? "#9aa1ab" : "#8a755a");
+  r.setProperty("--pos",   name==="Graphite" ? "#7fd08a" : "#2f7d32");
+  /* 明細視窗的深色橫條:一般主題用 accent;Graphite 的 accent 是中間調的
+     橘,當大色塊會糊,改用它自己的深色窗框色。 */
+  r.setProperty("--barbg", name==="Graphite" ? "#2f3237" : t.ACCENT);
   INK=t.ACCENT; BOX=t.RUN2; PAPER=t.PANEL;
   try{ localStorage.setItem(THEME_KEY,THEME); }catch(e){}
 }
