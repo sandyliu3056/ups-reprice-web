@@ -12775,11 +12775,14 @@ function issueGroups(rows){
     ISSUE_KIND[b.kind].sev-ISSUE_KIND[a.kind].sev || Math.abs(b.amt)-Math.abs(a.amt));
 }
 function renderIssueCard(){
-  /* 缺什麼算一次就好 —— 這段字串樣板裡會用到兩次。 */
-  const dashGap=gapFind();
   const g=invoiceIssues();
   ISSUES=g.rows; ISSUE_SEGS=g.segs;
   if(!ISSUES.length) return "";
+  /* 缺什麼算一次就好 —— 這段字串樣板裡會用到兩次。一定要在 ISSUES 更新
+     之後才算:gapFind() 讀的是 ISSUES,先算的話拿到的是上一次的清單,
+     報表剛跑完第一次畫儀表板時清單還是空的,「登錄未識別代碼」那顆按鈕
+     就不會出現,要等下一次重畫才冒出來 —— 看起來像是某些帳號沒有這功能。 */
+  const dashGap=gapFind();
   const groups=issueGroups(ISSUES);
   /* 「影響計價金額」= 高與中兩級:那一份的錢算出來就是錯的。低的那一級
      金額有算進總額,只是分類可能歸錯,不能和前兩者加在一起講。 */
