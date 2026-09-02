@@ -1786,7 +1786,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
      預設收費方式是「照帳單收」而不是「重新計價」—— 新代碼還沒有費率,
      選重新計價的話它會以 0 計價,那筆錢就真的少收了。照帳單收至少是成本。 -->
 <div id="gapBg" class="modalbg">
-  <div class="modal sketch" id="gapModal" style="width:min(940px,100%);height:min(78vh,860px)">
+  <div class="modal sketch" id="gapModal" style="width:min(1180px,100%);height:min(78vh,860px)">
     <div class="modalhd">
       <span data-i18n="hd.gapfix">Register unrecognised codes</span>
       <button class="mx" id="gapX">✕</button>
@@ -2971,6 +2971,7 @@ const SHAPE_WHY={
 const DYN_TYPE_ALIAS={TEMPLATE:"REPRICE", RAW:"COPY INVOICE",
   AUDIT_ONLY:"REPORT ONLY", "AUDIT ONLY":"REPORT ONLY",
   COPY_INVOICE:"COPY INVOICE", REPORT_ONLY:"REPORT ONLY"};
+const DYN_TYPES=["REPRICE","COPY INVOICE","REPORT ONLY"];
 function normDynType(v){
   let r=String(v||"").trim().toUpperCase().split(" - ")[0].trim();
   r=DYN_TYPE_ALIAS[r]||r;
@@ -7400,7 +7401,7 @@ $("#bDynClose") && ($("#bDynClose").onclick=()=>$("#dynBg").classList.remove("on
 $("#dynBg")     && ($("#dynBg").onclick=e=>{ if(e.target.id==="dynBg") $("#dynBg").classList.remove("on"); });
 $("#bDynAdd")   && ($("#bDynAdd").onclick  =dynAddOpen);
 $("#bDynDel")   && ($("#bDynDel").onclick  =dynDelete);
-$("#bDynSave")  && ($("#bDynSave").onclick =()=>{ dynSave(); dynRender(); });
+$("#bDynSave")  && ($("#bDynSave").onclick =dynSaveEdited);
 $("#bDynExp")   && ($("#bDynExp").onclick  =dynExport);
 $("#bDynImp")   && ($("#bDynImp").onclick  =()=>$("#fDynImp").click());
 $("#fDynImp")   && ($("#fDynImp").onchange =e=>{
@@ -9451,19 +9452,97 @@ function channelNames(){
 }
 function dynRender(){
   const tb=$("#tDyn"); if(!tb) return;
+  const sel=(cls,i,opts,cur)=>`<span class="foldwrap"><select class="fold ${cls}" data-i="${i}">${
+    opts.map(o=>`<option value="${esc(o)}"${o===cur?" selected":""}>${esc(o)}</option>`).join("")
+  }</select></span>`;
+  const yn=v=>v?"YES":"NO";
+  /* 每一格都可以直接改,按「儲存設定」才寫進註冊表 —— 欄位和新增視窗
+     同一組:AS Code、AR、名稱、Type、計燃油、啟用。 */
   tb.tBodies[0].innerHTML = DYN_ROWS.length
     ? DYN_ROWS.map((r,i)=>`<tr>
         <td><input type="checkbox" class="dynrow" data-i="${i}"></td>
-        <td class="mono"><b>${esc(r.as)}</b></td>
-        <td class="mono">${esc(r.ar)}</td>
-        <td class="wrap">${esc(r.name)}</td>
-        <td>${esc(r.type)}</td>
-        <td>${r.fuel?"YES":"NO"}</td>
-        <td>${r.on?"YES":"NO"}</td></tr>`).join("")
+        <td><input class="cell mono dynas" data-i="${i}" value="${esc(r.as)}"
+             style="width:78px;text-align:left;font-weight:700"></td>
+        <td>${sel("dynar",i,AR_CODES,normArCode(r.ar))}</td>
+        <td><input class="cell dynname" data-i="${i}" value="${esc(r.name)}"
+             style="width:100%;min-width:240px;text-align:left"></td>
+        <td>${sel("dyntype",i,DYN_TYPES,normDynType(r.type))}</td>
+        <td>${sel("dynfuel",i,["YES","NO"],yn(r.fuel))}</td>
+        <td>${sel("dynon",i,["YES","NO"],yn(r.on))}</td></tr>`).join("")
     : `<tr><td colspan="7" class="empty">`
       +L("尚未設定自訂附加費。","No custom surcharges configured.")+`</td></tr>`;
   const a=$("#dynAll");
   if(a) a.onclick=()=>document.querySelectorAll(".dynrow").forEach(c=>c.checked=a.checked);
+}
+/* 把表格上改過的值收回 DYN_ROWS。名稱改了,費率格子跟著搬家 —— 不搬的話
+   舊名字底下填好的費率就孤立了,新名字從 0 起算,那筆錢就少收了。 */
+function dynCollect(){
+  const tb=$("#tDyn"); if(!tb||!tb.tBodies[0]) return DYN_ROWS;
+  const rows=[...tb.tBodies[0].querySelectorAll("input.dynas")];
+  if(!rows.length) return DYN_ROWS;
+  const pick=(cls,i)=>tb.querySelector("."+cls+'[data-i="'+i+'"]');
+  const out=[];
+  for(const inp of rows){
+    const i=+inp.dataset.i, old=DYN_ROWS[i]||{};
+    const name=String((pick("dynname",i)||{}).value||"").trim();
+    const r={as:String(inp.value||"").trim().toUpperCase(),
+             ar:normArCode((pick("dynar",i)||{}).value||old.ar||"ACC"),
+             name,
+             type:normDynType((pick("dyntype",i)||{}).value||old.type),
+             fuel:((pick("dynfuel",i)||{}).value||"YES")==="YES",
+             on:((pick("dynon",i)||{}).value||"YES")==="YES"};
+    const was=String(old.name||"").trim();
+    if(was && name && was!==name
+       && !DYN_ROWS.some((x,j)=>j!==i && String(x.name||"").trim()===was))
+      dynRenameFee(was,name);
+    out.push(r);
+  }
+  DYN_ROWS=out;
+  return out;
+}
+function dynValidate(rows){
+  const seen=new Set();
+  for(const r of rows){
+    if(!r.as) return L("AS Code 不能空白。","AS Code cannot be blank.");
+    if(seen.has(r.as)) return L(r.as+" 重複了,一個代碼只能有一列。",
+                                r.as+" appears twice. One row per code.");
+    seen.add(r.as);
+    if(!AR_CODES.includes(r.ar))
+      return L("AR 只能是 "+AR_CODES.join(" / ")+"。","AR must be one of: "+AR_CODES.join(", ")+".");
+    if(!r.name) return L(r.as+" 沒有名稱 —— 那個名稱就是報表欄名,也是查費率的鍵。",
+                         r.as+" has no name — it is the report column and the rate key.");
+  }
+  return "";
+}
+/* 附加費改名:費率表、燃油例外、停用清單裡的鍵一起改,層級副本也一樣。
+   新名字底下已經有格子的話保留那一格,舊格子只是刪掉。 */
+function dynRenameFee(o,n){
+  if(!CFG||!CFG.raw) return;
+  const move=raw=>{
+    const t=raw.accessorial_rate_table||{};
+    for(const k of Object.keys(t)){
+      const p=k.indexOf("|||"); if(p<0||k.slice(0,p)!==o) continue;
+      const nk=n+k.slice(p);
+      if(!(nk in t)) t[nk]=t[k];
+      delete t[k];
+    }
+    const fe=raw.accessorial_fuel_eligible||{};
+    if(o in fe){ if(!(n in fe)) fe[n]=fe[o]; delete fe[o]; }
+    const dis=raw.accessorial_disabled;
+    if(Array.isArray(dis)){ const i=dis.indexOf(o); if(i>=0) dis[i]=n; }
+  };
+  move(CFG.raw);
+  if(typeof rlEachStash==="function") rlEachStash(move);
+}
+function dynSaveEdited(){
+  const rows=dynCollect();
+  const bad=dynValidate(rows);
+  const note=$("#dynNote");
+  if(bad){ if(note) note.innerHTML=`<div class="note warn">${esc(bad)}</div>`; return false; }
+  const ok=dynSave(); dynRender();
+  if(note) note.innerHTML=`<div class="note">${esc(L("已儲存 "+rows.length+" 筆自訂附加費。",
+                                                   "Saved "+rows.length+" custom surcharge(s)."))}</div>`;
+  return ok;
 }
 function dynSave(){
   if(!CFG){ saveNoteKey(false,"nothing"); return false; }
@@ -9525,6 +9604,7 @@ function dynAddSave(){
   const as=String($("#dynAs").value||"").trim().toUpperCase();
   const name=String($("#dynName").value||"").trim();
   const warn=t=>{ $("#dynAddNote").innerHTML=`<div class="note warn">${esc(t)}</div>`; };
+  dynCollect();
   if(!as) return warn(L("AS Code 不能空白。","AS Code cannot be blank."));
   if(!AR_CODES.includes(ar))
     return warn(L("AR 只能是 "+AR_CODES.join(" / ")+"。","AR must be one of: "+AR_CODES.join(", ")+"."));
@@ -9550,6 +9630,7 @@ function dynAddSave(){
   setStatus((LANG?"Added ":"已新增 ")+as);
 }
 function dynDelete(){
+  dynCollect();
   const gone=[...document.querySelectorAll(".dynrow")].filter(c=>c.checked)
     .map(c=>+c.dataset.i);
   if(!gone.length){ setStatus(L("請先勾選","Tick a row first")); return; }
@@ -11353,6 +11434,7 @@ function exportReport(){
    利潤報表(Statement)的 Account Charges 分頁照舊列出。 */
 
 function dynExport(){
+  dynCollect();
   const rows=(DYN_ROWS.length?DYN_ROWS:[
     {as:"ARK",ar:"ACC",name:"Remote Area - AK",type:"REPRICE",fuel:false,on:true},
     {as:"DDO",ar:"ACC",name:"Direct Delivery Only",type:"REPRICE",fuel:true,on:true},
@@ -12706,24 +12788,36 @@ function renderGap(){
   if(A) A.innerHTML=g.acc.length?`
     <div class="subhd" style="margin-top:0" data-i18n="hd.gapacc">${L("未知的附加費代碼","Unrecognised surcharge codes")}</div>
     <div class="tablewrap" style="max-height:30vh"><table><thead><tr>
-      <th style="width:30px"></th><th>${L("代碼","Code")}</th>
+      <th style="width:30px"></th>
+      <th>${T("th.arcode")}</th><th>${T("th.ascode")}</th>
       <th>${L("帳單上寫什麼","Billed as")}</th>
       <th class="num">${L("筆數","Lines")}</th><th class="num">${L("UPS 收","UPS billed")}</th>
-      <th>${L("你要叫它什麼","Your name for it")}</th>
-      <th>${L("收費方式","Billing")}</th><th>${L("收燃油","Fuel")}</th>
+      <th>${T("th.accname")}</th>
+      <th>${T("lb.shape")}</th>
+      <th>${L("收費方式","Billing")}</th>
+      <th>${T("th.fuelok")}</th><th>${T("th.enabled")}</th>
     </tr></thead><tbody>${g.acc.map(o=>
       `<tr><td><input type="checkbox" class="gapa" data-c="${esc(o.code)}" checked></td>
-        <td class="mono">${esc(o.code)}</td>
-        <td>${esc(o.desc||"—")}</td>
+        <td><span class="foldwrap"><select class="fold gapr" data-c="${esc(o.code)}">${
+          AR_CODES.map(a=>`<option value="${a}" title="${esc((AR_WHY[a]||["",""])[LANG])}"${
+            a==="ACC"?" selected":""}>${a}</option>`).join("")}</select></span></td>
+        <td class="mono"><b>${esc(o.code)}</b></td>
+        <td class="wrap" style="max-width:230px">${esc(o.desc||"—")}</td>
         <td class="num">${o.n}</td><td class="num">${money(o.amt)}</td>
         <td><input class="cell gapn" data-c="${esc(o.code)}" value="${esc(o.desc||o.code)}"
              style="width:190px;text-align:left"></td>
+        <td><span class="foldwrap"><select class="fold gaps" data-c="${esc(o.code)}">${
+          SHAPES.map(x=>`<option value="${x}" title="${esc((SHAPE_WHY[x]||["",""])[LANG])}">${x}</option>`).join("")
+        }</select></span></td>
         <td><span class="foldwrap"><select class="fold gapt" data-c="${esc(o.code)}">
           <option value="COPY INVOICE">${L("照帳單收","Copy invoice")}</option>
           <option value="REPRICE">${L("重新計價","Repriced")}</option>
           <option value="REPORT ONLY">${L("只列出不收","Report only")}</option>
         </select></span></td>
-        <td><input type="checkbox" class="gapf" data-c="${esc(o.code)}" checked></td></tr>`).join("")}
+        <td><span class="foldwrap"><select class="fold gapf" data-c="${esc(o.code)}">
+          <option>YES</option><option>NO</option></select></span></td>
+        <td><span class="foldwrap"><select class="fold gapo" data-c="${esc(o.code)}">
+          <option>YES</option><option>NO</option></select></span></td></tr>`).join("")}
     </tbody></table></div>`:"";
   if(C) C.innerHTML=g.chan.length?`
     <div class="subhd" data-i18n="hd.gapchan">${L("沒見過的服務","Services not in your channels")}</div>
@@ -12748,10 +12842,19 @@ function gapApply(){
   let nA=0, nC=0;
   for(const cb of document.querySelectorAll(".gapa:checked")){
     const c=cb.dataset.c;
+    /* 欄位和「Add Custom Surcharge」視窗一組:AR、AS Code、名稱、費率形狀、
+       計燃油、啟用。同一個註冊表,兩個入口填的東西就要一樣。 */
+    const ar=normArCode((val("select.gapr",c)||{}).value||"ACC");
     const nm=(val("input.gapn",c)||{}).value||c;
     const tp=(val("select.gapt",c)||{}).value||"COPY INVOICE";
-    const fu=!!((val("input.gapf",c)||{}).checked);
-    dyn[c]={ar:"ACC", name:String(nm).trim()||c, type:tp, fuel_eligible:fu, enabled:true};
+    const sh=(val("select.gaps",c)||{}).value||"FLAT";
+    const fu=((val("select.gapf",c)||{}).value||"YES")==="YES";
+    const on=((val("select.gapo",c)||{}).value||"YES")==="YES";
+    dyn[c]={ar:AR_CODES.includes(ar)?ar:"ACC", name:String(nm).trim()||c, type:tp,
+            fuel_eligible:fu, enabled:on};
+    /* 和那個視窗同一條路:登錄的同時就依形狀開好費率格子(單一費率 0 /
+       依 Zone 一格一格),費率頁和附加費範本立刻看得到。 */
+    dynSeedShape(String(nm).trim()||c, sh);
     nA++;
   }
   for(const cb of document.querySelectorAll(".gapc:checked")){
@@ -13824,8 +13927,8 @@ const I18N={
   "btn.customacc":["➕ 自訂附加費…","➕ Custom Surcharges…"],
   "hd.customacc":["自訂附加費","Custom Surcharges"],
   "hd.addacc":["新增自訂附加費","Add Custom Surcharge"],
-  "hint.customacc":["AS Code 要和帳單完全一致。名稱會變成報表欄名,費率在附加費設定裡填。",
-    "AS Code must match the invoice exactly. Surcharge Name becomes a report column; set its rate on Surcharge Setup."],
+  "hint.customacc":["AS Code 要和帳單完全一致。名稱會變成報表欄名,費率在附加費設定裡填。表格內每一格都可以直接修改,改完按「儲存設定」。",
+    "AS Code must match the invoice exactly. Surcharge Name becomes a report column; set its rate on Surcharge Setup. Every cell can be edited in place; press Save Setup when done."],
   "th.ascode":["AS 代碼","AS Code"],
   "th.arcode":["AR","AR"],
   "th.accname":["附加費名稱","Surcharge Name"],
