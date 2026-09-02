@@ -10898,14 +10898,25 @@ function dashMenuClose(back){
    是接在 document 上的,那個全域只接一次。 */
 /* 帳號與期間現在長在最上面那一條,每一次重畫都會重生 —— 所以它們的事件跟著
    dashBarHTML 走,不是跟著「全部期別」那張卡片走。 */
+/* 篩選一換,期別跟著換:畫面上那一期若不在篩選結果裡,自動改跑結果裡
+   最新的一期。不然帳號選了 A,期別選單和整頁數字還停在 B 的帳單上,
+   看起來像篩選沒有作用。總攬模式只是重畫 —— 它本來就列的是篩過的那幾期。 */
+function dashFollowFilter(){
+  const list=dashFilter(dashPeriods());
+  const cur=dashCurKeys();
+  const onScreen=(!DASH_ALL&&cur.length===1)?cur[0]:"";
+  const stale=!DASH_ALL && list.length>0 && !list.some(p=>p.key===onScreen);
+  if(stale && !DASH_BUSY && CFG && CFG.tableRowCount>0){ dashPickInvoice(list[0].key); return; }
+  renderDashboard();
+}
 function wireDashPickFilters(){
-  const re=()=>renderDashboard();
+  const re=()=>dashFollowFilter();
   const a=$("#dfAcct");
   if(a) a.onchange=()=>{ DASH_F.acct=a.value; re(); };
   const r=$("#dfRange");
   if(r) r.onchange=()=>{ DASH_F.range=r.value; re(); };
   const c=$("#dfClear");
-  if(c) c.onclick=()=>{ DASH_F.acct=""; DASH_F.range=""; re(); };
+  if(c) c.onclick=()=>{ DASH_F.acct=""; DASH_F.range=""; renderDashboard(); };
 }
 function wireDashBar(){
   wireDashPickFilters();
