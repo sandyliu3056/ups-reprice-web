@@ -866,8 +866,13 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
 .bkdchap .bkdacct tbody tr,.bkdchap .bkdacct tbody tr:nth-child(even),.bkdchap .bkdacct tbody tr:hover,
 .bkdchap .bkdacct .bkdacct-body tbody tr>td{background:transparent}
 .bkdacct table td{padding:4px 0;border-bottom:none;white-space:normal;word-break:break-word;vertical-align:top;line-height:1.45}
-.bkdacct table td.dt{width:82px;color:var(--muted);font-family:Consolas,monospace;font-size:12px;white-space:nowrap}
-.bkdacct table td.num{width:92px;text-align:right;font-family:Consolas,monospace;white-space:nowrap}
+/* 欄寬寫在表頭那一列:table-layout:fixed 只看第一列,表頭沒寬度的話
+   五欄會被平分,項目那欄擠到換行、日期那三欄留一堆空白。 */
+.bkdacct table th.inv,.bkdacct table td.inv{width:138px}
+.bkdacct table th.dt,.bkdacct table td.dt{width:82px}
+.bkdacct table th.num,.bkdacct table td.num{width:92px;text-align:right}
+.bkdacct table td.dt{color:var(--muted);font-family:Consolas,monospace;font-size:12px;white-space:nowrap}
+.bkdacct table td.num{font-family:Consolas,monospace;white-space:nowrap}
 .bkdacct .cls{margin-left:6px;font-size:10.5px;font-weight:700;color:var(--text);opacity:.85;
   border:1px solid color-mix(in srgb, var(--text) 45%, transparent);border-radius:999px;
   padding:0 6px;vertical-align:middle}
@@ -876,10 +881,9 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
 .bkdacct-ft .num{font-family:Consolas,monospace;white-space:nowrap}
 .bkdacct-note{margin:7px 0 0;font-size:12px;line-height:1.55;color:var(--muted)}
 .bkdacct table thead th{background:transparent;color:var(--muted);font-size:10.5px;font-weight:700;
-  letter-spacing:.4px;text-transform:uppercase;padding:2px 0 4px;position:static;white-space:nowrap;
+  letter-spacing:.4px;text-transform:uppercase;padding:2px 10px 4px 0;position:static;white-space:nowrap;
   border-bottom:1px solid color-mix(in srgb, var(--text) 25%, transparent)}
-.bkdacct table thead th.num{text-align:right}
-.bkdacct table td.inv{width:138px;font-family:Consolas,monospace;font-size:12px;font-weight:700;white-space:nowrap}
+.bkdacct table td.inv{font-family:Consolas,monospace;font-size:12px;font-weight:700;white-space:nowrap}
 .bkdacct table td,.bkdacct table th{padding-right:10px}
 .bkdacct table td:last-child,.bkdacct table th:last-child{padding-right:0}
 /* 帳戶層那一節的章節帶:同一條帶,只是標題是文字不是單號。 */
@@ -7820,8 +7824,9 @@ function openBreakdown(){
       +`<div class="bkdchap"><div class="bkdacct">`
       +`<div class="bkdacct-hd"><span>${L("UPS 實收","UPS billed")}</span>`
       +`<span class="tag">${acctAll.length+(LANG?(acctAll.length>1?" lines":" line"):" 行")}</span></div>`
-      +`<div class="bkdacct-body"><table><thead><tr><th>Invoice</th><th>${L("帳單日期","Invoice date")}</th>`
-      +`<th>${L("交易日","Transaction date")}</th><th>${L("項目","Item")}</th>`
+      +`<div class="bkdacct-body"><table><thead><tr><th class="inv">Invoice</th>`
+      +`<th class="dt">${L("帳單日期","Invoice date")}</th>`
+      +`<th class="dt">${L("交易日","Transaction date")}</th><th>${L("項目","Item")}</th>`
       +`<th class="num">${L("金額","Amount")}</th></tr></thead><tbody>${rows}</tbody></table>`
       +`<div class="bkdacct-ft"><span>${L("小計","Subtotal")}</span>`
       +`<span class="num${acctSum<-0.0001?" bkdneg":""}">${money2(acctSum)}</span></div>`
