@@ -1788,7 +1788,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 <div id="gapBg" class="modalbg">
   <div class="modal sketch" id="gapModal" style="width:min(940px,100%);height:min(78vh,860px)">
     <div class="modalhd">
-      <span data-i18n="hd.gapfix">Fill in what is missing</span>
+      <span data-i18n="hd.gapfix">Register unrecognised codes</span>
       <button class="mx" id="gapX">✕</button>
     </div>
     <div class="modalbody" style="display:flex;flex-direction:column;min-height:0">
@@ -12641,7 +12641,7 @@ function renderIssueCard(){
           L("下載明細 (.xlsx)","Download details (.xlsx)")}</button>${
         (dashGap.acc.length||dashGap.chan.length)
           ? `<button class="act" id="bGapOpen" style="padding:3px 11px;font-size:12px">${
-              L("補上缺的設定","Fill in what is missing")}</button>` : ""}</div>
+              L("登錄未識別代碼","Register unrecognised codes")}</button>` : ""}</div>
       <p class="isssub">${L(
         "本期異常 <b>"+ISSUES.length+"</b> 項。其中 <b>"+nBad+"</b> 項影響計價金額,"
           +"該部分 UPS 實收 <b>"+money(bad)+"</b>",
@@ -13927,13 +13927,13 @@ const I18N={
   "th.name":["名稱","Name"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
   "hd.cfgfile":["📄 費率設定檔","📄 Rate Configuration File"],
-  "hd.gapfix":["補上缺的設定","Fill in what is missing"],
+  "hd.gapfix":["登錄未識別代碼","Register unrecognised codes"],
   "hint.gapfix":["這些東西出現在這期帳單上,但你的設定裡沒有。新增只是讓系統「認得」它,不等於算得出價錢 —— 一項附加費設成「重新計價」卻沒填費率,會以 0 計價,那筆錢就少收了。所以新代碼預設是「照帳單收」,至少等於成本。",
     "These appear in this invoice but not in your settings. Adding one makes the tool recognise it — it does not price it. A charge set to Repriced with no rate entered is priced as zero, so new codes default to billing what UPS billed."],
   "hint.gapnone":["沒有缺的東西 —— 這期出現的代碼和渠道,設定裡都有。",
     "Nothing is missing — every code and channel in this invoice is already in your settings."],
   "btn.gapadd":["新增勾選的","Add ticked"],
-  "btn.gapopen":["補上缺的設定","Fill in what is missing"],
+  "btn.gapopen":["登錄未識別代碼","Register unrecognised codes"],
   "hd.gapacc":["未知的附加費代碼","Unrecognised surcharge codes"],
   "hd.gapchan":["沒見過的服務","Services not in your channels"],
   "btn.lvluse":["切換到這一層","Switch to this"],
