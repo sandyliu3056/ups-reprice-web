@@ -12802,10 +12802,10 @@ function renderGap(){
           AR_CODES.map(a=>`<option value="${a}" title="${esc((AR_WHY[a]||["",""])[LANG])}"${
             a==="ACC"?" selected":""}>${a}</option>`).join("")}</select></span></td>
         <td class="mono"><b>${esc(o.code)}</b></td>
-        <td class="wrap" style="max-width:230px">${esc(o.desc||"—")}</td>
+        <td class="wrap" style="max-width:180px;min-width:150px">${esc(o.desc||"—")}</td>
         <td class="num">${o.n}</td><td class="num">${money(o.amt)}</td>
         <td><input class="cell gapn" data-c="${esc(o.code)}" value="${esc(o.desc||o.code)}"
-             style="width:190px;text-align:left"></td>
+             style="width:160px;text-align:left"></td>
         <td><span class="foldwrap"><select class="fold gaps" data-c="${esc(o.code)}">${
           SHAPES.map(x=>`<option value="${x}" title="${esc((SHAPE_WHY[x]||["",""])[LANG])}">${x}</option>`).join("")
         }</select></span></td>
