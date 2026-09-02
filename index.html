@@ -861,10 +861,13 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
   border-radius:999px;background:rgba(255,255,255,.2)}
 .bkdacct-body{padding:6px 9px 8px;background:var(--ups-bg);color:var(--text)}
 .bkdacct table{width:100%;font-size:12.5px;table-layout:fixed;background:transparent}
-.bkdacct tbody tr,.bkdacct tbody tr:nth-child(even),.bkdacct tbody tr:hover{background:transparent}
-.bkdacct td{padding:3.5px 0;border-bottom:none;white-space:normal;word-break:break-word;vertical-align:top}
-.bkdacct td.dt{width:88px;color:var(--muted);font-family:Consolas,monospace;font-size:12px;white-space:nowrap}
-.bkdacct td.num{width:96px;text-align:right;font-family:Consolas,monospace;white-space:nowrap}
+/* 選擇器寫長一點:通用的斑馬紋(table tbody tr:nth-child(odd)>td)和
+   html.ink th 的字色都比 .bkdacct td 強,這裡要壓得過它們。 */
+.bkdchap .bkdacct tbody tr,.bkdchap .bkdacct tbody tr:nth-child(even),.bkdchap .bkdacct tbody tr:hover,
+.bkdchap .bkdacct .bkdacct-body tbody tr>td{background:transparent}
+.bkdacct table td{padding:4px 0;border-bottom:none;white-space:normal;word-break:break-word;vertical-align:top;line-height:1.45}
+.bkdacct table td.dt{width:82px;color:var(--muted);font-family:Consolas,monospace;font-size:12px;white-space:nowrap}
+.bkdacct table td.num{width:92px;text-align:right;font-family:Consolas,monospace;white-space:nowrap}
 .bkdacct .cls{margin-left:6px;font-size:10.5px;font-weight:700;color:var(--text);opacity:.85;
   border:1px solid color-mix(in srgb, var(--text) 45%, transparent);border-radius:999px;
   padding:0 6px;vertical-align:middle}
@@ -872,10 +875,18 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
   font-weight:700;border-top:1.5px solid color-mix(in srgb, var(--text) 35%, transparent)}
 .bkdacct-ft .num{font-family:Consolas,monospace;white-space:nowrap}
 .bkdacct-note{margin:7px 0 0;font-size:12px;line-height:1.55;color:var(--muted)}
-.bkdtag{display:inline-block;margin-left:6px;font-family:inherit;font-size:10.5px;font-weight:700;
-  letter-spacing:.5px;text-transform:uppercase;line-height:1.5;padding:0 8px;border-radius:999px;
-  color:var(--text);background:var(--stripe);border:1px solid color-mix(in srgb, var(--text) 45%, transparent);
-  vertical-align:middle;cursor:help}
+.bkdacct table thead th{background:transparent;color:var(--muted);font-size:10.5px;font-weight:700;
+  letter-spacing:.4px;text-transform:uppercase;padding:2px 0 4px;position:static;white-space:nowrap;
+  border-bottom:1px solid color-mix(in srgb, var(--text) 25%, transparent)}
+.bkdacct table thead th.num{text-align:right}
+.bkdacct table td.inv{width:138px;font-family:Consolas,monospace;font-size:12px;font-weight:700;white-space:nowrap}
+.bkdacct table td,.bkdacct table th{padding-right:10px}
+.bkdacct table td:last-child,.bkdacct table th:last-child{padding-right:0}
+/* 帳戶層那一節的章節帶:同一條帶,只是標題是文字不是單號。 */
+.bkdinv.acct .no{font-family:inherit;font-size:14.5px;letter-spacing:.4px}
+.bkdinv .tag{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+  line-height:1.5;padding:0 9px;border-radius:999px;color:var(--text);background:var(--panel);
+  border:1px solid color-mix(in srgb, var(--text) 45%, transparent)}
 .bkdtot{background:var(--barbg,var(--accent));border-radius:8px;padding:11px 16px 12px;margin:10px 0;
   display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:3px 30px}
 .bkdtot .bt{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
@@ -7791,19 +7802,32 @@ function openBreakdown(){
       pkgN:pkg.length, acct,
       acctSum:acct.reduce((a,l)=>a+(l.net||0),0)});
   }
-  /* 帳戶層的行:UPS 的描述、交易日、金額照帳單原樣列出,不算價。 */
-  const acctCard=o=>{
-    const rows=o.acct.map(l=>`<tr><td class="dt">${esc2(normYmd(l.shipDate)||l.shipDate||"")}</td>`
+  /* 帳戶層的行集中在一個位置:所有期別的這種行放在最後一節,照帳單原樣
+     列出期別、交易日、UPS 的描述、金額,不算價。有包裹行的期別才進總覽
+     和逐期明細。 */
+  const pk=out.filter(o=>o.pkgN);
+  const acctAll=[];
+  for(const o of out) for(const l of o.acct) acctAll.push({inv:o.inv, invDate:o.invDate, l});
+  const acctSum=acctAll.reduce((a,x)=>a+(x.l.net||0),0);
+  const acctSection=()=>{
+    const rows=acctAll.map(({inv,invDate,l})=>`<tr><td class="inv">${esc2(inv)}</td>`
+      +`<td class="dt">${esc2(nd(invDate)||invDate||"")}</td>`
+      +`<td class="dt">${esc2(normYmd(l.shipDate)||l.shipDate||"")}</td>`
       +`<td>${esc2(l.desc||l.code||"")}${(l.cls||l.ai)?`<span class="cls">${esc2(l.cls||l.ai)}</span>`:""}</td>`
       +`<td class="num${(l.net||0)<-0.0001?" bkdneg":""}">${money2(l.net||0)}</td></tr>`).join("");
-    return `<div class="bkdacct"><div class="bkdacct-hd"><span>${L("帳戶層費用","Account-level charge")}</span>`
+    return `<div class="bkdinv acct" id="bkdAcct"><span class="no">${L("帳戶層費用","Account-level charges")}</span>`
       +`<span class="tag">${L("不重新計價","Not repriced")}</span></div>`
-      +`<div class="bkdacct-body"><table>${rows}</table>`
+      +`<div class="bkdchap"><div class="bkdacct">`
+      +`<div class="bkdacct-hd"><span>${L("UPS 實收","UPS billed")}</span>`
+      +`<span class="tag">${acctAll.length+(LANG?(acctAll.length>1?" lines":" line"):" 行")}</span></div>`
+      +`<div class="bkdacct-body"><table><thead><tr><th>Invoice</th><th>${L("帳單日期","Invoice date")}</th>`
+      +`<th>${L("交易日","Transaction date")}</th><th>${L("項目","Item")}</th>`
+      +`<th class="num">${L("金額","Amount")}</th></tr></thead><tbody>${rows}</tbody></table>`
       +`<div class="bkdacct-ft"><span>${L("小計","Subtotal")}</span>`
-      +`<span class="num${o.acctSum<-0.0001?" bkdneg":""}">${money2(o.acctSum)}</span></div>`
-      +`<p class="bkdacct-note">${L("UPS 把這筆帳務調整釘在此追蹤號上。它不是這件包裹的成本,不進重新計價與毛利,已列在帳戶層費用。",
-          "UPS pinned this billing adjustment to this tracking number. It is not part of this package's cost, is excluded from the reprice and profit, and is reported under Account charges.")}</p>`
-      +`</div></div>`;
+      +`<span class="num${acctSum<-0.0001?" bkdneg":""}">${money2(acctSum)}</span></div>`
+      +`<p class="bkdacct-note">${L("UPS 釘在此追蹤號上的帳務調整;不計入重算與毛利。",
+          "Pinned to this tracking number by UPS; not counted in the reprice or profit.")}</p>`
+      +`</div></div></div>`;
   };
   ACCT_LINES=keep; ORIG=keepOrig;
   const H=[];
@@ -7818,29 +7842,27 @@ function openBreakdown(){
     +`<th class="num">${L("毛利","Profit")}</th>`
     +`<th class="num">${L("毛利率","Margin")}</th></tr></thead><tbody>`);
   let tRe=0,tUp=0,allPriced=true,bi=0;
-  const acctTag=o=>o.acct.length?` <span class="bkdtag" title="${esc2(
-      L("帳戶層費用 "+money2(o.acctSum)+":UPS 釘在此追蹤號上的帳務調整,不進重算與毛利",
-        "Account-level "+money2(o.acctSum)+": a billing adjustment UPS pinned to this tracking number; excluded from reprice and profit"))}">${
-      L("帳戶層","Account-level")}</span>`:"";
-  for(const o of out){
-    /* 這一期只有帳戶層的行:沒有包裹可算,四個數字留白,合計也不算它。 */
-    const acctOnly=!o.pkgN&&o.acct.length>0;
+  if(!pk.length)
+    H.push(`<tr><td colspan="6" class="empty">${L("這個追蹤號沒有包裹行,只有帳戶層費用,見下方。",
+      "No package lines for this tracking number, only account-level charges. See below.")}</td></tr>`);
+  for(const o of pk){
     const rp=(o.r&&o.r.total!=null)?o.r.total:null;
-    const up=acctOnly?null:(o.r?o.r.s.upsTotal:o.ups);
-    const d=(rp==null||up==null)?null:rp-up;
-    const p=(rp!=null&&d!=null&&Math.abs(rp)>1e-9)?(d/Math.abs(rp)*100):null;
-    if(!acctOnly){ if(rp!=null) tRe+=cents(rp); else allPriced=false; tUp+=up; }
+    const up=o.r?o.r.s.upsTotal:o.ups;
+    const d=rp==null?null:rp-up;
+    const p=(rp!=null&&Math.abs(rp)>1e-9)?(d/Math.abs(rp)*100):null;
+    if(rp!=null) tRe+=cents(rp); else allPriced=false;
+    tUp+=up;
     H.push(`<tr class="bkdjump" data-bi="${bi++}" title="${
         L("點一下跳到該期明細","Click to jump to this invoice's detail")}">`
-      +`<td class="mono">${esc2(o.inv)}${acctTag(o)}</td><td>${esc2(nd(o.invDate)||o.invDate)}</td>`
+      +`<td class="mono">${esc2(o.inv)}</td><td>${esc2(nd(o.invDate)||o.invDate)}</td>`
       +`<td class="num">${rp==null?"—":money2(rp)}</td>`
-      +`<td class="num">${up==null?"—":money2(up)}</td>`
+      +`<td class="num">${money2(up)}</td>`
       +`<td class="num" style="font-weight:600${d==null?"":d<0
           ?";color:var(--neg)":";color:var(--pos)"}">${d==null?"—":money2(d)}</td>`
       +`<td class="num"${p!=null&&p<0?' style="color:var(--neg)"':""}>${p==null?"—":p.toFixed(2)+"%"}</td></tr>`);
   }
   H.push(`</tbody>`);
-  if(out.length>1){
+  if(pk.length>1){
     const td=allPriced?tRe-tUp:null;
     const tp=(allPriced&&Math.abs(tRe)>1e-9)?(td/Math.abs(tRe)*100):null;
     const TF="border-top:2px solid var(--accent);background:var(--select);font-weight:700";
@@ -7852,15 +7874,14 @@ function openBreakdown(){
       +`<td class="num" style="${TF}${tp!=null&&tp<0?";color:var(--neg)":""}">${tp==null?"—":tp.toFixed(2)+"%"}</td></tr></tfoot>`);
   }
   H.push(`</table></div></div>`);
-  out.forEach((o,ci)=>{
+  pk.forEach((o,ci)=>{
     H.push(`<div class="bkdinv" id="bkdInv${ci}"><span class="no">${esc2(o.inv)}</span>`
       +`<span class="dt">${esc2(nd(o.invDate)||o.invDate)}</span></div>`);
-    const parts=[];
-    if(o.r) parts.push(bkdSection(o.r));
-    else if(o.pkgN) parts.push(`<div class="note warn">${esc2(o.err)||L("這一期無法計價。","Could not price this period.")}</div>`);
-    if(o.acct.length) parts.push(acctCard(o));
-    H.push(`<div class="bkdchap">`+parts.join("")+`</div>`);
+    if(o.r) H.push(`<div class="bkdchap">`+bkdSection(o.r)+`</div>`);
+    else H.push(`<div class="bkdchap"><div class="note warn">${esc2(o.err)||L("這一期無法計價。","Could not price this period.")}</div></div>`);
   });
+  /* 帳戶層費用自己一節,放在所有期別之後。 */
+  if(acctAll.length) H.push(acctSection());
   body.innerHTML=H.join("");
   /* 上表每一列都是捷徑 —— 點了就捲到那一期的金色章節帶。 */
   body.querySelectorAll("tr.bkdjump").forEach(tr=>{
@@ -7937,22 +7958,22 @@ async function bkdXlsx(){
               hc(L("毛利","Profit"),HEAD),hc(L("毛利率","Margin"),HEAD)]];
   const sumMerges=[{s:{r:0,c:0},e:{r:0,c:5}}];
   let tUp=0,tRe=0,allPriced=true;
-  for(const o of out){
-    const acct=o.acct||[];
-    const acctOnly=!o.pkgN&&acct.length>0;
-    const up=acctOnly?null:cents(o.r?o.r.s.upsTotal:o.ups||0);
+  /* 只有帳戶層的期別不進比較表 —— 它們集中在明細頁最後一段。 */
+  const pk=out.filter(o=>o.pkgN!==0);
+  for(const o of pk){
+    const up=cents(o.r?o.r.s.upsTotal:o.ups||0);
     const re=o.r?cents(o.r.total||0):null;
-    if(!acctOnly){ if(re==null) allPriced=false; else tRe+=re; tUp+=up; }
-    const df=(re==null||up==null)?null:cents(re-up);
+    if(re==null) allPriced=false; else tRe+=re;
+    tUp+=up;
+    const df=(re==null)?null:cents(re-up);
     const sd=serial(o.invDate);
-    sum.push([c(o.inv+(acct.length?L(" (帳戶層)"," (Account-level)"):""),"","left"),
+    sum.push([c(o.inv,"","left"),
       sd==null?c(o.invDate||"","","right"):c(sd,DATE,"right"),
-      up==null?c("—","","right",UPSB):c(up,MONEY,"right",UPSB),
-      re==null?c("—","","right",REPB):c(re,MONEY,"right",REPB),
+      c(up,MONEY,"right",UPSB), re==null?c("—","","right",REPB):c(re,MONEY,"right",REPB),
       df==null?c("—","","right"):c(df,MONEY,"right"),
       (df==null||Math.abs(re)<1e-9)?c("—","","right"):c(df/Math.abs(re),PCT,"right")]);
   }
-  if(out.length>1){
+  if(pk.length>1){
     const td=allPriced?cents(tRe-tUp):null;
     sum.push([c(L("合計","Total"),"","left",FOOT,true), c("","",  "right",FOOT,true),
       c(cents(tUp),MONEY,"right",FOOT,true),
@@ -7973,11 +7994,10 @@ async function bkdXlsx(){
       c(item,"","left",fill,bold),c(amt,MONEY,"right",fill,bold)]);
   };
   for(const o of out){
-    const acct=o.acct||[];
-    if(!o.r&&!acct.length) continue;
-    const segs=o.r?[[o.r,(o.r.s.groups)||[],segName(o.r.s.layer)]]:[];
-    if(o.r&&o.r.rtn) segs.push([o.r.rtn,(o.r.s.rtnSeg&&o.r.s.rtnSeg.groups)||[],L("退件回程","Return leg")]);
-    if(o.r&&o.r.npb) segs.push([o.r.npb,(o.r.s.npb&&o.r.s.npb.groups)||[],L("第二段運送","Second movement")]);
+    if(!o.r) continue;
+    const segs=[[o.r,(o.r.s.groups)||[],segName(o.r.s.layer)]];
+    if(o.r.rtn) segs.push([o.r.rtn,(o.r.s.rtnSeg&&o.r.s.rtnSeg.groups)||[],L("退件回程","Return leg")]);
+    if(o.r.npb) segs.push([o.r.npb,(o.r.s.npb&&o.r.s.npb.groups)||[],L("第二段運送","Second movement")]);
     for(const [res,groups,nm] of segs){
       const L2=bkdLines(res,groups);
       for(const [it,v] of L2.U) push(o.inv,nm,0,it,v);
@@ -7985,13 +8005,15 @@ async function bkdXlsx(){
       for(const [it,v] of L2.P) push(o.inv,nm,1,it,v);
       push(o.inv,nm,1,L("小計","Subtotal"),L2.psub,true);
     }
-    /* 帳戶層的行跟在該期最後,段別寫明,不進任何小計。 */
-    if(acct.length){
-      const nm=L("帳戶層(不重新計價)","Account-level (not repriced)");
-      for(const l of acct)
-        push(o.inv,nm,0,(l.desc||l.code||"")+((l.cls||l.ai)?" ["+(l.cls||l.ai)+"]":""),cents(l.net||0));
-      push(o.inv,nm,0,L("小計","Subtotal"),cents(o.acctSum||0),true);
-    }
+  }
+  /* 帳戶層的行集中在最後一段,期別寫在第一欄,不進任何小計。 */
+  const acctRows=[];
+  for(const o of out) for(const l of (o.acct||[])) acctRows.push([o.inv,l]);
+  if(acctRows.length){
+    const nm=L("帳戶層(不重新計價)","Account-level (not repriced)");
+    for(const [inv,l] of acctRows)
+      push(inv,nm,0,(l.desc||l.code||"")+((l.cls||l.ai)?" ["+(l.cls||l.ai)+"]":""),cents(l.net||0));
+    push("",nm,0,L("小計","Subtotal"),cents(acctRows.reduce((a,[,l])=>a+(l.net||0),0)),true);
   }
   const name=("Tracking_"+trk+"_Breakdown").replace(/[^A-Za-z0-9_-]+/g,"")+".xlsx";
   const ok=await xlWrite([
