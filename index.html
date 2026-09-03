@@ -7581,13 +7581,13 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
   setStatus((LANG?"Reading ":"讀取 ")+f.name+"…");
   readWorkbookRows(f).then(bk=>{
     const t=CFG.raw.accessorial_rate_table||(CFG.raw.accessorial_rate_table={});
-    let n=0, shapes=[];
+    let n=0, shapes=[], sawDv=false;
 
     /* --- 寬表:Fee Type | Shipment Type | Zone … ------------------------
        桌面版叫 AHS_LPS,但它自己也吃「任何帶 Fee Type + Shipment Type 的
        工作表」,這裡照同一條規則,per-channel 模板才不用另外處理。 */
     for(const nm of bk.order){
-      if(nm==="FLAT_CHARGES"||nm==="_ChannelInfo"||nm==="DECLARED_VALUE") continue;
+      if(nm==="FLAT_CHARGES"||nm==="_ChannelInfo"||/^declared[ _-]?value$/i.test(String(nm||"").trim())) continue;
       const rows=bk.sheets[nm]||[]; if(rows.length<2) continue;
       const hdr=sheetHeader(rows);
       const fi=hdr.indexOf("Fee Type"), ci=hdr.indexOf("Shipment Type");
@@ -7618,7 +7618,7 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
            (桌面版全渠道模板)才寫進每一條標準 Zone 的渠道。 */
         const seen=new Set();
         for(const nm of bk.order){
-          if(nm==="FLAT_CHARGES"||nm==="_ChannelInfo"||nm==="DECLARED_VALUE") continue;
+          if(nm==="FLAT_CHARGES"||nm==="_ChannelInfo"||/^declared[ _-]?value$/i.test(String(nm||"").trim())) continue;
           const rows=bk.sheets[nm]||[]; if(rows.length<2) continue;
           const hdr2=sheetHeader(rows), ci2=hdr2.indexOf("Shipment Type");
           if(ci2<0) continue;
@@ -7641,9 +7641,68 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
       }
     }
 
+    /* --- 申報價值:DECLARED_VALUE 工作表,一條服務一列 ------------------
+       欄名不分大小寫,舊名也認;沒有 Service 欄的舊模板(全域一列)寫進每一
+       條服務,Default / All 也是;服務名可帶 Commercial / Residential 後綴。
+       以前這幾種寫法一律靜靜跳過,畫面上還是公告價,看起來像匯入沒作用。
+       空格不動原值 —— 空白模板匯進來不該把設定洗掉,和 Zone 的規則同一條。
+       認不得的服務名還是不猜(猜錯會把費率寫到別條線上),但要講出來。 */
+    const dvName=bk.order.find(nm=>/^declared[ _-]?value$/i.test(String(nm==null?"":nm).trim()));
+    const dvs=dvName?bk.sheets[dvName]:null;
+    if(dvs&&dvs.length>1){
+      const norm=v=>String(v==null?"":v).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g,"");
+      const hdr=sheetHeader(dvs).map(norm);
+      const col=(...names)=>{ for(const nm of names){ const i=hdr.indexOf(norm(nm)); if(i>=0) return i; } return -1; };
+      const si=col("Service","Channel","Shipment Type","服務","渠道");
+      const cols={free:col("Free up to","Free allowance","Free limit","Free","免費額度"),
+                  min:col("Minimum charge","Min charge","Minimum","最低收費"),
+                  unit:col("Step","Unit","Per","級距","級距單位"),
+                  rate:col("Per step","Unit rate","Rate","Per unit","每級距","每級距費率"),
+                  max:col("Max value","Max insurable value","Maximum","Max","Cap","最高保額","上限"),
+                  flat:col("Flat up to","Flat","Flat limit","固定費率適用至")};
+      if(Object.values(cols).every(i=>i<0)) shapes.push("DECLARED_VALUE!columns");
+      else{
+        sawDv=true;
+        const fams=dvFamilies();
+        const byNorm=new Map(fams.map(f=>[norm(f),f]));
+        const resolve=who=>{
+          const w=String(who==null?"":who).trim();
+          if(!w||/^(default|all|\*|全部|預設|所有)$/i.test(w)) return fams;
+          const f=byNorm.get(norm(svcOfChan(w)))||byNorm.get(norm(w));
+          return f?[f]:null;
+        };
+        const ov=CFG.raw.declared_value_by_channel||(CFG.raw.declared_value_by_channel={});
+        const done=new Set();
+        for(let r=1;r<dvs.length;r++){
+          const row=dvs[r]; if(!row) continue;
+          const vals={};
+          for(const k of Object.keys(cols)){
+            const i=cols[k]; if(i<0||blankCell(row[i])) continue;
+            vals[k]=String(toNum(row[i]));
+          }
+          if(!Object.keys(vals).length) continue;
+          const targets=resolve(si>=0?row[si]:"");
+          if(!targets){ shapes.push("DECLARED_VALUE?"+String(row[si]).trim()); continue; }
+          for(const f of targets){
+            const o=ov[f]||(ov[f]={});
+            for(const k of Object.keys(vals)) o[k]=vals[k];
+            done.add(f);
+          }
+        }
+        if(done.size){ n+=done.size; shapes.push("DECLARED_VALUE("+done.size+")"); }
+      }
+    }
     /* --- 長表:Fee Type | Shipment Type | Zone | Amount ----------------
-       本站自己匯出的形狀。上面兩種都沒中才走這裡。 */
-    if(!n){
+       本站自己匯出的形狀。上面幾種都沒中才走這裡 —— 只帶 DECLARED_VALUE 的
+       模板也算「中了」,不然下面會回報「沒有 Fee Type 欄」而且整個中斷,
+       申報價值那一頁根本讀不到。 */
+    /* 認得的形狀看過了,只是每一格都空白 —— 那是還沒填的空模板,不是格式
+       不對;下面那句「沒有 Fee Type 欄」講的是另一件事,會讓人以為檔壞了。 */
+    if(!n&&sawDv){
+      setStatus(L("這個檔每一格都是空的,沒有變更","nothing in that file is filled in — no change"));
+      inp.value=""; return;
+    }
+    if(!n&&!shapes.length){
       const rows=bk.sheets[bk.order.find(x=>(bk.sheets[x]||[]).length>1)||bk.order[0]]||[];
       if(rows.length<2){ setStatus(LANG?"That file is empty":"這個檔是空的"); return; }
       const hdr=rows[0].map(c=>String(c||"").trim().toLowerCase());
@@ -7664,42 +7723,7 @@ $("#fImportAcc") && ($("#fImportAcc").onchange=e=>{
       }
     }
 
-    /* --- 申報價值:DECLARED_VALUE 工作表,一列四個數 -------------------
-       空格不動原值 —— 空白模板匯進來不該把設定洗掉,和 Zone 的規則同一條。 */
-    const dvs=bk.sheets["DECLARED_VALUE"];
-    if(dvs&&dvs.length>1){
-      const hdr=sheetHeader(dvs);
-      const si=hdr.indexOf("Service");
-      const map=[["Free up to","dv_free_limit","free"],
-                 ["Minimum charge","dv_min_charge","min"],
-                 ["Step","dv_unit","unit"],["Per step","dv_unit_rate","rate"],
-                 ["Max value","dv_max","max"],["Flat up to","","flat"]];
-      const a=CFG.raw.accessorial_charges||(CFG.raw.accessorial_charges={});
-      const ov=CFG.raw.declared_value_by_channel||(CFG.raw.declared_value_by_channel={});
-      const known=new Set([...new Set(Object.keys(CFG.raw.builtin_service_zones||{})
-                    .map(svcOfChan))]);
-      let m=0;
-      for(let r=1;r<dvs.length;r++){
-        const row=dvs[r]; if(!row) continue;
-        /* 沒有 Service 欄就不知道這一列是哪條服務的費率 —— 不猜。
-           舊模板(全域一列)也走這裡:講出來,讓人重新匯出一份。 */
-        if(si<0){ shapes.push("DECLARED_VALUE!noservice"); break; }
-        const who=String(row[si]||"").trim();
-        if(!who) continue;
-        if(!known.has(who)){
-          /* 認不得的服務名不猜,講出來就好 —— 猜錯會把費率寫到別條線上。 */
-          shapes.push("DECLARED_VALUE?"+who); continue;
-        }
-        for(const [,,ok] of map){
-          const col=map.find(x=>x[2]===ok)[0];
-          const i=hdr.indexOf(col);
-          if(i<0||blankCell(row[i])) continue;
-          (ov[who]||(ov[who]={}))[ok]=String(toNum(row[i]));
-          m++;
-        }
-      }
-      if(m){ n+=m; shapes.push("DECLARED_VALUE("+m+")"); }
-    }
+
 
     CFG=readConfig(CFG.raw); DIRTY=true; renderConfigTabs();
     setStatus((LANG?"Imported ":"已匯入 ")+n+(LANG?" rate row(s)":" 列費率")
