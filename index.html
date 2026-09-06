@@ -4324,7 +4324,12 @@ function shipmentsOf(rows){
     const hasShp=s.lines.some(l=>l.layer==="SHP");
     const adjFrt=s.lines.filter(l=>l.layer==="ADJ"
       && String(l.cls||"").toUpperCase()==="FRT");
-    const adjFixesOutbound = !hasShp && adjFrt.length>0
+    /* 配件式的 ADJ 運費行(地址更正 ADC 等)是掛在這一段上的更正,不是在
+       補另一段出貨 —— 只有真正的運費更正才代表「原出貨不在本期」。不然
+       「RTN + 一條 ADC」會把回程整段拆走,主體剩一條 Zone 000、重量 0 的
+       更正行,運費算成 0(實例:Returns Ground + Address Correction)。 */
+    const adjFixesOutbound = !hasShp
+      && adjFrt.some(l=>!isAccessorialAdjLine(l))
       && !adjFrt.some(l=>/UNDELIVERABLE\s+RETURN/i.test(String(l.desc||"")));
     s.rtnLines=(rtnLines.length&&(hasShp||adjFixesOutbound))?rtnLines:[];
     if(s.rtnLines.length) s.lines=s.lines.filter(l=>s.rtnLines.indexOf(l)<0);
