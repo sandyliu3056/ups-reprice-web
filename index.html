@@ -8080,14 +8080,14 @@ function bkdSection(r){
     const resi=!!res.residential;
     const chip=esc2(res.channel||"");
     const bwv=res.bw&&res.bw.billable?res.bw.billable:0;
-    /* 計費重兩顆膠囊各自標:UPS 那顆是這一段帳單行上的 Billed Weight,
-       Reprice 那顆是引擎算出的計費重 —— 兩個常常相同,不同的那一次
-       (DIM 撐重、更正改重)正是要一眼看到的。 */
+    /* 計費重兩顆膠囊,用帳務欄位名標,不寫系統抬頭:Billed weight 是這一段
+       帳單行上 UPS 用的計費重,Billable weight 是引擎算出的 —— 兩個常常
+       相同,不同的那一次(DIM 撐重、更正改重)正是要一眼看到的。 */
     const upsBw=Math.max(0,...groups.flatMap(g=>g.lines.map(l=>toNum(l.billed)||0)));
     const meta=[];
     if(res.zoneUsed||res.s.zone) meta.push("Zone "+esc2(res.zoneUsed||res.s.zone));
-    if(upsBw) meta.push("UPS "+esc2(upsBw)+" lb");
-    if(bwv) meta.push(L("重新計價 ","Reprice ")+esc2(bwv)+" lb");
+    if(upsBw) meta.push("Billed weight "+esc2(upsBw)+" lb");
+    if(bwv) meta.push("Billable weight "+esc2(bwv)+" lb");
     const gd=(groups.find(g=>g.shipDate)||{}).shipDate||res.s.shipDate;
     /* 這是 UPS 帳單上的 Transaction Date —— 這一段實際發生(出貨/調整)的
        日期,燃油期間照它取。光一個日期認不出是什麼,標出來。 */
@@ -8139,7 +8139,39 @@ function bkdSection(r){
       +`<div class="bkdside-ft"><span>${L("小計","Subtotal")}</span><span class="num">${money(psub)}</span></div></div></div>`
       +`</div></div>`;
   };
-  H.push(segCard(r, s.groups||[], segName(s.layer)));
+  /* 同一期裡「原段 + 調整」不再疊在一張卡:原段照原始行重算一次(A),
+     調整卡放差額(合併 C − A)—— 兩張的重新計價小計相加,恆等於合併
+     算出的總額,跟跨期更正單獨成卡的樣子一致。差額算不出來(重組失敗)
+     就退回原本的合併卡,不會少東西。 */
+  const gAll=s.groups||[];
+  const adjG=gAll.filter(g=>g.layer==="ADJ");
+  const mainG=gAll.filter(g=>g.layer!=="ADJ");
+  let split=null;
+  if(adjG.length && mainG.length){
+    try{
+      const rowsA=mainG.flatMap(g=>g.lines);
+      const sA=shipmentsOf(rowsA)[0];
+      const resA=sA?priceShipment(CFG,sA):null;
+      if(resA){
+        const keys=new Set([...Object.keys(r.acc||{}),...Object.keys(resA.acc||{})]);
+        const dAcc={};
+        for(const k of keys){
+          const dv=((r.acc||{})[k]||0)-((resA.acc||{})[k]||0);
+          if(Math.abs(dv)>=0.005) dAcc[k]=dv;
+        }
+        const resD=Object.assign({},r,{
+          base:(r.base||0)-(resA.base||0), netCA:true, reclassCA:false,
+          baseMissing:false, acc:dAcc, fuel:(r.fuel||0)-(resA.fuel||0)});
+        const show=g2=>g2.filter(g=>g.lines.some(l=>Math.abs(l.net)>=0.005));
+        const mainShow=show(mainG).length?show(mainG):mainG;
+        const mainLead=(mainShow.find(g=>g.layer==="SHP"||g.layer==="RTN")||mainShow[0]).layer;
+        split=[segCard(resA, mainShow, segName(mainLead)),
+               segCard(resD, show(adjG).length?show(adjG):adjG, segName("ADJ"))];
+      }
+    }catch(e){}
+  }
+  if(split) H.push(split[0], split[1]);
+  else H.push(segCard(r, gAll, segName(s.layer)));
   if(r.rtn) H.push(segCard(r.rtn, (s.rtnSeg&&s.rtnSeg.groups)||[], L("退件回程","Return leg")));
   if(r.npb) H.push(segCard(r.npb, (s.npb&&s.npb.groups)||[], L("第二段運送","Second movement")));
   const bkDiff=(r.total||0)-s.upsTotal;
