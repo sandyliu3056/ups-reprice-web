@@ -12513,6 +12513,13 @@ async function runReport(ing, ships){
     if(!filed.stored)
       toast(LANG?"History index is too large for this browser to store."
                 :"歷史索引太大,這個瀏覽器存不下。", false);
+    /* 歸檔寫進磁碟之外,記憶體裡的歷史也要跟上 —— 不然帳單歷史頁到
+       重新整理之前都看不到這一期。同期號整期取代,跟匯入舊帳單同一套。
+       HISTROWS 還沒還原完(null)就不動它,還原會連這一期一起帶回來。 */
+    if(Array.isArray(HISTROWS)){
+      const again=new Set(ing.rows.map(r=>(r.invoice||"").trim()).filter(Boolean));
+      HISTROWS=HISTROWS.filter(r=>!again.has((r.invoice||"").trim())).concat(ing.rows);
+    }
     ROWS=ing.rows; SHIPS=ships;
     /* 跨期更正的原件先從 IndexedDB 撈成同步對照再計價。
        撈不到(沒有歷史、私密視窗)就空表照算,跨期單照舊標問題。 */
@@ -13431,7 +13438,12 @@ function renderCode(){
 }
 
 function renderHist(){
-  const src=HISTROWS&&HISTROWS.length?HISTROWS:(ROWS||[]);
+  /* 歸檔庫與「剛匯入的這一期」一起看:以前二選一,歸檔庫一有東西,
+     剛倒進去的那期就從這頁隱形 —— 統計停在舊數字、單號查不到,
+     要重新整理才出現。同一期已在歸檔庫的不重複。 */
+  const inHist=new Set((HISTROWS||[]).map(r=>String(r.invoice||"").trim()));
+  const freshRows=(ROWS||[]).filter(r=>!inHist.has(String(r.invoice||"").trim()));
+  const src=(HISTROWS||[]).concat(freshRows);
   const invs=new Set(), trks=new Set();
   let minD="", maxD="";
   for(const r of src){
@@ -13449,8 +13461,11 @@ function renderHist(){
   /* 追蹤號或發票期號都能查 —— 匯進來的帳單本來就該用期號找得到,
      只認追蹤號的話,想看整期有哪些行反而沒有入口。 */
   const q=(($("#trkSearch")||{}).value||"").trim().toLowerCase();
+  /* 追蹤號多半是從別的系統複製來的,中間常夾空格、連字號、不斷行空白。
+     比對用「只留英數字」的正規形,貼成什麼樣子都找得到;期號照舊子字串比。 */
+  const qn=q.replace(/[^a-z0-9]/g,"");
   const show=q ? src.filter(r=>
-        (r.tracking||"").toLowerCase().includes(q)
+        (qn && String(r.tracking||"").toLowerCase().replace(/[^a-z0-9]/g,"").includes(qn))
      || (r.invoice||"").toLowerCase().includes(q)) : [];
   const tb=$("#tHist")&&$("#tHist").tBodies[0];
   if(!tb) return;
@@ -13487,7 +13502,8 @@ function renderHist(){
         <td>${esc(r.dimsC||"")}</td><td>${esc(r.dimsA||"")}</td>
         <td class="num${r.net<0?" neg":""}">${money(r.net)}</td></tr>`).join("")
     : `<tr><td colspan="13" class="empty">${
-        q ? (LANG?"No lines for that tracking number.":"這個追蹤號沒有資料。")
+        q ? (LANG?`No lines for that number in the ${invs.size} archived invoice(s) (${minD} ~ ${maxD}) — check the number, or that shipment's invoice period is not imported yet.`
+                 :`已歸檔的 ${invs.size} 期(${minD} ~ ${maxD})裡沒有這個號碼 —— 請確認號碼,或這一票所屬的帳單期還沒匯入。`)
           : (LANG?"Type a tracking number above and press Search."
                  :"在上面輸入追蹤號後按查詢。")}</td></tr>`;
 }
