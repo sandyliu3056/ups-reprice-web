@@ -12067,16 +12067,15 @@ function addFuelRange(){
     s[c].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
   }
   CFG=readConfig(CFG.raw); DIRTY=true; renderFuelRows();
-  /* 有折扣:成功後把算式講出來,欄位與折數保留 —— 連加下一段
-     (下一期的公告值)只要改 Fuel % 就好。沒折扣照舊清空。 */
-  if(_eff!==null){
-    fuelNote((LANG?"Added: ":"已加入:")+_effTitle);
-    $("#fuelFrom").value=""; $("#fuelTo").value="";
-  }else{
-    fuelNote("");
-    $("#fuelFrom").value=""; $("#fuelTo").value=""; $("#fuelPct").value="";
-    fuelEffPaint();
-  }
+  /* 新增了就要清除:日期、%、折數、勾選的渠道整組歸零,下一段從乾淨的
+     表單開始。加了什麼寫在底下那一行(含折扣算式),要對照看得到。 */
+  $("#fuelFrom").value=""; $("#fuelTo").value=""; $("#fuelPct").value="";
+  const fold=$("#fuelPctFold");
+  if(fold&&fold.options.length) fold.selectedIndex=0;
+  fuelEffPaint();
+  document.querySelectorAll("#fuelChans .fchan:checked").forEach(c=>c.checked=false);
+  fuelNote((LANG?"Added: ":"已新增:")+(_eff!==null?_effTitle:pct+"%")
+    +(LANG?" · "+chans.length+" channel(s)":" · "+chans.length+" 個渠道"));
   setStatus((LANG?"Added a range to ":"已新增區間到 ")+chans.length
     +(LANG?" channel(s)":" 個渠道"));
 }
