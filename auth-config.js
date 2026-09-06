@@ -2,5 +2,6 @@
    Never put the service_role key in this file. */
 window.UPS_AUTH_CONFIG = {
   url: "https://snalvdjsnysutmkqjyaa.supabase.co",
-  anonKey: "sb_publishable_qnJcmZzCIb__E_PVxUcZJA_hdHadXlw"
+  anonKey: "sb_publishable_qnJcmZzCIb__E_PVxUcZJA_hdHadXlw",
+   authMode: "supabase"
 };
