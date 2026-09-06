@@ -826,9 +826,11 @@ tr.bkdjump:hover td{background:color-mix(in srgb, var(--select) 55%, var(--panel
 .bkdside{border-radius:7px;overflow:hidden;display:flex;flex-direction:column}
 .bkdside.ups{border:2px solid var(--ups)}
 .bkdside.rp{border:2px solid var(--rp)}
-.bkdside-lbl{font-size:11px;font-weight:700;padding:5px 10px;letter-spacing:.8px;
+.bkdside-lbl{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  font-size:11px;font-weight:700;padding:5px 10px;letter-spacing:.8px;
   text-transform:uppercase;color:#fff}
 .bkdside.ups .bkdside-lbl{background:var(--ups)}
+.bkdside-lbl .bwv{font-weight:600;letter-spacing:.2px;text-transform:none;opacity:.92}
 .bkdside.rp .bkdside-lbl{background:var(--rp)}
 .bkdside-body{padding:6px 9px 7px;flex:1;color:var(--text);
   display:flex;flex-direction:column}
@@ -8080,14 +8082,12 @@ function bkdSection(r){
     const resi=!!res.residential;
     const chip=esc2(res.channel||"");
     const bwv=res.bw&&res.bw.billable?res.bw.billable:0;
-    /* 計費重兩顆膠囊,用帳務欄位名標,不寫系統抬頭:Billed weight 是這一段
-       帳單行上 UPS 用的計費重,Billable weight 是引擎算出的 —— 兩個常常
-       相同,不同的那一次(DIM 撐重、更正改重)正是要一眼看到的。 */
+    /* 計費重寫在各自格子的上方:UPS BILLED 標題列右側放 UPS 的,REPRICE
+       標題列右側放引擎的,兩邊都標「Billed weight」—— 頭排藥丸不放重量。
+       兩個常常相同,不同的那一次(DIM 撐重、更正改重)左右一對就看到。 */
     const upsBw=Math.max(0,...groups.flatMap(g=>g.lines.map(l=>toNum(l.billed)||0)));
     const meta=[];
     if(res.zoneUsed||res.s.zone) meta.push("Zone "+esc2(res.zoneUsed||res.s.zone));
-    if(upsBw) meta.push("Billed weight "+esc2(upsBw)+" lb");
-    if(bwv) meta.push("Billable weight "+esc2(bwv)+" lb");
     const gd=(groups.find(g=>g.shipDate)||{}).shipDate||res.s.shipDate;
     /* 這是 UPS 帳單上的 Transaction Date —— 這一段實際發生(出貨/調整)的
        日期,燃油期間照它取。光一個日期認不出是什麼,標出來。 */
@@ -8131,10 +8131,12 @@ function bkdSection(r){
       +`<span class="bkdchip ${resi?"resi":"com"}">${chip}</span>`
       +`<span class="bkdmeta">${meta.map(m=>`<span class="mp">${m}</span>`).join("")}</span></div>`
       +`<div class="bkdcols">`
-      +`<div class="bkdside ups"><div class="bkdside-lbl">${L("UPS 實收","UPS billed")}</div>`
+      +`<div class="bkdside ups"><div class="bkdside-lbl">${L("UPS 實收","UPS billed")}${
+          upsBw?`<span class="bwv">Billed weight ${esc2(upsBw)} lb</span>`:""}</div>`
       +`<div class="bkdside-body"><table>${U.join("")}</table>`
       +`<div class="bkdside-ft"><span>${L("小計","Subtotal")}</span><span class="num">${money(usub)}</span></div></div></div>`
-      +`<div class="bkdside rp"><div class="bkdside-lbl">${L("重新計價","Reprice")}</div>`
+      +`<div class="bkdside rp"><div class="bkdside-lbl">${L("重新計價","Reprice")}${
+          bwv?`<span class="bwv">Billed weight ${esc2(bwv)} lb</span>`:""}</div>`
       +`<div class="bkdside-body"><table>${P.join("")}</table>`
       +`<div class="bkdside-ft"><span>${L("小計","Subtotal")}</span><span class="num">${money(psub)}</span></div></div></div>`
       +`</div></div>`;
