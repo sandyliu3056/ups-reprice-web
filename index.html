@@ -8080,9 +8080,14 @@ function bkdSection(r){
     const resi=!!res.residential;
     const chip=esc2(res.channel||"");
     const bwv=res.bw&&res.bw.billable?res.bw.billable:0;
+    /* 計費重兩顆膠囊各自標:UPS 那顆是這一段帳單行上的 Billed Weight,
+       Reprice 那顆是引擎算出的計費重 —— 兩個常常相同,不同的那一次
+       (DIM 撐重、更正改重)正是要一眼看到的。 */
+    const upsBw=Math.max(0,...groups.flatMap(g=>g.lines.map(l=>toNum(l.billed)||0)));
     const meta=[];
     if(res.zoneUsed||res.s.zone) meta.push("Zone "+esc2(res.zoneUsed||res.s.zone));
-    if(bwv) meta.push(esc2(bwv)+" lb");
+    if(upsBw) meta.push("UPS "+esc2(upsBw)+" lb");
+    if(bwv) meta.push(L("重新計價 ","Reprice ")+esc2(bwv)+" lb");
     const gd=(groups.find(g=>g.shipDate)||{}).shipDate||res.s.shipDate;
     /* 這是 UPS 帳單上的 Transaction Date —— 這一段實際發生(出貨/調整)的
        日期,燃油期間照它取。光一個日期認不出是什麼,標出來。 */
