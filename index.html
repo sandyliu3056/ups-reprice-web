@@ -13623,39 +13623,6 @@ $("#bCsv").onclick=async ()=>{
           ...ovRows.map(r=>[tx(r[0]),dc(r[1]),nm(r[2]),nm(r[3]),nm(r[4]),nm(r[5],PCT)])],
     cols:[{w:20},{w:12},{w:14},{w:16},{w:14},{w:10}], freeze:{r:1,c:0}});
 
-  /* ---- 本期摘要:和利潤報表同一版面,一期一個區塊,放第一頁 ---- */
-  {
-    const INT="#,##0";
-    const lab=v=>({v:v,t:"s",s:{bold:true,align:"left",border:true}});
-    const acct0=(typeof acctNorm==="function"?acctNorm((ROWS&&ROWS[0]&&ROWS[0].account)||""):"")
-              ||(typeof acctFromInvoice==="function"?acctFromInvoice(Object.keys(byInv).sort()[0]||""):"");
-    const sumRows=[[hc(L("項目","Item"),"left"),hc(L("數值","Value"),"right")]];
-    ovRows.forEach((r,i)=>{
-      if(i) sumRows.push([{v:"",t:"s"},{v:"",t:"s"}]);
-      const n=(byInv[r[0]]||[]).length, sv=r[3], cv=r[2];
-      sumRows.push([lab(L("期別","Invoice")),tx(r[0])]);
-      sumRows.push([lab(L("帳單日","Invoice date")),dc(r[1])]);
-      sumRows.push([lab(L("UPS 帳號","UPS account")),tx(acct0)]);
-      sumRows.push([lab(L("貨件數","Shipments")),nm(n,INT)]);
-      sumRows.push([lab(L("向客戶收","Charge customer")),nm(sv)]);
-      sumRows.push([lab("UPS"),nm(cv)]);
-      sumRows.push([lab(L("毛利","Profit")),nm(r2(sv-cv))]);
-      sumRows.push([lab(L("毛利率","Margin")),nm(sv?r6((sv-cv)/Math.abs(sv)):0,PCT)]);
-    });
-    sumRows.push([{v:"",t:"s"},{v:"",t:"s"}]);
-    sumRows.push([lab(L("帳戶層費用","Account charges")),nm(r2(accountTotal))]);
-    if(ovRows.length>1){
-      const SV=r2(ovRows.reduce((a,r)=>a+r[3],0)), CV=r2(ovRows.reduce((a,r)=>a+r[2],0));
-      sumRows.push([{v:"",t:"s"},{v:"",t:"s"}]);
-      sumRows.push([ft(L("合計 向客戶收","Total · Charge customer")),ft(SV)]);
-      sumRows.push([ft(L("合計 UPS","Total · UPS")),ft(CV)]);
-      sumRows.push([ft(L("合計毛利","Total profit")),ft(r2(SV-CV))]);
-      sumRows.push([ft(L("合計毛利率","Total margin")),ft(SV?r6((SV-CV)/Math.abs(SV)):0,PCT)]);
-    }
-    sheets.unshift({name:L("本期摘要","Summary"), rows:sumRows,
-      cols:[{w:22},{w:24}], freeze:{r:1,c:0}});
-  }
-
   /* ---- 對不起來的錢 ------------------------------------------------------
      三種完全不同的東西,以前疊在同一張平表上,靠一欄重複二十幾次的英文句子
      分辨,而那一欄的每一格都一樣。改成三個區塊:每塊自己的標題(帶小計)、
