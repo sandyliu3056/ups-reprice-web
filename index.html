@@ -4680,6 +4680,15 @@ function idbAllRows(){
     rq.onerror=()=>rej(rq.error);
   }));
 }
+/* 只列期號,不解碼明細 —— 「這一期的明細到底在不在這個瀏覽器」要用它問,
+   問索引(localStorage)是不準的,兩邊會分家。 */
+function idbKeys(){
+  return idbTx("readonly").then(st=>new Promise((res,rej)=>{
+    const rq=st.getAllKeys();
+    rq.onsuccess=()=>res((rq.result||[]).map(String));
+    rq.onerror=()=>rej(rq.error);
+  }));
+}
 /* 只取一期的明細。store 的 keyPath 就是期號,所以直接 get。 */
 function idbRowsFor(key){
   return idbTx("readonly").then(st=>new Promise((res,rej)=>{
@@ -4713,6 +4722,12 @@ function histInv(){
   catch(e){ HISTINV={}; }
   return HISTINV;
 }
+/* 還在路上的歷史明細寫入。有任何一筆沒寫完,關分頁前瀏覽器會先問一聲 ——
+   不問的話,匯完馬上關掉的那一期就只剩索引沒有明細。 */
+const HIST_WRITES=new Set();
+function histWriteGuard(){
+  window.onbeforeunload = HIST_WRITES.size ? ()=>"" : null;
+}
 /* 把一批帳單列歸檔。同一期號再進來就整期取代,不是疊上去 ——
    桌面版 store_frame() 是先 DELETE 該期再 INSERT,同一份檔案匯兩次
    不該把每一列變成兩列。 */
@@ -4736,13 +4751,25 @@ function fileInvoices(rows, how){
   let stored=true;
   try{ localStorage.setItem(histInvKey(), JSON.stringify(inv)); }
   catch(e){ stored=false; }
-  /* 明細另外進 IndexedDB。寫失敗不影響索引,只是重新整理後查不到明細。 */
-  idbPutInvoices(rows).catch(e=>{
-    console.warn("history detail not stored:", e && e.message);
-  });
+  /* 明細另外進 IndexedDB。這筆寫入要看得住,不能射後不理:寫完之前關分頁
+     或登出,明細就沒落盤,而索引已經記了這一期 —— 下次登入看起來就是
+     「歸檔了卻是空的」。所以還在寫的時候擋 beforeunload、登出前等它寫完;
+     寫失敗要跳紅字讓人看見,不能只留在 console。 */
+  const done=idbPutInvoices(rows)
+    .catch(e=>{
+      console.warn("history detail not stored:", e && e.message);
+      toast((LANG?"This period's detail rows were NOT stored in this browser ("
+                 :"這一期的明細沒有存進瀏覽器(")
+        +String((e&&e.message)||e)
+        +(LANG?"). The index was recorded — re-import the same file to restore the rows."
+              :")。索引已記下 —— 重新匯入同一份檔案即可補回明細。"), false);
+      return null;
+    })
+    .finally(()=>{ HIST_WRITES.delete(done); histWriteGuard(); });
+  HIST_WRITES.add(done); histWriteGuard();
   /* 同一批也送上雲端,跟著帳號走。histCloudPush 自己會檢查登入與鑰匙。 */
   try{ histCloudPush(rows); }catch(e){}
-  return {added, replaced, stored, count:Object.keys(seen).length};
+  return {added, replaced, stored, count:Object.keys(seen).length, done};
 }
 /* 舊的期別存進索引時還沒有記帳號,畫面上只能從期號推。
    明細其實就在本機的 IndexedDB 裡,每一列都帶著帳號號碼 —— 還原明細的時候
@@ -5688,10 +5715,16 @@ async function histCloudPull(){
     list=data;
   }catch(e){ return 0; }
   const inv=histInv();
+  /* 「我有沒有這一期」不能只問 localStorage 的索引:明細在 IndexedDB,
+     兩邊是會分家的 —— 瀏覽器空間吃緊時會清掉 IndexedDB 卻留著 localStorage,
+     寫到一半關分頁也一樣。索引說有、明細不在,雲端那份就要抓回來。 */
+  let here=null;
+  try{ here=new Set(await idbKeys()); }catch(e){ here=null; }
   const want=list.filter(r=>{
     const mine=inv[r.invoice];
     const at=String((r.meta&&r.meta.at)||"");
-    return !mine || (at && at>String(mine.at||""));
+    const lost=!!(here && mine && !here.has(String(r.invoice)));
+    return !mine || lost || (at && at>String(mine.at||""));
   });
   let got=0;
   for(const r of want){
@@ -6010,6 +6043,17 @@ function restoreHistoryDetail(){
       setStatus((LANG?"Synced ":"已從帳號同步 ")+got
         +(LANG?" invoice(s) from this account":" 期帳單歷史"));
     });
+  })
+  /* 最後對一次帳:索引裡有、明細卻不在這個瀏覽器、雲端也沒補到的期別,
+     講出來。以前這種期別就是無聲地空著,人只看到「歸檔了卻沒有東西」。 */
+  .then(()=>idbKeys().catch(()=>null))
+  .then(ks=>{
+    if(!ks) return;
+    const here=new Set(ks);
+    const gone=Object.keys(histInv()).filter(k=>!here.has(String(k)));
+    if(gone.length) setStatus(LANG
+      ? gone.length+" archived period(s) have an index entry but no detail rows in this browser — re-import those files to restore them: "+gone.join(", ")
+      : gone.length+" 期只剩索引、明細不在這個瀏覽器(雲端也沒補到)—— 重新匯入原檔即可補回:"+gone.join("、"));
   })
   .catch(()=>{});
 }
@@ -15446,6 +15490,12 @@ step("auth",()=>{
 
   $("#bLogout").onclick=async()=>{
     logAdd("sign out","");
+    /* 歸檔明細還在寫就等它寫完(最多五秒)再登出 —— 匯完馬上登出的那一期,
+       才不會只剩索引沒有明細。 */
+    if(HIST_WRITES.size){
+      setStatus(LANG?"Finishing the history write…":"歷史明細寫入中,稍等…");
+      await Promise.race([Promise.all([...HIST_WRITES]), new Promise(r=>setTimeout(r,5000))]);
+    }
     /* 登出就是登出:兩份都清掉,不然下次開站又自己登進來。 */
     try{ sessionStorage.removeItem(LOCAL_SESSION_KEY);
          localStorage.removeItem(LOCAL_REMEMBER_KEY); }catch(e){}
