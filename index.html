@@ -2602,11 +2602,15 @@ function schedDate(v){
 function fuelSettingsFor(cfg, channel){
   const raw=cfg.raw||{};
   const name=String(channel||"").trim();
+  /* 排程與 % 先認完整渠道名(舊資料:Ground Commercial),沒有才認服務名
+     (新寫法:Ground)。非 Ground 渠道兩個名字相同,行為不變。 */
+  const svc=svcOfChan(name);
   const gSched=Array.isArray(raw.fuel_schedule)?raw.fuel_schedule:[];
   const gPct=toNum((raw.global_rules||{}).fuel_percent);
-  const cSched=(raw.channel_fuel_schedules||{})[name];
-  const cPctRaw=String(((raw.channel_fuel_percents||{})[name])==null
-    ?"":(raw.channel_fuel_percents||{})[name]).trim();
+  const sMap=raw.channel_fuel_schedules||{}, pMap=raw.channel_fuel_percents||{};
+  const cSched=sMap[name]!=null?sMap[name]:sMap[svc];
+  const pRaw=pMap[name]!=null?pMap[name]:pMap[svc];
+  const cPctRaw=String(pRaw==null?"":pRaw).trim();
   const hasSched=Array.isArray(cSched)&&cSched.length>0;
   if(hasSched||cPctRaw!==""){
     return {sched:hasSched?cSched:gSched, pct:cPctRaw!==""?toNum(cPctRaw):gPct, own:true};
@@ -11940,7 +11944,10 @@ function openFuel(){
   fuelFoldOptions();
   $("#fuelPctFold") && ($("#fuelPctFold").value="");
   fuelEffPaint();
-  const chans=Object.keys(CFG.raw.builtin_service_zones||{}).sort(chanSort);
+  /* 燃油率是服務層級的事:Ground 商/住共用同一個 %,清單用 svcOfChan 折成
+     服務名,「Ground」只出現一次。存進排程的鍵也是服務名;計價時先認完整
+     渠道名(舊資料),再認服務名。 */
+  const chans=[...new Set(Object.keys(CFG.raw.builtin_service_zones||{}).map(svcOfChan))].sort(chanSort);
   $("#fuelChans").innerHTML=chans.map(c=>
     `<label><input type="checkbox" class="fchan" value="${esc(c)}"> ${esc(c)}</label>`).join("");
   renderFuelRows();
@@ -11990,14 +11997,15 @@ function renderFuelRows(){
     (Array.isArray(list)?list:[]).forEach((r,i)=>all.push({ch,i,...r}));
   const sel=$("#fuelFChan");
   if(sel){
-    const chans=Object.keys(CFG.raw.builtin_service_zones||{}).sort(chanSort);
+    const chans=[...new Set(Object.keys(CFG.raw.builtin_service_zones||{}).map(svcOfChan))].sort(chanSort);
     if(FUEL_FCH && !chans.includes(FUEL_FCH)) FUEL_FCH="";
     sel.innerHTML=`<option value="">${L("全部渠道","All channels")}</option>`
       +chans.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
     sel.value=FUEL_FCH;
     sel.onchange=()=>{ FUEL_FCH=sel.value; renderFuelRows(); };
   }
-  const rows=all.filter(r=>!FUEL_FCH || r.ch===FUEL_FCH);
+  /* 舊資料可能存成 Ground Commercial / Ground Residential:篩「Ground」要一起列。 */
+  const rows=all.filter(r=>!FUEL_FCH || svcOfChan(r.ch)===FUEL_FCH);
   const cnt=$("#fuelFCount");
   if(cnt) cnt.textContent=FUEL_FCH?rows.length+" / "+all.length:"";
   const def=(CFG.raw.global_rules||{}).fuel_percent;
