@@ -511,6 +511,9 @@ td.wrap{white-space:normal;max-width:520px}
 #tDemand tr.dim td b{font-weight:500}
 #tDemand tr.editing td{background:var(--select)}
 #tDemand td.acts{white-space:nowrap;text-align:right}
+/* 金額欄不用撐滿整排;狀態欄和最後一個金額之間留一口氣,不然「OVR 530.00」貼著「狀態」。 */
+#tDemand th.num{width:120px}
+#tDemand th.st,#tDemand td.st{padding-left:34px;white-space:nowrap}
 #tDemand td.mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px}
 #tDemand button.act.danger.arm{background:var(--neg);color:#fff}
 /* Demand 期間視窗:日期兩列、類別一列、金額一格一格排,格子上面是代碼、下面一行小字說明。 */
@@ -9648,14 +9651,15 @@ function renderDemand(){
   /* 期間列只是預覽;「新增期間」「編輯」都開視窗(demandDlgOpen),填好按儲存才寫進設定並存到帳號。 */
   const txtDate=v=>{ const iso=schedDate(v); return iso?`<td class="mono">${esc(iso)}</td>`:`<td>${dash}</td>`; };
   const txtAmt=v=>{ const t=String(v==null?"":v).trim(); return `<td class="num mono">${t===""?dash:(isFinite(+t)?esc((+t).toFixed(2)):esc(t))}</td>`; };
-  const stCell=r=>{ const [c,t]=demStatus(r); return `<td><span class="dst ${c}">${esc(t)}</span></td>`; };
+  const stCell=r=>{ const [c,t]=demStatus(r); return `<td class="st"><span class="dst ${c}">${esc(t)}</span></td>`; };
+  const stHead=`<th class="st">${esc(L("狀態","Status"))}</th>`;
   const actView=i=>`<td class="acts"><button type="button" class="act ghost sm demRowEdit" data-i="${i}">${esc(L("編輯","Edit"))}</button> <button type="button" class="act ghost sm danger demRowDel" data-i="${i}">${esc(L("刪除","Delete"))}</button></td>`;
   const H=(zh,en)=>`<th>${esc(L(zh,en))}</th>`;
   const emptyRow=(n,zh,en)=>`<tr><td colspan="${n}" class="empty">${esc(L(zh,en))}</td></tr>`;
   if(tab==="pkg"){
     hint.textContent=L("一件只收一項:OVR 優先、其次 LPS、最後 AHS。一段期間一列,出貨日不在任何一段就不收。「適用類別」留「全部」= 所有渠道;指定了類別的列優先。",
       "One per parcel: OVR first, then LPS, then AHS. One row per date range; a ship date in no row is not charged. Leave Category on All for every channel; a row with a category takes precedence.");
-    th.innerHTML=`<tr>${H("開始","Start")}${H("結束","End")}${H("適用類別","Category")}<th class="num">AHS</th><th class="num">LPS</th><th class="num">OVR</th>${H("狀態","Status")}<th style="width:150px"></th></tr>`;
+    th.innerHTML=`<tr>${H("開始","Start")}${H("結束","End")}${H("適用類別","Category")}<th class="num">AHS</th><th class="num">LPS</th><th class="num">OVR</th>${stHead}<th style="width:150px"></th></tr>`;
     tb.innerHTML=d.special_rows.map((r,i)=>`<tr>${txtDate(r.start)}${txtDate(r.end)}<td>${r.GROUP?`<span class="tag">${esc(r.GROUP)}</span>`:esc(L("全部","All"))}</td>`
         +txtAmt(r.AHS)+txtAmt(r.LPS)+txtAmt(r.OVR)+stCell(r)+actView(i)+`</tr>`).join("")
       ||emptyRow(8,"還沒有期間。按「+ 新增期間」,在視窗裡填日期與金額。","No periods yet. Press + Add period and fill in the dates and amounts.");
@@ -9663,7 +9667,7 @@ function renderDemand(){
   }else if(tab==="svc"){
     hint.textContent=L("每段期間、每個服務類別,一件加收多少。渠道算哪一類在「渠道對應」設定;沒對到的渠道不收。空格 = 這一段這一類不收。",
       "Per date range and per service category: the amount added per package. Which category a channel counts as is set under Channel mapping; unmapped channels are not charged. Blank = not charged.");
-    th.innerHTML=`<tr>${H("開始","Start")}${H("結束","End")}${groups.map(g=>`<th class="num">${esc(g)}</th>`).join("")}${H("狀態","Status")}<th style="width:150px"></th></tr>`;
+    th.innerHTML=`<tr>${H("開始","Start")}${H("結束","End")}${groups.map(g=>`<th class="num">${esc(g)}</th>`).join("")}${stHead}<th style="width:150px"></th></tr>`;
     tb.innerHTML=d.service_rows.map((r,i)=>`<tr>${txtDate(r.start)}${txtDate(r.end)}`+groups.map(g=>txtAmt(r[g])).join("")+stCell(r)+actView(i)+`</tr>`).join("")
       ||emptyRow(groups.length+4,"還沒有期間。按「+ 新增期間」,在視窗裡填日期與各類別的金額。","No periods yet. Press + Add period and fill in the dates and each category.");
     tools.innerHTML="";
