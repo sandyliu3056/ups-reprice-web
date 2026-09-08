@@ -469,6 +469,29 @@ td.neg{color:var(--neg)}
 td.wrap{white-space:normal;min-width:190px}
 td.cells{white-space:normal}
 .empty{color:var(--muted);text-align:center;padding:24px 10px;font-size:13px}
+/* Demand 頁:狀態列、日期格、生效狀態籤、類別籤、試算結果 */
+.demsum{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 0;font-size:12.5px;color:var(--muted)}
+.demsum .pill{font-size:12px}
+.pill.warn{color:var(--run2);border-color:var(--run2)}
+.demdate{display:inline-flex;align-items:center;gap:4px}
+input.cell.dem-date{width:112px;text-align:left}
+#tDemand input.cell.num{width:84px}
+#tDemand select.cell{text-align:left;width:auto;min-width:120px}
+.dst{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;border:1.5px solid var(--line);color:var(--muted)}
+.dst.now{color:var(--run2);border-color:var(--run2);font-weight:600}
+.dst.future{color:var(--accent);border-color:var(--accent)}
+.dst.past{opacity:.6}
+.tag{display:inline-block;padding:1px 8px;border:1.5px solid var(--line);border-radius:999px;font-size:11.5px;margin:1px 2px 1px 0;background:var(--stripe)}
+td.wrap{white-space:normal;max-width:520px}
+.demtools{margin-top:10px}
+.demtools:empty{display:none}
+.dcflag{display:inline-flex;align-items:center;gap:5px;font-size:13px;margin-left:6px}
+.dcout{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;min-height:32px}
+.dcchip{display:inline-flex;flex-direction:column;padding:6px 12px;border-radius:9px;border:1.5px solid var(--line);background:var(--stripe);min-width:110px}
+.dcchip small{font-size:11px;color:var(--muted);letter-spacing:.04em}
+.dcchip b{font-family:"Cascadia Mono",Consolas,monospace;font-size:15px;color:var(--accent)}
+.dcchip.total{border-color:var(--accent);background:var(--select)}
+.dcchip.off b{color:var(--muted);font-family:inherit;font-weight:400;font-size:12.5px}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
 .kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:600;color:var(--accent)}
 /* 提示一律純文字,不用色塊。整頁到處都是奶油色方塊之後,反而看不出
@@ -1291,14 +1314,21 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 </section>
 
 <!-- ==================== Demand ==================== -->
+<!-- Demand(旺季)附加費。四個分頁跟計價引擎 calcDemand 同一份資料:
+     ① 包裹類:一段期間一列,AHS / LPS / OVR 三個金額,一件只收一項(OVR > LPS > AHS)
+     ② 服務別:一段期間一列,一個服務類別一欄
+     ③ 服務類別:內建四個 + 自訂
+     ④ 渠道對應:每條渠道算哪一個類別;沒對到就不收服務別
+     格子直接改,改完按「儲存」。底下另有試算,挑日期、渠道就看得到會收多少。 -->
 <section class="page" id="p-demand">
   <div class="lf sketch">
-    <div class="row" style="justify-content:space-between">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
       <h3 class="display" style="margin:0"><span class="em">⚡</span>
         <span data-i18n="hd.demand">Demand Surcharge</span></h3>
       <span><label class="inlab" data-i18n="lb.applydemand">Apply to repricing</label>
         <select id="demandOn"><option value="off">Off</option><option value="on">On</option></select></span>
     </div>
+    <div class="demsum" id="demandSum"></div>
     <div class="subtabs" id="demandTabs">
       <button data-d="pkg" aria-selected="true"  data-i18n="dt.pkg">Package surcharges</button>
       <button data-d="svc" aria-selected="false" data-i18n="dt.svc">Service level rates</button>
@@ -1307,16 +1337,31 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
     </div>
     <div class="subpanel">
       <p class="hint" id="demandHint"></p>
-      <div class="tablewrap" style="max-height:40vh">
+      <div class="tablewrap" style="max-height:44vh">
         <table id="tDemand"><thead></thead><tbody></tbody></table>
       </div>
+      <div class="row demtools" id="demandTools"></div>
     </div>
     <div class="row" style="margin-top:12px">
       <button class="act ghost" id="bAddPeriod" data-i18n="btn.addperiod">Add period</button>
       <button class="act ghost" id="bDelPeriod" data-i18n="btn.delperiod">Delete selected</button>
-      <button class="act" onclick="saveSettings()" data-i18n="btn.savedemand">Save Demand settings</button>
-      <span class="savenote"></span>
+      <button class="act" id="bSaveDemand" data-i18n="btn.savedemand">Save Demand settings</button>
+      <span class="savenote" id="demandNote"></span>
     </div>
+  </div>
+  <div class="lf sketch">
+    <h3 class="display"><span class="em">🧮</span><span data-i18n="hd.demcheck">Quick check</span></h3>
+    <p class="hint" style="margin:0 0 10px" data-i18n="hint.demcheck">Pick a ship date and a channel to see what Demand adds to one package. Tick the surcharges that package already has.</p>
+    <div class="row">
+      <label class="inlab" style="margin-left:0" data-i18n="lb.dcdate">Ship date</label>
+      <span class="demdate"><input id="dcDate" class="cell dem-date" placeholder="YYYY-MM-DD"><button type="button" class="act ghost sm demPick" data-for="dcDate">📅</button></span>
+      <label class="inlab" data-i18n="lb.dcchan">Channel</label>
+      <select id="dcChan" class="cell" style="width:220px;text-align:left"></select>
+      <label class="dcflag"><input type="checkbox" id="dcAhs"> AHS</label>
+      <label class="dcflag"><input type="checkbox" id="dcLps"> LPS</label>
+      <label class="dcflag"><input type="checkbox" id="dcOvr"> OVR</label>
+    </div>
+    <div id="dcOut" class="dcout"></div>
   </div>
 </section>
 
@@ -2540,6 +2585,7 @@ function seedBuiltinFees(cfg){
 function readConfig(cfg){
   seedBuiltinFees(cfg);
   seedDeclaredValue(cfg);
+  if(typeof demandNormalize==="function") demandNormalize(cfg);
   const g=cfg.global_rules||{};
   const tables=(cfg.base_rate_tables||[]).map(t=>({
     /* 舊格式的字串鍵費率表存的是 residential: null,代表「兩種旗標都收」。
@@ -7122,17 +7168,6 @@ $("#bChanDimTicked") && ($("#bChanDimTicked").onclick=()=>
 $("#bChanDimClear") && ($("#bChanDimClear").onclick=()=>
   setChanDim(dimTicked(), ""));
 /* 附加費:篩選、勾選移除、範本匯出匯入 */
-$("#demandTabs") && ($("#demandTabs").onclick=e=>{
-  const b=e.target.closest("button[data-d]"); if(!b) return;
-  DEMAND_TAB=b.dataset.d;
-  [...$("#demandTabs").children].forEach(x=>x.setAttribute("aria-selected",x===b));
-  renderDemand();
-});
-$("#demandOn") && ($("#demandOn").onchange=e=>{
-  (CFG.raw.demand_config||(CFG.raw.demand_config={})).enabled=(e.target.value==="on");
-  CFG=readConfig(CFG.raw); DIRTY=true;
-  setStatus(LANG?("Demand "+e.target.value):("Demand 已"+(e.target.value==="on"?"開啟":"關閉")));
-});
 document.querySelectorAll('input[name="resiSrc"]').forEach(el=>{ el.onchange=()=>{
   const sel=document.querySelector('input[name="resiSrc"]:checked');
   const v=sel?sel.value:"system";
@@ -9443,45 +9478,273 @@ function moveRateRow(oldKey,newChan){
   setStatus((LANG?"Moved to ":"已移到 ")+newChan);
 }
 
-/* Demand 四個子分頁 */
+/* =====================================================================
+   Demand 附加費:畫面
+   資料跟計價引擎 calcDemand 同一份、同一種寫法:
+     special_rows  [{start,end,GROUP,AHS,LPS,OVR}]   一段期間一列;GROUP 空白 = 全部渠道
+     service_rows  [{start,end,<GROUP>:金額,…}]       一段期間一列、一個類別一欄
+     service_group_names  ["GROUND_SAVER",…]          類別清單:內建四個 + 自訂
+     service_groups  {渠道: GROUP}                     渠道 → 類別;沒對到 = 不收服務別
+   舊畫面存過小寫鍵(cat/ah/lp/ovr、grp/rate),引擎讀不到 —— demandNormalize() 搬成上面的格式。
+   ===================================================================== */
 let DEMAND_TAB="pkg";
-const DEMAND_DEF={
-  pkg:{cols:[["start","開始日期","Start"],["end","結束日期","End"],
-             ["cat","適用類別","Category"],["ah","Additional Handling","Additional Handling"],
-             ["lp","Large Package","Large Package"],["ovr","Over Maximum Limits","Over Maximum Limits"]],
-       key:"special_rows",
-       hint:["一件只收一個:OVR 優先,其次 LPS,最後 AHS。住宅商業都收。<br>一列 = 一段日期加上該段的金額。出貨日沒落在任何一列 = 不收。",
-             "One per parcel: OVR first, then LPS, then AHS. Charged on both residential and commercial.<br>One row is one date range and its amounts. A ship date in no row is not charged."]},
-  svc:{cols:[["start","開始日期","Start"],["end","結束日期","End"],
-             ["grp","服務類別","Category"],["rate","費率","Rate"]],
-       key:"service_rows",
-       hint:["每個服務類別在該期間的加收金額。","The amount added for each service category in that period."]},
-  grp:{cols:[["name","類別名稱","Category"],["members","包含服務","Services"]],
-       key:"service_group_names",
-       hint:["服務類別的定義。","What each service category contains."]},
-  map:{cols:[["chan","渠道","Channel"],["grp","服務類別","Category"]],
-       key:"service_groups",
-       hint:["每個渠道算哪一個類別。預設渠道已經對好,只有自己新增的需要指定。",
-             "Which category each channel counts as. The default channels need no attention; only ones you added do."]},
-};
-function renderDemand(){
-  const d=DEMAND_DEF[DEMAND_TAB], cfgd=CFG.raw.demand_config||{};
-  if($("#demandHint")) $("#demandHint").innerHTML=d.hint[LANG];
-  const th=$("#tDemand")&&$("#tDemand").querySelector("thead");
-  if(th) th.innerHTML=`<tr><th style="width:30px"></th>`
-    +d.cols.map(c=>`<th>${LANG?c[2]:c[1]}</th>`).join("")+`</tr>`;
-  let data=cfgd[d.key];
-  if(!Array.isArray(data)){
-    data = data && typeof data==="object"
-      ? Object.entries(data).map(([k,v])=>({chan:k,grp:v,name:k,members:v})) : [];
+const DEMAND_GROUP_INFO={
+  GROUND_SAVER:["SurePost / Ground Saver","SurePost / Ground Saver"],
+  GROUND_RESIDENTIAL:["Ground 住宅件","Ground residential"],
+  NEXT_DAY_AIR:["Next Day Air 系列(含 Saver、Early)","Next Day Air family (incl. Saver, Early)"],
+  OTHER_AIR:["其他空運:2nd Day Air、3 Day Select","Other air: 2nd Day Air, 3 Day Select"]};
+function demandNormalize(cfg){
+  const d=cfg.demand_config||(cfg.demand_config={});
+  if(!Array.isArray(d.special_rows)) d.special_rows=[];
+  if(!Array.isArray(d.service_rows)) d.service_rows=[];
+  if(!d.service_groups||typeof d.service_groups!=="object"||Array.isArray(d.service_groups)) d.service_groups={};
+  if(!Array.isArray(d.service_group_names)) d.service_group_names=[];
+  /* 全部就地改,不換陣列 —— 畫面上抓著 d.service_rows 的引用還在用,換掉陣列它就寫進空氣裡。 */
+  const names=[...new Set(d.service_group_names.map(g=>String(g==null?"":g).trim().toUpperCase()).filter(Boolean))];
+  d.service_group_names.splice(0,d.service_group_names.length,...(names.length?names:DEMAND_GROUPS.slice()));
+  const sp=d.special_rows.filter(r=>r&&typeof r==="object").map(r=>({
+    start:String(r.start??"").trim(), end:String(r.end??"").trim(),
+    GROUP:String(r.GROUP??r.cat??"").trim().toUpperCase(),
+    AHS:String(r.AHS??r.ah??"").trim(), LPS:String(r.LPS??r.lp??"").trim(), OVR:String(r.OVR??r.ovr??"").trim()}));
+  d.special_rows.splice(0,d.special_rows.length,...sp);
+  /* 服務別:舊的「一期一類別一列」摺成「一期一列、一類別一欄」 */
+  const wide=[], byKey=new Map();
+  for(const r of d.service_rows){
+    if(!r||typeof r!=="object") continue;
+    const start=String(r.start??"").trim(), end=String(r.end??"").trim();
+    if("grp" in r||"rate" in r){
+      const g=String(r.grp??"").trim().toUpperCase(), k=start+"|"+end;
+      let w=byKey.get(k); if(!w){ w={start,end}; byKey.set(k,w); wide.push(w); }
+      if(g) w[g]=String(r.rate??"").trim();
+    }else{
+      const w={start,end};
+      for(const k of Object.keys(r)) if(k!=="start"&&k!=="end") w[String(k).toUpperCase()]=String(r[k]??"").trim();
+      wide.push(w);
+    }
   }
-  const tb=$("#tDemand")&&$("#tDemand").tBodies[0];
-  if(tb) tb.innerHTML=data.length
-    ? data.map((r,i)=>`<tr><td><input type="checkbox" class="demc" value="${i}"></td>`
-        +d.cols.map(c=>`<td>${esc(r[c[0]]??"")}</td>`).join("")+`</tr>`).join("")
-    : `<tr><td colspan="${d.cols.length+1}" class="empty">${
-        LANG?"No rows. Demand is not charged.":"沒有資料,不加收 Demand。"}</td></tr>`;
+  d.service_rows.splice(0,d.service_rows.length,...wide);
+  const m={};
+  for(const k of Object.keys(d.service_groups)){ const v=String(d.service_groups[k]??"").trim().toUpperCase(); if(v) m[String(k).trim()]=v; }
+  for(const k of Object.keys(d.service_groups)) delete d.service_groups[k];
+  Object.assign(d.service_groups,m);
+  return d;
 }
+function demandCfg(){ return demandNormalize(CFG.raw); }
+function demandGroups(){ return demandCfg().service_group_names.slice(); }
+/* 渠道清單:預設渠道、費率表裡的服務、已對應過的,合在一起;Ground 排前面。 */
+function demandChannels(){
+  const set=new Set(Object.keys(CFG.raw.builtin_service_zones||{}));
+  for(const t of (CFG.raw.base_rate_tables||[])) if(t&&t.service) set.add(String(t.service).trim());
+  for(const k of Object.keys(demandCfg().service_groups)) set.add(k);
+  const rank=c=>/^ground/i.test(c)?0:/surepost/i.test(c)?1:/^next day/i.test(c)?2:/^(2nd|3 day)/i.test(c)?3:/worldwide|standard/i.test(c)?5:4;
+  return [...set].filter(Boolean).sort((a,b)=>(rank(a)-rank(b))||a.localeCompare(b));
+}
+/* 建議對應:照 UPS 旺季附加費的分類。商業地面件與國際線一般不收服務別。 */
+function demandSuggestGroup(ch){
+  const x=String(ch||"").toLowerCase();
+  if(/surepost|ground saver/.test(x)) return "GROUND_SAVER";
+  if(/^ground residential$/.test(x)) return "GROUND_RESIDENTIAL";
+  if(/next day air/.test(x)) return "NEXT_DAY_AIR";
+  if(/2nd day air|3 day select/.test(x)) return "OTHER_AIR";
+  return "";
+}
+const demToday=()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+function demStatus(r){
+  const a=schedDate(r.start), b=schedDate(r.end), t=demToday();
+  if(!a||!b) return ["", L("日期未填","dates missing")];
+  if(a>b) return ["", L("結束早於開始","ends before it starts")];
+  if(b<t) return ["past", L("已結束","ended")];
+  if(a>t) return ["future", L("尚未開始","upcoming")];
+  return ["now", L("進行中","active")];
+}
+function demandNote(m,ok){ const e=$("#demandNote"); if(e){ e.textContent=m||""; e.className="savenote"+(m&&ok===false?" bad":""); } }
+function renderDemand(){
+  if(!CFG||!$("#tDemand")) return;
+  const d=demandCfg(), tab=DEMAND_TAB, groups=demandGroups();
+  const hint=$("#demandHint"), th=$("#tDemand").querySelector("thead"), tb=$("#tDemand").tBodies[0], tools=$("#demandTools");
+  const chk=i=>`<td style="width:30px"><input type="checkbox" class="demc" value="${i}"></td>`;
+  const dateCell=(i,k,v)=>`<td><span class="demdate"><input class="cell dem-date" id="dem_${tab}_${i}_${k}" data-i="${i}" data-k="${k}" value="${esc(v||"")}" placeholder="YYYY-MM-DD"><button type="button" class="act ghost sm demPick" data-for="dem_${tab}_${i}_${k}" tabindex="-1">📅</button></span></td>`;
+  const numCell=(i,k,v)=>`<td class="num"><input class="cell num dem-num" data-i="${i}" data-k="${k}" value="${esc(v==null?"":v)}" placeholder="—"></td>`;
+  const stCell=r=>{ const [c,t]=demStatus(r); return `<td><span class="dst ${c}">${esc(t)}</span></td>`; };
+  const H=(zh,en)=>`<th>${esc(L(zh,en))}</th>`;
+  if(tab==="pkg"){
+    hint.textContent=L("一件只收一項:OVR 優先、其次 LPS、最後 AHS,住宅與商業都收。一段期間一列;出貨日不在任何一段就不收。「適用類別」留「全部」= 所有渠道;指定了類別的列,比「全部」的列優先。",
+      "One per parcel: OVR first, then LPS, then AHS; charged on residential and commercial alike. One row per date range; a ship date in no row is not charged. Leave Category on All for every channel; a row with a category beats an All row.");
+    th.innerHTML=`<tr><th style="width:30px"></th>${H("開始","Start")}${H("結束","End")}${H("適用類別","Category")}<th class="num">AHS</th><th class="num">LPS</th><th class="num">OVR</th>${H("狀態","Status")}</tr>`;
+    tb.innerHTML=d.special_rows.length?d.special_rows.map((r,i)=>`<tr>${chk(i)}${dateCell(i,"start",r.start)}${dateCell(i,"end",r.end)}`
+        +`<td><select class="cell dem-sel" data-i="${i}" data-k="GROUP"><option value="">${esc(L("全部","All"))}</option>${groups.map(g=>`<option value="${esc(g)}"${r.GROUP===g?" selected":""}>${esc(g)}</option>`).join("")}</select></td>`
+        +numCell(i,"AHS",r.AHS)+numCell(i,"LPS",r.LPS)+numCell(i,"OVR",r.OVR)+stCell(r)+`</tr>`).join("")
+      :`<tr><td colspan="8" class="empty">${esc(L("還沒有期間。按「+ 新增期間」加一段,再填金額。","No periods yet. Press + Add period, then fill in the amounts."))}</td></tr>`;
+    tools.innerHTML="";
+  }else if(tab==="svc"){
+    hint.textContent=L("每段期間、每個服務類別,一件加收多少。渠道算哪一個類別在④設定;沒對到類別的渠道不收。空格 = 該類別這一段不收。",
+      "Per date range and per service category: the amount added per package. Which category a channel counts as is set under ④; unmapped channels are not charged. Blank = not charged for that category in that range.");
+    th.innerHTML=`<tr><th style="width:30px"></th>${H("開始","Start")}${H("結束","End")}${groups.map(g=>`<th class="num">${esc(g)}</th>`).join("")}${H("狀態","Status")}</tr>`;
+    tb.innerHTML=d.service_rows.length?d.service_rows.map((r,i)=>`<tr>${chk(i)}${dateCell(i,"start",r.start)}${dateCell(i,"end",r.end)}`
+        +groups.map(g=>numCell(i,g,r[g])).join("")+stCell(r)+`</tr>`).join("")
+      :`<tr><td colspan="${groups.length+4}" class="empty">${esc(L("還沒有期間。按「+ 新增期間」加一段,再填各類別的金額。","No periods yet. Press + Add period, then fill in each category."))}</td></tr>`;
+    tools.innerHTML="";
+  }else if(tab==="grp"){
+    hint.textContent=L("服務類別是②的欄、④的選項。內建四個對應 UPS 旺季附加費的分類;要另外分(例如國際線)就新增一個。",
+      "Categories are the columns of ② and the options of ④. The four built-ins follow UPS's peak surcharge groups; add one to split further (for example international).");
+    th.innerHTML=`<tr>${H("類別","Category")}${H("說明","Description")}${H("對應的渠道","Mapped channels")}<th></th></tr>`;
+    tb.innerHTML=groups.map(g=>{
+      const chans=Object.entries(d.service_groups).filter(([,v])=>v===g).map(([k])=>k);
+      const builtin=DEMAND_GROUPS.includes(g);
+      return `<tr><td class="mono"><b>${esc(g)}</b>${builtin?` <span class="pill">${esc(L("內建","built-in"))}</span>`:""}</td>`
+        +`<td>${esc(DEMAND_GROUP_INFO[g]?DEMAND_GROUP_INFO[g][LANG]:L("自訂類別","Custom category"))}</td>`
+        +`<td class="wrap">${chans.length?chans.map(c=>`<span class="tag">${esc(c)}</span>`).join(""):`<span style="color:var(--muted)">${esc(L("尚未對應任何渠道 → ④","no channels yet → ④"))}</span>`}</td>`
+        +`<td>${builtin?"":`<button type="button" class="act ghost sm danger demGrpDel" data-g="${esc(g)}">${esc(L("刪除","Delete"))}</button>`}</td></tr>`; }).join("");
+    tools.innerHTML=`<input class="cell" id="demGrpName" style="width:220px;text-align:left" placeholder="${esc(L("新類別名稱,例如 INTL","New category, e.g. INTL"))}">`
+      +`<button type="button" class="act ghost" id="bDemGrpAdd">${esc(L("+ 新增類別","+ Add category"))}</button>`
+      +`<span class="hint" style="margin:0">${esc(L("名稱會轉成大寫;②每段期間會多一欄,④可以把渠道對到它。","Upper-cased; ② gets a column for it and ④ can map channels to it."))}</span>`;
+  }else{
+    hint.textContent=L("每條渠道算哪一個服務類別;沒對到的不收服務別 Demand(包裹類仍照①收)。預設渠道都有建議,一鍵套用只會填空白的。",
+      "Which service category each channel counts as; unmapped channels get no service-level Demand (package surcharges from ① still apply). Built-in channels have a suggestion; one click fills only the blanks.");
+    th.innerHTML=`<tr>${H("渠道","Channel")}${H("服務類別","Service category")}${H("建議","Suggestion")}</tr>`;
+    const chans=demandChannels();
+    tb.innerHTML=chans.map(ch=>{ const cur=d.service_groups[ch]||"", sug=demandSuggestGroup(ch);
+      const note=!sug?L("一般不收","usually not charged"):(cur===sug?L("符合建議","matches the suggestion"):(L("建議 ","suggested ")+sug));
+      return `<tr><td>${esc(ch)}</td><td><select class="cell dem-map" data-ch="${esc(ch)}"><option value="">${esc(L("— 不收服務別 Demand","— no service-level Demand"))}</option>${groups.map(g=>`<option value="${esc(g)}"${cur===g?" selected":""}>${esc(g)}</option>`).join("")}</select></td><td style="color:var(--muted)">${esc(note)}</td></tr>`; }).join("")
+      ||`<tr><td colspan="3" class="empty">—</td></tr>`;
+    tools.innerHTML=`<button type="button" class="act ghost" id="bDemSuggest">${esc(L("套用建議對應(只填空白的)","Apply suggested mapping (blanks only)"))}</button>`
+      +`<span class="hint" style="margin:0">${esc(L("Ground Residential → GROUND_RESIDENTIAL;SurePost → GROUND_SAVER;Next Day Air 系列 → NEXT_DAY_AIR;2nd Day Air、3 Day Select → OTHER_AIR;其餘不收。","Ground Residential → GROUND_RESIDENTIAL; SurePost → GROUND_SAVER; Next Day Air family → NEXT_DAY_AIR; 2nd Day Air, 3 Day Select → OTHER_AIR; the rest not charged."))}</span>`;
+  }
+  const period=(tab==="pkg"||tab==="svc");
+  $("#bAddPeriod").style.display=period?"":"none";
+  $("#bDelPeriod").style.display=period?"":"none";
+  demandBindCells();
+  renderDemandSum(); renderDemandCheck();
+}
+function demandRows(){ const d=demandCfg(); return DEMAND_TAB==="svc"?d.service_rows:d.special_rows; }
+function demandBindCells(){
+  const t=$("#tDemand"), d=demandCfg();
+  t.querySelectorAll(".dem-num,.dem-date").forEach(el=>{
+    el.oninput=()=>{ const rows=demandRows(); const r=rows[+el.dataset.i]; if(!r) return;
+      r[el.dataset.k]=el.value.trim(); DIRTY=true; renderDemandSum(); renderDemandCheck(); };
+    if(el.classList.contains("dem-date")) el.onchange=()=>{ const iso=schedDate(el.value.trim()); if(iso&&iso!==el.value.trim()){ el.value=iso; el.oninput(); } renderDemand(); };
+  });
+  t.querySelectorAll(".dem-sel").forEach(el=>{ el.onchange=()=>{ const r=demandRows()[+el.dataset.i]; if(!r) return; r[el.dataset.k]=el.value; DIRTY=true; renderDemandCheck(); }; });
+  t.querySelectorAll(".dem-map").forEach(el=>{ el.onchange=()=>{ const m=demandCfg().service_groups; if(el.value) m[el.dataset.ch]=el.value; else delete m[el.dataset.ch]; DIRTY=true; renderDemand(); }; });
+  document.querySelectorAll(".demPick").forEach(b=>{ b.onclick=()=>openPicker(b.dataset.for); });
+  t.querySelectorAll(".demGrpDel").forEach(b=>{ b.onclick=()=>demandDeleteGroup(b.dataset.g); });
+  const add=$("#bDemGrpAdd"); if(add) add.onclick=demandAddGroup;
+  const nameIn=$("#demGrpName"); if(nameIn) nameIn.onkeydown=e=>{ if(e.key==="Enter") demandAddGroup(); };
+  const sug=$("#bDemSuggest"); if(sug) sug.onclick=()=>{
+    const m=demandCfg().service_groups; let n=0;
+    for(const ch of demandChannels()){ if(m[ch]) continue; const g=demandSuggestGroup(ch); if(g&&demandGroups().includes(g)){ m[ch]=g; n++; } }
+    DIRTY=true; renderDemand();
+    demandNote(n?L("已對應 "+n+" 條渠道,記得儲存。","Mapped "+n+" channel(s) — remember to save."):L("沒有空白的可填:每條渠道都已經有對應,或沒有建議。","Nothing to fill: every channel is mapped already, or has no suggestion."), n>0);
+  };
+}
+function demandAddGroup(){
+  const el=$("#demGrpName"); const name=String((el&&el.value)||"").trim().toUpperCase().replace(/[^A-Z0-9_]+/g,"_").replace(/^_+|_+$/g,"");
+  if(!name){ demandNote(L("請先填類別名稱。","Type a category name first."),false); return; }
+  const d=demandCfg();
+  if(d.service_group_names.includes(name)){ demandNote(L("已經有這個類別。","That category already exists."),false); return; }
+  d.service_group_names.push(name);
+  for(const r of d.service_rows) if(!(name in r)) r[name]="";
+  DIRTY=true; renderDemand();
+  demandNote(L("已新增類別 "+name+";到④把渠道對過去,②填金額。","Added "+name+"; map channels to it under ④ and price it under ②."),true);
+}
+function demandDeleteGroup(g){
+  const d=demandCfg();
+  if(DEMAND_GROUPS.includes(g)) return;
+  const used=Object.values(d.service_groups).filter(v=>v===g).length;
+  const b=document.querySelector(`.demGrpDel[data-g="${g}"]`);
+  /* 第一下先問,五秒內再按一下才刪 —— 用按鈕自己問,不彈視窗。 */
+  if(b&&b.dataset.arm!=="1"){ b.dataset.arm="1"; b.textContent=L("確定刪除?","Delete?")+(used?L("(有 "+used+" 條渠道對到它)"," ("+used+" channel(s) use it)"):""); setTimeout(()=>{ if(b.isConnected){ b.dataset.arm=""; b.textContent=L("刪除","Delete"); } },5000); return; }
+  d.service_group_names=d.service_group_names.filter(x=>x!==g);
+  for(const k of Object.keys(d.service_groups)) if(d.service_groups[k]===g) delete d.service_groups[k];
+  for(const r of d.service_rows) delete r[g];
+  for(const r of d.special_rows) if(r.GROUP===g) r.GROUP="";
+  DIRTY=true; renderDemand();
+  demandNote(L("已刪除類別 "+g+"。","Deleted "+g+"."),true);
+}
+/* 頁首那一行:套不套用、幾段期間、今天幾段生效、對應了幾條渠道。 */
+function renderDemandSum(){
+  const el=$("#demandSum"); if(!el||!CFG) return;
+  const d=demandCfg(), t=demToday();
+  const live=rows=>rows.filter(r=>{ const a=schedDate(r.start), b=schedDate(r.end); return a&&b&&a<=t&&t<=b; }).length;
+  const chans=demandChannels(), mapped=chans.filter(c=>d.service_groups[c]).length;
+  const on=!!d.enabled;
+  if($("#demandOn")) $("#demandOn").value=on?"on":"off";
+  el.innerHTML=(on?`<span class="pill ok">${esc(L("套用中","Applied"))}</span>`:`<span class="pill warn">${esc(L("未套用 — 右上切到 On 才會計入重算","Not applied — switch On (top right) to include it in repricing"))}</span>`)
+    +`<span>${esc(L("包裹類","Package"))} <b>${d.special_rows.length}</b> ${esc(L("段","range(s)"))}${d.special_rows.length?` · ${esc(L("今天生效","active today"))} <b>${live(d.special_rows)}</b>`:""}</span>`
+    +`<span>${esc(L("服務別","Service"))} <b>${d.service_rows.length}</b> ${esc(L("段","range(s)"))}${d.service_rows.length?` · ${esc(L("今天生效","active today"))} <b>${live(d.service_rows)}</b>`:""}</span>`
+    +`<span>${esc(L("已對應","Mapped"))} <b>${mapped}</b> / ${chans.length} ${esc(L("條渠道","channels"))}</span>`;
+}
+/* 試算:挑日期、渠道、勾這件已有的附加費,看 Demand 會加多少。 */
+function renderDemandCheck(){
+  const out=$("#dcOut"); if(!out||!CFG) return;
+  const sel=$("#dcChan");
+  if(sel){ const cur=sel.value; const chans=demandChannels();
+    if([...sel.options].map(o=>o.value).join("|")!==chans.join("|")) sel.innerHTML=chans.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    if(cur&&chans.includes(cur)) sel.value=cur; else if(!sel.value&&chans.length) sel.value=chans.find(c=>/^ground residential$/i.test(c))||chans[0]; }
+  const dEl=$("#dcDate"); if(dEl&&!dEl.value) dEl.value=demToday();
+  const date=dEl?dEl.value.trim():demToday(), chan=sel?sel.value:"";
+  const flags={ahs:!!($("#dcAhs")||{}).checked, lps:!!($("#dcLps")||{}).checked, ovr:!!($("#dcOvr")||{}).checked};
+  const d=demandCfg();
+  if(!schedDate(date)){ out.innerHTML=`<span class="hint" style="margin:0">${esc(L("日期格式 YYYY-MM-DD。","Date must be YYYY-MM-DD."))}</span>`; return; }
+  const r=calcDemand(CFG, date, chan, flags);
+  const pkgKind=r.ovr?"OVR":r.lps?"LPS":r.ahs?"AHS":"";
+  const pkgAmt=r.ovr||r.lps||r.ahs||0;
+  const chip=(k,v,cls="")=>`<span class="dcchip ${cls}"><small>${esc(k)}</small><b>${v}</b></span>`;
+  const grp=demandServiceGroup(chan, d.service_groups, d.service_group_names);
+  out.innerHTML=chip(L("包裹類","Package"), pkgAmt?money(pkgAmt)+` <small>${pkgKind}</small>`:(flags.ahs||flags.lps||flags.ovr?money(0):L("未勾附加費","no surcharge ticked")), pkgAmt?"":"off")
+    +chip(L("服務別","Service"), r.service?money(r.service)+` <small>${esc(r.group)}</small>`:(grp?money(0)+` <small>${esc(grp)}</small>`:L("此渠道不收","channel not mapped")), r.service?"":"off")
+    +chip(L("合計","Total"), money(r.total), "total")
+    +(d.enabled?"":`<span class="hint" style="margin:0">${esc(L("尚未套用到重算(右上 Off)。","Not applied to repricing yet (Off, top right)."))}</span>`);
+}
+function demandBind(){
+  $("#demandTabs") && ($("#demandTabs").onclick=e=>{
+    const b=e.target.closest("button[data-d]"); if(!b) return;
+    DEMAND_TAB=b.dataset.d;
+    [...$("#demandTabs").children].forEach(x=>x.setAttribute("aria-selected",String(x===b)));
+    renderDemand();
+  });
+  $("#demandOn") && ($("#demandOn").onchange=e=>{
+    if(!CFG) return;
+    demandCfg().enabled=(e.target.value==="on");
+    CFG=readConfig(CFG.raw); DIRTY=true; renderDemandSum(); renderDemandCheck();
+    setStatus(LANG?("Demand "+e.target.value):("Demand 已"+(e.target.value==="on"?"開啟":"關閉")));
+  });
+  $("#bAddPeriod") && ($("#bAddPeriod").onclick=()=>{
+    if(!CFG) return;
+    const rows=demandRows(), last=rows[rows.length-1];
+    /* 新的一段從上一段結束的隔天開始;沒有上一段就從今天。結束日留白,自己挑。 */
+    let start=demToday();
+    if(last&&schedDate(last.end)){ const e=new Date(schedDate(last.end)+"T00:00:00"); e.setDate(e.getDate()+1);
+      start=e.getFullYear()+"-"+String(e.getMonth()+1).padStart(2,"0")+"-"+String(e.getDate()).padStart(2,"0"); }
+    const row=DEMAND_TAB==="svc"?Object.assign({start,end:""},Object.fromEntries(demandGroups().map(g=>[g,""]))):{start,end:"",GROUP:"",AHS:"",LPS:"",OVR:""};
+    rows.push(row); DIRTY=true; renderDemand();
+    const i=rows.length-1, f=$("#dem_"+DEMAND_TAB+"_"+i+"_end"); if(f){ f.focus(); f.scrollIntoView({block:"nearest"}); }
+    demandNote(L("已加一段,從 "+start+" 起;填結束日與金額,再按「儲存」。","Added a range starting "+start+"; fill the end date and amounts, then Save."),true);
+  });
+  $("#bDelPeriod") && ($("#bDelPeriod").onclick=()=>{
+    if(!CFG) return;
+    const b=$("#bDelPeriod"), ticked=[...document.querySelectorAll("#tDemand .demc:checked")].map(c=>+c.value);
+    if(!ticked.length){ demandNote(L("請先勾選要刪的列。","Tick the rows to delete first."),false); return; }
+    /* 第一下先問,五秒內再按一下才刪。 */
+    if(b.dataset.arm!=="1"){ b.dataset.arm="1"; b.classList.add("danger"); b.textContent=L("確定刪除 "+ticked.length+" 列?","Delete "+ticked.length+" row(s)?");
+      setTimeout(()=>{ b.dataset.arm=""; b.classList.remove("danger"); b.textContent=T("btn.delperiod"); },5000); return; }
+    b.dataset.arm=""; b.classList.remove("danger"); b.textContent=T("btn.delperiod");
+    const d=demandCfg(), key=DEMAND_TAB==="svc"?"service_rows":"special_rows";
+    d[key]=d[key].filter((_,i)=>!ticked.includes(i));
+    DIRTY=true; renderDemand();
+    demandNote(L("已刪除 "+ticked.length+" 列,記得儲存。","Deleted "+ticked.length+" row(s) — remember to save."),true);
+  });
+  $("#bSaveDemand") && ($("#bSaveDemand").onclick=()=>{
+    if(!CFG) return;
+    CFG=readConfig(CFG.raw);
+    const ok=saveSettings();
+    if(RATED&&SHIPS){ RATED=SHIPS.map(x=>priceShipment(CFG,x)); renderRate(); }
+    renderDemandSum(); renderDemandCheck();
+    demandNote(ok===false?L("儲存失敗。","Could not save."):L("Demand 設定已儲存。","Demand settings saved."), ok!==false);
+  });
+  ["dcDate","dcChan","dcAhs","dcLps","dcOvr"].forEach(id=>{ const el=$("#"+id); if(!el) return; el.oninput=renderDemandCheck; el.onchange=renderDemandCheck; });
+}
+demandBind();
 
 /* 日期挑選器。桌面版是自己畫的月曆,不是系統控制項 ——
    瀏覽器原生的 date input 每個系統長得都不一樣,對不上這套外觀。 */
@@ -9559,7 +9822,8 @@ function renderPicker(){
   $("#dpGrid").innerHTML=html;
   $("#dpGrid").querySelectorAll("button[data-d]").forEach(b=>b.onclick=()=>{
     const target=DP_TARGET;
-    if(target){ $("#"+target).value=b.dataset.d; flashField(target); }
+    if(target){ const el=$("#"+target); el.value=b.dataset.d; flashField(target);
+      el.dispatchEvent(new Event("input",{bubbles:true})); el.dispatchEvent(new Event("change",{bubbles:true})); }
     /* 一段區間要兩個日期。挑完開始直接換到結束 —— 關掉再開會閃一下,
        看起來像沒反應,所以視窗留著,只換目標並重畫。
        結束日期已經填過就不打擾,只想改開始日期的人不該被拉走。 */
@@ -13989,6 +14253,10 @@ const I18N={
   "btn.addperiod":["+ 新增期間","+ Add period"],
   "btn.delperiod":["刪除所選","Delete selected"],
   "btn.savedemand":["儲存 Demand 設定","Save Demand settings"],
+  "hd.demcheck":["試算","Quick check"],
+  "hint.demcheck":["挑出貨日與渠道,看一件會加收多少 Demand;這件已有的附加費勾起來。","Pick a ship date and a channel to see what Demand adds to one package. Tick the surcharges that package already has."],
+  "lb.dcdate":["出貨日","Ship date"],
+  "lb.dcchan":["渠道","Channel"],
   "th.feetype":["費用類別","Fee Type"],
   "th.shiptype":["出貨類型","Shipment Type"],
   "th.zones":["Zone","Zones"],
