@@ -470,9 +470,19 @@ td.wrap{white-space:normal;min-width:190px}
 td.cells{white-space:normal}
 .empty{color:var(--muted);text-align:center;padding:24px 10px;font-size:13px}
 /* Demand 頁:狀態列、日期格、生效狀態籤、類別籤、試算結果 */
-.demsum{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 0;font-size:12.5px;color:var(--muted)}
-.demsum .pill{font-size:12px}
-.pill.warn{color:var(--run2);border-color:var(--run2)}
+.demsum{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin:12px 0 2px}
+.dstat{display:inline-flex;flex-direction:column;justify-content:center;gap:1px;min-width:132px;padding:7px 14px;border-radius:11px;
+  border:1.5px solid var(--line);background:var(--stripe)}
+.dstat small{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.dstat b{font-family:"Cascadia Mono",Consolas,monospace;font-size:16px;color:var(--accent);line-height:1.15}
+.dstat i{font-style:normal;font-size:11px;color:var(--muted)}
+.dstat.on{border-color:var(--run2);background:color-mix(in srgb,var(--run2) 10%,var(--stripe))}
+.dstat.on b{color:var(--run2);font-family:inherit;font-size:14px}
+.dstat.off b{font-family:inherit;font-size:14px;color:var(--muted)}
+#p-demand .subtabs{margin-top:14px}
+#p-demand .subpanel{padding:12px 14px 14px}
+#tDemand tbody tr:hover td{background:var(--select)}
+#tDemand th{white-space:nowrap}
 .demdate{display:inline-flex;align-items:center;gap:4px}
 input.cell.dem-date{width:112px;text-align:left}
 #tDemand input.cell.num{width:84px}
@@ -9581,8 +9591,8 @@ function renderDemand(){
   const stCell=r=>{ const [c,t]=demStatus(r); return `<td><span class="dst ${c}">${esc(t)}</span></td>`; };
   const H=(zh,en)=>`<th>${esc(L(zh,en))}</th>`;
   if(tab==="pkg"){
-    hint.textContent=L("一件只收一項:OVR 優先、其次 LPS、最後 AHS,住宅與商業都收。一段期間一列;出貨日不在任何一段就不收。「適用類別」留「全部」= 所有渠道;指定了類別的列,比「全部」的列優先。",
-      "One per parcel: OVR first, then LPS, then AHS; charged on residential and commercial alike. One row per date range; a ship date in no row is not charged. Leave Category on All for every channel; a row with a category beats an All row.");
+    hint.textContent=L("一件只收一項:OVR 優先、其次 LPS、最後 AHS。一段期間一列,出貨日不在任何一段就不收。「適用類別」留「全部」= 所有渠道;指定了類別的列優先。",
+      "One per parcel: OVR first, then LPS, then AHS. One row per date range; a ship date in no row is not charged. Leave Category on All for every channel; a row with a category takes precedence.");
     th.innerHTML=`<tr><th style="width:30px"></th>${H("開始","Start")}${H("結束","End")}${H("適用類別","Category")}<th class="num">AHS</th><th class="num">LPS</th><th class="num">OVR</th>${H("狀態","Status")}</tr>`;
     tb.innerHTML=d.special_rows.length?d.special_rows.map((r,i)=>`<tr>${chk(i)}${dateCell(i,"start",r.start)}${dateCell(i,"end",r.end)}`
         +`<td><select class="cell dem-sel" data-i="${i}" data-k="GROUP"><option value="">${esc(L("全部","All"))}</option>${groups.map(g=>`<option value="${esc(g)}"${r.GROUP===g?" selected":""}>${esc(g)}</option>`).join("")}</select></td>`
@@ -9590,16 +9600,16 @@ function renderDemand(){
       :`<tr><td colspan="8" class="empty">${esc(L("還沒有期間。按「+ 新增期間」加一段,再填金額。","No periods yet. Press + Add period, then fill in the amounts."))}</td></tr>`;
     tools.innerHTML="";
   }else if(tab==="svc"){
-    hint.textContent=L("每段期間、每個服務類別,一件加收多少。渠道算哪一個類別在④設定;沒對到類別的渠道不收。空格 = 該類別這一段不收。",
-      "Per date range and per service category: the amount added per package. Which category a channel counts as is set under ④; unmapped channels are not charged. Blank = not charged for that category in that range.");
+    hint.textContent=L("每段期間、每個服務類別,一件加收多少。渠道算哪一類在「渠道對應」設定;沒對到的渠道不收。空格 = 這一段這一類不收。",
+      "Per date range and per service category: the amount added per package. Which category a channel counts as is set under Channel mapping; unmapped channels are not charged. Blank = not charged.");
     th.innerHTML=`<tr><th style="width:30px"></th>${H("開始","Start")}${H("結束","End")}${groups.map(g=>`<th class="num">${esc(g)}</th>`).join("")}${H("狀態","Status")}</tr>`;
     tb.innerHTML=d.service_rows.length?d.service_rows.map((r,i)=>`<tr>${chk(i)}${dateCell(i,"start",r.start)}${dateCell(i,"end",r.end)}`
         +groups.map(g=>numCell(i,g,r[g])).join("")+stCell(r)+`</tr>`).join("")
       :`<tr><td colspan="${groups.length+4}" class="empty">${esc(L("還沒有期間。按「+ 新增期間」加一段,再填各類別的金額。","No periods yet. Press + Add period, then fill in each category."))}</td></tr>`;
     tools.innerHTML="";
   }else if(tab==="grp"){
-    hint.textContent=L("服務類別是②的欄、④的選項。名稱和說明直接改;改名會一起帶到②的欄和④的對應。刪掉一類,②那一欄和④對到它的渠道也一起清掉。",
-      "Categories are the columns of ② and the options of ④. Edit the name or description in place; a rename follows through to ② and ④. Deleting one also removes its column in ② and its channels in ④.");
+    hint.textContent=L("服務類別是「服務別費率」的欄、「渠道對應」的選項。按「編輯」改名稱與說明,改名會一起帶過去;刪掉一類,那一欄和對到它的渠道也一起清掉。",
+      "Categories are the columns of Service level rates and the options of Channel mapping. Press Edit to rename or describe; a rename follows through. Deleting one also removes its column and its channels.");
     th.innerHTML=`<tr>${H("類別","Category")}${H("說明","Description")}${H("對應的渠道","Mapped channels")}<th style="width:150px"></th></tr>`;
     if(DEM_GRP_EDIT&&!groups.includes(DEM_GRP_EDIT)) DEM_GRP_EDIT=null;
     tb.innerHTML=groups.map(g=>{
@@ -9608,7 +9618,7 @@ function renderDemand(){
       const chans=fams.map(f=>{ const com=keys.includes(f+" Commercial")||keys.includes(f), res=keys.includes(f+" Residential")||keys.includes(f);
         return f+(com&&res?"":com?L("(商業)"," (commercial)"):L("(住宅)"," (residential)")); });
       const desc=(d.service_group_desc[g]!=null)?d.service_group_desc[g]:(DEMAND_GROUP_INFO[g]?DEMAND_GROUP_INFO[g][LANG]:"");
-      const tags=chans.length?chans.map(c=>`<span class="tag">${esc(c)}</span>`).join(""):`<span style="color:var(--muted)">${esc(L("尚未對應任何渠道 → ④","no channels yet → ④"))}</span>`;
+      const tags=chans.length?chans.map(c=>`<span class="tag">${esc(c)}</span>`).join(""):`<span style="color:var(--muted)">${esc(L("尚未對應任何渠道","no channels yet"))}</span>`;
       /* 按「編輯」那一列才變成格子;其他列是字。存或取消都回到字。 */
       if(g===DEM_GRP_EDIT) return `<tr class="editing"><td><input class="cell mono dem-gname" data-g="${esc(g)}" value="${esc(g)}" style="width:210px;text-align:left;font-weight:700"></td>`
         +`<td><input class="cell dem-gdesc" data-g="${esc(g)}" value="${esc(desc)}" placeholder="${esc(L("說明(選填)","Description (optional)"))}" style="width:100%;min-width:240px;text-align:left"></td>`
@@ -9619,11 +9629,11 @@ function renderDemand(){
       ||`<tr><td colspan="4" class="empty">${esc(L("還沒有類別。","No categories yet."))}</td></tr>`;
     tools.innerHTML=`<input class="cell" id="demGrpName" style="width:220px;text-align:left" placeholder="${esc(L("新類別名稱,例如 INTL","New category, e.g. INTL"))}">`
       +`<button type="button" class="act ghost" id="bDemGrpAdd">${esc(L("+ 新增類別","+ Add category"))}</button>`
-      +`<span class="hint" style="margin:0">${esc(L("名稱會轉成大寫;②每段期間會多一欄,④可以把渠道對到它。","Upper-cased; ② gets a column for it and ④ can map channels to it."))}</span>`;
+      +`<span class="hint" style="margin:0">${esc(L("名稱會轉成大寫;服務別費率多一欄,渠道對應多一個選項。","Upper-cased; it becomes a column in Service level rates and an option in Channel mapping."))}</span>`;
   }else{
-    hint.textContent=L("每條渠道算哪一個服務類別;沒對到的不收服務別 Demand(包裹類仍照①收)。商業、住宅各一個勾,勾哪一邊就收哪一邊的件;兩邊都不勾 = 這條渠道不收。",
-      "Which service category each channel counts as; unmapped channels get no service-level Demand (package surcharges from ① still apply). Tick Commercial and/or Residential for the packages to charge; neither ticked = not charged.");
-    th.innerHTML=`<tr>${H("渠道","Channel")}${H("服務類別","Service category")}${H("收哪些件","Charge on")}</tr>`;
+    hint.textContent=L("每條渠道算哪一個服務類別;沒對到的不收服務別 Demand(包裹類附加費照樣收)。商業件、住宅件各一顆,亮的就收;兩顆都關 = 這條渠道不收。",
+      "Which service category each channel counts as; unmapped channels get no service-level Demand (package surcharges still apply). Commercial and Residential each have a toggle; lit = charged; both off = not charged.");
+    th.innerHTML=`<tr><th style="width:230px">${esc(L("渠道","Channel"))}</th><th style="width:260px">${esc(L("服務類別","Service category"))}</th>${H("收哪些件","Charge on")}</tr>`;
     const chans=demandChannels();
     /* 商業、住宅各一顆膠囊,亮的就收;還沒選類別時是灰的。 */
     const chip=(ch,side,on,dis,lab)=>`<label class="sidechip${on?" on":""}${dis?" dis":""}"><input type="checkbox" class="dem-side" data-ch="${esc(ch)}" data-side="${side}"${on?" checked":""}${dis?" disabled":""}>${esc(lab)}</label>`;
@@ -9675,7 +9685,7 @@ function demandAddGroup(){
   d.service_group_names.push(name); d.groups_touched=true;
   for(const r of d.service_rows) if(!(name in r)) r[name]="";
   DIRTY=true; renderDemand();
-  demandNote(L("已新增類別 "+name+";到④把渠道對過去,②填金額。","Added "+name+"; map channels to it under ④ and price it under ②."),true);
+  demandNote(L("已新增類別 "+name+";到「渠道對應」把渠道對過去,「服務別費率」填金額。","Added "+name+"; map channels to it under Channel mapping and price it under Service level rates."),true);
 }
 /* 編輯列的儲存:先寫說明,再改名(改名會重畫)。 */
 function demandSaveGroupEdit(g){
@@ -9700,7 +9710,7 @@ function demandRenameGroup(oldName, raw){
   if(oldName in d.service_group_desc){ d.service_group_desc[name]=d.service_group_desc[oldName]; delete d.service_group_desc[oldName]; }
   else if(DEMAND_GROUP_INFO[oldName]) d.service_group_desc[name]=DEMAND_GROUP_INFO[oldName][LANG];
   DIRTY=true; renderDemand();
-  demandNote(L("已改名 "+oldName+" → "+name+",②、④都跟著換了;記得儲存。","Renamed "+oldName+" → "+name+"; ② and ④ follow — remember to save."),true);
+  demandNote(L("已改名 "+oldName+" → "+name+",費率欄與渠道對應都跟著換了;記得儲存。","Renamed "+oldName+" → "+name+"; the rate column and channel mapping follow — remember to save."),true);
   return true;
 }
 function demandDeleteGroup(g){
@@ -9725,10 +9735,12 @@ function renderDemandSum(){
   const chans=demandChannels(), mapped=chans.filter(c=>demandMapGet(c).g).length;
   const on=!!d.enabled;
   if($("#demandOn")) $("#demandOn").value=on?"on":"off";
-  el.innerHTML=(on?`<span class="pill ok">${esc(L("套用中","Applied"))}</span>`:`<span class="pill warn">${esc(L("未套用 — 右上切到 On 才會計入重算","Not applied — switch On (top right) to include it in repricing"))}</span>`)
-    +`<span>${esc(L("包裹類","Package"))} <b>${d.special_rows.length}</b> ${esc(L("段","range(s)"))}${d.special_rows.length?` · ${esc(L("今天生效","active today"))} <b>${live(d.special_rows)}</b>`:""}</span>`
-    +`<span>${esc(L("服務別","Service"))} <b>${d.service_rows.length}</b> ${esc(L("段","range(s)"))}${d.service_rows.length?` · ${esc(L("今天生效","active today"))} <b>${live(d.service_rows)}</b>`:""}</span>`
-    +`<span>${esc(L("已對應","Mapped"))} <b>${mapped}</b> / ${chans.length} ${esc(L("條渠道","channels"))}</span>`;
+  const stat=(k,v,sub)=>`<span class="dstat"><small>${esc(k)}</small><b>${v}</b>${sub?`<i>${esc(sub)}</i>`:""}</span>`;
+  el.innerHTML=(on?`<span class="dstat on"><small>${esc(L("狀態","Status"))}</small><b>${esc(L("套用中","Applied"))}</b></span>`
+                  :`<span class="dstat off"><small>${esc(L("狀態","Status"))}</small><b>${esc(L("未套用","Not applied"))}</b><i>${esc(L("右上切到 On 才會計入重算","switch On, top right"))}</i></span>`)
+    +stat(L("包裹類期間","Package ranges"), d.special_rows.length, d.special_rows.length?L("今天生效 ","active today ")+live(d.special_rows):"")
+    +stat(L("服務別期間","Service ranges"), d.service_rows.length, d.service_rows.length?L("今天生效 ","active today ")+live(d.service_rows):"")
+    +stat(L("已對應渠道","Channels mapped"), mapped+" / "+chans.length, "");
 }
 function demandBind(){
   $("#demandTabs") && ($("#demandTabs").onclick=e=>{
@@ -14279,10 +14291,10 @@ const I18N={
   "th.ratestate":["基本運費狀態","Base rates"],
   "th.enabled":["啟用","Enabled"],
   "lb.applydemand":["套用到重算","Apply to repricing"],
-  "dt.pkg":["① 包裹類附加費","① Package surcharges"],
-  "dt.svc":["② 服務別費率","② Service level rates"],
-  "dt.grp":["③ 服務類別","③ Service categories"],
-  "dt.map":["④ 渠道對應","④ Channel mapping"],
+  "dt.pkg":["📦 包裹類附加費","📦 Package surcharges"],
+  "dt.svc":["🚚 服務別費率","🚚 Service level rates"],
+  "dt.grp":["🏷️ 服務類別","🏷️ Service categories"],
+  "dt.map":["🔗 渠道對應","🔗 Channel mapping"],
   "btn.addperiod":["+ 新增期間","+ Add period"],
   "btn.delperiod":["刪除所選","Delete selected"],
   "btn.savedemand":["儲存 Demand 設定","Save Demand settings"],
