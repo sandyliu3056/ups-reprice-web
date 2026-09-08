@@ -15595,7 +15595,7 @@ const YARD_HUES=["#e0645a","#f5c451","#4f8fcf","#5fae7a","#b57edc"];
 /* Tally:寬扁的戶外貨場。左邊是招牌寫 TALLY 的棚子,中間貨櫃堆,
    右邊留空給走動的角色,太陽在右上。地平線壓在很低的位置。
    繽紛版:雲會飄、鳥成群飛、山是綠草丘長滿小花、棚頂掛彩旗、貨櫃紅藍綠、
-   天上有熱氣球、地上有蝴蝶,還有一台棕金色貨車不時開過去。
+   天上有熱氣球、地上有蝴蝶。(貨車試過,主人說不要。)
    全部照 t 推,沒有另外的狀態;夜裡和下雨把熱氣球、蝴蝶、鳥收起來。 */
 function drawTallyYard(g,W,H,t){
   t=t||0;
@@ -15736,8 +15736,7 @@ function drawTallyYard(g,W,H,t){
   g.strokeStyle=ink; g.lineWidth=1.8;
   skLine(g,10,FLR,W-10,FLR,3);
 
-  /* 貨車在地平線上開過去(角色之後才畫、走在它前面)。蝴蝶在草丘前飛。 */
-  drawYardTruck(g,W,FLR,t);
+  /* 蝴蝶在草丘前飛。 */
   if(!night&&!wet){
     for(let i=0;i<2;i++){
       const bx=W*(0.60+i*0.13)+Math.sin(t/95+i*2)*70, byy=FLR-46+Math.sin(t/21+i)*9;
@@ -15752,39 +15751,6 @@ function drawTallyYard(g,W,H,t){
       g.restore();
     }
   }
-}
-/* 貨車:棕車身、金色線、寫著 TALLY,隔一陣子從右邊開進來、往左開出去。
-   輪子照車速轉,車尾飄幾顆淡淡的排氣圈。沒有狀態,全照 t 算。 */
-function drawYardTruck(g,W,FLR,t){
-  const speed=1.5, dur=Math.ceil((W+280)/speed), cycle=dur+1000, ph=t%cycle;
-  if(ph>=dur) return;
-  const x=W+140-ph*speed;                    /* 車頭(左端)的 x */
-  const paper=pal("--panel","#fffdf7"), brown="#5b3a29", gold=pal("--tab","#ffb500");
-  const gy=FLR-7+Math.sin(t/3)*0.5;          /* 輪心;車身跟著微微顛 */
-  g.save(); g.strokeStyle=INK; g.lineWidth=1.8; g.lineJoin="round";
-  skRect(g,x+34,gy-50,100,40,401,brown);      /* 貨箱 */
-  g.fillStyle=gold; g.fillRect(x+38,gy-33,92,3);
-  g.font='700 12px "Reprice Sketch","Segoe Print","Ink Free",system-ui'; g.textAlign="center";
-  g.fillText("TALLY",x+84,gy-37); g.textAlign="left";
-  skRect(g,x,gy-38,36,28,402,brown);          /* 車頭 */
-  skRect(g,x+5,gy-34,15,12,403,blendHex(paper,"#9ec3e6",.5));   /* 擋風玻璃 */
-  g.fillStyle=gold; g.beginPath(); g.arc(x+2,gy-14,2.4,0,7); g.fill();  /* 車燈 */
-  g.fillStyle=blendHex(brown,"#000000",.3); g.fillRect(x+34,gy-12,100,4);   /* 底盤 */
-  for(const wx of [x+16,x+56,x+114]){
-    g.fillStyle=INK; g.beginPath(); g.arc(wx,gy,7,0,7); g.fill();
-    g.fillStyle=blendHex(paper,INK,.15); g.beginPath(); g.arc(wx,gy,3.6,0,7); g.fill();
-    const a=-t*speed/7;                        /* 往左開,輪子逆時針 */
-    g.strokeStyle=INK; g.lineWidth=1.2;
-    g.beginPath(); g.moveTo(wx+Math.cos(a)*3.4,gy+Math.sin(a)*3.4); g.lineTo(wx-Math.cos(a)*3.4,gy-Math.sin(a)*3.4); g.stroke();
-    g.lineWidth=1.8;
-  }
-  g.strokeStyle=blendHex(paper,INK,.35); g.lineWidth=1.2;
-  for(let k=0;k<3;k++){
-    const f=((t/9)+k*0.33)%1;
-    g.globalAlpha=(1-f)*.6;
-    g.beginPath(); g.arc(x+140+f*10,gy-16-f*16,2.5+f*3,0,7); g.stroke();
-  }
-  g.restore();
 }
 function sceneDraw(){
   const g=SCENE.ctx; if(!g) return;
