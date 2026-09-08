@@ -485,13 +485,6 @@ input.cell.dem-date{width:112px;text-align:left}
 td.wrap{white-space:normal;max-width:520px}
 .demtools{margin-top:10px}
 .demtools:empty{display:none}
-.dcflag{display:inline-flex;align-items:center;gap:5px;font-size:13px;margin-left:6px}
-.dcout{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;min-height:32px}
-.dcchip{display:inline-flex;flex-direction:column;padding:6px 12px;border-radius:9px;border:1.5px solid var(--line);background:var(--stripe);min-width:110px}
-.dcchip small{font-size:11px;color:var(--muted);letter-spacing:.04em}
-.dcchip b{font-family:"Cascadia Mono",Consolas,monospace;font-size:15px;color:var(--accent)}
-.dcchip.total{border-color:var(--accent);background:var(--select)}
-.dcchip.off b{color:var(--muted);font-family:inherit;font-weight:400;font-size:12.5px}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
 .kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:600;color:var(--accent)}
 /* 提示一律純文字,不用色塊。整頁到處都是奶油色方塊之後,反而看不出
@@ -1319,7 +1312,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
      ② 服務別:一段期間一列,一個服務類別一欄
      ③ 服務類別:內建四個 + 自訂
      ④ 渠道對應:每條渠道算哪一個類別;沒對到就不收服務別
-     格子直接改,改完按「儲存」。底下另有試算,挑日期、渠道就看得到會收多少。 -->
+     格子直接改,改完按「儲存」。 -->
 <section class="page" id="p-demand">
   <div class="lf sketch">
     <div class="row" style="justify-content:space-between;align-items:flex-start">
@@ -1348,20 +1341,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
       <button class="act" id="bSaveDemand" data-i18n="btn.savedemand">Save Demand settings</button>
       <span class="savenote" id="demandNote"></span>
     </div>
-  </div>
-  <div class="lf sketch">
-    <h3 class="display"><span class="em">🧮</span><span data-i18n="hd.demcheck">Quick check</span></h3>
-    <p class="hint" style="margin:0 0 10px" data-i18n="hint.demcheck">Pick a ship date and a channel to see what Demand adds to one package. Tick the surcharges that package already has.</p>
-    <div class="row">
-      <label class="inlab" style="margin-left:0" data-i18n="lb.dcdate">Ship date</label>
-      <span class="demdate"><input id="dcDate" class="cell dem-date" placeholder="YYYY-MM-DD"><button type="button" class="act ghost sm demPick" data-for="dcDate">📅</button></span>
-      <label class="inlab" data-i18n="lb.dcchan">Channel</label>
-      <select id="dcChan" class="cell" style="width:220px;text-align:left"></select>
-      <label class="dcflag"><input type="checkbox" id="dcAhs"> AHS</label>
-      <label class="dcflag"><input type="checkbox" id="dcLps"> LPS</label>
-      <label class="dcflag"><input type="checkbox" id="dcOvr"> OVR</label>
-    </div>
-    <div id="dcOut" class="dcout"></div>
   </div>
 </section>
 
@@ -9614,17 +9593,17 @@ function renderDemand(){
   $("#bAddPeriod").style.display=period?"":"none";
   $("#bDelPeriod").style.display=period?"":"none";
   demandBindCells();
-  renderDemandSum(); renderDemandCheck();
+  renderDemandSum();
 }
 function demandRows(){ const d=demandCfg(); return DEMAND_TAB==="svc"?d.service_rows:d.special_rows; }
 function demandBindCells(){
   const t=$("#tDemand"), d=demandCfg();
   t.querySelectorAll(".dem-num,.dem-date").forEach(el=>{
     el.oninput=()=>{ const rows=demandRows(); const r=rows[+el.dataset.i]; if(!r) return;
-      r[el.dataset.k]=el.value.trim(); DIRTY=true; renderDemandSum(); renderDemandCheck(); };
+      r[el.dataset.k]=el.value.trim(); DIRTY=true; renderDemandSum(); };
     if(el.classList.contains("dem-date")) el.onchange=()=>{ const iso=schedDate(el.value.trim()); if(iso&&iso!==el.value.trim()){ el.value=iso; el.oninput(); } renderDemand(); };
   });
-  t.querySelectorAll(".dem-sel").forEach(el=>{ el.onchange=()=>{ const r=demandRows()[+el.dataset.i]; if(!r) return; r[el.dataset.k]=el.value; DIRTY=true; renderDemandCheck(); }; });
+  t.querySelectorAll(".dem-sel").forEach(el=>{ el.onchange=()=>{ const r=demandRows()[+el.dataset.i]; if(!r) return; r[el.dataset.k]=el.value; DIRTY=true; }; });
   t.querySelectorAll(".dem-map").forEach(el=>{ el.onchange=()=>{ const m=demandCfg().service_groups; if(el.value) m[el.dataset.ch]=el.value; else delete m[el.dataset.ch]; DIRTY=true; renderDemand(); }; });
   document.querySelectorAll(".demPick").forEach(b=>{ b.onclick=()=>openPicker(b.dataset.for); });
   t.querySelectorAll(".demGrpDel").forEach(b=>{ b.onclick=()=>demandDeleteGroup(b.dataset.g); });
@@ -9674,28 +9653,6 @@ function renderDemandSum(){
     +`<span>${esc(L("服務別","Service"))} <b>${d.service_rows.length}</b> ${esc(L("段","range(s)"))}${d.service_rows.length?` · ${esc(L("今天生效","active today"))} <b>${live(d.service_rows)}</b>`:""}</span>`
     +`<span>${esc(L("已對應","Mapped"))} <b>${mapped}</b> / ${chans.length} ${esc(L("條渠道","channels"))}</span>`;
 }
-/* 試算:挑日期、渠道、勾這件已有的附加費,看 Demand 會加多少。 */
-function renderDemandCheck(){
-  const out=$("#dcOut"); if(!out||!CFG) return;
-  const sel=$("#dcChan");
-  if(sel){ const cur=sel.value; const chans=demandChannels();
-    if([...sel.options].map(o=>o.value).join("|")!==chans.join("|")) sel.innerHTML=chans.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
-    if(cur&&chans.includes(cur)) sel.value=cur; else if(!sel.value&&chans.length) sel.value=chans.find(c=>/^ground residential$/i.test(c))||chans[0]; }
-  const dEl=$("#dcDate"); if(dEl&&!dEl.value) dEl.value=demToday();
-  const date=dEl?dEl.value.trim():demToday(), chan=sel?sel.value:"";
-  const flags={ahs:!!($("#dcAhs")||{}).checked, lps:!!($("#dcLps")||{}).checked, ovr:!!($("#dcOvr")||{}).checked};
-  const d=demandCfg();
-  if(!schedDate(date)){ out.innerHTML=`<span class="hint" style="margin:0">${esc(L("日期格式 YYYY-MM-DD。","Date must be YYYY-MM-DD."))}</span>`; return; }
-  const r=calcDemand(CFG, date, chan, flags);
-  const pkgKind=r.ovr?"OVR":r.lps?"LPS":r.ahs?"AHS":"";
-  const pkgAmt=r.ovr||r.lps||r.ahs||0;
-  const chip=(k,v,cls="")=>`<span class="dcchip ${cls}"><small>${esc(k)}</small><b>${v}</b></span>`;
-  const grp=demandServiceGroup(chan, d.service_groups, d.service_group_names);
-  out.innerHTML=chip(L("包裹類","Package"), pkgAmt?money(pkgAmt)+` <small>${pkgKind}</small>`:(flags.ahs||flags.lps||flags.ovr?money(0):L("未勾附加費","no surcharge ticked")), pkgAmt?"":"off")
-    +chip(L("服務別","Service"), r.service?money(r.service)+` <small>${esc(r.group)}</small>`:(grp?money(0)+` <small>${esc(grp)}</small>`:L("此渠道不收","channel not mapped")), r.service?"":"off")
-    +chip(L("合計","Total"), money(r.total), "total")
-    +(d.enabled?"":`<span class="hint" style="margin:0">${esc(L("尚未套用到重算(右上 Off)。","Not applied to repricing yet (Off, top right)."))}</span>`);
-}
 function demandBind(){
   $("#demandTabs") && ($("#demandTabs").onclick=e=>{
     const b=e.target.closest("button[data-d]"); if(!b) return;
@@ -9706,7 +9663,7 @@ function demandBind(){
   $("#demandOn") && ($("#demandOn").onchange=e=>{
     if(!CFG) return;
     demandCfg().enabled=(e.target.value==="on");
-    CFG=readConfig(CFG.raw); DIRTY=true; renderDemandSum(); renderDemandCheck();
+    CFG=readConfig(CFG.raw); DIRTY=true; renderDemandSum();
     setStatus(LANG?("Demand "+e.target.value):("Demand 已"+(e.target.value==="on"?"開啟":"關閉")));
   });
   $("#bAddPeriod") && ($("#bAddPeriod").onclick=()=>{
@@ -9739,10 +9696,9 @@ function demandBind(){
     CFG=readConfig(CFG.raw);
     const ok=saveSettings();
     if(RATED&&SHIPS){ RATED=SHIPS.map(x=>priceShipment(CFG,x)); renderRate(); }
-    renderDemandSum(); renderDemandCheck();
+    renderDemandSum();
     demandNote(ok===false?L("儲存失敗。","Could not save."):L("Demand 設定已儲存。","Demand settings saved."), ok!==false);
   });
-  ["dcDate","dcChan","dcAhs","dcLps","dcOvr"].forEach(id=>{ const el=$("#"+id); if(!el) return; el.oninput=renderDemandCheck; el.onchange=renderDemandCheck; });
 }
 demandBind();
 
@@ -14253,10 +14209,6 @@ const I18N={
   "btn.addperiod":["+ 新增期間","+ Add period"],
   "btn.delperiod":["刪除所選","Delete selected"],
   "btn.savedemand":["儲存 Demand 設定","Save Demand settings"],
-  "hd.demcheck":["試算","Quick check"],
-  "hint.demcheck":["挑出貨日與渠道,看一件會加收多少 Demand;這件已有的附加費勾起來。","Pick a ship date and a channel to see what Demand adds to one package. Tick the surcharges that package already has."],
-  "lb.dcdate":["出貨日","Ship date"],
-  "lb.dcchan":["渠道","Channel"],
   "th.feetype":["費用類別","Fee Type"],
   "th.shiptype":["出貨類型","Shipment Type"],
   "th.zones":["Zone","Zones"],
