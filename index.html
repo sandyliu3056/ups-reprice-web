@@ -338,6 +338,9 @@ select:not(.titlebar select) option{color:#000;background:#fff;font-weight:400}
 .meterline{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12.5px;
   color:var(--muted)}
 .meterline b{color:var(--ink);font-size:13.5px}
+.meterhd{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:10px 0 5px}
+.meterhd:first-child{margin-top:0}
+.meter.hot .fill{background:var(--neg)}
 #tDimForce td:nth-child(2),#tDimForce th:nth-child(2){text-align:right}
 #tStored td:nth-child(4),#tStored td:nth-child(5),
 #tStored th:nth-child(4),#tStored th:nth-child(5){text-align:right}
@@ -6372,12 +6375,12 @@ function applyConfig(text,name,remember){
      本來就會把未設定的標成紅字,要看的人看得到。 */
   if(zoneFixed.length) DIRTY=true;
   if(remember!==false){
-    try{ const [k,kn]=cfgKeys();
-      localStorage.setItem(k,text); localStorage.setItem(kn,name); }
-    catch(e){
+    /* 記的是精簡版,不是檔案原文:縮排版大 4 倍,幾個層級就把 localStorage 塞滿。 */
+    const r=lsPutCfg(JSON.stringify(CFG.raw),name);
+    if(!r.ok){
       /* 靜靜吞掉的話,使用者會以為設定已經記住了。講清楚是哪一種失敗。 */
       paintCfgName(name+" ("+(LANG?"not remembered":"沒有記住")+")");
-      saveNoteKey(false,"loadedno",(e&&e.name)||"Error");
+      saveNoteKey(false,"loadedno",r.why);
     }
   }
   /* 這一行拿掉了。DIM 只能印一個數字,但除數是按渠道走的(帳號預設 139、
@@ -8359,13 +8362,25 @@ function renderStorageMeter(){
   const box=$("#stStorage");
   if(!box) return;
   box.innerHTML="";
+  /* 設定區(localStorage)是另一個上限:瀏覽器一般給 5 MB,設定、住商對照表、期別索引
+     都擠在這裡,滿了「儲存設定」就寫不進本機。所以分開量、分開畫,超過 85% 變紅。 */
+  const ls=lsUsage();
+  if(ls.ok){
+    const cap=5*1024*1024, pct=Math.min(100, ls.total/cap*100);
+    const part=(zh,en,v)=>v?`<span>${esc(L(zh,en))} <b>${fmtBytes(v)}</b></span>`:"";
+    box.innerHTML+=`<div class="meterhd">${esc(L("設定區(localStorage)","Settings area (localStorage)"))}</div>
+      <div class="meter${pct>85?" hot":""}"><div class="fill" style="width:${pct.toFixed(2)}%"></div></div>
+      <div class="meterline">${part("已用","Used",ls.total)}<span>${esc(L("上限約","Limit about"))} <b>${fmtBytes(cap)}</b></span>`
+      +part("設定","Settings",ls.cfg)+part("住商對照表","Res/com map",ls.hist)+part("期別索引","Invoice index",ls.idx)+part("其他","Other",ls.other)+`</div>`;
+  }
   if(!(navigator.storage && navigator.storage.estimate)) return;
   navigator.storage.estimate().then(e=>{
     const used=e.usage||0, cap=e.quota||0;
     if(!cap) return;
     const free=Math.max(0,cap-used);
     const pct=Math.min(100, used/cap*100);
-    box.innerHTML=`
+    box.innerHTML+=`
+      <div class="meterhd">${esc(L("帳單明細(IndexedDB)","Invoice detail (IndexedDB)"))}</div>
       <div class="meter"><div class="fill" style="width:${pct.toFixed(2)}%"></div></div>
       <div class="meterline">
         <span>${LANG?"Used":"已用"} <b>${fmtBytes(used)}</b></span>
@@ -12918,6 +12933,51 @@ function paintSaveNote(){
     el.className = (!m||m.ok) ? "savenote" : "savenote bad";
   });
 }
+/* ---- 本機快取(localStorage,瀏覽器一般給 5 MB)----
+   設定以外,住商對照表、期別索引、活動紀錄都擠在同一個 5 MB 裡。以前設定存的是縮排版
+   JSON(範例設定 30 萬字,精簡只要 8 萬),幾個費率層級就塞爆:本機寫失敗先跳紅字,
+   雲端接著寫成功又變綠 —— 同一次儲存兩種答案。現在:存精簡 JSON;塞滿就先清掉可以
+   重建的東西再試;訊息由「雲端 + 本機」一起決定,雲端成功就是存好了。 */
+function cfgCloudReady(){ return LOCAL_MODE ? !!(SYNC&&ME&&ME.sync) : !!(AUTH&&ME); }
+function lsMakeRoom(tier){
+  let n=0;
+  const drop=key=>{ try{ if(localStorage.getItem(key)!=null){ localStorage.removeItem(key); n++; } }catch(e){} };
+  if(tier>=1){
+    /* 住商對照表:記憶體那份還在,下次登入會從 IndexedDB 的明細重學。舊版沒分帳號的那份也一起。 */
+    drop(histKey()); drop(histRuleKey()); drop(HIST_KEY); drop(HIST_RULE_KEY);
+    try{ const l=logRead(); if(l.length>100){ localStorage.setItem(LOG_KEY,JSON.stringify(l.slice(-100))); n++; } }catch(e){}
+  }
+  if(tier>=2){ drop(ADDRCLASS_CACHE_KEY); drop(WX_KEY); }
+  return n;
+}
+/* 寫設定進本機快取。塞滿(QuotaExceeded)就一層一層清出空間再試,其他錯誤直接回報。 */
+function lsPutCfg(txt,name){
+  const [k,kn]=cfgKeys();
+  const put=()=>{ localStorage.setItem(k,txt); localStorage.setItem(kn,name); };
+  let why="";
+  for(let tier=0; tier<=2; tier++){
+    if(tier) lsMakeRoom(tier);
+    try{ put(); return {ok:true, freed:tier}; }
+    catch(e){ why=(e&&e.name)||"Error"; if(!/quota/i.test(why)) return {ok:false, why}; }
+  }
+  return {ok:false, why};
+}
+/* localStorage 用量:UTF-16,一字元兩個位元組,鍵名也算。分成設定 / 住商對照表 / 期別索引 / 其他。 */
+function lsUsage(){
+  const out={total:0, cfg:0, hist:0, idx:0, other:0, ok:false};
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i), v=localStorage.getItem(k)||"";
+      const b=(k.length+v.length)*2; out.total+=b;
+      if(k.startsWith(CFG_KEY_BASE)||k.startsWith(CFG_NAME_BASE)) out.cfg+=b;
+      else if(k.startsWith(HIST_KEY)) out.hist+=b;
+      else if(k.startsWith(HISTINV_KEY)) out.idx+=b;
+      else out.other+=b;
+    }
+    out.ok=true;
+  }catch(e){}
+  return out;
+}
 function saveSettings(){
   if(!CFG){
     saveNoteKey(false,"nothing");
@@ -12925,32 +12985,47 @@ function saveSettings(){
     toast(LANG?"There is nothing to save yet.":"目前沒有可儲存的設定。", false);
     return false;
   }
-  const txt=JSON.stringify(CFG.raw,null,2);
-  /* 存回這個帳號在 Supabase 的那一列。網路不通時本機快取仍然寫得進去,
-     所以這裡不擋流程,失敗只回報。同步成功再補一句 —— 「存進這個瀏覽器」
-     和「跟著帳號走」對使用者是兩件事,要分開講。 */
-  cfgPush(txt, CFG_LABEL||(LANG?"saved settings":"已儲存的設定"))
-    .then(ok=>{ if(ok){
-      saveNoteKey(true,"synced");
-      toast(LANG?"Settings synced to this account — any computer will load them."
-                :"設定已同步到帳號,換電腦登入也會載入。", true);
-    }});
-  try{
-    const [k,kn]=cfgKeys();
-    localStorage.setItem(k,txt);
-    /* 名稱也要一起寫。只寫內容的話 restoreConfig() 那邊配不成對,
-       重開會退回預設值,看起來就像剛才根本沒存到。 */
-    localStorage.setItem(kn,CFG_LABEL||(LANG?"saved settings":"已儲存的設定"));
-  }catch(e){
-    /* 這裡以前是 catch(e){} ——失敗和成功長得一模一樣。 */
-    const why=(e&&e.name)||"Error";
-    saveNoteKey(false,"failed",why);
+  const txt=JSON.stringify(CFG.raw);
+  const name=CFG_LABEL||(LANG?"saved settings":"已儲存的設定");
+  const cloud=cfgCloudReady();
+  const local=lsPutCfg(txt,name);
+  if(local.ok){ DIRTY=false; logAdd("save settings",""); }
+  if(cloud){
+    /* 存回這個帳號在 Supabase 的那一列。本機那份只是快取:雲端成功就是存好了,
+       這台瀏覽器塞滿沒存到本機也只補一句,不當成失敗。 */
+    cfgPush(txt,name).then(ok=>{
+      if(ok){
+        DIRTY=false;
+        saveNoteKey(true,"synced");
+        setStatus(LANG?"Settings synced to this account":"設定已同步到帳號");
+        toast((LANG?"Settings synced to this account — any computer will load them."
+                   :"設定已同步到帳號,換電腦登入也會載入。")
+          +(local.ok?"":(LANG?" (This browser's local cache is full, so nothing was cached here.)"
+                             :"(這台瀏覽器的本機快取已滿,沒存本機。)")), true);
+      }else if(!local.ok){
+        saveNoteKey(false,"failed",local.why);
+        setStatus(LANG?"Save failed":"儲存失敗");
+        toast((LANG?"Not saved: the local cache is full ("+local.why+") and the cloud sync failed too."
+                   :"沒有存到:本機快取已滿("+local.why+"),雲端同步也失敗。"), false);
+      }
+      /* 雲端失敗但本機有存到:cfgPush 自己已經說了「只存在這台電腦」。 */
+    });
+    if(local.ok){
+      saveNoteKey(true,"saved");
+      setStatus(LANG?"Settings saved":"設定已儲存");
+      toast(LANG?"Settings saved in this browser.":"設定已存進這個瀏覽器。", true);
+    }else{
+      setStatus(LANG?"Local cache full — syncing to the account…":"本機快取已滿,正在同步到帳號…");
+    }
+    return true;
+  }
+  /* 沒有雲端(還沒登入、或本機帳號沒有同步鑰匙):本機這份就是唯一的一份。 */
+  if(!local.ok){
+    saveNoteKey(false,"failed",local.why);
     setStatus(LANG?"Save failed":"儲存失敗");
-    toast((LANG?"Could not save: ":"存不進去:")+why, false);
+    toast((LANG?"Could not save: ":"存不進去:")+local.why, false);
     return false;
   }
-  DIRTY=false;
-  logAdd("save settings","");
   saveNoteKey(true,"saved");
   setStatus(LANG?"Settings saved":"設定已儲存");
   toast(LANG?"Settings saved in this browser.":"設定已存進這個瀏覽器。", true);
