@@ -8374,12 +8374,15 @@ function renderStorageMeter(){
       +part("設定","Settings",ls.cfg)+part("住商對照表","Res/com map",ls.hist)+part("期別索引","Invoice index",ls.idx)+part("其他","Other",ls.other)+`</div>`;
   }
   if(!(navigator.storage && navigator.storage.estimate)) return;
+  /* 這一段是非同步的,寫進自己的格子而不是接在後面 —— 連續叫兩次時,舊的那次回來
+     會接到新畫好的表後面,同一條畫兩遍。格子被清掉的話,舊的回來就寫不到畫面。 */
+  const idbBox=document.createElement("div"); box.appendChild(idbBox);
   navigator.storage.estimate().then(e=>{
     const used=e.usage||0, cap=e.quota||0;
     if(!cap) return;
     const free=Math.max(0,cap-used);
     const pct=Math.min(100, used/cap*100);
-    box.innerHTML+=`
+    idbBox.innerHTML=`
       <div class="meterhd">${esc(L("帳單明細(IndexedDB)","Invoice detail (IndexedDB)"))}</div>
       <div class="meter"><div class="fill" style="width:${pct.toFixed(2)}%"></div></div>
       <div class="meterline">
