@@ -485,6 +485,9 @@ input.cell.dem-date{width:112px;text-align:left}
 td.wrap{white-space:normal;max-width:520px}
 #tDemand input.dem-resi{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 #tDemand input.dem-resi:disabled{opacity:.35;cursor:default}
+#tDemand input.dem-gname,#tDemand input.dem-gdesc{border-color:transparent;background:transparent}
+#tDemand input.dem-gname:hover,#tDemand input.dem-gdesc:hover{border-color:var(--line)}
+#tDemand input.dem-gname:focus,#tDemand input.dem-gdesc:focus{background:var(--panel);border-color:var(--accent)}
 .demtools{margin-top:10px}
 .demtools:empty{display:none}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
@@ -9489,9 +9492,11 @@ function demandNormalize(cfg){
   if(!Array.isArray(d.service_rows)) d.service_rows=[];
   if(!d.service_groups||typeof d.service_groups!=="object"||Array.isArray(d.service_groups)) d.service_groups={};
   if(!Array.isArray(d.service_group_names)) d.service_group_names=[];
+  if(!d.service_group_desc||typeof d.service_group_desc!=="object"||Array.isArray(d.service_group_desc)) d.service_group_desc={};
   /* 全部就地改,不換陣列 —— 畫面上抓著 d.service_rows 的引用還在用,換掉陣列它就寫進空氣裡。 */
   const names=[...new Set(d.service_group_names.map(g=>String(g==null?"":g).trim().toUpperCase()).filter(Boolean))];
-  d.service_group_names.splice(0,d.service_group_names.length,...(names.length?names:DEMAND_GROUPS.slice()));
+  /* 一類都沒有而且從沒動過類別:補四個內建當起點。使用者自己刪光的(groups_touched)就尊重他。 */
+  d.service_group_names.splice(0,d.service_group_names.length,...((names.length||d.groups_touched)?names:DEMAND_GROUPS.slice()));
   const sp=d.special_rows.filter(r=>r&&typeof r==="object").map(r=>({
     start:String(r.start??"").trim(), end:String(r.end??"").trim(),
     GROUP:String(r.GROUP??r.cat??"").trim().toUpperCase(),
@@ -9584,16 +9589,17 @@ function renderDemand(){
       :`<tr><td colspan="${groups.length+4}" class="empty">${esc(L("還沒有期間。按「+ 新增期間」加一段,再填各類別的金額。","No periods yet. Press + Add period, then fill in each category."))}</td></tr>`;
     tools.innerHTML="";
   }else if(tab==="grp"){
-    hint.textContent=L("服務類別是②的欄、④的選項。內建四個對應 UPS 旺季附加費的分類;要另外分(例如國際線)就新增一個。",
-      "Categories are the columns of ② and the options of ④. The four built-ins follow UPS's peak surcharge groups; add one to split further (for example international).");
-    th.innerHTML=`<tr>${H("類別","Category")}${H("說明","Description")}${H("對應的渠道","Mapped channels")}<th></th></tr>`;
+    hint.textContent=L("服務類別是②的欄、④的選項。名稱和說明直接改;改名會一起帶到②的欄和④的對應。刪掉一類,②那一欄和④對到它的渠道也一起清掉。",
+      "Categories are the columns of ② and the options of ④. Edit the name or description in place; a rename follows through to ② and ④. Deleting one also removes its column in ② and its channels in ④.");
+    th.innerHTML=`<tr>${H("類別","Category")}${H("說明","Description")}${H("對應的渠道","Mapped channels")}<th style="width:90px"></th></tr>`;
     tb.innerHTML=groups.map(g=>{
       const chans=Object.entries(d.service_groups).filter(([,v])=>v===g).map(([k])=>k);
-      const builtin=DEMAND_GROUPS.includes(g);
-      return `<tr><td class="mono"><b>${esc(g)}</b></td>`
-        +`<td>${esc(DEMAND_GROUP_INFO[g]?DEMAND_GROUP_INFO[g][LANG]:L("自訂類別","Custom category"))}</td>`
+      const desc=(d.service_group_desc[g]!=null)?d.service_group_desc[g]:(DEMAND_GROUP_INFO[g]?DEMAND_GROUP_INFO[g][LANG]:"");
+      return `<tr><td><input class="cell mono dem-gname" data-g="${esc(g)}" value="${esc(g)}" style="width:190px;text-align:left;font-weight:700"></td>`
+        +`<td><input class="cell dem-gdesc" data-g="${esc(g)}" value="${esc(desc)}" placeholder="${esc(L("說明(選填)","Description (optional)"))}" style="width:100%;min-width:220px;text-align:left"></td>`
         +`<td class="wrap">${chans.length?chans.map(c=>`<span class="tag">${esc(/\sResidential$/.test(c)?svcOfChan(c)+L("(住宅)"," (residential)"):c)}</span>`).join(""):`<span style="color:var(--muted)">${esc(L("尚未對應任何渠道 → ④","no channels yet → ④"))}</span>`}</td>`
-        +`<td>${builtin?"":`<button type="button" class="act ghost sm danger demGrpDel" data-g="${esc(g)}">${esc(L("刪除","Delete"))}</button>`}</td></tr>`; }).join("");
+        +`<td><button type="button" class="act ghost sm danger demGrpDel" data-g="${esc(g)}">${esc(L("刪除","Delete"))}</button></td></tr>`; }).join("")
+      ||`<tr><td colspan="4" class="empty">${esc(L("還沒有類別。","No categories yet."))}</td></tr>`;
     tools.innerHTML=`<input class="cell" id="demGrpName" style="width:220px;text-align:left" placeholder="${esc(L("新類別名稱,例如 INTL","New category, e.g. INTL"))}">`
       +`<button type="button" class="act ghost" id="bDemGrpAdd">${esc(L("+ 新增類別","+ Add category"))}</button>`
       +`<span class="hint" style="margin:0">${esc(L("名稱會轉成大寫;②每段期間會多一欄,④可以把渠道對到它。","Upper-cased; ② gets a column for it and ④ can map channels to it."))}</span>`;
@@ -9629,6 +9635,11 @@ function demandBindCells(){
   t.querySelectorAll(".dem-resi").forEach(el=>{ el.onchange=()=>{ const sel=t.querySelector(`.dem-map[data-ch="${el.dataset.ch}"]`); demandMapSet(el.dataset.ch, sel?sel.value:"", el.checked); DIRTY=true; renderDemand(); }; });
   document.querySelectorAll(".demPick").forEach(b=>{ b.onclick=()=>openPicker(b.dataset.for); });
   t.querySelectorAll(".demGrpDel").forEach(b=>{ b.onclick=()=>demandDeleteGroup(b.dataset.g); });
+  t.querySelectorAll(".dem-gdesc").forEach(el=>{ el.oninput=()=>{ demandCfg().service_group_desc[el.dataset.g]=el.value; DIRTY=true; }; });
+  t.querySelectorAll(".dem-gname").forEach(el=>{
+    el.onchange=()=>{ const ok=demandRenameGroup(el.dataset.g, el.value); if(!ok) el.value=el.dataset.g; };
+    el.onkeydown=e=>{ if(e.key==="Enter"){ e.preventDefault(); el.blur(); } if(e.key==="Escape"){ el.value=el.dataset.g; el.blur(); } };
+  });
   const add=$("#bDemGrpAdd"); if(add) add.onclick=demandAddGroup;
   const nameIn=$("#demGrpName"); if(nameIn) nameIn.onkeydown=e=>{ if(e.key==="Enter") demandAddGroup(); };
 }
@@ -9637,22 +9648,39 @@ function demandAddGroup(){
   if(!name){ demandNote(L("請先填類別名稱。","Type a category name first."),false); return; }
   const d=demandCfg();
   if(d.service_group_names.includes(name)){ demandNote(L("已經有這個類別。","That category already exists."),false); return; }
-  d.service_group_names.push(name);
+  d.service_group_names.push(name); d.groups_touched=true;
   for(const r of d.service_rows) if(!(name in r)) r[name]="";
   DIRTY=true; renderDemand();
   demandNote(L("已新增類別 "+name+";到④把渠道對過去,②填金額。","Added "+name+"; map channels to it under ④ and price it under ②."),true);
 }
+/* 改名:②的欄、④的對應、①指定的類別、說明,一起跟著走。 */
+function demandRenameGroup(oldName, raw){
+  const d=demandCfg();
+  const name=String(raw||"").trim().toUpperCase().replace(/[^A-Z0-9_]+/g,"_").replace(/^_+|_+$/g,"");
+  if(!name){ demandNote(L("類別名稱不能空白。","A category needs a name."),false); return false; }
+  if(name===oldName){ return true; }
+  if(d.service_group_names.includes(name)){ demandNote(L("已經有「"+name+"」這個類別。","\""+name+"\" already exists."),false); return false; }
+  d.service_group_names=d.service_group_names.map(x=>x===oldName?name:x); d.groups_touched=true;
+  for(const r of d.service_rows){ if(oldName in r){ r[name]=r[oldName]; delete r[oldName]; } }
+  for(const k of Object.keys(d.service_groups)) if(d.service_groups[k]===oldName) d.service_groups[k]=name;
+  for(const r of d.special_rows) if(r.GROUP===oldName) r.GROUP=name;
+  if(oldName in d.service_group_desc){ d.service_group_desc[name]=d.service_group_desc[oldName]; delete d.service_group_desc[oldName]; }
+  else if(DEMAND_GROUP_INFO[oldName]) d.service_group_desc[name]=DEMAND_GROUP_INFO[oldName][LANG];
+  DIRTY=true; renderDemand();
+  demandNote(L("已改名 "+oldName+" → "+name+",②、④都跟著換了;記得儲存。","Renamed "+oldName+" → "+name+"; ② and ④ follow — remember to save."),true);
+  return true;
+}
 function demandDeleteGroup(g){
   const d=demandCfg();
-  if(DEMAND_GROUPS.includes(g)) return;
   const used=Object.values(d.service_groups).filter(v=>v===g).length;
   const b=document.querySelector(`.demGrpDel[data-g="${g}"]`);
   /* 第一下先問,五秒內再按一下才刪 —— 用按鈕自己問,不彈視窗。 */
   if(b&&b.dataset.arm!=="1"){ b.dataset.arm="1"; b.textContent=L("確定刪除?","Delete?")+(used?L("(有 "+used+" 條渠道對到它)"," ("+used+" channel(s) use it)"):""); setTimeout(()=>{ if(b.isConnected){ b.dataset.arm=""; b.textContent=L("刪除","Delete"); } },5000); return; }
-  d.service_group_names=d.service_group_names.filter(x=>x!==g);
+  d.service_group_names=d.service_group_names.filter(x=>x!==g); d.groups_touched=true;
   for(const k of Object.keys(d.service_groups)) if(d.service_groups[k]===g) delete d.service_groups[k];
   for(const r of d.service_rows) delete r[g];
   for(const r of d.special_rows) if(r.GROUP===g) r.GROUP="";
+  delete d.service_group_desc[g];
   DIRTY=true; renderDemand();
   demandNote(L("已刪除類別 "+g+"。","Deleted "+g+"."),true);
 }
