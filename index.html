@@ -59,8 +59,8 @@ table,table *,input,select,.tablewrap{filter:none !important}
   color:var(--titlefill,var(--tab));
   -webkit-text-stroke:var(--titlestroke,0) var(--tab);
   paint-order:stroke fill}
-.titlebar .devby{font-size:10.5px;letter-spacing:2px;opacity:.6;margin-left:20px}
-.titlebar .devby{cursor:help}
+/* 署名放在右下角的狀態列,不在標題列。 */
+.statusbar .devby{font-size:10.5px;letter-spacing:2px;opacity:.6;margin-left:auto;cursor:help;white-space:nowrap}
 .titlebar .ctrls{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
 .titlebar select{font:inherit;font-size:11.5px;background:transparent;color:var(--tab);
   border:1px solid var(--tab);border-radius:5px;padding:3px 7px;cursor:pointer;opacity:.85;
@@ -1043,7 +1043,6 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
 <div class="titlebar">
   <b class="display" id="appTitle">UPS REPRICE PLATFORM</b>
-  <span class="devby" id="appBy">DEVELOPED BY SANDY LIU</span>
   <div class="ctrls">
     <select id="langSel"  title="Language"></select>
     <select id="zoomSel"  title="Display size"></select>
@@ -2393,7 +2392,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
   </div>
 </div>
 
-<div class="statusbar"><span id="status" data-i18n="ready">Ready</span></div>
+<div class="statusbar"><span id="status" data-i18n="ready">Ready</span><span class="devby" id="appBy">DEVELOPED BY SANDY LIU</span></div>
 
 <!-- Supabase 用戶端放在自己的網站裡,不跟 CDN 拿。理由跟 SheetJS 鎖版本一樣:
      這支工具在算客戶的錢,不能讓一個隨時會變的外部檔案跑在頁面上。
