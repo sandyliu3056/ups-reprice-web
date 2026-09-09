@@ -461,7 +461,7 @@ select.nice option{color:#000;background:#fff;font-weight:400}
 table{border-collapse:collapse;width:100%;font-size:13px;background:var(--stripe)}
 th{background:var(--accent);color:var(--tab);text-align:left;padding:7px 9px;
   font-weight:600;white-space:nowrap;position:sticky;top:0;z-index:1}
-td{padding:6px 9px;border-bottom:1px solid #eadfc6;white-space:nowrap}
+td{padding:6px 9px;border-bottom:1px solid color-mix(in srgb,var(--line) 42%,transparent);white-space:nowrap}
 tbody tr:nth-child(even){background:var(--stripe)}
 tbody tr:hover{background:color-mix(in srgb, var(--select) 45%, transparent)}
 td.num,th.num{text-align:right}
@@ -1029,6 +1029,75 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 .dpGrid button.today{outline:2px solid var(--run2);outline-offset:1px}
 .dpGrid button.on{background:var(--accent);color:var(--tab)}
 .dpGrid .pad{visibility:hidden}
+/* =====================================================================
+   整站質感層(2026-09)
+   ---------------------------------------------------------------------
+   結構、流程、顏色變數都不動,只把「同一種東西」統一成同一個樣子,
+   再補上深度與回饋:面板有影子、標題有底線、按鈕按得下去、輸入框有焦點環、
+   表格列滑過會亮、換頁淡入。全部走主題變數,五個配色都成立。
+   ===================================================================== */
+/* 底色:頂端一點金色暈光,不再是一整片平的米色。 */
+body{background:radial-gradient(1400px 540px at 50% -220px,
+       color-mix(in srgb,var(--tab) 13%,var(--bg)), var(--bg) 72%)}
+/* 面板:一道貼地的細影 + 一片很淡的散影,面板才浮在紙上而不是印在紙上。 */
+.lf.sketch{padding:16px 18px 16px;margin-bottom:16px;
+  box-shadow:0 1px 0 color-mix(in srgb,var(--accent) 7%,transparent),
+             0 12px 26px -20px color-mix(in srgb,var(--accent) 55%,transparent)}
+.lf.sketch.filesCard{padding-right:250px}
+@media(max-width:900px){.lf.sketch.filesCard{padding-right:18px}}
+/* 面板標題:大半號、底下一道虛線,一眼分得出哪裡是一個區塊的開頭。 */
+.lf>h3.display{font-size:15.5px;letter-spacing:.4px;margin:-2px 0 14px;padding-bottom:9px;
+  border-bottom:1.5px dashed color-mix(in srgb,var(--line) 75%,transparent)}
+.lf>h3 .em{font-size:17px}
+.subhd{letter-spacing:.3px}
+/* 按鈕:底下一條深色壓線,滑過浮起、按下去壓平 —— 手繪的按鈕也要有厚度。 */
+button.act{transition:background .14s,color .14s,border-color .14s,transform .08s,box-shadow .14s;
+  box-shadow:0 2px 0 color-mix(in srgb,var(--accent) 45%,transparent)}
+button.act.ghost{box-shadow:0 2px 0 color-mix(in srgb,var(--accent) 22%,transparent)}
+button.act.sm{box-shadow:0 1.5px 0 color-mix(in srgb,var(--accent) 30%,transparent)}
+button.act:hover:not(:disabled){transform:translateY(-1px);
+  box-shadow:0 3px 0 color-mix(in srgb,var(--accent) 45%,transparent)}
+button.act:active:not(:disabled){transform:translateY(1px);box-shadow:none}
+button.act:disabled{box-shadow:none}
+/* 輸入框:全站同一種 —— 線色框、8px 圓角、焦點時金色光環;數字格(.cell)維持等寬右靠,只換焦點環。 */
+main input:not([type=checkbox]):not([type=radio]):not([type=file]):not(.cell):not(.frow input){
+  font:inherit;font-size:13px;color:var(--text);background:var(--panel);
+  border:1.6px solid var(--line);border-radius:8px;padding:6px 10px;
+  transition:border-color .14s,box-shadow .14s}
+main input:not([type=checkbox]):not([type=radio]):not([type=file]):not(.cell):focus,
+input.cell:focus,.frow input:focus{outline:none;border-color:var(--run2);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--run2) 22%,transparent)}
+input::placeholder{color:color-mix(in srgb,var(--muted) 80%,transparent)}
+input[type=checkbox],input[type=radio]{accent-color:var(--accent);cursor:pointer}
+/* 表格:欄名字距、列線改成主題線色、外框一圈細線收邊。 */
+th{font-size:12.5px;letter-spacing:.3px;padding:8px 10px}
+td{padding:7px 10px}
+.tablewrap{border-radius:9px;border:1.5px solid color-mix(in srgb,var(--line) 65%,transparent);
+  scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--line) 85%,transparent) transparent}
+.tablewrap table{background:var(--panel)}
+tbody tr:nth-child(even){background:color-mix(in srgb,var(--stripe) 70%,var(--panel))}
+/* 捲軸:細、圓、線色,不用作業系統的灰色粗條。 */
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--line) 85%,transparent);
+  border-radius:8px;border:2.5px solid var(--bg)}
+*::-webkit-scrollbar-thumb:hover{background:var(--run2)}
+main{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--line) 85%,transparent) transparent}
+/* 換頁:淡入、往上一點。 */
+@keyframes pagein{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.page.on{animation:pagein .22s ease-out}
+@media(prefers-reduced-motion:reduce){.page.on{animation:none}}
+/* 狀態列 */
+.statusbar{padding:6px 16px}
+/* 登入卡:欄名在上、格子在下,按鈕整排。第一眼看到的東西,排整齊一點。 */
+.gatecard{max-width:420px;margin:56px auto 0;padding:26px 30px 28px}
+.gatecard>h3.display{font-size:19px;justify-content:center;border-bottom:none;margin:0 0 20px;padding:0}
+.gatecard .frow{flex-direction:column;align-items:stretch;gap:5px;margin-bottom:13px}
+.gatecard .frow label{min-width:0;font-size:12.5px;letter-spacing:.3px}
+.gatecard .frow input{padding:9px 12px;font-size:14px;border-radius:9px}
+.gatecard .remember{margin-top:4px;font-size:12.5px}
+.gatecard .row{margin-top:16px!important}
+.gatecard button.act{width:100%;padding:10px 16px;font-size:14.5px}
 </style>
 </head>
 <body>
@@ -1074,7 +1143,7 @@ input,textarea,[contenteditable="true"]{caret-color:auto}
 
 <main>
 <div id="gate">
-  <div class="lf sketch" style="max-width:400px;margin:40px auto">
+  <div class="lf sketch gatecard">
     <h3 class="display"><span class="em">🔑</span><span data-i18n="hd.signin">Sign in</span></h3>
     <div class="frow"><label data-i18n="lb.username">Username</label>
       <input id="inUser" type="text" autocomplete="username"></div>
@@ -15521,8 +15590,8 @@ function drawWeather(g,W,H,t){
     /* 雲是實心的、有底影、會飄。半透明的雲會把裡面的線透出來,看起來像一團亂線。
        多雲是淺灰白,雨雪雷是深灰。 */
     g.save();
-    const paper=pal("--panel","#fffdf7"), soft=(WX.mode==="cloud");
-    g.fillStyle=soft?blendHex(paper,"#aeb9c6",.5):blendHex(paper,"#76818f",.62);
+    const white="#fbfaf4", soft=(WX.mode==="cloud");   /* 不用主題紙色:深色主題會把雲畫成黑的 */
+    g.fillStyle=soft?blendHex(white,"#aeb9c6",.5):blendHex(white,"#76818f",.62);
     g.strokeStyle=skyInk(); g.lineWidth=1.5;
     const set=soft?[[0.08,.9,24],[0.24,.7,16],[0.40,1,30],[0.58,.75,20],[0.74,1.05,28],[0.90,.8,22]]
                   :[[0.12,1,26],[0.30,.85,18],[0.47,1.1,30],[0.66,.9,20],[0.84,1.05,26]];
@@ -15636,8 +15705,10 @@ function drawTallyYard(g,W,H,t){
 
   /* 雲:白的、底下一道淡藍陰影,慢慢往右飄,大的飄得快一點(近的動得多)。 */
   const sInk=skyInk();
-  const cloudFill = darkSky() ? blendHex(paper,"#4a5a7a",.25) : paper;
-  const cloudShade= darkSky() ? blendHex(cloudFill,"#2a3a5a",.35) : blendHex(paper,"#9ec3e6",.5);
+  /* 雲是白的,跟主題的紙色無關 —— 深色主題的紙是深灰,拿來填雲就變成一團黑。 */
+  const white="#fbfaf4";
+  const cloudFill = darkSky() ? blendHex(white,"#4a5a7a",.3) : white;
+  const cloudShade= darkSky() ? blendHex(cloudFill,"#2a3a5a",.35) : blendHex(white,"#9ec3e6",.5);
   g.strokeStyle=sInk; g.lineWidth=1.5;
   for(const [cp,cy,cs] of [[0.42,30,.85],[0.55,20,.6],[0.68,34,.75],[0.80,22,.55],[0.90,32,.68]]){
     const cx=((W*cp + t*0.10*cs) % (W+90)) - 45;
