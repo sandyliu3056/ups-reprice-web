@@ -15061,10 +15061,12 @@ function coatOver(g,x,y,w,hh,hx,hy,hr,seed){
 }
 
 function drawDog(g,a,t){
-  const x=a.x, y=a.y, f=a.dir<0?-1:1, wag=Math.sin(t/3.6)*6;
+  /* 蝴蝶飛近:原地小跳、耳朵豎起、尾巴搖得飛快;停在頭上:抬眼看,最後甩甩頭 */
+  const pose=dogPose(a,t);
+  const x=a.x, y=a.y-pose.hop, f=a.dir<0?-1:1, wag=Math.sin(t/(pose.excited?1.6:3.6))*6;
   const wet=outdoorWet();
-  const blink=(Math.floor(t/7)+a.seed)%52===0;
-  shadow(g,x,y,20);
+  const blink=(Math.floor(t/7)+a.seed)%52===0 && !pose.sit;
+  shadow(g,x,a.y,20);
   g.strokeStyle=INK; g.lineWidth=2.1; g.lineJoin="round";
   /* 粗尾上翹 */
   limb(g,x-15*f,y-20,x-24*f,y-31+wag,DOG_COAT,7);
@@ -15093,17 +15095,17 @@ function drawDog(g,a,t){
   }
   blob(g,x-16,y-25,x+16,y-6,DOG_COAT,8);
   patch(g,x-6*f,y-19,7,5,DOG_MARK);                    /* 身上的色塊 */
-  const hx=x+17*f, hy=y-36;
+  const hx=x+17*f+pose.shake, hy=y-36, earUp=pose.excited?5:0;
   /* 雨衣蓋在身體上、頭之前畫,帽兜才會壓在耳朵後面 */
   if(wet) coatOver(g,x,y-4,17,23,hx,hy,13,a.seed);
   blob(g,hx-13.5,hy-12,hx+13.5,hy+12,DOG_COAT,7);
-  for(const sd of [-1,1])                              /* 垂耳 */
-    blob(g,hx+sd*13-5,hy-9,hx+sd*13+5,hy+7,DOG_MARK,4.5);
+  for(const sd of [-1,1])                              /* 垂耳;興奮時豎起來 */
+    blob(g,hx+sd*13-5,hy-9-earUp,hx+sd*13+5,hy+7-earUp,DOG_MARK,4.5);
   patch(g,hx+5*f,hy+4,8,5.5,DOG_MARK);
   for(const sd of [-1,1]){
     if(blink){ g.lineWidth=1.9; g.beginPath();
       g.moveTo(hx+sd*5.4-2,hy-2); g.lineTo(hx+sd*5.4+2,hy-2); g.stroke(); g.lineWidth=2.1; }
-    else dot(g,hx+sd*5.4,hy-2,2.1,2.2);
+    else dot(g,hx+sd*5.4,hy-2-(pose.sit?1.6:0),2.1,2.2);   /* 停著就往上看 */
     patch(g,hx+sd*10,hy+3,3.2,1.8,BLUSH);
   }
   dot(g,hx,hy+4.4,2.6,2);                              /* 鼻 */
@@ -15127,7 +15129,9 @@ function drawCat(g,a,t){
   const puff=a.act==="puff";
   const wet=outdoorWet();
   const hfPre=a.dir<0?-1:1;   /* 面向哪邊,尾巴接在相反端 */
-  const sleep=a.act==="sit"&&!puff&&(Math.floor(t/260)%2===1);
+  /* 蝴蝶停在頭上:醒著、往上盯、耳朵抖;最後 45 幀抬手一拍 */
+  const bug=a.bug&&a.bug.act==="sit"?a.bug:null, swat=!!(bug&&bug.wait<45&&!walking);
+  const sleep=a.act==="sit"&&!puff&&!bug&&(Math.floor(t/260)%2===1);
   shadow(g,x,y,puff?18:15);
   g.strokeStyle=INK; g.lineWidth=2.1; g.lineJoin="round";
 
@@ -15198,21 +15202,22 @@ function drawCat(g,a,t){
     walking?14:(puff?bw+4:bw+2), walking?16:bh-2,
     x+hxo, hy, puff?15:13, a.seed);
   for(const sd of [-1,1]){
+    const flick=(bug&&sd===hf&&(t%70)<10)?Math.sin(t/1.5)*2:0;   /* 抖耳朵 */
     g.fillStyle=CAT_COAT; g.beginPath();
-    g.moveTo(x+sd*4,hy-8); g.lineTo(x+hxo+sd*10,hy-22); g.lineTo(x+hxo+sd*13,hy-4);
+    g.moveTo(x+sd*4,hy-8); g.lineTo(x+hxo+sd*10+flick,hy-22); g.lineTo(x+hxo+sd*13,hy-4);
     g.closePath(); g.fill(); g.stroke();
     patch(g,x+hxo+sd*9,hy-11,2.6,4.4,BLUSH);
   }
   blob(g,x+hxo-11,hy-10,x+hxo+11,hy+10,CAT_COAT,7);
   for(const sd of [-1,1]){
-    if(puff){                                  /* 炸毛時眼睛瞪大 */
+    if(puff||swat){                            /* 炸毛、出手時眼睛瞪大 */
       g.fillStyle="#fff";
       g.beginPath(); g.ellipse(x+hxo+sd*4.6,hy-1,3.4,3.8,0,0,7); g.fill(); g.stroke();
-      dot(g,x+hxo+sd*4.6,hy-1,1.5,2.2);
+      dot(g,x+hxo+sd*4.6,hy-1-(swat?1.4:0),1.5,2.2);
     }
     else if(blink||sleep){ g.lineWidth=1.9; g.beginPath();
       g.moveTo(x+sd*5.4-2.2,hy-1); g.lineTo(x+sd*5.4+2.2,hy-1); g.stroke(); g.lineWidth=2.1; }
-    else dot(g,x+hxo+sd*4.6,hy-1,2.1,2.3);
+    else dot(g,x+hxo+sd*4.6,hy-1-(bug?2:0),2.1,2.3);   /* 停著就往上盯 */
     patch(g,x+hxo+sd*8.4,hy+4,3.2,1.8,BLUSH);
     cheekLines(g,x+hxo,hy,sd);
     g.strokeStyle=INK; g.lineWidth=.9;
@@ -15231,6 +15236,15 @@ function drawCat(g,a,t){
   }
   if(sleep){ g.font='700 12px system-ui'; g.fillStyle=INK;
     g.fillText("z",x+hxo+16,hy-14); g.fillText("z",x+hxo+21,hy-21); }
+  /* 出手拍蝴蝶:面向那一側的前腳舉到頭頂,上下揮。畫在頭之後,手才在臉前面。 */
+  if(swat){
+    const px=x+hxo+9*hf, py=hy-8-Math.max(0,Math.sin(t/3))*6;
+    g.strokeStyle=INK; g.lineWidth=2.1;
+    limb(g,x+5*hf,y-6,px,py,CAT_COAT,4.6);
+    g.lineWidth=1.8; g.fillStyle=CAT_COAT;
+    g.beginPath(); g.ellipse(px,py-1,3.6,2.8,0,0,7); g.fill(); g.stroke();
+    g.lineWidth=2.1;
+  }
   hearts(g,a,t);
 }
 
@@ -15273,6 +15287,7 @@ function sceneInit(){
     {kind:"cat",   x:334,y:160,seed:71,act:"sit",love:0},
   ];
   spreadActors();
+  bugsInit();
   /* 摸摸。桌面版的場景可以點角色互動( _pet_at),這裡同樣。 */
   SCENE.cv.style.cursor="pointer";
   SCENE.cv.title = LANG?"Click an animal":"點一下摸摸";
@@ -15412,18 +15427,18 @@ const SKY={
   /* top 是天頂,bot 是地平線。晨昏的暖色只出現在地平線那一段,
      天頂仍然是藍的 —— 整片塗橘會變成濾鏡,不是天空。 */
   night:  {top:"#111d36", bot:"#2e3f63", mix:.06},
-  dawn:   {top:"#5b7fae", bot:"#f0a071", mix:.12},
-  day:    {top:"#8fc2e6", bot:"#dcecf7", mix:.34},
-  dusk:   {top:"#4a6a96", bot:"#e0703c", mix:.10},
+  dawn:   {top:"#4f7fb8", bot:"#f2a26e", mix:.10},
+  day:    {top:"#5eb1ea", bot:"#d3e9f9", mix:.14},   /* 以前混了三成多的紙色,藍天變成灰白 */
+  dusk:   {top:"#3f6396", bot:"#e5733d", mix:.08},
   evening:{top:"#25325a", bot:"#7a6a8e", mix:.08},
 };
 /* 天氣蓋過時段:暖色要壓掉,但天空本身還是藍的 —— 灰的是雲,
    不是天。純中性灰會變成黑白照片。 */
 const WX_SKY={
-  rain:  {top:"#4e6076", bot:"#8695a4", mix:.14},
-  storm: {top:"#333f52", bot:"#5b6a7c", mix:.10},
-  snow:  {top:"#6e7f92", bot:"#b2bdc8", mix:.22},
-  cloud: {top:"#7e91a6", bot:"#b8c4d0", mix:.28},
+  rain:  {top:"#5b7390", bot:"#9fb0c0", mix:.12},
+  storm: {top:"#354357", bot:"#61707f", mix:.08},
+  snow:  {top:"#7d93aa", bot:"#c3cfd9", mix:.16},
+  cloud: {top:"#7fb0d6", bot:"#d3e0ea", mix:.14},   /* 多雲仍是藍天,只是淡一點;灰的是雲,不是天 */
 };
 function skyColour(part){
   const paper=pal("--panel","#fffdf7");
@@ -15513,12 +15528,19 @@ function drawWeather(g,W,H,t){
   if(WX.mode==="clear") return;
   const FLR=H-22;
   if(WX.mode==="cloud"||WX.mode==="rain"||WX.mode==="snow"||WX.mode==="storm"){
-    g.save(); g.globalAlpha=WX.mode==="cloud"?.55:.75;
-    g.fillStyle=blendHex(pal("--panel","#fffdf7"),"#6b6f7a",.45);
-    g.strokeStyle=INK; g.lineWidth=1.5;
-    for(const [cp,cs] of [[0.22,1],[0.45,.8],[0.68,.95],[0.86,.7]]){
-      const cx=((W*cp + t*0.06*cs) % (W+100)) - 50, cy=30;
+    /* 雲是實心的、有底影、會飄。半透明的雲會把裡面的線透出來,看起來像一團亂線。
+       多雲是淺灰白,雨雪雷是深灰。 */
+    g.save();
+    const paper=pal("--panel","#fffdf7"), soft=(WX.mode==="cloud");
+    g.fillStyle=soft?blendHex(paper,"#aeb9c6",.5):blendHex(paper,"#76818f",.62);
+    g.strokeStyle=skyInk(); g.lineWidth=1.5;
+    const set=soft?[[0.08,.9,24],[0.24,.7,16],[0.40,1,30],[0.58,.75,20],[0.74,1.05,28],[0.90,.8,22]]
+                  :[[0.12,1,26],[0.30,.85,18],[0.47,1.1,30],[0.66,.9,20],[0.84,1.05,26]];
+    for(const [cp,cs,cy] of set){
+      const cx=((W*cp + t*0.07*cs) % (W+120)) - 60;
       cloudPath(g,[[cx,cy,24*cs,9*cs],[cx-15*cs,cy+4*cs,14*cs,7*cs],[cx+16*cs,cy+4*cs,13*cs,6*cs]]);
+      g.save(); g.globalAlpha=.35; g.fillStyle=soft?"#8a97a8":"#404b58";
+      g.beginPath(); g.ellipse(cx,cy+6.5*cs,17*cs,2.6*cs,0,0,7); g.fill(); g.restore();
     }
     g.restore();
   }
@@ -15643,6 +15665,9 @@ function drawTallyYard(g,W,H,t){
       g.beginPath(); g.moveTo(bx-6,by); g.quadraticCurveTo(bx,by-fl,bx+6,by); g.stroke();
     }
   }
+  /* 地面:地平線以下鋪一層淺草綠,不再是天空的顏色一路到底。 */
+  g.fillStyle = night ? blendHex(paper,"#3a5a48",.45) : blendHex(paper,"#a9c77f",.55);
+  g.fillRect(4,FLR,W-8,H-4-FLR);
   /* 綠草丘壓在地平線上、很扁,畫在角色之前 —— 高過人物就會像穿過去。丘上長小花,隨風輕搖。 */
   const grass = night ? blendHex(paper,"#3f6b4f",.55) : blendHex(paper,"#7cb36b",.6);
   const hills=[[0.58,180,15],[0.76,130,11],[0.92,150,13]];
@@ -15679,6 +15704,8 @@ function drawTallyYard(g,W,H,t){
   g.lineTo(bx0+bw+10,by+11);
   g.quadraticCurveTo(bx0+bw/2,by-14,bx0-10,by+11);
   g.closePath(); g.fill(); g.stroke();
+  /* 屋簷下一道淡影,牆面才有厚度 */
+  g.save(); g.globalAlpha=.10; g.fillStyle="#000"; g.fillRect(bx0+1,by+11,bw-2,9); g.restore();
   /* 彩旗:兩根旗杆立在棚子兩端,一條繩子拉過屋頂,三角旗五色輪流、隨風輕擺。 */
   {
     const x1=bx0-6, x2=bx0+bw+6, top=by-24;
@@ -15709,6 +15736,22 @@ function drawTallyYard(g,W,H,t){
     for(let k=1;k<4;k++) skLine(g,dx,dy+k*dh/4,dx+dw,dy+k*dh/4,33+k);
     g.lineWidth=2;
   }
+  /* 兩扇門中間一盞壁燈:白天是一顆暖黃的燈,夜裡亮起來、有一圈光。 */
+  {
+    const lx=bx0+bw*0.47, ly=by+62;
+    if(night){ const lg=g.createRadialGradient(lx,ly,2,lx,ly,26); lg.addColorStop(0,"rgba(255,214,102,.75)"); lg.addColorStop(1,"rgba(255,214,102,0)");
+      g.fillStyle=lg; g.beginPath(); g.arc(lx,ly,26,0,7); g.fill(); }
+    g.lineWidth=1.4; skLine(g,lx,ly-9,lx,ly-4,71);
+    g.fillStyle=ink; g.fillRect(lx-5,ly-11,10,3);
+    skCircle(g,lx,ly,4.2,72,night?"#ffd666":"#f5c451");
+    g.lineWidth=2;
+  }
+  /* 棚子兩側各一叢矮灌木 */
+  for(const [sx,sd] of [[bx0-2,73],[bx0+bw+14,74]]){
+    g.lineWidth=1.3; g.fillStyle=night?blendHex(paper,"#2f5a3f",.6):blendHex(paper,"#5fae5a",.65);
+    g.beginPath(); g.moveTo(sx-11,FLR); g.arc(sx-6,FLR-6,6,Math.PI,0); g.arc(sx+2,FLR-8,7,Math.PI,0); g.arc(sx+9,FLR-5,5,Math.PI,0); g.lineTo(sx+14,FLR); g.closePath(); g.fill(); g.strokeStyle=ink; g.stroke();
+    g.lineWidth=2;
+  }
 
   /* 貨櫃堆:兩疊,第一疊下藍上紅、第二疊綠 —— 貨場本來就是彩色的。一個貨櫃跟人差不多高。 */
   const CONT=[["#4f8fcf","#e0645a"],["#5fae7a"]];
@@ -15727,8 +15770,12 @@ function drawTallyYard(g,W,H,t){
       /* 門把 */
       g.lineWidth=1.4;
       skLine(g,cx+cw*0.5,cy2+12,cx+cw*0.5,cy2+ch-12,64+r);
-      /* 白色的小名牌 */
+      /* 白色的小名牌、四角的角件、頂邊一道亮光、最底下一道影子 —— 貨櫃才像鐵的 */
       g.lineWidth=1.1; skRect(g,cx+cw*0.62,cy2+ch*0.34,30,11,66+r,paper);
+      g.fillStyle=blendHex(col,"#000000",.45);
+      for(const [qx,qy] of [[cx+2,cy2+2],[cx+cw-8,cy2+2],[cx+2,cy2+ch-8],[cx+cw-8,cy2+ch-8]]) g.fillRect(qx,qy,6,6);
+      g.fillStyle=blendHex(col,"#ffffff",.35); g.fillRect(cx+9,cy2+1.5,cw-18,2.5);
+      if(r===0){ g.save(); g.globalAlpha=.16; g.fillStyle="#000"; g.fillRect(cx-3,FLR-3,cw+6,3); g.restore(); }
       g.lineWidth=1.9;
     }
   });
@@ -15736,21 +15783,78 @@ function drawTallyYard(g,W,H,t){
   g.strokeStyle=ink; g.lineWidth=1.8;
   skLine(g,10,FLR,W-10,FLR,3);
 
-  /* 蝴蝶在草丘前飛。 */
-  if(!night&&!wet){
-    for(let i=0;i<2;i++){
-      const bx=W*(0.60+i*0.13)+Math.sin(t/95+i*2)*70, byy=FLR-46+Math.sin(t/21+i)*9;
-      const flap=Math.abs(Math.sin(t/5+i))*0.7+0.3;
-      const c1=i?"#4aa3df":"#ff8c42", c2=i?"#f5c451":"#e85d75";
-      g.save(); g.translate(bx,byy); g.scale(1.7,1.7); g.strokeStyle=ink; g.lineWidth=0.8;
-      for(const sd of [-1,1]){
-        g.fillStyle=c1; g.beginPath(); g.ellipse(sd*4*flap,-2,4*flap,3.2,0,0,7); g.fill(); g.stroke();
-        g.fillStyle=c2; g.beginPath(); g.ellipse(sd*3*flap,2.5,3*flap,2.2,0,0,7); g.fill(); g.stroke();
+}
+/* ---------------------------------------------------------------------
+   蝴蝶
+   ---------------------------------------------------------------------
+   兩隻,各有自己的狀態:fly 在草丘前繞 → to 挑一隻貓或狗飛過去 → sit 停在頭頂
+   → off 飛走。停著的時候動物停下來不走:狗抬頭看、耳朵豎起、尾巴搖得飛快,最後
+   甩甩頭把它甩走;貓抖耳朵、眼睛往上盯,最後抬手一拍 —— 蝴蝶在手落下前先溜。
+   動物身上只掛兩個欄位:bug(哪一隻停著/正飛過來)和 bugAt(幾時停的)。
+   --------------------------------------------------------------------- */
+function bugsInit(){
+  const W=SCENE.W||900, H=SCENE.H||190;
+  SCENE.bugs=[0,1].map(i=>({i, x:W*(0.60+i*0.13), y:H-60, act:"fly", wait:240+i*300, tgt:null, vx:0,
+    c1:i?"#4aa3df":"#ff8c42", c2:i?"#f5c451":"#e85d75"}));
+}
+/* 狗興奮時的姿勢:蝴蝶飛近就原地小跳;停久了甩頭。畫狗和算頭頂位置都用這一份。 */
+function dogPose(a,t){
+  const b=a.bug;
+  const chase=b&&b.act==="to"&&Math.hypot(b.x-a.x,b.y-(a.y-40))<70;
+  const sit=b&&b.act==="sit";
+  return {hop: chase?Math.abs(Math.sin(t/6))*5:0, shake: (sit&&b.wait<40)?Math.sin(t/1.5)*3:0, excited:!!(chase||sit), sit:!!sit};
+}
+/* 頭頂:蝴蝶停的位置。跟 drawDog / drawCat 算頭的方式一致。 */
+function bugHead(a,t){
+  const f=a.dir<0?-1:1;
+  if(a.kind==="dog"){ const p=dogPose(a,t); return {x:a.x+17*f+p.shake, y:a.y-p.hop-36-13-4}; }
+  const walking=a.act==="walk", hxo=walking?14*f:0, hy=walking?a.y-24:a.y-(a.act==="puff"?38:34);
+  return {x:a.x+hxo, y:hy-11-4};
+}
+function bugsStep(){
+  const B=SCENE.bugs; if(!B||BRAND!=="Tally") return;
+  const W=SCENE.W||900, FLR=(SCENE.H||190)-14, t=SCENE.t;
+  B.forEach((b,i)=>{
+    if(b.act==="fly"){
+      const cx=W*(0.60+i*0.13)+Math.sin(t/95+i*2)*70, cy=FLR-46+Math.sin(t/21+i)*9;
+      b.x+=(cx-b.x)*0.04; b.y+=(cy-b.y)*0.04;
+      if(--b.wait<=0){
+        const pets=SCENE.actors.filter(a=>(a.kind==="dog"||a.kind==="cat")&&!a.bug&&a.act!=="pee"&&a.act!=="puff"&&a.act!=="bark");
+        if(pets.length){ b.tgt=pets[(i+Math.floor(t/7))%pets.length]; b.tgt.bug=b; b.act="to"; b.wait=900; }
+        else b.wait=120;
       }
-      g.fillStyle=ink; g.fillRect(-0.6,-4,1.2,8);
-      g.restore();
+    }else if(b.act==="to"){
+      const h=bugHead(b.tgt,t), dx=h.x-b.x, dy=h.y-b.y, d=Math.hypot(dx,dy);
+      if(d<2.5){
+        b.act="sit"; b.wait=260+((i*131)%160); b.tgt.bugAt=t;
+        /* 動物停下來,而且要等蝴蝶走了才動 */
+        b.tgt.act=b.tgt.kind==="cat"?"sit":"idle"; b.tgt.wait=Math.ceil(b.wait/3)+20;
+      }else{
+        b.x+=dx/d*1.3+Math.sin(t/4)*0.6; b.y+=dy/d*1.3+Math.cos(t/5)*0.5;
+        if(--b.wait<=0){ b.tgt.bug=null; b.tgt=null; b.act="fly"; b.wait=300; }
+      }
+    }else if(b.act==="sit"){
+      const h=bugHead(b.tgt,t); b.x=h.x; b.y=h.y;
+      const a=b.tgt, scared=a.act==="walk"||a.act==="puff"||a.act==="pee"||a.act==="bark";
+      /* 貓抬手(wait<45)蝴蝶就先溜(wait<30);狗甩頭甩到底才飛走。動物自己走掉或嚇到也飛。 */
+      if(--b.wait<=0 || scared || (a.kind==="cat"&&b.wait<30)){ b.act="off"; b.wait=70; b.vx=(i?-1:1)*0.9; }
+    }else{
+      b.x+=b.vx+Math.sin(t/4)*0.8; b.y-=1.4;
+      if(--b.wait<=0){ if(b.tgt){ b.tgt.bug=null; b.tgt.bugAt=0; } b.tgt=null; b.act="fly"; b.wait=420+((i*97)%300); }
     }
+  });
+}
+function drawBug(g,b,t){
+  const sit=b.act==="sit";
+  const flap=sit?0.55+0.35*Math.sin(t/16):Math.abs(Math.sin(t/5+b.i))*0.7+0.3;
+  g.save(); g.translate(b.x,b.y); g.scale(1.7,1.7); g.strokeStyle=INK; g.lineWidth=0.8;
+  for(const sd of [-1,1]){
+    g.fillStyle=b.c1; g.beginPath(); g.ellipse(sd*4*flap,-2,4*flap,3.2,0,0,7); g.fill(); g.stroke();
+    g.fillStyle=b.c2; g.beginPath(); g.ellipse(sd*3*flap,2.5,3*flap,2.2,0,0,7); g.fill(); g.stroke();
   }
+  g.fillStyle=INK; g.fillRect(-0.6,-4,1.2,8);
+  g.lineWidth=0.6; g.beginPath(); g.moveTo(0,-4); g.lineTo(-2.2,-7.5); g.moveTo(0,-4); g.lineTo(2.2,-7.5); g.stroke();
+  g.restore();
 }
 function sceneDraw(){
   const g=SCENE.ctx; if(!g) return;
@@ -15836,11 +15940,13 @@ function sceneDraw(){
     else if(a.kind==="dog") drawDog(g,a,t);
     else drawCat(g,a,t);
   }
+  /* 蝴蝶最後畫:停在頭上時要在頭的前面。 */
+  if(BRAND==="Tally"&&SCENE.bugs) for(const b of SCENE.bugs) drawBug(g,b,t);
 }
 function sceneLoop(){
   /* stormTick 要在 sceneStep 之前:貓讀 FLASH 決定要不要嚇到,
      順序反過來的話貓永遠比閃電慢一幀。 */
-  SCENE.t++; stormTick(SCENE.t); sceneStep(); sceneDraw();
+  SCENE.t++; stormTick(SCENE.t); sceneStep(); bugsStep(); sceneDraw();
   SCENE.raf=requestAnimationFrame(sceneLoop);
 }
 
