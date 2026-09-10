@@ -810,6 +810,15 @@ td.wrap{white-space:normal;max-width:520px}
 /* 毛利率是折線:點畫在格子裡,線疊在整片繪圖區上。 */
 #p-dash .tdot{position:absolute;left:50%;width:8px;height:8px;border-radius:50%;
   margin-left:-4px;margin-top:-4px;z-index:3}
+/* 超出刻度的那一顆壓在邊框上,補一個小箭頭說「它其實在圖外」。把它畫進
+   刻度裡,其餘期別真正的走勢就沒地方站了(量過:3.9% 對 78.4% 的圖高)。 */
+#p-dash .tdot.tclip::after{content:"▲";position:absolute;left:50%;top:-11px;
+  transform:translateX(-50%);font-size:9px;line-height:1;color:var(--muted)}
+#p-dash .tdot.tclip.dn::after{content:"▼";top:auto;bottom:-11px}
+/* UPS 這一期實收 $0.00:沒有成本可比,那個 100% 不是毛利率。畫成空心。 */
+#p-dash .tdot.tnocost{background:var(--panel)!important;
+  box-shadow:inset 0 0 0 2px var(--muted)}
+#p-dash .atbl td.qz{border-bottom:2px dotted var(--muted)}
 #p-dash .tline{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
 #p-dash .tline polyline{fill:none;stroke:var(--run2);stroke-width:1.6;
   vector-effect:non-scaling-stroke;stroke-linejoin:round}
@@ -2623,18 +2632,43 @@ function detectHeader(rows){
    的檔案要是剛好沒有這一欄,照位置去讀第 2 欄會讀到別的東西(帳單日之類),
    而且錯得無聲無息 —— 畫面上會多出一欄長得像日期的「帳號」。 */
 const POSITIONAL_ONLY = { "Account Number": 1 };
+/* 標題名字的正規化。detectHeader 是不分大小寫認的("NET AMOUNT" 也算數),
+   buildIndex 卻只認一字不差的 "Net Amount" —— 差一個大小寫、或匯出檔寫成
+   "Net Amt",金額欄就沒對上,退回 250 欄版的第 52 欄;二十欄的檔案讀第 52
+   欄讀到空字串,toNum("") 是 0,於是整份帳單每一行的淨額都是 0,而且照樣
+   匯得進來。儀表板上那就是一期「100.0% 毛利率」。兩邊用同一套名字比。 */
+const hdrKey=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+const HDR_ALIAS={};
+for(const k of Object.keys(FIXED_COLS)) HDR_ALIAS[hdrKey(k)]=k;
+Object.assign(HDR_ALIAS,{
+  netamt:"Net Amount", netamountusd:"Net Amount", netcharge:"Net Amount",
+  netchargeamount:"Net Amount", netchargeusd:"Net Amount",
+  trackingno:"Tracking Number", invoiceno:"Invoice Number",
+  accountno:"Account Number", leadshipmentno:"Lead Shipment Number"});
 function buildIndex(rows){
   const hasHdr=detectHeader(rows);
   const idx=Object.assign({},FIXED_COLS);
+  const named=new Set();
   if(hasHdr){
     const hdr=rows[0].map(c=>String(c).trim());
     hdr.forEach((name,i)=>{
-      if(name) idx[name]=i;
+      if(!name) return;
+      /* 原名照收 —— 有些地方是直接用標題字串去讀的(Ship To City 那些)。 */
+      idx[name]=i;
+      const canon=HDR_ALIAS[hdrKey(name)];
+      if(canon){ idx[canon]=i; named.add(canon); }
     });
+    /* 有標題列就以標題為準。標題沒提到的欄位,只有在這份檔案真的有那麼寬
+       的時候才還能照位置讀 —— 二十欄的檔案照位置去讀第 52 欄,讀到的是
+       空字串,錯得無聲無息。讀不到就讓它 undefined,呼叫端才有機會發現。 */
+    const width=Math.max(rows[0].length,
+      ...rows.slice(1,50).map(r=>r.length));
+    for(const k of Object.keys(FIXED_COLS))
+      if(!named.has(k) && idx[k]===FIXED_COLS[k] && FIXED_COLS[k]>=width) delete idx[k];
   } else {
     Object.assign(idx, POSITIONAL_ONLY);
   }
-  return {idx, hasHdr, body: hasHdr?rows.slice(1):rows};
+  return {idx, hasHdr, body: hasHdr?rows.slice(1):rows, named:[...named]};
 }
 
 /* ---- 尺寸字串 "12x10x8" / "12 X 10 X 8" ---- */
@@ -4330,6 +4364,20 @@ function priceShipment(cfg, s, force){
 
   /* 燃油。自訂附加費標 Fuel Eligible = NO 的不進燃油底,但仍然算進
      合約總額 —— 桌面版 fuel_base 那一段的算法。內建附加費一律計燃油。 */
+  /* UPS 開了又整筆沖掉(Void Shipment):這一件沒有走,UPS 最後收 $0.00。
+     照費率表向客戶收一筆,等於把一件不存在的出貨開進帳單;而儀表板會把
+     那一期算成 100% 毛利率。條件收得很緊 —— 帳上要有沖銷行,而且整個
+     追蹤號的淨額要歸零。部分沖銷仍照原價計,只記一條異常讓人自己看。 */
+  if((s.allLines||[]).some(l=>/\bvoid/i.test(String(l.desc||"")))){
+    if(Math.abs(toNum(s.upsTotal))<0.005){
+      base=0; for(const k of Object.keys(acc)) acc[k]=0;
+      issues.push(L("UPS 已整筆沖銷(Void),未向客戶計價",
+                    "Voided by UPS — nothing charged to the customer"));
+    } else {
+      issues.push(L("帳上有沖銷行,但整筆淨額不為零 —— 仍照原價計",
+                    "A void line is present but the tracking does not net to zero — priced as normal"));
+    }
+  }
   const accTotal=Object.values(acc).reduce((a,b)=>a+b,0);
   const noFuel=scan.nonFuel||new Set();
   const nonFuelSum=Object.entries(acc)
@@ -4459,6 +4507,13 @@ function ingest(text){
       net:toNum(g(r,"Net Amount"))
     };
   }).filter(r=>r.tracking||r.net);
+  /* 金額欄根本沒對上的檔案,每一行的淨額都會是 0 —— 匯進來之後畫面上是
+     一整期「UPS 收 $0.00、毛利率 100.0%」,看起來像賺翻了,其實是成本沒
+     讀到。這種檔案不要收。整份都是 $0.00 但欄位有對上的,那是真的(免運
+     標籤、尚未計價),照收不誤。 */
+  if(idx["Net Amount"]===undefined)
+    throw new Error(L("找不到金額欄(Net Amount),整份沒有匯入 —— 匯進來的話每一行都會是 $0.00。請確認匯出檔含有這一欄。",
+                      "No Net Amount column found — nothing was imported, because every line would have read as $0.00. Check that the export includes it."));
   return {rows, hasHdr, cols:Object.keys(idx).length};
 }
 
@@ -6442,8 +6497,11 @@ function showTab(p){
    畫面
    ===================================================================== */
 const $=s=>document.querySelector(s);
-const money=n=>(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("en-US",
-  {minimumFractionDigits:2,maximumFractionDigits:2});
+/* 小於半分的一律當零。浮點加總會留下 -4.44e-16 這種殘值,不收斂的話
+   畫面上就是一格「-$0.00」—— 那個負號沒有任何意義,而且看起來像虧損。 */
+const money=n=>((n=+n||0), Math.abs(n)<0.005?"$0.00"
+  :(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("en-US",
+    {minimumFractionDigits:2,maximumFractionDigits:2}));
 const num=n=>Number(n).toLocaleString("en-US",
   {minimumFractionDigits:0,maximumFractionDigits:2});
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,
@@ -10827,6 +10885,10 @@ function dashAgg(){
   const rows=reportRows();
   const bucketCols=REPORT_COLS.filter(c=>!REPORT_META.has(c));
   let repriced=0, billed=0, resiN=0, comN=0, resiAmt=0, comAmt=0;
+  /* 一期的 UPS 實收是 $0.00 時,毛利率會是 100.0%。那有三種完全不同的
+     來源:金額欄沒讀到、整期每一行 UPS 都收 $0.00、收費與扣抵剛好相抵。
+     光看那個 100% 分不出來,所以這裡順手數,畫面才講得出是哪一種。 */
+  let lineN=0, zeroLineN=0, voidN=0;
   let unsureN=0, unsureAmt=0, unknownNet=0, missN=0, missAmt=0;
   /* 服務名稱比對不到任何已知服務,渠道是退回預設服務來的 */
   let svcUnsureN=0, svcUnsureAmt=0;
@@ -10844,6 +10906,10 @@ function dashAgg(){
     if(z!==""&&z!=null&&!isNaN(+z)) zoneAgg[+z]=(zoneAgg[+z]||0)+tot;
     const r=rated[i];
     if(r){ billed+=toNum(r.s&&r.s.upsTotal);
+      { const ls=(r.s&&r.s.allLines)||[];
+        lineN+=ls.length;
+        for(const l of ls) if(Math.abs(toNum(l.net))<0.005) zeroLineN++;
+        if(ls.some(l=>/\bvoid/i.test(String(l.desc||"")))) voidN++; }
       if(r.residential){ resiN++; resiAmt+=tot; } else { comN++; comAmt+=tot; }
       /* 渠道就用重算實際採用的那一條。這筆 tot 正是拿那條渠道的費率表算出來的
          —— 服務名稱認不出來時 guessService 會退回預設服務,那仍然是一條真的
@@ -10884,7 +10950,12 @@ function dashAgg(){
         }
       } }
   });
+  /* 分到分為止。原始浮點和會留下 -4.44e-16 這種殘值 —— 畫面印成「-$0.00」,
+     而任何「等於零」的判斷都接不住它。 */
+  if(Math.abs(repriced)<0.005) repriced=0;
+  if(Math.abs(billed)<0.005) billed=0;
   const out={n:rated.length, repriced, billed, savings:billed-repriced,
+    lineN, zeroLineN, voidN,
     resiN, comN, resiAmt, comAmt, fuel:buckets["Fuel Surcharge"]||0, buckets, zoneAgg,
     unsureN, unsureAmt, unsureBy, svcUnsureN, svcUnsureAmt,
     unknownNet, unknownCodes:[...unknownCodes], unknownBy, upsUnknownBy,
@@ -11041,7 +11112,8 @@ async function dashAllCompute(onStep){
       RATED=SHIPS.map(x=>priceShipment(CFG,x));
       const d=dashAgg();
       out.push(d ? Object.assign({},p,{n:d.n, repriced:d.repriced, billed:d.billed,
-                                       account:d.account})
+                                       account:d.account, lineN:d.lineN,
+                                       zeroLineN:d.zeroLineN, voidN:d.voidN})
                  : Object.assign({},p,{missing:true}));
     }
   } finally {
@@ -11087,6 +11159,14 @@ function dashFilterHTML(data){
     ).join("")+`</span>`;
   return `<div class="dfilters">${meas}</div>`;
 }
+/* UPS 這一期實收 $0.00,毛利率就會是 100.0%。那有三種完全不同的來源,而
+   畫面上長得一模一樣 —— 說出是哪一種,人才判斷得了那個 100% 算不算數。 */
+function causeOfT(d){
+  if(!d||!(d.lineN>0)) return "";
+  if(d.zeroLineN>=d.lineN) return L("整期每一行 UPS 都收 $0.00","every UPS line on this period is $0.00");
+  if(d.voidN) return L("出貨已沖銷(Void)","shipments were voided");
+  return L("收費與扣抵相抵為 $0.00","charges and credits net to $0.00");
+}
 function dashAllHTML(all){
   const data=dashFilter(all);
   const ok=data.filter(d=>!d.missing);
@@ -11100,18 +11180,27 @@ function dashAllHTML(all){
   /* 那一欄拿掉了。毛利和毛利率就在旁邊,那條長條只是把同一個數字再畫一次,
      而且是「相對於本表最長的一期」—— 一個沒有人會拿來對帳的比例。 */
   const cell=(v,cls)=>`<td class="num ${cls||""}">${money(v)}</td>`;
-  const pctCell=(profit,rev)=>{
-    if(!rev) return `<td class="num">—</td>`;   /* 沒有收入就沒有毛利率可言 */
-    const m=profit/Math.abs(rev)*100;
-    return `<td class="num ${m<0?"neg":"pos"}">${m.toFixed(1)}%</td>`;
+  /* 沒有收入就沒有毛利率可言 —— 收入是負的(整期都是折讓)也一樣。原本
+     分母套了 Math.abs:一期收入 -$1,000、毛利 +$450,印出來是 +45.1%,
+     那個百分比不指向任何真實的事。 */
+  const pctCell=(profit,rev,cost)=>{
+    if(!(rev>0)) return `<td class="num">—</td>`;
+    const m=profit/rev*100;
+    /* UPS 實收 $0.00:沒有成本可比,那個 100% 不是毛利率。虛線底標出來,
+       滑過去有一句話說是哪一種。 */
+    const nc=(cost!=null && Math.abs(cost)<0.005);
+    return `<td class="num ${m<0?"neg":"pos"}${nc?" qz":""}">${m.toFixed(1)}%</td>`;
   };
+  const causeOf=causeOfT;
   /* 同一天出現兩張帳單,多半是兩個 UPS 帳號各出一張 —— 只看期號和日期,
      那兩列看起來像重複匯入。帳號只有一個時不畫這一欄,免得每一列都印
      同一個號碼。 */
   /* 依「篩選之後」還剩幾個帳號決定 —— 篩到只剩一個帳號時,那一欄每一列都是
      同一個號碼,而且折線可以連起來了。下拉選單仍然列出全部帳號(它讀的是
      未篩選的 all),不然選了就回不去。 */
-  const accts=[...new Set(data.map(d=>dashAcctOf(d).id).filter(Boolean))];
+  /* 用 ok 推導,不是 data —— 一期「只有索引沒有明細」也算一個帳號的話,
+     單帳號的資料會被當成多帳號,整張圖的盈虧配色就跟著關掉。 */
+  const accts=[...new Set(ok.map(d=>dashAcctOf(d).id).filter(Boolean))];
   const multi=accts.length>1;
   const rows=data.map(d=>{
     const acell=multi?`<td class="aa">${esc(dashAcctOf(d).id||"—")}</td>`:"";
@@ -11120,16 +11209,18 @@ function dashAllHTML(all){
       +`<td colspan="6">${L("只有索引,沒有明細,請重新匯入本期",
                             "index only, no detail — import this period again")}</td></tr>`;
     const g=gapOf(d);
-    return `<tr><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`+acell
+    const cz=(d.repriced>0&&Math.abs(d.billed)<0.005)?causeOf(d):"";
+    return `<tr${cz?` title="${esc(cz)}"`:""}><td class="ak">${esc(d.key)}</td><td class="ad">${esc(d.date||"—")}</td>`+acell
       +`<td class="num">${d.n.toLocaleString()}</td>`
       +cell(d.repriced)+cell(d.billed)
-      +cell(g, g<0?"neg":"pos")+pctCell(g, d.repriced)
+      +cell(g, g<0?"neg":"pos")+pctCell(g, d.repriced, d.billed)
       /* 帳戶層費用不上紅字。它不算進毛利(頁尾就是這樣寫的),用毛利那一組
          顏色去畫它,等於在說它是虧損 —— 而負的帳戶層費用是 UPS 退回來的錢,
          那是進帳,不是虧。既然不屬於這組數字,就別借它們的顏色。 */
       +cell(d.account)+`</tr>`;
   }).join("");
   const gt=tot.repriced-tot.billed;
+  const nz=ok.filter(d=>d.repriced>0&&Math.abs(d.billed)<0.005).length;
   const empty=!ok.length
     ? `<div class="dempty" style="padding:22px 0">${L("這個條件下沒有期別。","No periods match this filter.")}</div>`
     : "";
@@ -11154,9 +11245,11 @@ function dashAllHTML(all){
         "Total · "+ok.length+" period"+(ok.length===1?"":"s"))}</td>
       <td class="num">${tot.n.toLocaleString()}</td>
       ${cell(tot.repriced)}${cell(tot.billed)}
-      ${cell(gt, gt<0?"neg":"pos")}${pctCell(gt, tot.repriced)}${cell(tot.account)}
+      ${cell(gt, gt<0?"neg":"pos")}${pctCell(gt, tot.repriced, null)}${cell(tot.account)}
       </tr></tfoot></table></div>`}
-    <div class="dfoot">${L(
+    <div class="dfoot">${nz?(L(
+      "有 "+nz+" 期 UPS 實收 $0.00 —— 那不是真的 100% 毛利率,是沒有成本可比。重新匯入該期就分得出來:金額欄讀得到的話會出現真的數字。",
+      nz+" period(s) show $0.00 from UPS — that is not really a 100% margin, there is no cost to compare. Re-import the period to tell which: if the amount column reads, real figures appear.")+" "):""}${L(
       "毛利 = 向客戶收 − UPS 收;毛利率 = 毛利 ÷ 向客戶收。兩者均不含帳戶層費用 —— 該欄是否計入,由帳務決定。"
         +(multi?"本表含 "+accts.length+" 個 UPS 帳號,同一天可能各有一張帳單。":""),
       "Profit is charge-customer minus UPS; margin is profit over charge-customer. Neither includes account charges — whether those belong in the figure is your accounting call."
@@ -11174,10 +11267,24 @@ function dashTrendHTML(ok, multi, allAccts){
   const seq=ok.slice().sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))
                                  || String(a.key).localeCompare(String(b.key)));
   const gapOf=d=>d.repriced-d.billed;
-  const marginOf=d=>d.repriced?(gapOf(d)/Math.abs(d.repriced)*100):0;
+  /* 沒有收入就沒有毛利率 —— 回 null,不是 0。回 0 的話,一期重算成 $0
+     而 UPS 收了九千塊的期別,會在折線上畫成「剛好打平」,看起來是這批
+     期別裡最好的一期;而表格對同一期印的是「—」。 */
+  const marginOf=d=>(d.repriced>0)?(gapOf(d)/d.repriced*100):null;
   const isM=DASH_F.measure==="margin";
   const val=d=>isM?marginOf(d):gapOf(d);
-  const vals=seq.map(val);
+  const vals=seq.map(val).filter(v=>v!==null&&isFinite(v));
+  /* 期別的份量。毛利率是比率,一期只出一件的期別,那個比率再極端也只是
+     那一件的四捨五入 —— 讓它決定刻度,其餘十九期真正的走勢就被壓成一條
+     直線(量過:19 期只佔圖高的 3.9%)。以中位數營收為尺,不到 1% 的期別
+     照畫、照標數字、照留在表格裡,只是不參與刻度。可比的期別少於三期時
+     不啟用 —— 那時每一期都算數。 */
+  const revOf=d=>Math.abs(d.repriced);
+  const srt=seq.map(revOf).sort((a,b)=>a-b);
+  const med=srt.length?srt[Math.floor(srt.length/2)]:0;
+  const minor=d=>med>0 && revOf(d)<med*0.01;
+  const majors=seq.filter(d=>!minor(d)&&val(d)!==null).map(val);
+  const fitOn=(isM&&majors.length>=3)?majors:vals;
   /* 刻度:毛利是長條,零一定要在刻度裡 —— 長條是從基線量起的面積,基線
      浮起來就會把 3% 的差距畫成兩倍高。毛利率是折線,點的位置本身就是值,
      零沒有意義:一批 10%~13% 的毛利率硬要從 0 起算,四個點會全部擠在頂端
@@ -11187,8 +11294,8 @@ function dashTrendHTML(ok, multi, allAccts){
      區的邊。
      以前是「資料範圍上下各留 25%」:20.8% 到 -3.9% 的一批資料,下界被推到
      -10%,底下那一格整片空的,還印出一個沒有任何資料靠近的 -10.0%。 */
-  let mx0=isM?Math.max(...vals):Math.max(0,...vals);
-  let mn0=isM?Math.min(...vals):Math.min(0,...vals);
+  let mx0=isM?Math.max(...fitOn):Math.max(0,...vals);
+  let mn0=isM?Math.min(...fitOn):Math.min(0,...vals);
   /* 毛利率至少畫五個百分點。五期的毛利率全都落在 20.3% 到 20.8% 之間時,
      刻度貼著資料自動縮到 0.5 個百分點,那半點的起伏就被放大成整張圖的高度
      —— 畫面上是一道陡降,實際上是四捨五入等級的差別。把最小刻度撐開,
@@ -11215,7 +11322,9 @@ function dashTrendHTML(ok, multi, allAccts){
     let h=sn(Math.ceil(mx0/st-1e-9)*st), l=sn(Math.floor(mn0/st+1e-9)*st);
     /* 最高(或最低)那一筆剛好落在刻度線上時,那顆點會壓在邊框上 —— 再讓一格。 */
     if(Math.abs(h-mx0)<st*1e-6) h=sn(h+st);
-    if(Math.abs(mn0-l)<st*1e-6) l=sn(l-st);
+    /* 最低那一筆壓在刻度線上就再讓一格 —— 但毛利那一頁的最低點是人造的
+       零基線,讓下去等於底下空一整格($-5.0K),每根柱子平白矮 14%。 */
+    if(Math.abs(mn0-l)<st*1e-6 && (isM || mn0<0)) l=sn(l-st);
     return {step:st, dec:d, snap:sn, lo:l, hi:h, n:Math.round((h-l)/st)+1};
   };
   const AX=(()=>{
@@ -11249,12 +11358,13 @@ function dashTrendHTML(ok, multi, allAccts){
      —— 六千件的一期和七百件的一期不該各算一票,加權平均才是這批帳單真正
      的毛利率,也和下面表格的合計列同一個數。毛利則取每期平均金額。 */
   const sumP=seq.reduce((a,d)=>a+gapOf(d),0);
-  const sumR=seq.reduce((a,d)=>a+Math.abs(d.repriced),0);
-  const avg=isM ? (sumR?sumP/sumR*100:0) : (sumP/seq.length);
+  const nMinor=isM?seq.filter(d=>minor(d)||val(d)===null).length:0;
+  const sumR=seq.reduce((a,d)=>a+d.repriced,0);
+  const avg=isM ? (sumR>0?sumP/sumR*100:null) : (sumP/seq.length);
   /* 平均值改成寫在標題那一行。圖上有刻度線之後,再疊一條虛線就是第二種
      水平線,和刻度混在一起要停下來分辨哪條是哪條;而平均本來就是一個數字,
      用講的比用畫的清楚。 */
-  const avgTxt=isM?avg.toFixed(1)+"%":money(avg);
+  const avgTxt=avg==null?"—":(isM?avg.toFixed(1)+"%":money(avg));
   /* 左邊給三、四道刻度。以前柱子只講得出相對高低 —— 一根比隔壁高一截,高
      多少要自己去下面的表格翻。刻度取整數級距(1／2／2.5／5 的倍數),不是
      把 hi、lo 直接印出來:印 $4,873 那種數字沒有人拿來對照。
@@ -11278,14 +11388,20 @@ function dashTrendHTML(ok, multi, allAccts){
   const tip=d=>`${esc(d.key)} · ${esc(d.date||"")}`
     +(multi?" · "+esc(dashAcctOf(d).id):"")
     +` · ${esc(d.n.toLocaleString())}${L(" 件"," shipments")}`
-    +` · ${esc(money(gapOf(d)))} · ${marginOf(d).toFixed(1)}%`;
+    +` · ${esc(money(gapOf(d)))} · ${marginOf(d)==null?"—":marginOf(d).toFixed(1)+"%"}`
+    +(d.repriced>0&&Math.abs(d.billed)<0.005&&causeOfT(d)?" · "+esc(causeOfT(d)):"");
   /* 繪圖區和標籤各自一排,不是疊在同一格裡 —— 平均線和折線要橫跨整個繪圖
      區,和標籤混在一起的話,那條線會從日期上面畫過去。兩排用同一組 flex
      規則、同樣的欄數和寬度上限,所以對得齊。 */
   const plot=seq.map(d=>{
     const v=val(d);
+    /* 沒有收入就沒有毛利率,那一欄不畫點 —— 底下的數字仍然印「—」。 */
+    if(v===null) return `<div class="tcol" title="${tip(d)}"><div class="tplot"></div></div>`;
+    const p=isM?y(d):0, over=isM&&(p<-0.01||p>100.01);
+    const nc=isM&&d.repriced>0&&Math.abs(d.billed)<0.005;
     const inner=isM
-      ? `<div class="tdot" style="background:${colOf(d)};top:${y(d).toFixed(1)}%"></div>`
+      ? `<div class="tdot${over?(p<0?" tclip":" tclip dn"):""}${nc?" tnocost":""}" style="background:${
+          colOf(d)};top:${Math.max(0,Math.min(100,p)).toFixed(1)}%"></div>`
       : `<div class="tbar" style="background:${colOf(d)};height:${(Math.abs(v)/span*100).toFixed(1)}%;`
         +(v>=0?`bottom:${(100-zero).toFixed(1)}%`:`top:${zero.toFixed(1)}%`)+`"></div>`;
     return `<div class="tcol" title="${tip(d)}"><div class="tplot">${inner}</div></div>`;
@@ -11301,7 +11417,7 @@ function dashTrendHTML(ok, multi, allAccts){
     const newYr=!!yr && yr!==lastYr;
     if(yr) lastYr=yr;
     return `<div class="tcol" title="${tip(d)}">`
-      +`<div class="tpct">${isM?v.toFixed(1)+"%":moneyShort(v)}</div>`
+      +`<div class="tpct">${v===null?"—":(isM?v.toFixed(1)+"%":moneyShort(v))}</div>`
       +`<div class="tlab">${esc(iso.slice(5)||d.key.slice(-4))}</div>`
       +`<div class="tyr${newYr?"":" off"}">${esc(yr||"")}</div></div>`;
   }).join("");
@@ -11315,13 +11431,25 @@ function dashTrendHTML(ok, multi, allAccts){
   const lineFor=(pts,stroke)=>pts.length<2?"":
     `<polyline${stroke?` style="stroke:${stroke}"`:""} points="${pts.map(x=>
       ((x.i+0.5)/seq.length*100).toFixed(2)+","+y(x.d).toFixed(2)).join(" ")}"/>`;
+  /* 折線只連「畫得進圖裡」的點。被壓在邊框上的那一顆位置是假的,線穿過去
+     就變成一段不存在的走勢。斷開,兩邊各自連。 */
+  const runsOf=pts=>{
+    const out=[]; let cur=[];
+    for(const x of pts){
+      const v=val(x.d), pp=v===null?null:y(x.d);
+      if(pp!==null && pp>=-0.01 && pp<=100.01) cur.push(x);
+      else { if(cur.length>1) out.push(cur); cur=[]; }
+    }
+    if(cur.length>1) out.push(cur);
+    return out;
+  };
   let line="";
   if(isM && seq.length>1){
     const idx=seq.map((d,i)=>({d,i}));
     const paths=multi
-      ? (allAccts||[]).map((a,k)=>lineFor(idx.filter(x=>dashAcctOf(x.d).id===a),
-                                          pal[k%pal.length])).join("")
-      : lineFor(idx,"");
+      ? (allAccts||[]).map((a,k)=>runsOf(idx.filter(x=>dashAcctOf(x.d).id===a))
+          .map(r=>lineFor(r,pal[k%pal.length])).join("")).join("")
+      : runsOf(idx).map(r=>lineFor(r,"")).join("");
     if(paths) line=`<svg class="tline" viewBox="0 0 100 100" preserveAspectRatio="none">${paths}</svg>`;
   }
   const legend=multi
@@ -11333,9 +11461,11 @@ function dashTrendHTML(ok, multi, allAccts){
   return `<div class="trend">
     <div class="th2">${isM?L("各期毛利率","Margin by period"):L("各期毛利","Profit by period")}
       <span>${isM
-        ? L("毛利率與單量無關,期與期之間直接可比。加權平均 "+avgTxt+",依帳單日由舊到新",
+        ? L("毛利率與單量無關,期與期之間直接可比。加權平均 "+avgTxt+",依帳單日由舊到新"
+              +(nMinor?";另有 "+nMinor+" 期營收過小,照畫但不計入刻度":""),
             "margin is independent of volume, so periods compare directly. Weighted average "
-            +avgTxt+", oldest first")
+            +avgTxt+", oldest first"
+              +(nMinor?"; "+nMinor+" period(s) too small to compare are plotted but left out of the scale":""))
         : L("柱高為毛利金額,受單量影響。各期平均 "+avgTxt+",依帳單日由舊到新",
             "bar height is profit, which scales with volume. Average "+avgTxt
             +" per period, oldest first")}</span></div>
@@ -11477,8 +11607,9 @@ function prSheetPeriods(){
     tn+=d.n; tr+=d.repriced; tb+=d.billed; ta+=d.account;
     body.push([d.key, serial(d.date), acct, d.n,
                cents(d.repriced), cents(d.billed), g,
-               d.repriced?(d.repriced-d.billed)/Math.abs(d.repriced):0,
-               cents(d.account), ""]);
+               d.repriced>0?(d.repriced-d.billed)/d.repriced:"",
+               cents(d.account),
+               (d.repriced>0&&Math.abs(d.billed)<0.005)?causeOfT(d):""]);
   }
   const gt=tr-tb;
   body.push([L("合計 "+nOk+" 期","Total · "+nOk+(nOk===1?" period":" periods")),"","",tn,
