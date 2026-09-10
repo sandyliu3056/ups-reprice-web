@@ -1748,6 +1748,18 @@ main{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--line) 85%,tran
       </div>
     </div>
 
+    <!-- 設定區還剩多少。滿了寫不進去的是「儲存設定」,所以量表擺在儲存的
+         旁邊,不擺在帳單那一頁 —— 出事的時候人在這裡。 -->
+    <div class="sketch-soft" style="padding:14px 16px;margin:0 0 14px">
+      <div class="subhd" style="margin-top:0" data-i18n="hd.lsroom">💾 Browser Storage</div>
+      <p class="hint" style="margin:8px 0 10px;max-width:880px" data-i18n="hint.lsroom">The settings area is what a browser lets one site keep. Rate configuration, invoice index and activity log share it.</p>
+      <div id="setStorage" class="storagebox"></div>
+      <div class="row">
+        <button class="act ghost" id="bLsTidy" data-i18n="btn.lstidy">Free Up Space</button>
+        <span id="lsTidyNote" class="affsum"></span>
+      </div>
+    </div>
+
   </div>
 </section>
 
@@ -4715,6 +4727,10 @@ const HISTINV_KEY="ups_reprice_histinv_v1";
 /* 明細列放 IndexedDB,不是 localStorage —— 五十萬列是幾十 MB,
    localStorage 只有 5 MB。一期一筆,重開瀏覽器再讀回來。 */
 const IDB_NAME="ups_reprice_hist", IDB_STORE="invoices";
+/* 住商對照表也放這裡。它以前存在 localStorage,十幾萬個追蹤號就是好幾 MB,
+   而設定區總共只有 5~10 MB —— 一張對照表就把整個設定區吃掉,「儲存設定」
+   跟著寫不進去。它本來就是從這個資料庫的明細學出來的,跟明細放在一起最合理。 */
+const IDB_META="meta";
 /* 帳單歷史也是一個帳號一份。localStorage 的 key 和 IndexedDB 的資料庫名稱
    都綁 user id —— 同一台機器換人登入,不該看到前一個人的帳單明細。
    舊版共用的那一份留在原地不動,由本人在歷史頁自己認領或刪掉。 */
@@ -4731,11 +4747,14 @@ function idb(){
   const name=IDB_FOR;
   IDB=new Promise((res,rej)=>{
     if(!window.indexedDB) return rej(new Error("no indexedDB"));
-    const rq=indexedDB.open(name,1);
+    const rq=indexedDB.open(name,2);
     rq.onupgradeneeded=()=>{
       const db=rq.result;
       if(!db.objectStoreNames.contains(IDB_STORE))
         db.createObjectStore(IDB_STORE,{keyPath:"invoice"});
+      /* 版本 2 才有的倉。舊的資料庫開起來會走到這裡補上,明細一列都不動。 */
+      if(!db.objectStoreNames.contains(IDB_META))
+        db.createObjectStore(IDB_META,{keyPath:"k"});
     };
     rq.onsuccess=()=>{ IDB_DB=rq.result; res(rq.result); };
     rq.onerror=()=>rej(rq.error||new Error("indexedDB open failed"));
@@ -4744,6 +4763,22 @@ function idb(){
 }
 function idbTx(mode){
   return idb().then(db=>db.transaction(IDB_STORE,mode).objectStore(IDB_STORE));
+}
+/* meta 倉:一個 key 一筆的小東西(目前只有住商對照表)。讀不到就回 null,
+   呼叫端一律當成「沒有快取」,重新學一次就好 —— 這裡沒有一筆是原始資料。 */
+function metaGet(k){
+  return idb().then(db=>new Promise((res,rej)=>{
+    const rq=db.transaction(IDB_META,"readonly").objectStore(IDB_META).get(k);
+    rq.onsuccess=()=>res(rq.result||null);
+    rq.onerror=()=>rej(rq.error);
+  })).catch(()=>null);
+}
+function metaPut(rec){
+  return idb().then(db=>new Promise((res,rej)=>{
+    const rq=db.transaction(IDB_META,"readwrite").objectStore(IDB_META).put(rec);
+    rq.onsuccess=()=>res(true);
+    rq.onerror=()=>rej(rq.error);
+  })).catch(()=>false);
 }
 /* 一期一筆寫進去。同期再寫就覆蓋,跟 localStorage 那份索引同一條規則。 */
 /* =====================================================================
@@ -5055,10 +5090,23 @@ function learnHistory(rows, map){
 }
 function saveHistoryMap(map){
   HIST=map;
-  try{
-    localStorage.setItem(histKey(),JSON.stringify(map));
-    localStorage.setItem(histRuleKey(),HIST_RULE);
-  }catch(e){}
+  histCachePut(map);
+  /* 舊版存在 localStorage 的那一份,存過一次就不需要了 —— 順手清掉,
+     設定區當場少掉好幾 MB。這是一次性的搬家,不用問也不用擺橫幅。 */
+  try{ localStorage.removeItem(histKey()); localStorage.removeItem(histRuleKey()); }catch(e){}
+}
+/* 對照表的快取。存的是字串不是物件:五萬個鍵的物件做結構化複製比丟一段
+   JSON 慢得多,而讀回來 parse 一次是幾十毫秒。戳記跟著一起存,規則改版
+   之後對不上就當作沒有,重學一次。 */
+function histCachePut(map){
+  return metaPut({k:"hist", rule:HIST_RULE, json:JSON.stringify(map||{})});
+}
+function histCacheGet(){
+  return metaGet("hist").then(r=>{
+    if(!r||r.rule!==HIST_RULE) return null;
+    try{ const m=JSON.parse(r.json||"null"); return (m&&typeof m==="object")?m:null; }
+    catch(e){ return null; }
+  });
 }
 /* 追蹤號對照表。以前是「只學這次匯入的檔案,學完直接覆蓋」—— 匯一張新
    帳單,之前所有期別學到的追蹤號一起沒了,跨期更正當場退回用服務名稱猜。
@@ -5111,7 +5159,12 @@ function buildOriginals(allRows, need){
    設定,跑兩次會得到兩個運費。計價前先確定它就緒:明細本來就在
    IndexedDB,不必叫人重匯檔案。 */
 function ensureHistoryMap(){
-  if(HIST && !HIST_STALE) return Promise.resolve(0);
+  return HIST_READY.then(()=>{
+    if(HIST && !HIST_STALE) return 0;
+    return histRelearn();
+  });
+}
+function histRelearn(){
   return idbAllRows().then(rows=>{
     if(!rows || !rows.length) return 0;
     saveHistoryMap(learnHistory(rows));
@@ -6228,7 +6281,7 @@ function claimLegacy(){
 function restoreHistoryDetail(){
   if(HIST_RESTORED) return;
   HIST_RESTORED=true;
-  claimLocalIdentity().then(()=>claimLegacy()).then(()=>idbAllRows()).then(rows=>{
+  claimLocalIdentity().then(()=>claimLegacy()).then(()=>HIST_READY).then(()=>idbAllRows()).then(rows=>{
     if(!rows.length) return;
     HISTROWS=rows;
     backfillAccounts(rows);
@@ -6382,6 +6435,7 @@ function showTab(p){
   sceneShow(p==="files");
   if(p==="admin"&&ME&&ME.role==="admin"){ loadLoginHistory(); loadUsers(); }
   if(p==="dash"&&typeof renderDashboard==="function") renderDashboard();
+  if(p==="setting"&&typeof renderLsMeter==="function"){ try{ renderLsMeter(); }catch(e){} }
 }
 
 /* =====================================================================
@@ -8479,17 +8533,6 @@ function renderStorageMeter(){
   const box=$("#stStorage");
   if(!box) return;
   box.innerHTML="";
-  /* 設定區(localStorage)是另一個上限:瀏覽器一般給 5 MB,設定、住商對照表、期別索引
-     都擠在這裡,滿了「儲存設定」就寫不進本機。所以分開量、分開畫,超過 85% 變紅。 */
-  const ls=lsUsage();
-  if(ls.ok){
-    const cap=5*1024*1024, pct=Math.min(100, ls.total/cap*100);
-    const part=(zh,en,v)=>v?`<span>${esc(L(zh,en))} <b>${fmtBytes(v)}</b></span>`:"";
-    box.innerHTML+=`<div class="meterhd">${esc(L("設定區(localStorage)","Settings area (localStorage)"))}</div>
-      <div class="meter${pct>85?" hot":""}"><div class="fill" style="width:${pct.toFixed(2)}%"></div></div>
-      <div class="meterline">${part("已用","Used",ls.total)}<span>${esc(L("上限約","Limit about"))} <b>${fmtBytes(cap)}</b></span>`
-      +part("設定","Settings",ls.cfg)+part("住商對照表","Res/com map",ls.hist)+part("期別索引","Invoice index",ls.idx)+part("其他","Other",ls.other)+`</div>`;
-  }
   if(!(navigator.storage && navigator.storage.estimate)) return;
   /* 這一段是非同步的,寫進自己的格子而不是接在後面 —— 連續叫兩次時,舊的那次回來
      會接到新畫好的表後面,同一條畫兩遍。格子被清掉的話,舊的回來就寫不到畫面。 */
@@ -8508,6 +8551,74 @@ function renderStorageMeter(){
         <span>${LANG?"Total":"總共"} <b>${fmtBytes(cap)}</b></span>
       </div>`;
   }).catch(()=>{});
+}
+
+/* =====================================================================
+   設定區還剩多少
+   ---------------------------------------------------------------------
+   localStorage 沒有標準的「查上限」介面。以前這裡寫死「上限約 5 MB」,
+   而 Chrome 實際上給 10 MB —— 於是量到 8.69 MB 就整條變紅,其實還有
+   一半可以寫。猜一個數字比不顯示更糟,所以改成量:從大往小試寫一個
+   暫存鍵,寫得進去的最大的那個,就是現在還能寫的量。試完一定刪掉。
+
+   量一次要寫幾 MB,所以只在打開設定分頁時做,不在開機路徑上。
+   ===================================================================== */
+const LS_PROBE_MB=[10,8,6,5,4,3,2,1.5,1,.75,.5,.25,.1];
+let LS_FREE=null;          /* {bytes, atLeast} —— atLeast 表示量到上界就停了 */
+function lsFree(force){
+  if(LS_FREE && !force) return LS_FREE;
+  const K="__ups_room_probe__";
+  let mb=0;
+  try{
+    localStorage.removeItem(K);
+    for(const m of LS_PROBE_MB){
+      /* 一個字元兩個位元組,m MB 就是 m*512*1024 個字元 */
+      try{ localStorage.setItem(K,"x".repeat(Math.round(m*512*1024))); mb=m; break; }
+      catch(e){}
+    }
+  }catch(e){}
+  try{ localStorage.removeItem(K); }catch(e){}
+  LS_FREE={bytes:mb*1024*1024, atLeast:mb===LS_PROBE_MB[0]};
+  return LS_FREE;
+}
+/* 設定區(localStorage)這一條。設定、住商對照表、期別索引、活動紀錄都擠在
+   同一個額度裡,滿了「儲存設定」就寫不進本機 —— 所以擺在設定分頁,和儲存
+   同一個地方。剩不到 1 MB 才變紅,那才是真的快滿了。 */
+function renderLsMeter(){
+  const box=$("#setStorage");
+  if(!box) return;
+  const ls=lsUsage();
+  if(!ls.ok){ box.innerHTML=`<div class="meterline"><span>${esc(L("這個瀏覽器不讓查用量。","This browser does not expose storage usage."))}</span></div>`; return; }
+  const free=lsFree();
+  const cap=ls.total+free.bytes;
+  const pct=cap?Math.min(100, ls.total/cap*100):100;
+  const hot=free.bytes<1024*1024;
+  const part=(zh,en,v)=>v?`<span>${esc(L(zh,en))} <b>${fmtBytes(v)}</b></span>`:"";
+  box.innerHTML=`<div class="meterhd">${esc(L("設定區(localStorage)","Settings area (localStorage)"))}</div>
+    <div class="meter${hot?" hot":""}"><div class="fill" style="width:${pct.toFixed(2)}%"></div></div>
+    <div class="meterline">${part("已用","Used",ls.total)}<span>${esc(L("還可寫入","Room left"))} <b>${
+      (free.atLeast?"≥ ":"")+fmtBytes(free.bytes)}</b></span>`
+    +part("設定","Settings",ls.cfg)+part("住商對照表","Res/com map",ls.hist)
+    +part("期別索引","Invoice index",ls.idx)+part("其他","Other",ls.other)+`</div>`;
+}
+/* 「整理空間」:只清可以重建的東西 —— 住商對照表(搬進 IndexedDB,登入時
+   本來就會重讀)、活動紀錄只留最後 100 筆、地址分類與天氣快取。費率設定
+   一個字都不動。 */
+function lsTidy(){
+  const before=lsUsage().total;
+  if(HIST && Object.keys(HIST).length) histCachePut(HIST);
+  lsMakeRoom(2);
+  LS_FREE=null;
+  const after=lsUsage().total;
+  const freed=Math.max(0, before-after);
+  renderLsMeter();
+  const note=$("#lsTidyNote");
+  const msg = freed>1024
+    ? L("清出 "+fmtBytes(freed)+"。費率設定沒有動。","Freed "+fmtBytes(freed)+". The rate configuration was untouched.")
+    : L("沒有可以清的東西了 —— 剩下的都是費率設定本身。","Nothing left to clear — what remains is the rate configuration itself.");
+  if(note) note.textContent=msg;
+  toast(msg, true);
+  return freed;
 }
 /* 已匯入帳單的篩選。和儀表板同一套語意:期間是「相對於最新那一期往回算
    幾天」,不是相對於今天 —— 手上這批帳單本來就可能是上個月的,用今天當基準
@@ -9347,6 +9458,7 @@ function cfgDownload(){
   return true;
 }
 $("#bCfgDown")    && ($("#bCfgDown").onclick=cfgDownload);
+$("#bLsTidy")     && ($("#bLsTidy").onclick=lsTidy);
 $("#bCfgDown2")   && ($("#bCfgDown2").onclick=cfgDownload);
 $("#cfgFileClose")&& ($("#cfgFileClose").onclick=closeCfgFile);
 $("#cfgFileX")    && ($("#cfgFileX").onclick=closeCfgFile);
@@ -14869,6 +14981,10 @@ const I18N={
   "th.name":["名稱","Name"],
   "lb.inv":["UPS 帳單檔案","UPS Billing File"],
   "hd.cfgfile":["📄 費率設定檔","📄 Rate Configuration File"],
+  "hd.lsroom":["💾 瀏覽器儲存空間","💾 Browser Storage"],
+  "hint.lsroom":["設定區是瀏覽器分給這個網站的額度,費率設定、期別索引、活動紀錄共用它;滿了就存不進本機(雲端仍會存)。住商對照表已改放帳單明細那一區,不占這裡。",
+                 "The settings area is the quota a browser gives one site; the rate configuration, invoice index and activity log share it. When it is full nothing more is cached locally (the cloud copy still saves). The res/com map now lives with the invoice detail and no longer counts here."],
+  "btn.lstidy":["🧹 整理空間","🧹 Free Up Space"],
   "hd.gapfix":["登錄未識別代碼","Register unrecognised codes"],
   "hint.gapfix":["這些東西出現在這期帳單上,但你的設定裡沒有。新增只是讓系統「認得」它,不等於算得出價錢 —— 一項附加費設成「重新計價」卻沒填費率,會以 0 計價,那筆錢就少收了。所以新代碼預設是「照帳單收」,至少等於成本。",
     "These appear in this invoice but not in your settings. Adding one makes the tool recognise it — it does not price it. A charge set to Repriced with no rate entered is priced as zero, so new codes default to billing what UPS billed."],
@@ -14956,6 +15072,8 @@ function applyLang(){
   /* 已匯入帳單那個視窗整份是 JS 畫的,開著切語言會停在原本那一種。 */
   if($("#stBg") && $("#stBg").classList.contains("on")
      && typeof renderStored==="function"){ try{ renderStored(); }catch(e){} }
+  if($("#p-setting") && $("#p-setting").classList.contains("on")
+     && typeof renderLsMeter==="function"){ try{ renderLsMeter(); }catch(e){} }
   if(typeof CFG!=="undefined" && CFG){
     paintAccFuelSum();
     if($("#afBg") && $("#afBg").classList.contains("on")) renderAccFuel();
@@ -16259,6 +16377,10 @@ applyTheme(THEME); applyBrand(BRAND); applyZoom(ZOOM); fillSelects();
 /* 歷史是綁帳號的,開機時還不知道是誰,所以這裡不讀 —— 由 setMe 之後的
    histLoad() 讀那個帳號自己的那份。 */
 let HIST_STALE=false;
+/* 對照表現在放在 IndexedDB,讀它是非同步的。任何「算錢之前要先有對照表」
+   的地方都等這個 —— 沒有它的話,開頁馬上按產生報表就會用服務名稱猜住/商,
+   同一張帳單跑兩次得到兩個運費。 */
+let HIST_READY=Promise.resolve();
 function histLoad(){
   HIST=null; HIST_STALE=false; HISTINV=null; HISTROWS=null; ORIG={};
   HIST_RESTORED=false;
@@ -16266,15 +16388,27 @@ function histLoad(){
      一直卡在 blocked),而且連線也不該跨帳號留著。 */
   try{ if(IDB_DB) IDB_DB.close(); }catch(e){}
   IDB_DB=null; IDB=null; IDB_FOR="";
+  /* 登出也會走到這裡。沒有人登入就不碰 IndexedDB —— 不該順手開一個
+     沒有主人的空資料庫,那台機器上就會多出一個誰的都不是的東西。 */
+  if(!(ME&&ME.id)){ HIST_READY=Promise.resolve(); return; }
+  /* 舊版把對照表放在 localStorage。還在那裡的就收進來,收完立刻搬進
+     IndexedDB 並且把 localStorage 那份刪掉(saveHistoryMap 會做)。 */
+  let legacy=null;
   try{
     const hv=localStorage.getItem(histKey());
     if(hv){
       /* 規則版本對不上就先不採用 —— 留著舊規則的答案比沒有更糟,
          它看起來是有根據的。登入後會從 IndexedDB 重學。 */
-      if(localStorage.getItem(histRuleKey())===HIST_RULE) HIST=JSON.parse(hv);
-      else HIST_STALE=true;
+      if(localStorage.getItem(histRuleKey())===HIST_RULE) legacy=JSON.parse(hv);
+      else{ HIST_STALE=true;
+        try{ localStorage.removeItem(histKey()); localStorage.removeItem(histRuleKey()); }catch(e){}
+      }
     }
   }catch(e){}
+  if(legacy){ saveHistoryMap(legacy); HIST_READY=Promise.resolve(); return; }
+  HIST_READY=histCacheGet().then(m=>{
+    if(m && !HIST){ HIST=m; HIST_STALE=false; }
+  }).catch(()=>{});
 }
 
 /* 每一步各自獨立。
