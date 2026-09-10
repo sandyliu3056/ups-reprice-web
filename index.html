@@ -1946,6 +1946,34 @@ main{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--line) 85%,tran
 <!-- 費率設定檔。和這一頁其他兩區同一個形狀:外面一行摘要,點進去才設。
      載入與儲存在同一個視窗裡 —— 載入只寫進這台電腦,要按儲存設定才會
      寫進帳號,兩顆按鈕分開放時第二步就是會被漏掉。 -->
+<!-- 問一句就好的視窗。原本這個站用瀏覽器的 confirm():一行字問一件不可逆的事,
+     而且沒辦法把「會失去什麼」逐條列出來。 -->
+<div id="askBg" class="modalbg">
+  <div class="modal sketch" id="askModal" style="width:min(460px,100%)">
+    <div class="modalhd">
+      <span id="askTitle"></span>
+      <button class="mx" id="askX">✕</button>
+    </div>
+    <div class="modalbody" id="askBody"></div>
+    <div class="modalft">
+      <span id="askNote" class="hint" style="margin:0"></span>
+      <span class="row" style="gap:8px">
+        <button class="act ghost" id="askCancel" data-i18n="btn.cancel">Cancel</button>
+        <button class="act" id="askOk">OK</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- 帳號上那一份和這台電腦上的不一樣,而且會少東西。這裡不跳視窗:
+     不換過去什麼都沒有損失,所以維持現狀、把選擇留在畫面上。 -->
+<div id="cfgBarBox" class="sketch-soft" style="display:none;margin:10px 0;padding:10px 14px;
+     gap:10px;align-items:center;flex-wrap:wrap">
+  <span id="cfgBarMsg" style="flex:1;min-width:220px"></span>
+  <button class="act ghost sm" id="bCfgDiff" data-i18n="btn.cfgshow">Show me</button>
+  <button class="act ghost sm" id="bCfgTake" data-i18n="btn.cfguse">Use the account's</button>
+</div>
+
 <div id="cfgFileBg" class="modalbg">
   <div class="modal sketch" id="cfgFileModal" style="width:min(560px,100%)">
     <div class="modalhd">
@@ -5393,6 +5421,13 @@ function authMissing(){
    Supabase 模式是 UUID,而 whoKey / cfgKeys / idbName 都綁著它。
    切換之後舊資料仍在舊 key 底下,由 claimLocalIdentity() 認領。 */
 const LOCAL_MODE = (AUTH_CONFIG.authMode === "local");
+/* reprice 站和對帳站共用同一個 Supabase 專案的 user_settings,而那張表
+   一個帳號只有一列、沒有欄位分得出是哪一站寫的。所以同一個帳號下,兩站
+   會互相蓋掉對方的設定,下次登入又把對方那份當成自己的載回來。
+   蓋章是為了講得出「帳號上那份是誰寫的」;真正擋住損失的是下面的關卡。 */
+const APP_ID="reprice";
+let CFG_HOLD="";     /* 非空 = 帳號上那份還沒決定要不要,先不要寫回雲端 */
+let CFG_PEND=null;   /* 橫幅上那個「帳號那一份」 */
 const LOCAL_ACCOUNTS=[];
 const LOCAL_SESSION_KEY="ups_reprice_local_session";
 /* 「保持登入」勾了才寫這把 —— localStorage 關瀏覽器也留著,下次開站免登入。
@@ -5888,13 +5923,141 @@ function exportLoginHistory(){
 }
 /* ---- 費率:每個帳號自己的一列 ---- */
 let CFG_SYNC=0;                 /* 最後一次寫回成功的時間,0 = 還沒寫過 */
+/* =====================================================================
+   一份設定裡「東西有多少」
+   ---------------------------------------------------------------------
+   整份文件一起數:現用這一層,加上收起來的每一層。對帳站的費率層級是
+   「一層一份完整設定」,所以層級那幾樣也要數 —— 這個站自己沒有層級,
+   但它會讀到對帳站寫的那一份,把它原封不動地傳下去。少數了,就等於
+   在這裡把對方的東西丟掉而沒有人發現。
+   ===================================================================== */
+function cfgCensus(raw){
+  raw=(raw&&typeof raw==="object")?raw:{};
+  const rl=(raw.rate_levels&&typeof raw.rate_levels==="object")?raw.rate_levels:{};
+  const stash=(rl.cfg&&typeof rl.cfg==="object")?rl.cfg:{};
+  const layers=[raw].concat(Object.keys(stash).map(k=>stash[k]).filter(o=>o&&typeof o==="object"));
+  const many=v=>Array.isArray(v)?v.length:(v&&typeof v==="object"?Object.keys(v).length:0);
+  const rows=o=>(Array.isArray(o.base_rate_tables)?o.base_rate_tables:[])
+                 .reduce((a,t)=>a+((t&&Array.isArray(t.rows))?t.rows.length:0),0);
+  /* 附加費要數「有訂到價的」,不是數鍵:預設設定就帶五十幾個鍵、值全是 0。 */
+  const priced=o=>{
+    const t=(o.accessorial_rate_table&&typeof o.accessorial_rate_table==="object")?o.accessorial_rate_table:{};
+    let n=0;
+    for(const k in t){ const v=t[k];
+      if(v&&typeof v==="object"){ for(const z in v) if(toNum(v[z])>0){ n++; break; } }
+      else if(toNum(v)>0) n++; }
+    return n;
+  };
+  const fuel=o=>many(o.fuel_schedule)
+    +Object.keys((o.channel_fuel_schedules&&typeof o.channel_fuel_schedules==="object")?o.channel_fuel_schedules:{})
+       .reduce((a,k)=>a+many(o.channel_fuel_schedules[k]),0);
+  const demand=o=>{ const d=(o.demand_config&&typeof o.demand_config==="object")?o.demand_config:{};
+    return many(d.service_rows)+many(d.special_rows); };
+  const sum=f=>layers.reduce((a,o)=>a+f(o),0);
+  return {
+    baseRows:sum(rows), accPriced:sum(priced), fuelRows:sum(fuel), demandRows:sum(demand),
+    customSvc:sum(o=>many(o.custom_service_registry)),
+    levels:Object.keys(stash).length,
+    customers:many(raw.customers), rules:many(raw.customer_rules),
+    map:many(raw.customer_map),    chgCodes:many(raw.charge_codes)
+  };
+}
+const CFG_DIMS=[
+  ["baseRows",  ()=>L("費率列","rate rows")],
+  ["levels",    ()=>L("其他費率層級","other rate levels")],
+  ["customers", ()=>L("客戶","clients")],
+  ["accPriced", ()=>L("已訂價的附加費","priced surcharges")],
+  ["fuelRows",  ()=>L("燃油期間","fuel periods")],
+  ["demandRows",()=>L("旺季加價","demand surcharge rows")],
+  ["customSvc", ()=>L("自訂渠道","custom channels")],
+  ["rules",     ()=>L("客戶規則","client rules")],
+  ["map",       ()=>L("客戶對照","client mapping")],
+  ["chgCodes",  ()=>L("自訂代碼","charge codes")]
+];
+/* 換過去會掉什麼。A:本來有,換過去是 0。B:剩不到一半,而且少掉 20 項以上。 */
+function cfgLoss(nowRaw,nextRaw){
+  const a=cfgCensus(nowRaw), b=cfgCensus(nextRaw), out=[];
+  for(const [k,label] of CFG_DIMS){
+    const now=a[k]||0, next=b[k]||0;
+    if(now>0&&next===0)                        out.push({k,label:label(),now,next});
+    else if(now>0&&next<now/2&&(now-next)>=20) out.push({k,label:label(),now,next});
+  }
+  return out;
+}
+const CFG_PREV_BASE="ups_reprice_cfg_prev_v1";
+function cfgCachedText(){ try{ const [k]=cfgKeys(); return localStorage.getItem(k); }catch(e){ return null; } }
+function cfgPrevKey(){ return CFG_PREV_BASE+"::"+((ME&&ME.id)||"anon"); }
+function cfgShelve(why){
+  try{
+    const [k,kn]=cfgKeys(); const t=localStorage.getItem(k);
+    if(!t) return false;
+    localStorage.setItem(cfgPrevKey(), JSON.stringify({
+      text:t, name:localStorage.getItem(kn)||"", at:new Date().toISOString(),
+      why:why||"", census:cfgCensus(JSON.parse(t))}));
+    return true;
+  }catch(e){ return false; }
+}
+function cfgLossHtml(name,loss,nowRaw){
+  const head=L("載入「"+esc(name)+"」會失去:","Loading \u201c"+esc(name)+"\u201d would lose:");
+  const stashRows=raw=>{
+    const c=(((raw||{}).rate_levels)||{}).cfg||{};
+    return Object.keys(c).reduce((a,k)=>a+cfgCensus(c[k]).baseRows,0);
+  };
+  const lines=loss.map(d=>{
+    let t="· "+esc(d.label)+" "+d.now.toLocaleString()+" → "+d.next.toLocaleString();
+    if(d.k==="levels"){ const r=stashRows(nowRaw);
+      if(r) t+=L("(含 "+r.toLocaleString()+" 列費率)"," ("+r.toLocaleString()+" rate rows inside)"); }
+    return t;
+  }).join("<br>");
+  return head+"<br>"+lines+"<br><br>"
+       +L("現在這一份會留著,隨時換回來。","The current one is kept — you can switch back.");
+}
+/* 問一句就好的視窗。取消鈕換字要換 i18n 的鍵,不能直接寫字 ——
+   開著視窗切語言時,applyLang 會把寫死的字換回「取消」。 */
+let ASK_DONE=null;
+function askClose(val){
+  const c=$("#askCancel");
+  if(c && c.dataset.i18n!=="btn.cancel"){ c.dataset.i18n="btn.cancel"; c.textContent=T("btn.cancel"); }
+  const bg=$("#askBg"); if(bg) bg.classList.remove("on");
+  const fn=ASK_DONE; ASK_DONE=null;
+  if(fn) fn(val);
+}
+function uiConfirm(opt){
+  return new Promise(res=>{
+    ASK_DONE=v=>res(!!v);
+    $("#askTitle").textContent=opt.title||L("請確認","Please confirm");
+    $("#askNote").textContent="";
+    $("#askBody").innerHTML=`<p style="margin:0;line-height:1.7">${opt.html||esc(opt.body||"")}</p>`;
+    const c=$("#askCancel");
+    if(c){ c.dataset.i18n=opt.cancelKey||"btn.cancel"; c.textContent=T(c.dataset.i18n); }
+    const ok=$("#askOk");
+    ok.textContent=opt.okText||L("確定","Confirm");
+    ok.classList.toggle("danger",!!opt.danger);
+    ok.onclick=()=>askClose(true);
+    $("#askBg").classList.add("on");
+    ok.focus();
+  });
+}
+function bindAsk(){
+  $("#askX")      && ($("#askX").onclick=()=>askClose(null));
+  $("#askCancel") && ($("#askCancel").onclick=()=>askClose(null));
+  $("#askBg")     && ($("#askBg").onclick=e=>{ if(e.target===$("#askBg")) askClose(null); });
+  document.addEventListener("keydown",e=>{
+    if(e.key==="Escape" && $("#askBg") && $("#askBg").classList.contains("on")) askClose(null);
+  });
+}
 function cfgPush(text,name){
+  /* 帳號上那一份是另一站寫的,而且人還沒決定要哪一份 —— 這時候寫回去
+     就是把對方的設定蓋掉。本機照存,雲端等人決定。 */
+  if(CFG_HOLD) return Promise.resolve(false);
+  const cfg=JSON.parse(text);
+  cfg.__app=APP_ID;
   if(LOCAL_MODE){
     /* 本機帳號模式:用同步鑰匙寫進 local_settings(RPC)。
        Supabase 那邊還沒建表、或網路不通,設定仍在本機快取裡,不擋流程。 */
     if(!SYNC||!ME||!ME.sync) return Promise.resolve(false);
     return SYNC.rpc("local_settings_put",
-        {k:ME.sync, cfg:JSON.parse(text), cfg_name:name})
+        {k:ME.sync, cfg:cfg, cfg_name:name})
       .then(({error})=>{
         if(error){ toast((LANG?"Saved on this computer only — cloud sync failed: "
                               :"只存在這台電腦,雲端同步失敗:")+error.message,false);
@@ -5905,7 +6068,7 @@ function cfgPush(text,name){
   }
   if(!AUTH||!ME) return Promise.resolve(false);
   return AUTH.from("user_settings").upsert({
-      user_id:ME.id, config:JSON.parse(text), config_name:name,
+      user_id:ME.id, config:cfg, config_name:name,
       updated_at:new Date().toISOString()
     },{onConflict:"user_id"})
     .then(({error})=>{
@@ -5931,11 +6094,13 @@ function cfgPull(){
       .then(({data,error})=>{
         const row=Array.isArray(data)?data[0]:data;
         if(error||!row||!row.config) return false;
-        applyConfig(JSON.stringify(row.config),
-          row.config_name||(LANG?"saved settings":"已儲存的設定"));
-        CFG_SYNC=Date.now();
-        setStatus((LANG?"Settings loaded for ":"已載入帳號設定:")+ME.name);
-        return true;
+        const c=row.config;
+        if(!(typeof c==="object"&&!Array.isArray(c)&&Object.keys(c).length>0)) return false;
+        const took=cfgTake(JSON.stringify(c),
+          row.config_name||(LANG?"saved settings":"已儲存的設定"), "local");
+        if(took){ CFG_SYNC=Date.now();
+          setStatus((LANG?"Settings loaded for ":"已載入帳號設定:")+ME.name); }
+        return took;
       })
       .catch(()=>false);
   }
@@ -5943,14 +6108,87 @@ function cfgPull(){
   return AUTH.from("user_settings").select("config,config_name")
     .eq("user_id",ME.id).maybeSingle()
     .then(({data,error})=>{
-      if(error||!data||!data.config){ restoreConfig(); return false; }
-      applyConfig(JSON.stringify(data.config),
-        data.config_name||(LANG?"saved settings":"已儲存的設定"));
-      CFG_SYNC=Date.now();
-      setStatus((LANG?"Rates loaded for ":"已載入費率:")+ME.name);
-      return true;
+      /* 空物件不是「有設定」。以前這裡只看 !data.config,而 {} 是 truthy ——
+         結果是把一份空的套上畫面,連本機快取一起換掉。陣列同理:
+         typeof [] 也是 "object"。 */
+      const cloud=data&&data.config;
+      const good=cloud&&typeof cloud==="object"&&!Array.isArray(cloud)
+                 &&Object.keys(cloud).length>0;
+      if(error||!good){ restoreConfig(); return false; }
+      const ok=cfgTake(JSON.stringify(cloud),
+        data.config_name||(LANG?"saved settings":"已儲存的設定"), "cloud");
+      if(ok){ CFG_SYNC=Date.now();
+        setStatus((LANG?"Rates loaded for ":"已載入費率:")+ME.name); }
+      return ok;
     })
     .catch(()=>{ restoreConfig(); return false; });
+}
+/* =====================================================================
+   要不要換成帳號上那一份
+   ---------------------------------------------------------------------
+   登入時不跳視窗:不換過去什麼都沒有損失(那一列沒被讀就是沒被動),
+   而一個擋在還沒看過的畫面前面的視窗,只會被順手點掉。維持現狀、把選擇
+   留在畫面上,並且在人決定之前不要寫回帳號。
+
+   基準不能拿 CFG.raw —— setMe 先跑過 cfgReset(),記憶體裡已經是預設值,
+   兩邊都是 0 就永遠問不出來。要比的是本機快取那一份。
+   ===================================================================== */
+function cfgTake(text,name,source){
+  const base=cfgCachedText();
+  let loss=[];
+  if(base){ try{ loss=cfgLoss(JSON.parse(base), JSON.parse(text)); }catch(e){ loss=[]; } }
+  if(!loss.length) return applyConfig(text,name);
+  let who=""; try{ who=(JSON.parse(text).__app)||""; }catch(e){}
+  CFG_HOLD=who||"other";
+  CFG_PEND={text,name,loss,who};
+  restoreConfig();
+  cfgBarShow();
+  return false;
+}
+/* 載入設定檔會整份取代。取代之前先數一次,會掉東西才問;問過才留底。 */
+async function cfgAdopt(text,name,source){
+  let next=null;
+  try{ next=JSON.parse(text); }catch(e){ return applyConfig(text,name); }
+  const loss=cfgLoss((CFG&&CFG.raw)||{}, next);
+  if(loss.length){
+    const go=await uiConfirm({
+      title:L("這份設定少了東西","This configuration is missing things"),
+      html:cfgLossHtml(name,loss,(CFG&&CFG.raw)||{}),
+      okText:L("仍要載入","Load anyway"), cancelKey:"btn.cfgkeep", danger:true});
+    if(!go){ setStatus(L("保留現在這份設定。","Kept the current configuration.")); return false; }
+    cfgShelve(source);
+  }
+  const ok=applyConfig(text,name);
+  if(ok) setStatus(L("設定檔已載入:","Settings loaded: ")+name);
+  return ok;
+}
+function cfgBarShow(){
+  const box=$("#cfgBarBox"); if(!box||!CFG_PEND) return;
+  const m=$("#cfgBarMsg");
+  if(m) m.textContent=L(
+    "帳號上的設定比這台電腦少 "+CFG_PEND.loss.length+" 項。這台電腦上的那份先留在畫面上,還沒有寫回帳號。",
+    "The account holds "+CFG_PEND.loss.length+" fewer things than this computer. This computer's copy is on screen, and nothing has been written to the account.");
+  box.style.display="flex";
+}
+function cfgBarHide(){ const b=$("#cfgBarBox"); if(b) b.style.display="none"; }
+function bindCfgBar(){
+  $("#bCfgDiff") && ($("#bCfgDiff").onclick=async()=>{
+    if(!CFG_PEND) return;
+    let raw={}; try{ raw=JSON.parse(cfgCachedText()||"{}"); }catch(e){}
+    const go=await uiConfirm({
+      title:L("這份設定少了東西","This configuration is missing things"),
+      html:cfgLossHtml(CFG_PEND.name,CFG_PEND.loss,raw),
+      okText:L("用帳號那份","Use the account's"), cancelKey:"btn.cfgkeep", danger:true});
+    if(go) $("#bCfgTake").click();
+  });
+  $("#bCfgTake") && ($("#bCfgTake").onclick=()=>{
+    if(!CFG_PEND) return;
+    cfgShelve("cloud");
+    const pend=CFG_PEND; CFG_PEND=null; CFG_HOLD=""; cfgBarHide();
+    applyConfig(pend.text,pend.name);
+    toast(L("已換成帳號上那一份。上一份收在「費率設定檔」裡,還原得回來。",
+            "Switched to the account's copy. The previous one is kept under Rate Configuration File."), true);
+  });
 }
 /* ---- 帳單歷史:也跟著帳號走 ----
    明細動輒幾十 MB,直接上傳太肥,先 gzip 再轉 base64(通常剩十分之一)。
@@ -6633,7 +6871,9 @@ function restoreConfig(){
   /* 名稱可以掉,內容不能掉。舊版的 saveSettings() 只寫了內容沒寫名稱,
      這裡如果堅持兩個都要,那些人存過的設定會被預設值蓋掉。 */
   if(t){ n=n||(LANG?"saved settings":"已儲存的設定");
-    applyConfig(t,n); setStatus((LANG?"Loaded saved settings: ":"已載入記住的設定:")+n); return; }
+    /* 剛從快取讀出來的東西不用再寫回快取。寫回去只會把它換成 readConfig
+       正規化過的版本 —— 內容一樣,但那份「原封不動的副本」就沒了。 */
+    applyConfig(t,n,false); setStatus((LANG?"Loaded saved settings: ":"已載入記住的設定:")+n); return true; }
   applyConfig(JSON.stringify(DEFAULT_CONFIG),
               LANG?"defaults":"預設值", false);
   setStatus("");
@@ -6935,7 +7175,7 @@ function fmtSize(n){
   if(n<1024*1024) return (n/1024).toFixed(n<10240?1:0)+" KB";
   return (n/1048576).toFixed(1)+" MB";
 }
-pick("#fCfg",(t,n)=>{ applyConfig(t,n);
+pick("#fCfg",(t,n)=>{ cfgAdopt(t,n,"file");
   setStatus(L("設定檔已載入:","Settings loaded: ")+n); });
 /* 不走 pick():Excel 那條是非同步的,而且要回報工作表名稱與錯誤。
    value 一樣在讀完之後清掉,重選同一個檔才會再觸發 change。 */
@@ -9517,6 +9757,7 @@ function cfgDownload(){
 }
 $("#bCfgDown")    && ($("#bCfgDown").onclick=cfgDownload);
 $("#bLsTidy")     && ($("#bLsTidy").onclick=lsTidy);
+bindAsk(); bindCfgBar();
 $("#bCfgDown2")   && ($("#bCfgDown2").onclick=cfgDownload);
 $("#cfgFileClose")&& ($("#cfgFileClose").onclick=closeCfgFile);
 $("#cfgFileX")    && ($("#cfgFileX").onclick=closeCfgFile);
@@ -14927,6 +15168,7 @@ const I18N={
   "btn.delticked":["刪除勾選","Delete Ticked"],
   "btn.exphist":["匯出全部歷史","Export all history"],
   "btn.close":["關閉","Close"],
+  "btn.cancel":["取消","Cancel"],
   "btn.backlist":["回到清單","Back to the list"],
   "btn.delinv":["刪除勾選的帳單","Delete selected"],
   "btn.imphist":["匯入歷史帳單","Import Past Invoices"],
@@ -15137,6 +15379,9 @@ const I18N={
   "lb.cfgnow":["目前使用的設定檔","Configuration in use"],
   "btn.cfgload":["載入設定檔…","Load Configuration File…"],
   "btn.cfgdown":["⤓ 下載設定檔 JSON","⤓ Download JSON"],
+  "btn.cfgkeep":["保留現在這份","Keep the current one"],
+  "btn.cfgshow":["看差在哪","Show me"],
+  "btn.cfguse":["用帳號那份","Use the account's"],
   "hint.cfgwhere":["載入或更換請至「⚙️ 設定」分頁。","Load or replace it on the Settings tab."],
   "btn.login":["登入","Sign in"],
   "btn.logout":["登出","Sign out"], "cap.theme":["Theme","Theme"], "cap.clock":["Clock","Clock"],
