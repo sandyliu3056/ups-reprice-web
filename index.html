@@ -1721,6 +1721,7 @@ main{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--line) 85%,tran
       <p class="hint" style="margin:8px 0 10px;max-width:880px" data-i18n="hint.cfgshort">The account's complete pricing configuration. Loading one replaces the current configuration in full.</p>
       <div class="row">
         <button class="act ghost" id="bCfgOpen" data-i18n="btn.cfgset">Configure</button>
+        <button class="act ghost" id="bCfgDown" data-i18n="btn.cfgdown">⤓ Download JSON</button>
         <span id="cfgSum" class="affsum"></span>
       </div>
     </div>
@@ -1935,6 +1936,7 @@ main{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--line) 85%,tran
       <div class="row" style="margin:0 0 6px;flex-wrap:nowrap">
         <label class="inlab" style="margin-left:0" data-i18n="lb.cfgnow">Configuration in use</label>
         <span id="pathCfg" class="affsum" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+        <button class="act ghost sm" id="bCfgDown2" data-i18n="btn.cfgdown">⤓ Download JSON</button>
         <button class="act ghost sm" id="bCfg" data-i18n="btn.cfgload">Load File…</button>
       </div>
       <p class="hint" style="margin:0" data-i18n="hint.cfgsave">Press Save Settings to write it to the account.</p>
@@ -3317,6 +3319,9 @@ function accLookup(cfg, feeType, channel, zone, issues, residential, missOut){
 /* 掃一筆貨的所有帳單行,分出每一項 UPS 收了什麼 */
 function scanCharges(lines, dynMap, fuelOff){
   const seen={}, net={};
+  /* 這個桶子有沒有 ADJ 層的行。住/商改判時原單收一種 DAS、更正單收另一種,
+     更正是 UPS 的定案 —— 判「留哪一個」要看得到這個。 */
+  const adjTouched=new Set();
   let resCode=false, comCode=false, unknownNet=0;
   const unknownCodes=new Set();
   const unknownBy={};
@@ -3415,6 +3420,7 @@ function scanCharges(lines, dynMap, fuelOff){
       if(fuelOff && fuelOff.has(bucket)) nonFuel.add(bucket);
       seen[bucket]=true;
       net[bucket]=(net[bucket]||0)+l.net;
+      if(l.layer==="ADJ") adjTouched.add(bucket);
       /* py :17630-:17649:ADJ 層每個家族分別記「有退款行 / 有收費行」。
          兩者都有 = 重開價(例如 Zone 8 改 5),要寫 C 的正額;
          只有退款 = 真沖銷,寫負額。淨額的正負分不出這兩種。 */
@@ -3436,7 +3442,7 @@ function scanCharges(lines, dynMap, fuelOff){
   return {seen, net, resCode, comCode, unknownNet, unknownCodes, unknownBy,
           declared, commercialAdj,
           residentialAdj,
-          nonFuel, dynMode, resBucket, ovrUpsNet, famCredit, famCharge};
+          nonFuel, dynMode, resBucket, ovrUpsNet, famCredit, famCharge, adjTouched};
 }
 
 /* 拿現在的設定重算目前這一批,不重新讀檔、不重新歸檔、不匯出。
@@ -3854,6 +3860,21 @@ function priceShipment(cfg, s, force){
       && l.detail==="SCC" && isFreightLine(l) && l.zone);
     if(sccRow) zone=sccRow.zone;
   }
+  /* 同一期的 ZONE 調整(出貨與更正在同一筆):更正後的 Zone 在 ADJ 的 ZONE 行上,
+     但不是每一行都寫新的 —— 沖銷行掛舊 Zone、重開行掛新 Zone,連運費差額那一行
+     都還掛著舊 Zone。所以取「和原 Zone 不同」的那一個,有正額行以正額行為準:
+     少了這一段,Zone 2 被改判 6 的單子會一直照 Zone 2 的費率算,運費和每一項
+     依 Zone 計的附加費全部偏低。 */
+  if(!zRow && !s.pureAdj){
+    const zl=(s.allLines||[]).filter(l=>l.layer==="ADJ"
+        && String(l.detail||"").toUpperCase()==="ZONE" && l.zone
+        && normZone(l.zone)!==normZone(s.zone));
+    if(zl.length){
+      const pos=zl.filter(l=>toNum(l.net)>0.004);
+      const uniq=new Set(zl.map(l=>normZone(l.zone)));
+      if(pos.length||uniq.size===1) zone=(pos[0]||zl[0]).zone;
+    }
+  }
 
   /* 運費。跨期更正單同時帶著 C(更正後,Package Dimensions)與
      A(原始,Detail Keyed Dimensions)兩組尺寸時,UPS 收的是差額,
@@ -4014,6 +4035,27 @@ function priceShipment(cfg, s, force){
         delete scan.seen[rb]; delete scan.net[rb];
         if(scan.nonFuel && scan.nonFuel.has(rb)) scan.nonFuel.add(cb);
       }
+    }
+  }
+  /* 商業→住宅改判:UPS 原單收商業 DAS、更正單改收住宅 DAS,兩個桶都留著淨額
+     —— 兩個都照全額收就是同一項費用收兩次(再各加一次燃油)。留 UPS 更正單上
+     的那一個(那是 UPS 的定案),兩邊都有或都沒有 ADJ 行才照最後的住/商判定挑;
+     被併掉那一桶的淨額移過去,帳單側的錢一分不少。
+     (住→商那個方向 UPS 會開 COM 標記,上面 commercialAdj 那一段已經處理。) */
+  if(!scan.commercialAdj){
+    const PAIRS=[["DAS Commercial","DAS Residential"],
+                 ["DAS Extended Commercial","DAS Extended Residential"],
+                 ["Remote Area Commercial","Remote Area Residential"]];
+    const adj=scan.adjTouched||new Set();
+    for(const [cb,rb] of PAIRS){
+      if(!(scan.seen[cb] && scan.seen[rb])) continue;
+      if(Math.round((scan.net[cb]||0)*100)===0 || Math.round((scan.net[rb]||0)*100)===0) continue;
+      const keep = adj.has(rb)!==adj.has(cb) ? (adj.has(rb)?rb:cb)
+                 : (residential?rb:cb);
+      const drop = keep===rb?cb:rb;
+      scan.net[keep]=(scan.net[keep]||0)+(scan.net[drop]||0);
+      delete scan.seen[drop]; delete scan.net[drop];
+      if(scan.nonFuel && scan.nonFuel.has(drop)) scan.nonFuel.add(keep);
     }
   }
   /* 附加費:UPS 收了才收 */
@@ -9284,6 +9326,28 @@ $("#bFuelSave") && ($("#bFuelSave").onclick=()=>{
 });
 $("#bCfg") && ($("#bCfg").onclick=()=>$("#fCfg").click());
 $("#bCfgOpen")    && ($("#bCfgOpen").onclick=openCfgFile);
+/* 設定檔備份:把這個帳號現在的計價設定原樣存成一個 JSON 檔。
+   費率是這套工具裡唯一「重打要花好幾個小時」的東西,而它平常只在帳號和
+   這台瀏覽器裡各一份 —— 手上留一份檔案,任何一邊出事都補得回來。
+   檔名帶帳號與日期,存好幾份也分得出哪一份是哪一天的。 */
+function cfgDownload(){
+  if(!CFG||!CFG.raw){
+    toast(LANG?"There is no configuration to download yet.":"目前沒有可下載的設定。", false);
+    return false;
+  }
+  const rows=CFG.tableRowCount||0;
+  const d=new Date(), p2=n=>String(n).padStart(2,"0");
+  const stamp=d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate());
+  const who=String((ME&&(ME.user||ME.name))||"account").replace(/[^A-Za-z0-9_-]+/g,"_");
+  const name="ups_reprice_rates_"+who+"_"+stamp+".json";
+  dlBlob(new Blob([JSON.stringify(CFG.raw,null,2)],{type:"application/json"}), name);
+  setStatus((LANG?"Downloaded ":"已下載 ")+name);
+  toast(L("已下載 "+name+"(含 "+rows.toLocaleString()+" 列費率)。要復原時用「載入設定檔」讀它,再按儲存設定。",
+          "Downloaded "+name+" ("+rows.toLocaleString()+" rate rows). To restore it, use Load Configuration File, then Save Settings."), true);
+  return true;
+}
+$("#bCfgDown")    && ($("#bCfgDown").onclick=cfgDownload);
+$("#bCfgDown2")   && ($("#bCfgDown2").onclick=cfgDownload);
 $("#cfgFileClose")&& ($("#cfgFileClose").onclick=closeCfgFile);
 $("#cfgFileX")    && ($("#cfgFileX").onclick=closeCfgFile);
 $("#cfgFileBg")   && ($("#cfgFileBg").onclick=e=>{ if(e.target.id==="cfgFileBg") closeCfgFile(); });
@@ -14825,6 +14889,7 @@ const I18N={
     "Press Save Settings to write it to the account."],
   "lb.cfgnow":["目前使用的設定檔","Configuration in use"],
   "btn.cfgload":["載入設定檔…","Load Configuration File…"],
+  "btn.cfgdown":["⤓ 下載設定檔 JSON","⤓ Download JSON"],
   "hint.cfgwhere":["載入或更換請至「⚙️ 設定」分頁。","Load or replace it on the Settings tab."],
   "btn.login":["登入","Sign in"],
   "btn.logout":["登出","Sign out"], "cap.theme":["Theme","Theme"], "cap.clock":["Clock","Clock"],
