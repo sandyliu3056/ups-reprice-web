@@ -12440,6 +12440,8 @@ function renderDashboard(){
      「沒有重算」收在一起,由重到輕排,每一組都指得出帳單的哪幾列。
      內容和匯出都在 renderIssueCard()/exportIssues()。 */
   const uCard=renderIssueCard();
+  /* 統計面的離群偵測是另一張卡:上一張講設定的洞,這一張講錢本身。 */
+  const aCard=renderAnomCard();
   body.innerHTML=`
     <div class="dhead">
       <div><div class="dtitle">${L("儀表板","Dashboard")}</div>
@@ -12477,10 +12479,13 @@ function renderDashboard(){
       <div>${zoneHTML}</div>
     </div>
     ${uCard}
+    ${aCard}
     <div class="dfoot">${L("本頁數字與匯出報表一致;切換右上角主題,整頁配色隨之調整。","Figures match the exported report; switching the theme recolours the page.")}</div>`;
   wireDashBar();
   const ux=$("#bIssXls");
   if(ux) ux.onclick=exportIssues;
+  const ax=$("#bAnmXls");
+  if(ax) ax.onclick=exportAnoms;
   /* 這顆是每次重畫儀表板才長出來的,所以綁在這裡而不是啟動時綁一次。 */
   const gx=$("#bGapOpen");
   if(gx) gx.onclick=openGap;
@@ -14492,6 +14497,310 @@ function exportIssues(){
   ], fname)
   .then(ok=>toast(ok?L("已匯出 "+ISSUES.length+" 項異常 / "+trks.length+" 個追蹤號",
                        "Exported "+ISSUES.length+" exception(s) across "+trks.length+" shipment(s)")
+                    :L("已取消存檔","Save cancelled"), ok))
+  .catch(e=>toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false));
+}
+
+/* =====================================================================
+   費用異常自動偵測
+   ---------------------------------------------------------------------
+   上面那張「本期異常項目」講的是設定的洞:費率查不到、代碼認不得。這一張
+   講的是錢本身長得不對:設定都齊、每一筆也都算得出來,但某一筆和同組的
+   兄弟、或和往期比起來離群。全部是可解釋的統計 —— 中位數、MAD、主流價、
+   往期中位數 —— 每一筆都寫得出「和誰比、差多少」,沒有模型,沒有黑盒。
+   列出來的是「值得看一眼」,不是「一定錯」:離群的那一筆常常是 UPS 收錯,
+   但也可能是一顆真的特別重的箱子。疑似就寫疑似,判斷留給看的人。 */
+const ANOM_KIND={
+  dup:  {sev:3, zh:"疑似重複收費",     en:"Possible duplicate charge"},
+  frt:  {sev:2, zh:"運費離群",         en:"Freight outlier"},
+  accp: {sev:2, zh:"附加費偏離主流價", en:"Surcharge off its usual price"},
+  spike:{sev:2, zh:"費用跨期跳升",     en:"Charge spiked vs prior periods"},
+  loss: {sev:1, zh:"應收低於 UPS 成本", en:"Charged below UPS cost"},
+};
+let ANOMS=[], ANOM_CACHE=null;
+
+/* 中位數。呼叫端都先過件數門檻,空陣列這裡回 0 就好,不擲錯。 */
+function anomMed(a){
+  if(!a.length) return 0;
+  const s=a.slice().sort((x,y)=>x-y), m=s.length>>1;
+  return s.length%2?s[m]:(s[m-1]+s[m])/2;
+}
+/* 這一段(主段/回程/第二段)掛在哪一期。 */
+function anomInvOf(s){
+  return String((((s||{}).lines||[]).find(x=>x&&x.invoice)||{}).invoice||"").trim();
+}
+
+/* 同步偵測四種:重複收費、運費離群、附加費偏離主流價、應收低於成本。
+   跨期跳升要讀 IndexedDB,走另一條非同步路(anomHistKick),讀完自己重畫。
+   每列:{kind, trk, inv, line, code, amt, note} —— note 是那一句「和誰比、
+   差多少」,畫面和匯出都印它,兩邊永遠講同一句話。 */
+function anomStats(){
+  if(ANOM_CACHE && ANOM_CACHE.rated===RATED && ANOM_CACHE.lang===LANG)
+    return ANOM_CACHE.rows;
+  const out=[];
+  const push=(kind,o)=>out.push(Object.assign({kind:kind},o));
+  try{
+  const lines=(ROWS||[]);
+  /* ---- 1. 疑似重複收費 -------------------------------------------------
+     同一追蹤號、同一層、同一代碼、同一金額出現兩次以上。出貨段和退件回程
+     各收一次 LPS 是正常的 —— 層不同,湊不成一組。被沖銷掉的也不算:這個
+     代碼在這個追蹤號上的淨額要撐得起「每一筆都真的收了」才列。 */
+  const dup=new Map(), netBy=new Map();
+  for(const l of lines){
+    if(!l.tracking || String(l.cls||"").toUpperCase()!=="ACC") continue;
+    const code=String(l.code||"").toUpperCase(), v=toNum(l.net);
+    const nk=l.tracking+"|"+code;
+    netBy.set(nk,(netBy.get(nk)||0)+v);
+    if(v<=0.005) continue;
+    const k=nk+"|"+String(l.layer||"SHP")+"|"+v.toFixed(2);
+    if(!dup.has(k)) dup.set(k,[]);
+    dup.get(k).push(l);
+  }
+  for(const [k,g] of dup){
+    if(g.length<2) continue;
+    const v=toNum(g[0].net);
+    const nk=g[0].tracking+"|"+String(g[0].code||"").toUpperCase();
+    if((netBy.get(nk)||0) < v*g.length-0.005) continue;
+    const extra=v*(g.length-1);
+    push("dup",{trk:g[0].tracking, inv:String(g[0].invoice||"").trim(),
+      line:g.map(l=>toNum(l.idx)||"").filter(Boolean).sort((a,b)=>a-b).join(L("、",", ")),
+      code:String(g[0].code||"").toUpperCase(), amt:extra,
+      note:L((g[0].desc||g[0].code)+" $"+v.toFixed(2)+" 收了 "+g.length+" 次,可能多收 "+money(extra),
+             (g[0].desc||g[0].code)+" $"+v.toFixed(2)+" billed "+g.length+" times — possibly "+money(extra)+" too much")});
+  }
+  /* ---- 2. 運費離群 -----------------------------------------------------
+     渠道 × Zone 一組,比「UPS 運費 ÷ 計費磅」。用中位數 ± MAD:平均數會被
+     離群值自己拉走,中位數不會。整組同價時 MAD 是 0,改用中位數的 3% 當
+     尺度下限,免得一分錢的抖動除出無限大。組內至少 8 件才比;要同時過
+     統計門檻(3.5 個尺度)和金額門檻($5)—— 一分錢的離群沒有人要看。 */
+  const grp=new Map();
+  for(const r of (RATED||[])){
+    if(!r || !r.s) continue;
+    const lb=toNum(r.bw&&r.bw.billable); if(!(lb>0)) continue;
+    const frt=(r.s.lines||[]).filter(l=>isFreightLine(l))
+      .reduce((a,l)=>a+toNum(l.net),0);
+    if(!(frt>0.005)) continue;
+    const k=(r.channel||"?")+" · Zone "+(r.zoneUsed||r.s.zone||"?");
+    if(!grp.has(k)) grp.set(k,[]);
+    grp.get(k).push({r:r, x:frt/lb, frt:frt, lb:lb});
+  }
+  for(const [k,g] of grp){
+    if(g.length<8) continue;
+    const med=anomMed(g.map(e=>e.x));
+    const sig=Math.max(1.4826*anomMed(g.map(e=>Math.abs(e.x-med))), med*0.03, 0.02);
+    for(const e of g){
+      const dv=e.frt-med*e.lb;
+      if(Math.abs(e.x-med)/sig<3.5 || Math.abs(dv)<5) continue;
+      const s=e.r.s;
+      push("frt",{trk:s.tracking||"", inv:anomInvOf(s),
+        line:toNum(anchorLine(s).idx)||"", code:"FRT", amt:dv,
+        note:L("$"+e.x.toFixed(2)+"/磅;"+k+" 共 "+g.length+" 件,中位數 $"+med.toFixed(2)+"/磅",
+               "$"+e.x.toFixed(2)+"/lb; median of "+g.length+" in "+k+" is $"+med.toFixed(2)+"/lb")});
+    }
+  }
+  /* ---- 3. 附加費偏離主流價 ----------------------------------------------
+     同一個代碼這一期通常只有一兩種標價。有主流價(六成以上同一個數)才比
+     —— 隨重量連續變動的代碼湊不出主流價,自動跳過,不會亂報。 */
+  const acc=new Map();
+  for(const l of lines){
+    if(String(l.cls||"").toUpperCase()!=="ACC") continue;
+    if(String(l.layer||"SHP")!=="SHP") continue;
+    const v=toNum(l.net); if(v<=0.005) continue;
+    const c=String(l.code||"").toUpperCase(); if(!c) continue;
+    if(!acc.has(c)) acc.set(c,[]);
+    acc.get(c).push(l);
+  }
+  for(const [c,g] of acc){
+    if(g.length<6) continue;
+    const cnt=new Map();
+    for(const l of g){ const k=toNum(l.net).toFixed(2); cnt.set(k,(cnt.get(k)||0)+1); }
+    let mk="", mn=0; for(const [k2,n] of cnt) if(n>mn){ mk=k2; mn=n; }
+    if(mn/g.length<0.6) continue;
+    const mv=Number(mk);
+    for(const l of g){
+      const v=toNum(l.net), d=v-mv;
+      if(Math.abs(d)<=Math.max(1,mv*0.2)) continue;
+      push("accp",{trk:l.tracking||"", inv:String(l.invoice||"").trim(),
+        line:toNum(l.idx)||"", code:c, amt:d,
+        note:L((l.desc||c)+" $"+v.toFixed(2)+";同代碼 "+g.length+" 筆中 "+mn+" 筆是 $"+mk,
+               (l.desc||c)+" $"+v.toFixed(2)+"; "+mn+" of "+g.length+" with this code are $"+mk)});
+    }
+  }
+  /* ---- 4. 應收低於 UPS 成本 ---------------------------------------------
+     設定的洞(查不到費率、認不得的代碼、缺附加費費率)會把應收算低 ——
+     那是上一張卡的事,這裡跳過,免得同一件事兩張卡各講一次。
+     門檻半塊錢:分錢級的差只是進位。 */
+  for(const r of (RATED||[])){
+    if(!r || !r.s || r.total==null || r.baseMissing) continue;
+    if((r.missFees||[]).length || Math.abs(toNum(r.unknownNet))>0.005) continue;
+    const d=toNum(r.total)-toNum(r.s.upsTotal);
+    if(d>-0.5) continue;
+    push("loss",{trk:r.s.tracking||"", inv:anomInvOf(r.s),
+      line:toNum(anchorLine(r.s).idx)||"", code:"", amt:d,
+      note:L("應收 "+money(r.total)+",UPS 實收 "+money(r.s.upsTotal),
+             "charged "+money(r.total)+" vs UPS "+money(r.s.upsTotal))});
+  }
+  }catch(e){ console.warn("anomaly detection failed",e); }
+  out.sort((a,b)=>ANOM_KIND[b.kind].sev-ANOM_KIND[a.kind].sev
+    || Math.abs(toNum(b.amt))-Math.abs(toNum(a.amt)));
+  ANOM_CACHE={rated:RATED, lang:LANG, rows:out};
+  return out;
+}
+
+/* ---- 5. 費用跨期跳升(非同步) ------------------------------------------
+   基準是「平均每件」:出貨量翻倍,每一類費用的總額本來就會翻倍,拿總額比
+   等於在報「這期出比較多貨」;平均每件翻倍才是異常。往期至少三期才比,
+   只跟同一個帳號的期別比。anomSpike 是純函式(測試直接餵資料),讀檔的
+   非同步部分都在 anomHistKick 裡;算好蓋一個章記在 ANOM_XP,儀表板重畫
+   時章還對就直接用,不重讀。 */
+let ANOM_XP=null, ANOM_XP_BUSY=false;
+function anomXpStamp(){
+  const inv=histInv();
+  const cur=[...new Set((ROWS||[]).map(l=>String(l.invoice||"").trim()).filter(Boolean))].sort();
+  return Object.keys(inv).sort().map(k=>k+"@"+((inv[k]||{}).at||"")).join(";")+"||"+cur.join(",");
+}
+/* 一期的每代碼總額與件數。附加費和燃油都看 —— 燃油比例跳上去也是要知道的事。 */
+function anomByCode(rows){
+  const by={}, trk=new Set();
+  for(const l of (rows||[])){
+    if(l.tracking) trk.add(l.tracking);
+    const cls=String(l.cls||"").toUpperCase();
+    if(cls!=="ACC" && cls!=="FSC") continue;
+    const c=String(l.code||cls).toUpperCase(); if(!c) continue;
+    if(!by[c]) by[c]={amt:0, desc:l.desc||""};
+    by[c].amt+=toNum(l.net);
+    if(!by[c].desc && l.desc) by[c].desc=l.desc;
+  }
+  return {trkN:trk.size, by:by};
+}
+function anomSpike(cur, hist){
+  const rows=[];
+  if(!cur || !(cur.trkN>0) || (hist||[]).length<3) return rows;
+  for(const c of Object.keys(cur.by)){
+    const e=cur.by[c], avg=e.amt/cur.trkN;
+    const seen=hist.some(h=>h.by[c]);
+    if(!seen){
+      /* 往期從沒出現過的代碼,總額夠大才提 —— 一筆 $3 的新代碼不值一列。 */
+      if(e.amt<25) continue;
+      rows.push({kind:"spike", trk:"", inv:"", line:"", code:c, amt:e.amt,
+        note:L((e.desc||c)+" 本期共 "+money(e.amt)+",前 "+hist.length+" 期從未出現",
+               (e.desc||c)+" totals "+money(e.amt)+" this period; never seen in the prior "+hist.length)});
+      continue;
+    }
+    const medA=anomMed(hist.map(h=>((h.by[c]||{}).amt||0)/(h.trkN||1)));
+    if(!(medA>0.005)) continue;
+    if(avg<medA*2 || (avg-medA)*cur.trkN<50) continue;
+    rows.push({kind:"spike", trk:"", inv:"", line:"", code:c, amt:(avg-medA)*cur.trkN,
+      note:L((e.desc||c)+" 平均每件 $"+avg.toFixed(2)+",前 "+hist.length+" 期中位數 $"+medA.toFixed(2),
+             (e.desc||c)+" averages $"+avg.toFixed(2)+"/shipment vs a prior-period median of $"+medA.toFixed(2))});
+  }
+  return rows;
+}
+async function anomHistKick(){
+  const stamp=anomXpStamp();
+  if((ANOM_XP && ANOM_XP.stamp===stamp) || ANOM_XP_BUSY) return;
+  const inv=histInv();
+  /* 至少要有本期以外的三期可比;不夠就記個空章,下次資料變了再算。 */
+  if(Object.keys(inv).length<4){ ANOM_XP={stamp:stamp, cur:null, hist:[]}; return; }
+  ANOM_XP_BUSY=true;
+  try{
+    const all=await idbAllRows();
+    const curKeys=new Set((ROWS||[]).map(l=>String(l.invoice||"").trim()).filter(Boolean));
+    const accts=new Set((ROWS||[]).map(l=>String(l.account||"").trim()).filter(Boolean));
+    const byInv=new Map();
+    for(const r of all){
+      const k=String(r.invoice||"").trim();
+      if(!k || curKeys.has(k)) continue;
+      if(accts.size && r.account && !accts.has(String(r.account).trim())) continue;
+      if(!byInv.has(k)) byInv.set(k,[]);
+      byInv.get(k).push(r);
+    }
+    const hist=[...byInv.entries()]
+      .sort((a,b)=>String((inv[b[0]]||{}).date||"").localeCompare(String((inv[a[0]]||{}).date||"")))
+      .slice(0,6).map(([,rows])=>anomByCode(rows));
+    ANOM_XP={stamp:stamp, cur:anomByCode(ROWS||[]), hist:hist};
+  }catch(e){ ANOM_XP={stamp:stamp, cur:null, hist:[]}; }
+  finally{ ANOM_XP_BUSY=false; }
+  /* 章蓋好了才重畫,重畫走到這裡看章就會直接返回,不會轉圈。 */
+  try{ renderDashboard(); }catch(e){}
+}
+
+function renderAnomCard(){
+  if(!RATED || !RATED.length) return "";
+  const rows=anomStats().slice();
+  anomHistKick();
+  if(ANOM_XP && ANOM_XP.stamp===anomXpStamp())
+    rows.push(...anomSpike(ANOM_XP.cur, ANOM_XP.hist));
+  rows.sort((a,b)=>ANOM_KIND[b.kind].sev-ANOM_KIND[a.kind].sev
+    || Math.abs(toNum(b.amt))-Math.abs(toNum(a.amt)));
+  ANOMS=rows;
+  const scanned=L("重複收費、運費離群、附加費金額、跨期跳升、低於成本",
+                  "duplicates, freight outliers, surcharge price, period spikes, below cost");
+  if(!rows.length)
+    return `<div class="dcard" style="margin-top:12px">
+      <div class="ch"><h3>${L("費用異常偵測","Charge anomaly detection")}</h3>
+        <span class="cnote">${L("本期未偵測到異常","no anomalies detected this period")}(${scanned})</span></div>
+    </div>`;
+  const by={};
+  for(const r of rows){
+    (by[r.kind]=by[r.kind]||{n:0, amt:0}).n++;
+    by[r.kind].amt+=Math.abs(toNum(r.amt));
+  }
+  const chips=Object.keys(by).sort((a,b)=>
+      ANOM_KIND[b].sev-ANOM_KIND[a].sev || by[b].amt-by[a].amt)
+    .map(k=>{
+      const K=ANOM_KIND[k], g=by[k], tag=SEV_TAG[K.sev];
+      return `<div class="stat sketch-soft s${K.sev}">`
+        +`<i><span class="tag">${L(tag[0],tag[1])}</span>${esc(L(K.zh,K.en))}</i>`
+        +`<b>${money(g.amt)} <span class="bu">${L("涉及金額","involved")}</span></b>`
+        +`<s>${L(g.n+" 筆",g.n+(g.n>1?" items":" item"))}</s></div>`;
+    }).join("");
+  const top=rows.slice(0,10);
+  const tot=rows.reduce((a,r)=>a+Math.abs(toNum(r.amt)),0);
+  const hasHigh=rows.some(r=>ANOM_KIND[r.kind].sev>=3);
+  return `
+    <div class="dcard issbox${hasHigh?" warn":""}" style="margin-top:12px">
+      <div class="ch"><h3>${L("費用異常偵測","Charge anomaly detection")}</h3>
+        <span class="cnote">${L("統計偵測:和同組、往期比,離群才列。是提醒,不是判決",
+          "statistical — flagged only when it deviates from its peers or history; a prompt, not a verdict")}</span>
+        <button class="act ghost" id="bAnmXls" style="padding:3px 11px;font-size:12px">${
+          L("下載明細 (.xlsx)","Download details (.xlsx)")}</button></div>
+      <p class="isssub">${L("偵測到 <b>"+rows.length+"</b> 筆,涉及金額 <b>"+money(tot)+"</b>",
+        "<b>"+rows.length+"</b> item(s) flagged; <b>"+money(tot)+"</b> involved")}</p>
+      <div class="strow">${chips}</div>
+      <div class="tablewrap" style="margin-top:10px;max-height:none"><table style="width:100%">
+        <thead><tr><th>${L("類型","Type")}</th><th>${L("追蹤號","Tracking")}</th>
+          <th>${L("帳單列","Row")}</th><th>${L("為什麼被列出","Why flagged")}</th>
+          <th style="text-align:right">${L("金額","Amount")}</th></tr></thead>
+        <tbody>${top.map(r=>`<tr><td>${esc(L(ANOM_KIND[r.kind].zh,ANOM_KIND[r.kind].en))}</td>
+          <td>${esc(r.trk||"—")}</td><td>${esc(String(r.line||"")||"—")}</td>
+          <td>${esc(r.note||"")}</td>
+          <td style="text-align:right">${money(toNum(r.amt))}</td></tr>`).join("")}</tbody>
+      </table></div>${rows.length>10
+        ?`<div class="dsub" style="margin-top:6px">${L("其餘 "+(rows.length-10)+" 筆見下載明細",
+            "the other "+(rows.length-10)+" are in the download")}</div>`:""}
+    </div>`;
+}
+
+function exportAnoms(){
+  if(!ANOMS.length){ setStatus(L("無可匯出之資料","No data to export")); return; }
+  const MONEY="$#,##0.00";
+  const H=v=>({v:v,t:"s",s:{bold:true,fill:"F7F1E4",align:"left",border:true}});
+  const rows=[[H(L("期別","Invoice")),H(L("帳單列","Invoice row")),H(L("追蹤號","Tracking")),
+               H(L("嚴重度","Severity")),H(L("類型","Type")),H(L("代碼","Code")),
+               H(L("金額","Amount")),H(L("為什麼被列出","Why flagged"))]]
+    .concat(ANOMS.map(r=>{
+      const K=ANOM_KIND[r.kind];
+      return [r.inv||"", String(r.line||""), r.trk||"",
+        L(SEV_TAG[K.sev][0],SEV_TAG[K.sev][1]), L(K.zh,K.en), r.code||"",
+        {v:Number(toNum(r.amt).toFixed(2)),t:"n",s:{fmt:MONEY,align:"right",border:true}},
+        r.note||""];
+    }));
+  const fname=baseName(".xlsx").replace("_Repriced","_Anomalies");
+  xlWrite([{name:L("費用異常","Anomalies"), rows:rows,
+    cols:[{w:16},{w:10},{w:20},{w:8},{w:20},{w:10},{w:12},{w:64}],
+    freeze:{r:1,c:0}, filter:"A1:"+xlCol(7)+rows.length}], fname)
+  .then(ok=>toast(ok?L("已匯出 "+ANOMS.length+" 筆費用異常","Exported "+ANOMS.length+" anomalies")
                     :L("已取消存檔","Save cancelled"), ok))
   .catch(e=>toast(L("匯出失敗:","Export failed: ")+((e&&e.message)||e), false));
 }
